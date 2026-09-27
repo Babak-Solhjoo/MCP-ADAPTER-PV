@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import sys
 import time
+import uuid
 
 from .base import BaseAdapter, RunResult, read_text_if_exists, resolve_path
 
@@ -48,7 +49,7 @@ class HFSSAdapter(BaseAdapter):
         """Run an AEDT IronPython script and exit. Scripts get ``mcp_result(obj)`` to return JSON."""
         if not self.is_available():
             return self.unavailable()
-        result_file = self.scripts_dir() / f"result_{int(time.time() * 1000)}.json"
+        result_file = self.scripts_dir() / f"result_{int(time.time() * 1000)}_{uuid.uuid4().hex}.json"
         if is_file:
             path = resolve_path(script)
             if not path.exists():

@@ -6,6 +6,7 @@ Tool-call approval (when enabled) blocks the worker until ``decide`` is called f
 from __future__ import annotations
 
 import asyncio
+import secrets
 import threading
 import time
 from collections.abc import Callable
@@ -55,8 +56,7 @@ class AgentService:
             cfg.on_event = self._on_event
             cfg.stop_requested = self._stop.is_set
             cfg.quiet = True
-            if cfg.approve:
-                cfg.approval_handler = self._approval
+            cfg.approval_handler = self._approval  # asked only when approvals are on or for always-ask tools
             self._thread = threading.Thread(target=self._run, name="agent-run", daemon=True)
             self._thread.start()
 
@@ -65,7 +65,9 @@ class AgentService:
             self.result = asyncio.run(run_task(self.cfg))  # type: ignore[arg-type]
             self.status = "stopped" if self._stop.is_set() else "finished"
         except Exception as exc:  # surfaced to the UI, never crashes the server
-            self.error = f"{type(exc).__name__}: {exc}"
+            from .runner import redact
+
+            self.error = redact(f"{type(exc).__name__}: {exc}")
             self.status = "error"
             self._on_event({"kind": "note", "t": 0, "text": f"Run failed: {self.error}"})
         finally:
@@ -80,22 +82,30 @@ class AgentService:
     def stop(self) -> None:
         self._stop.set()
         if self.pending:
-            self.decide(False)
+            self._decision = False
+            self._decision_event.set()
 
     # ---- approval --------------------------------------------------------------------------------
     async def _approval(self, name: str, tool_input: Any) -> bool:
+        if self._stop.is_set():  # after Stop every further call is declined without asking
+            return False
         self._decision_event.clear()
         self._decision = False
-        self.pending = {"name": name, "input": tool_input, "since": time.time()}
+        self.pending = {"id": secrets.token_hex(8), "name": name, "input": tool_input, "since": time.time()}
         self._on_event({"kind": "approval", "t": 0, "name": name, "input": tool_input})
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, self._decision_event.wait)
         self.pending = None
-        return self._decision
+        return self._decision and not self._stop.is_set()
 
-    def decide(self, approved: bool) -> None:
+    def decide(self, approved: bool, call_id: str) -> bool:
+        """Answer the pending request; *call_id* must match it, so a stale click cannot approve a later call."""
+        pending = self.pending
+        if not pending or not call_id or not secrets.compare_digest(str(call_id), pending["id"]):
+            return False
         self._decision = bool(approved)
         self._decision_event.set()
+        return True
 
     # ---- reporting -----------------------------------------------------------------------------
     def _on_event(self, entry: dict[str, Any]) -> None:

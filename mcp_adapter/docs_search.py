@@ -26,14 +26,16 @@ DOC_DOMAINS: dict[str, list[str]] = {
     "vivado": ["docs.amd.com", "xilinx.com", "amd.com", "adaptivesupport.amd.com"],
     "autocad": ["help.autodesk.com", "autodesk.com", "knowledge.autodesk.com"],
     "hfss": ["ansys.com", "ansyshelp.ansys.com", "aedt.docs.pyansys.com", "innovationspace.ansys.com"],
-    "drawio": ["drawio.com", "diagrams.net", "github.com"],
+    "drawio": ["drawio.com", "diagrams.net"],
+    "feko": ["altair.com", "help.altair.com", "2023.help.altair.com"],
+    "eagle": ["help.autodesk.com", "autodesk.com"],
 }
 
 SOFTWARE_LABEL = {
     "matlab": "MATLAB", "simulink": "Simulink", "mathematica": "Wolfram Mathematica",
     "comsol": "COMSOL Multiphysics", "photoshop": "Adobe Photoshop", "orcad": "OrCAD",
     "altium": "Altium Designer", "proteus": "Proteus", "vivado": "Vivado", "autocad": "AutoCAD",
-    "hfss": "Ansys HFSS", "drawio": "draw.io",
+    "hfss": "Ansys HFSS", "drawio": "draw.io", "feko": "Altair Feko", "eagle": "Autodesk EAGLE",
 }
 
 

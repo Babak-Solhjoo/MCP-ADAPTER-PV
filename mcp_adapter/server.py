@@ -65,9 +65,10 @@ other tool, so every generated script, netlist, log and result is written there 
 arguments are resolved inside it too). Without it, files go to the adapter's default outputs folder."""
 
 WORKSPACE_INSTRUCTIONS = """
-3. workspace_* tools give full access inside the task's working directory ({root}): list/read/write/move/delete
-   files, search text and run shell commands there (workspace_run). Nothing outside that folder is reachable.
-   Save every file you produce inside it and use paths relative to it."""
+3. workspace_* tools work inside the task's working directory ({root}): list/read/write/move/delete files and
+   search text there; their paths cannot leave the folder. workspace_run runs shell commands with that folder as
+   the current directory; it is a full shell, not a sandbox. Save every file you produce inside the folder and
+   use paths relative to it."""
 
 _WS_ROOT = workspace_root() if workspace_enabled() else None
 server = create_server(

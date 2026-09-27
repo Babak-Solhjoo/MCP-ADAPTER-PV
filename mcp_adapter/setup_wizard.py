@@ -16,6 +16,7 @@ import sys
 from pathlib import Path
 
 from .config import ENV_FILE, REPO_ROOT, allow_internet, auth_token, network_mode, tavily_key
+from .fileperm import restrict_to_owner
 from .http_auth import generate_token
 
 KEYS_DOC = {
@@ -38,15 +39,27 @@ Two decisions are stored in .env and can be changed any time:
 """
 
 
+_UNSAFE_CHARS = re.compile("[\x00-\x1f\x7f\x85\u2028\u2029]")
+
+
+def _env_value(value: object) -> str:
+    v = _UNSAFE_CHARS.sub("", str(value))
+    if v[:1] in ("'", '"') or " #" in v or v != v.strip():
+        v = "'" + v.replace("\\", "\\\\").replace("'", "\\'") + "'"
+    return v
+
+
 def write_env_updates(env_path: Path, updates: dict[str, str]) -> Path:
     """Insert or replace KEY=value lines in *env_path*, keeping every other line untouched.
 
-    Line breaks and NUL characters are removed from values so that a value can never add another setting."""
-    updates = {k: re.sub(r"[\r\n\x00]", "", str(v)) for k, v in updates.items()
-               if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k)}
+    Control characters and every Unicode line separator are removed from values, and values that dotenv would
+    parse as quoted or as a comment are quoted, so that a value can never add or hide another setting."""
+    updates = {k: _env_value(v) for k, v in updates.items() if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", k)}
     lines: list[str] = []
     if env_path.exists():
-        lines = env_path.read_text(encoding="utf-8").splitlines()
+        lines = env_path.read_text(encoding="utf-8").split("\n")
+        if lines and lines[-1] == "":
+            lines.pop()
     remaining = dict(updates)
     for i, line in enumerate(lines):
         m = re.match(r"^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=", line)
@@ -60,6 +73,7 @@ def write_env_updates(env_path: Path, updates: dict[str, str]) -> Path:
             lines.append(f"# {KEYS_DOC.get(key, '')}".rstrip())
             lines.append(f"{key}={value}")
     env_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    restrict_to_owner(env_path)  # .env holds API keys: only the current user may read it
     return env_path
 
 
@@ -92,10 +106,10 @@ def run_interactive(env_path: Path) -> dict[str, str]:
     choice = _ask("Who may connect to this server?  1 = this computer only (recommended)  2 = other machines on the network",
                   "1" if network_mode() == "local" else "2")
     updates: dict[str, str] = {}
+    if not auth_token():  # every HTTP transport needs it; stdio ignores it
+        updates["MCP_ADAPTER_AUTH_TOKEN"] = generate_token()
     if choice.strip() == "2":
         updates["MCP_ADAPTER_NETWORK_MODE"] = "network"
-        if not auth_token():
-            updates["MCP_ADAPTER_AUTH_TOKEN"] = generate_token()
         hosts = _ask("Host names/IPs (with port) that clients will use, comma-separated (blank = no allow-list)", "")
         updates["MCP_ADAPTER_ALLOWED_HOSTS"] = hosts
     else:
@@ -155,7 +169,7 @@ def main(argv: list[str] | None = None) -> None:
             "MCP_ADAPTER_ALLOW_INTERNET": "true" if args.allow_internet == "yes" else "false",
             "MCP_ADAPTER_ALLOWED_HOSTS": args.allowed_hosts or "",
         }
-        if updates["MCP_ADAPTER_NETWORK_MODE"] == "network" and not auth_token():
+        if not auth_token():
             updates["MCP_ADAPTER_AUTH_TOKEN"] = generate_token()
         if args.tavily_key:
             updates["TAVILY_API"] = args.tavily_key

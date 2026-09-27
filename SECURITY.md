@@ -14,13 +14,18 @@ MCP-ADAPTER lets an AI agent drive engineering applications that are installed o
 several tools run code in those applications with the rights of the user who started the server (see
 "What an MCP client can do with this server" in the README). The security goals are therefore:
 
-* **Nothing outside the computer can reach the server unless the owner explicitly allows it.** The default
-  `local` mode binds loopback only and checks `Host`/`Origin` headers; `network` mode requires a bearer token
-  (`MCP_ADAPTER_AUTH_TOKEN`) on every HTTP request.
+* **Only the owner can drive the server.** stdio opens no socket. Every HTTP transport requires a bearer token
+  (`MCP_ADAPTER_AUTH_TOKEN`), also in the default `local` mode, which additionally binds loopback only and checks
+  `Host`/`Origin` headers; `network` mode must be chosen explicitly.
 * **No internet access unless enabled** (`MCP_ADAPTER_ALLOW_INTERNET=false` by default removes the web tools).
-* **Secrets stay local**: API keys and tokens live in `.env`, which is never committed and is write-only in the UI.
-* **The workspace UI is private to the local user**: loopback binding, a per-session token on every API call,
-  same-origin checks and no CORS.
+* **Secrets stay local and out of reach of the tools**: API keys and tokens live in `.env` (never committed,
+  readable only by the owner, write-only in the UI). They are kept out of the environment of the MCP server's
+  child processes, tool paths do not expand environment variables, and transcripts redact key values.
+* **The workspace UI is private to the local user**: loopback binding, a per-session key delivered only through
+  the launch link, exact same-origin checks, no CORS, a nonce-based content security policy, and approvals bound
+  to the specific tool call.
+* **Untrusted design files are parsed safely**: bounded decompression and archive reads, no external XML entities,
+  and generated scripts escape names and paths.
 
 Reports about a way around any of these goals are in scope. That a connected, trusted MCP client can run code
 through the documented code-execution tools is expected behaviour, not a vulnerability.

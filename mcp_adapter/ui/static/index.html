@@ -304,8 +304,33 @@
 <div id="banner" class="banner glass"></div>
 <div id="toast"></div>
 
-<script>
-const TOKEN = "__TOKEN__";
+<script nonce="__NONCE__">
+/* The session key arrives only in the launch link's fragment (#t=...), is kept for this tab and removed from the
+   address bar. The server never embeds it in the page, so other local programs cannot read it from there. */
+const TOKEN = (() => {
+  const m = location.hash.match(/(?:^#|&)t=([A-Za-z0-9_-]{20,})/);
+  if (m) {
+    try { sessionStorage.setItem("mcpAdapterKey", m[1]); } catch (e) { /* storage disabled */ }
+    history.replaceState(null, "", location.pathname + "#chat");
+    return m[1];
+  }
+  try { return sessionStorage.getItem("mcpAdapterKey") || ""; } catch (e) { return ""; }
+})();
+function needKey() {
+  if (document.getElementById("keybox")) return;
+  const box = document.createElement("div");
+  box.id = "keybox"; box.className = "banner glass show warnb";
+  box.innerHTML = '<b>This page needs its session key.</b> Open the private link that mcp-adapter-ui printed when it ' +
+    'started (it ends with <code>#t=...</code>), or paste that link here: <input id="keyinput" size="48" ' +
+    'placeholder="http://127.0.0.1:8765/#t=..."> <button id="keyok">Use link</button>';
+  document.body.appendChild(box);
+  document.getElementById("keyok").addEventListener("click", () => {
+    const m = document.getElementById("keyinput").value.match(/t=([A-Za-z0-9_-]{20,})/);
+    if (!m) { alert("That is not a session link (it must contain #t=...)."); return; }
+    try { sessionStorage.setItem("mcpAdapterKey", m[1]); } catch (e) { /* storage disabled */ }
+    location.reload();
+  });
+}
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const truthy = (v) => v === true || /^(1|true|yes|on)$/i.test(String(v || ""));
@@ -317,6 +342,7 @@ async function api(path, body, method) {
   const res = await fetch(path, { method: method || (body ? "POST" : "GET"),
     headers: { "X-MCP-Adapter-Token": TOKEN, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
   const data = await res.json();
+  if (res.status === 403 && /session token/.test(data.error || "")) { needKey(); }
   if (!res.ok || data.ok === false) throw new Error(data.error || ("HTTP " + res.status));
   return data;
 }
@@ -452,7 +478,7 @@ function renderChatList() {
   const ul = $("#chatlist"); ul.innerHTML = "";
   chatList.forEach(c => {
     const li = document.createElement("li"); li.dataset.id = c.id; li.className = current && current.id === c.id ? "on" : "";
-    li.innerHTML = `<span class="dot ${c.running ? "run" : esc(c.status)}"></span><div class="t"><b>${esc(c.title)}</b><small>${esc(c.model)}${c.work_dir ? " &middot; " + esc(baseName(c.work_dir)) : ""}${c.pending_approval ? " &middot; waiting for approval" : ""}</small></div><span class="x" data-del="${c.id}" title="Delete chat">&times;</span>`;
+    li.innerHTML = `<span class="dot ${c.running ? "run" : esc(c.status)}"></span><div class="t"><b>${esc(c.title)}</b><small>${esc(c.model)}${c.work_dir ? " &middot; " + esc(baseName(c.work_dir)) : ""}${c.pending_approval ? " &middot; waiting for approval" : ""}</small></div><span class="x" data-del="${esc(c.id)}" title="Delete chat">&times;</span>`;
     ul.appendChild(li);
   });
   const anyRunning = chatList.some(c => c.running);
@@ -472,14 +498,14 @@ function renderMessages() {
   if (!current.messages.length) box.innerHTML = '<div class="empty">Describe the task below. The agent will use the installed applications' + (current.settings.work_dir ? " and work inside <b>" + esc(current.settings.work_dir) + "</b>" : "") + ".</div>";
   current.messages.forEach(m => {
     if (m.role === "user") addLive("user", esc(m.text));
-    else if (m.role === "assistant") { const rep = m.report ? baseName(m.report) : ""; addLive("assistant", esc(m.text) + `<span class="meta2">${m.turns ? m.turns + " turns, " + m.tool_calls + " tool calls" : ""}${rep ? ` &middot; <a data-report="${esc(rep)}">view steps</a>` : ""}</span>`); }
+    else if (m.role === "assistant") { const rep = m.report ? baseName(m.report) : ""; addLive("assistant", esc(m.text) + `<span class="meta2">${Number(m.turns) ? Number(m.turns) + " turns, " + (Number(m.tool_calls) || 0) + " tool calls" : ""}${rep ? ` &middot; <a data-report="${esc(rep)}">view steps</a>` : ""}</span>`); }
     else addLive("note", esc(m.text));
   });
   document.querySelectorAll('#messages [data-live]').forEach(el => delete el.dataset.live);
   box.scrollTop = box.scrollHeight;
 }
 function renderEvent(e) {
-  const t = `<span style="color:var(--muted);font-size:11px">${e.t}s</span> `;
+  const t = `<span style="color:var(--muted);font-size:11px">${Number(e.t) || 0}s</span> `;
   if (e.kind === "assistant") addLive("assistant", esc(e.text));
   else if (e.kind === "thinking") addLive("thinking", `<details><summary>thinking</summary>${esc(e.text)}</details>`);
   else if (e.kind === "tool_call") addLive("tool", `${t}<span class="k">&#9654; ${esc(e.name)}</span> ${esc(JSON.stringify(e.input)).slice(0, 1500)}`);
@@ -487,7 +513,8 @@ function renderEvent(e) {
   else if (e.kind === "approval") addLive("note", `${t}waiting for your approval: ${esc(e.name)}`);
   else if (e.kind === "note" || e.kind === "status") addLive("note", `${t}${esc(e.text)}`);
 }
-function showApproval(p) { const box = $("#approval"); if (!p) { box.classList.remove("show"); return; } $("#apname").textContent = p.name; $("#apinput").textContent = JSON.stringify(p.input, null, 2); box.classList.add("show"); }
+let pendingCallId = "";
+function showApproval(p) { const box = $("#approval"); pendingCallId = p ? String(p.id || "") : ""; if (!p) { box.classList.remove("show"); return; } $("#apname").textContent = p.name; $("#apinput").textContent = JSON.stringify(p.input, null, 2); box.classList.add("show"); }
 function renderComposer() {
   const has = !!current; const running = has && current.running;
   ["#task", "#chattitle"].forEach(s => $(s).disabled = !has || running);
@@ -544,8 +571,8 @@ $("#send").addEventListener("click", async () => {
   } catch (e) { toast("Could not start: " + e.message, "bad"); const r = await api(`/api/chats/${current.id}`); current = r.chat; renderMessages(); renderComposer(); }
 });
 $("#stop").addEventListener("click", async () => { if (current) { try { await api(`/api/chats/${current.id}/stop`, {}); toast("Stop requested - finishing the current step"); } catch (e) { toast(e.message, "bad"); } } });
-$("#apyes").addEventListener("click", async () => { try { await api(`/api/chats/${current.id}/decide`, { approve: true }); showApproval(null); } catch (e) { toast(e.message, "bad"); } });
-$("#apno").addEventListener("click", async () => { try { await api(`/api/chats/${current.id}/decide`, { approve: false }); showApproval(null); } catch (e) { toast(e.message, "bad"); } });
+$("#apyes").addEventListener("click", async () => { try { await api(`/api/chats/${current.id}/decide`, { approve: true, id: pendingCallId }); showApproval(null); } catch (e) { toast(e.message, "bad"); } });
+$("#apno").addEventListener("click", async () => { try { await api(`/api/chats/${current.id}/decide`, { approve: false, id: pendingCallId }); showApproval(null); } catch (e) { toast(e.message, "bad"); } });
 $("#task").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#send").click(); });
 $("#chattitle").addEventListener("change", async () => { if (current) { try { const r = await api(`/api/chats/${current.id}/rename`, { title: $("#chattitle").value }); current = r.chat; chatList = (await api("/api/chats")).chats; renderChatList(); } catch (e) { toast(e.message, "bad"); } } });
 $("#deletechat").addEventListener("click", async () => { if (current && confirm("Delete this chat and its history?")) { try { const r = await api(`/api/chats/${current.id}/delete`, {}); chatList = r.chats; current = null; stopPolling(); renderChatList(); renderMessages(); renderComposer(); if (chatList.length) await openChat(chatList[0].id); } catch (e) { toast(e.message, "bad"); } } });

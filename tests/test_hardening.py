@@ -47,14 +47,14 @@ def test_middleware_requires_the_bearer_token():
     assert len(generate_token()) >= MIN_TOKEN_LENGTH and generate_token() != generate_token()
 
 
-def test_network_mode_refuses_to_start_without_a_token():
-    with pytest.raises(SecurityError, match="requires MCP_ADAPTER_AUTH_TOKEN"):
-        SecurityPolicy(network_mode="network").check_http_start()
-    with pytest.raises(SecurityError, match="too short"):
-        SecurityPolicy(network_mode="network", auth_token="abc").check_http_start()
-    SecurityPolicy(network_mode="network", auth_token=TOKEN).check_http_start()
-    SecurityPolicy(network_mode="local").check_http_start()
-    d = SecurityPolicy(network_mode="network").describe()
+def test_every_http_transport_refuses_to_start_without_a_token():
+    for mode in ("network", "local"):  # local too: other accounts on the same PC share 127.0.0.1
+        with pytest.raises(SecurityError, match="require MCP_ADAPTER_AUTH_TOKEN"):
+            SecurityPolicy(network_mode=mode).check_http_start()
+        with pytest.raises(SecurityError, match="too short"):
+            SecurityPolicy(network_mode=mode, auth_token="abc").check_http_start()
+        SecurityPolicy(network_mode=mode, auth_token=TOKEN).check_http_start()
+    d = SecurityPolicy(network_mode="local").describe()
     assert d["http_authentication"].startswith("MISSING")
     assert "required" in SecurityPolicy(network_mode="local", auth_token=TOKEN).describe()["http_authentication"]
     assert TOKEN not in repr(SecurityPolicy(auth_token=TOKEN)), "the token never shows up in reprs or logs"
@@ -104,3 +104,26 @@ def test_http_app_rejects_requests_without_token():
         assert client.post("/mcp", json={}).status_code == 401
         ok = client.post("/mcp", json={}, headers={"Authorization": f"Bearer {TOKEN}"})
         assert ok.status_code != 401
+
+
+def test_http_refused_without_sdk_host_protection(monkeypatch):
+    from mcp_adapter import security
+
+    monkeypatch.setattr(security, "TransportSecuritySettings", None)
+    with pytest.raises(SecurityError, match="DNS-rebinding"):
+        SecurityPolicy(network_mode="local", auth_token=TOKEN).check_http_start()
+
+
+def test_output_folder_cannot_be_the_repository_and_workspace_not_a_root(monkeypatch, tmp_path):
+    from mcp_adapter import config, workspace
+    from mcp_adapter import output_folder as of
+
+    monkeypatch.setattr(of, "protected_locations", lambda: [])
+    monkeypatch.delenv("MCP_ADAPTER_WORK_DIR", raising=False)
+    with pytest.raises(of.OutputFolderError, match="adapter's own folder"):
+        of.check_output_folder(str(config.REPO_ROOT))
+    monkeypatch.setenv("MCP_ADAPTER_WORK_DIR_ACCESS", "true")
+    monkeypatch.setenv("MCP_ADAPTER_WORK_DIR", str(tmp_path))
+    assert workspace.workspace_enabled()
+    monkeypatch.setenv("MCP_ADAPTER_WORK_DIR", tmp_path.anchor)
+    assert not workspace.workspace_enabled(), "a drive root never gets full access"

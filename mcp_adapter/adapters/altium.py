@@ -18,6 +18,11 @@ from .base import BaseAdapter, RunResult, resolve_path
 DEFAULT_SWITCHES = "-RScriptFile:{script} -RProcName:{proc}"
 
 
+def _pas(value: object) -> str:
+    """Text for a DelphiScript '...' literal: single quotes are doubled, line breaks removed."""
+    return str(value).replace("'", "''").replace("\r", " ").replace("\n", " ")
+
+
 class AltiumAdapter(BaseAdapter):
     id = "altium"
     name = "Altium Designer"
@@ -85,7 +90,7 @@ var
 begin
     Workspace := GetWorkspace;
     if Workspace = nil then exit;
-    Project := Workspace.DM_OpenProject('{str(resolve_path(project_path))}', True);
+    Project := Workspace.DM_OpenProject('{_pas(resolve_path(project_path))}', True);
     if Project = nil then exit;
     Lines := TStringList.Create;
     Lines.Add('Designator,Comment,Footprint,Document');
@@ -108,7 +113,7 @@ begin
             SchDoc.SchIterator_Destroy(Iterator);
         end;
     end;
-    Lines.SaveToFile('{str(resolve_path(output_csv))}');
+    Lines.SaveToFile('{_pas(resolve_path(output_csv))}');
     Lines.Free;
 end;
 """
@@ -150,7 +155,7 @@ begin
     Lines.Add('tracks=' + IntToStr(Tracks));
     Lines.Add('vias=' + IntToStr(Vias));
     Lines.Add('pads=' + IntToStr(Pads));
-    Lines.SaveToFile('{str(resolve_path(output_txt))}');
+    Lines.SaveToFile('{_pas(resolve_path(output_txt))}');
     Lines.Free;
 end;
 """

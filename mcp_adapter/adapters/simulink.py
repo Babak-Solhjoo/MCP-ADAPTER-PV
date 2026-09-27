@@ -175,9 +175,15 @@ info.version = get_param(mdl, 'Version');
         code = [f"cd({matlab_string(str(target_dir))});", f"mdl = {matlab_string(model_name)};",
                 "if bdIsLoaded(mdl), close_system(mdl, 0); end", "new_system(mdl); open_system(mdl);"]
         for b in blocks:
-            dest = f"[mdl '/{b['name']}']"
+            dest = f"[mdl {matlab_string('/' + str(b['name']))}]"
             pos = b.get("position")
-            extra = f", 'Position', {pos}" if pos else ""
+            extra = ""
+            if pos:
+                if not (isinstance(pos, (list, tuple)) and len(pos) == 4
+                        and all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in pos)):
+                    return RunResult(ok=False, software=self.id, command="",
+                                     error=f"block {b['name']!r}: position must be four numbers [left top right bottom]")
+                extra = ", 'Position', [" + " ".join(repr(float(v)) for v in pos) + "]"
             code.append(f"add_block({matlab_string(b['library'])}, {dest}{extra});")
             for k, v in (b.get("parameters") or {}).items():
                 code.append(f"set_param({dest}, {matlab_string(k)}, {matlab_string(str(v))});")

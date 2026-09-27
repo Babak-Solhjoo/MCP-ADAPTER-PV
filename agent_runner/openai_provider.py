@@ -7,6 +7,7 @@ Works with any OpenAI-compatible endpoint through ``OPENAI_BASE_URL`` / ``RunCon
 from __future__ import annotations
 
 import json
+import os
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover
@@ -48,13 +49,36 @@ def mcp_result_to_text(result: Any) -> tuple[str, bool]:
     return "\n".join(parts), is_error
 
 
+OFFICIAL_OPENAI_HOST = "api.openai.com"
+
+
+def client_kwargs(base_url: str | None) -> dict[str, Any]:
+    """Client options for *base_url*. The OpenAI key is only ever sent to api.openai.com; any other
+    OpenAI-compatible endpoint gets OPENAI_COMPAT_API_KEY (or a dummy key) and must use HTTPS unless it runs on
+    this computer."""
+    from urllib.parse import urlparse
+
+    from mcp_adapter.security import is_loopback_host
+
+    kwargs: dict[str, Any] = {}
+    if not base_url:
+        return kwargs
+    u = urlparse(base_url)
+    host = (u.hostname or "").lower()
+    if u.scheme not in ("https", "http") or not host:
+        raise ValueError(f"invalid OpenAI-compatible base URL: {base_url!r}")
+    if u.scheme == "http" and not is_loopback_host(host):
+        raise ValueError("plain http:// endpoints are only allowed on this computer (localhost); use https://")
+    kwargs["base_url"] = base_url
+    if host != OFFICIAL_OPENAI_HOST:
+        kwargs["api_key"] = os.environ.get("OPENAI_COMPAT_API_KEY") or "not-needed"
+    return kwargs
+
+
 def make_client(cfg: RunConfig):
     from openai import AsyncOpenAI
 
-    kwargs: dict[str, Any] = {}
-    if cfg.base_url:
-        kwargs["base_url"] = cfg.base_url
-    return AsyncOpenAI(**kwargs)  # the key comes from OPENAI_API_KEY
+    return AsyncOpenAI(**client_kwargs(cfg.base_url))  # official endpoint: the key comes from OPENAI_API_KEY
 
 
 def _usage_add(result: RunResult, usage: Any) -> None:
@@ -72,6 +96,7 @@ async def run_openai_loop(cfg: RunConfig, session: Any, tools: list[Any], transc
 
     client = client or make_client(cfg)
     oa_tools = mcp_tools_to_openai(tools)
+    offered = {t.name for t in tools}  # a model must not call tools that were not given to it (--only)
     messages: list[dict[str, Any]] = [{"role": "system", "content": build_system_prompt(cfg)}]
     messages += conversation_messages(cfg)
     for _ in range(cfg.max_turns):
@@ -113,7 +138,9 @@ async def run_openai_loop(cfg: RunConfig, session: Any, tools: list[Any], transc
                 args = {}
             result.tool_calls += 1
             transcript.add("tool_call", name=name, input=args)
-            if approval is not None and not await approval(name, args):
+            if name not in offered:
+                out, is_err = json.dumps({"ok": False, "error": f"Tool {name!r} is not available in this run."}), True
+            elif approval is not None and not await approval(name, args):
                 out, is_err = json.dumps({"ok": False, "error": "The user declined to run this tool call."}), True
             else:
                 try:

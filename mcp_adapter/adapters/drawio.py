@@ -151,11 +151,19 @@ def build_diagram_xml(nodes: list[dict[str, Any]], edges: list[dict[str, Any]] |
     )
 
 
-def decode_diagram(data: str) -> str:
-    """Decode the compressed <diagram> payload (base64 + raw deflate + URL encoding) to XML."""
+MAX_INFLATED_BYTES = 50 * 1024 * 1024  # a real diagram is far smaller; guards against decompression bombs
+
+
+def decode_diagram(data: str, max_bytes: int = MAX_INFLATED_BYTES) -> str:
+    """Decode the compressed <diagram> payload (base64 + raw deflate + URL encoding) to XML.
+
+    Inflation stops at *max_bytes*: a few kilobytes of crafted deflate data could otherwise expand to gigabytes."""
     raw = base64.b64decode(data.strip())
-    inflated = zlib.decompress(raw, -15).decode("utf-8")
-    return urllib.parse.unquote(inflated)
+    d = zlib.decompressobj(-15)
+    inflated = d.decompress(raw, max_bytes + 1)
+    if len(inflated) > max_bytes or d.unconsumed_tail:
+        raise ValueError(f"diagram data expands beyond {max_bytes // (1024 * 1024)} MB; refusing to decode it")
+    return urllib.parse.unquote(inflated.decode("utf-8"))
 
 
 def encode_diagram(xml_text: str) -> str:

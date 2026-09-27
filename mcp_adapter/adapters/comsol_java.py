@@ -18,6 +18,8 @@ _HELPERS = r"""
       else if (ch == '\\') b.append("\\\\");
       else if (ch == '\n') b.append("\\n");
       else if (ch == '\t') b.append("\\t");
+      else if (ch == '<') b.append("\\u003c");
+      else if (ch == '>') b.append("\\u003e");
       else if (ch < 0x20) b.append(' ');
       else b.append(ch);
     }

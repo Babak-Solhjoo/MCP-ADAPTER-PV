@@ -91,14 +91,19 @@ class SecurityPolicy:
         return host
 
     def check_http_start(self) -> None:
-        """Refuse an HTTP/SSE transport in network mode without a bearer token (or with a weak one)."""
+        """Refuse an HTTP/SSE transport without a bearer token (also in local mode: other accounts on the same
+        computer share 127.0.0.1) or without the SDK's Host/Origin protection."""
         from .http_auth import MIN_TOKEN_LENGTH
 
-        if not self.is_local and not self.auth_token:
+        if TransportSecuritySettings is None:
+            raise SecurityError("the installed mcp package has no Host/Origin (DNS-rebinding) protection; "
+                                "upgrade it (pip install -U 'mcp>=1.23') before using an HTTP transport")
+        if not self.auth_token:
             raise SecurityError(
-                "MCP_ADAPTER_NETWORK_MODE=network requires MCP_ADAPTER_AUTH_TOKEN: without it anyone who can reach "
-                "the port could run the automation tools. Run `mcp-adapter-setup` (it generates one) or set a random "
-                "value of at least 24 characters in .env; clients then send 'Authorization: Bearer <token>'.")
+                "HTTP transports require MCP_ADAPTER_AUTH_TOKEN: without it any program or other user on this "
+                "computer (and, in network mode, anyone who can reach the port) could run the automation tools. Run "
+                "`mcp-adapter-setup` (it generates one) or set a random value of at least 24 characters in .env; "
+                "clients then send 'Authorization: Bearer <token>'. stdio needs no token.")
         if self.auth_token and len(self.auth_token) < MIN_TOKEN_LENGTH:
             raise SecurityError(f"MCP_ADAPTER_AUTH_TOKEN is too short (at least {MIN_TOKEN_LENGTH} characters).")
 
@@ -128,8 +133,8 @@ class SecurityPolicy:
                                  else "any interface given with --host (no Host allow-list configured)"),
             "dns_rebinding_protection": self.is_local or bool(self.allowed_hosts),
             "http_authentication": ("bearer token required (MCP_ADAPTER_AUTH_TOKEN is set)" if self.auth_token else
-                                    "none - loopback only" if self.is_local else
-                                    "MISSING: HTTP transports refuse to start until MCP_ADAPTER_AUTH_TOKEN is set"),
+                                    "MISSING: HTTP transports refuse to start until MCP_ADAPTER_AUTH_TOKEN is set "
+                                    "(stdio needs none)"),
             "stdio_transport_opens_port": False,
             "allow_internet": self.allow_internet,
             "internet_tools": {

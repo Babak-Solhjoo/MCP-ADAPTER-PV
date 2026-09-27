@@ -19,6 +19,7 @@ from typing import Any
 from ..config import (
     app_enabled,
     app_subfolders,
+    child_env,
     default_output_dir,
     default_timeout,
     find_executable,
@@ -159,9 +160,7 @@ class BaseAdapter:
     ) -> RunResult:
         """Run *args* headless and capture the output. Never raises for process errors."""
         cmd = quote_command(args)
-        merged_env = dict(os.environ)
-        if env:
-            merged_env.update(env)
+        merged_env = child_env(env)  # no API keys or tokens for the applications and their plug-ins
         start = time.time()
         try:
             proc = subprocess.run(
@@ -215,7 +214,7 @@ class BaseAdapter:
             flags = 0
             if os.name == "nt":
                 flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP
-            proc = subprocess.Popen(args, cwd=cwd, creationflags=flags, close_fds=True,
+            proc = subprocess.Popen(args, cwd=cwd, creationflags=flags, close_fds=True, env=child_env(),
                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         except (OSError, FileNotFoundError) as exc:
             return RunResult(ok=False, software=self.id, command=cmd, error=str(exc))
@@ -233,10 +232,30 @@ def read_text_if_exists(path: str | os.PathLike, limit: int = MAX_CAPTURE) -> st
         return ""
 
 
+def _is_remote_drive(p: Path) -> bool:
+    if os.name != "nt" or len(p.drive) != 2:
+        return False
+    try:
+        import ctypes
+
+        return ctypes.windll.kernel32.GetDriveTypeW(p.drive + "\\") == 4  # DRIVE_REMOTE
+    except Exception:  # noqa: BLE001 - detection is best effort
+        return False
+
+
 def resolve_path(path: str | os.PathLike) -> Path:
-    """Expand ~ and environment variables and make the path absolute. Relative paths are resolved inside the
-    current output folder (the task folder chosen with set_output_folder), not the server's start-up directory."""
-    p = Path(os.path.expandvars(os.path.expanduser(str(path))))
+    """Expand ~ and make the path absolute. Relative paths are resolved inside the current output folder (the task
+    folder chosen with set_output_folder), not the server's start-up directory.
+
+    Environment variables are NOT expanded (a path like %SOME_KEY% would otherwise echo a variable's value back in
+    results), and network paths (UNC, device paths, mapped network drives) are refused: opening one would make
+    Windows connect to another machine and possibly send the user's credentials."""
+    raw = os.path.expanduser(str(path))
+    if raw.startswith(("\\\\", "//")):
+        raise ValueError(f"network and device paths are not allowed: {path}")
+    p = Path(raw)
+    if _is_remote_drive(p):
+        raise ValueError(f"paths on network drives are not allowed: {path}")
     if not p.is_absolute():
         p = output_dir() / p
     return p.resolve()

@@ -25,7 +25,7 @@ async def fake_run_task(cfg):
     tr.add("assistant", text="Working on: " + cfg.task)
     tr.add("tool_call", name="time_now", input={"timezone": "UTC"})
     approved = True
-    if cfg.approval_handler:
+    if cfg.approval_handler and cfg.approve:  # like the real runner: ask only when approvals are on
         approved = await cfg.approval_handler("time_now", {"timezone": "UTC"})
     tr.add("tool_result", name="time_now", content="approved" if approved else "declined", is_error=not approved)
     for _ in range(40):
@@ -71,14 +71,7 @@ def _request(httpd, method, path, token=None, body=None):
 
 
 def _token(httpd):
-    port = httpd.server_address[1]
-    conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
-    conn.request("GET", "/", headers={"Host": f"127.0.0.1:{port}"})
-    page = conn.getresponse().read().decode("utf-8")
-    conn.close()
-    marker = 'const TOKEN = "'
-    start = page.index(marker) + len(marker)
-    return page[start: page.index('"', start)]
+    return httpd.session_token
 
 
 def _wait(pred, timeout=8.0):
@@ -107,6 +100,10 @@ def test_chat_lifecycle_with_folder_access_and_history(ui_server):
     status, ev = _request(httpd, "GET", f"/api/chats/{cid}/events?since=0", token)
     assert ev["pending"]["name"] == "time_now" and any(e["kind"] == "approval" for e in ev["events"])
     status, _ = _request(httpd, "POST", f"/api/chats/{cid}/decide", token, {"approve": True})
+    assert status != 200, "an approval without the call id is refused"
+    status, _ = _request(httpd, "POST", f"/api/chats/{cid}/decide", token, {"approve": True, "id": "0" * 16})
+    assert status != 200, "a stale or wrong call id is refused"
+    status, _ = _request(httpd, "POST", f"/api/chats/{cid}/decide", token, {"approve": True, "id": ev["pending"]["id"]})
     assert status == 200
     assert _wait(lambda: not chat.service.running)
     status, data = _request(httpd, "GET", f"/api/chats/{cid}", token)

@@ -9,21 +9,60 @@ from pathlib import Path
 from typing import Any
 
 try:
-    from dotenv import load_dotenv
+    from dotenv import dotenv_values
 except ImportError:  # pragma: no cover - python-dotenv is a declared dependency
-    def load_dotenv(*_a, **_k):  # type: ignore[misc]
-        return False
+    def dotenv_values(*_a, **_k):  # type: ignore[misc]
+        return {}
 
 PACKAGE_DIR = Path(__file__).resolve().parent
 REPO_ROOT = PACKAGE_DIR.parent
 CATALOG_DIR = PACKAGE_DIR / "catalogs"
 ENV_FILE = REPO_ROOT / ".env"
 
-# Load .env from the repository root first, then from the current working directory.
-load_dotenv(ENV_FILE)
-load_dotenv()
-
 IS_WINDOWS = sys.platform.startswith("win")
+
+# Secrets are read from .env into this private store and never put into os.environ, so child processes (MATLAB,
+# shells, ...) and anything that expands environment variables cannot see them.
+SECRET_KEYS = frozenset({"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN", "OPENAI_API_KEY", "OPENAI_COMPAT_API_KEY",
+                         "TAVILY_API", "TAVILY_API_KEY", "MCP_ADAPTER_AUTH_TOKEN"})
+# The workspace switches are per task: they must come from the process that starts the server, never from .env.
+PROCESS_ONLY_KEYS = frozenset({"MCP_ADAPTER_WORK_DIR", "MCP_ADAPTER_WORK_DIR_ACCESS"})
+_FILE_SECRETS: dict[str, str] = {}
+
+
+def load_env_file(path: Path = ENV_FILE) -> None:
+    """Load exactly one .env (no search in parent folders, no ${VAR} interpolation). Existing environment
+    variables win; secrets go to the private store; per-task workspace keys are ignored."""
+    try:
+        values = dotenv_values(path, interpolate=False) if Path(path).is_file() else {}
+    except (OSError, UnicodeDecodeError):
+        return
+    for key, value in values.items():
+        if value is None:
+            continue
+        if key in SECRET_KEYS:
+            _FILE_SECRETS.setdefault(key, value)
+        elif key not in PROCESS_ONLY_KEYS:
+            os.environ.setdefault(key, value)
+
+
+load_env_file(ENV_FILE)
+if IS_WINDOWS:  # never run a program that merely sits in the current folder (e.g. a planted matlab.bat)
+    os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"
+
+
+def secret(name: str) -> str | None:
+    """A secret from the real environment or the private .env store (non-empty, stripped)."""
+    value = os.environ.get(name) or _FILE_SECRETS.get(name) or ""
+    return value.strip() or None
+
+
+def child_env(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """Environment for child processes: the current one without secrets and without the per-task workspace keys
+    (callers that start a server pass those explicitly)."""
+    env = {k: v for k, v in os.environ.items() if k.upper() not in SECRET_KEYS and k.upper() not in PROCESS_ONLY_KEYS}
+    env.update(extra or {})
+    return env
 IS_MAC = sys.platform == "darwin"
 
 TRUE_VALUES = ("1", "true", "yes", "on")
@@ -80,12 +119,12 @@ def default_timeout() -> int:
 
 
 def auth_token() -> str | None:
-    """Bearer token for the HTTP transports (MCP_ADAPTER_AUTH_TOKEN): required in network mode, optional locally."""
-    return env("MCP_ADAPTER_AUTH_TOKEN")
+    """Bearer token for the HTTP transports (MCP_ADAPTER_AUTH_TOKEN), required for every HTTP transport."""
+    return secret("MCP_ADAPTER_AUTH_TOKEN")
 
 
 def tavily_key() -> str | None:
-    return env("TAVILY_API") or env("TAVILY_API_KEY")
+    return secret("TAVILY_API") or secret("TAVILY_API_KEY")
 
 
 # Output folder chosen at run time with the set_output_folder tool (process-wide; None = MCP_ADAPTER_OUTPUT_DIR).
@@ -150,20 +189,21 @@ def find_executable(env_var: str, names: list[str], patterns: list[str] | None =
             return str(Path(explicit))
         return explicit  # trust the user even if we cannot stat it (network drives, wrappers)
 
+    cwd = os.path.normcase(os.path.abspath(os.getcwd()))
     for name in names:
         found = shutil.which(name)
-        if found:
+        # Only absolute hits from PATH folders; never a program that sits in the current directory.
+        if found and os.path.isabs(found) and os.path.normcase(os.path.dirname(os.path.abspath(found))) != cwd:
             return found
 
-    matches: list[str] = []
-    for pattern in patterns or []:
-        if os.path.isabs(pattern):
-            matches.extend(glob.glob(pattern))
-        else:
-            for base in _program_dirs():
-                matches.extend(glob.glob(os.path.join(base, pattern)))
-    if matches:
-        # Sort so that higher version numbers (lexicographically) come first.
-        matches.sort(reverse=True)
-        return matches[0]
+    # Absolute patterns first, then the program folders in order of trust (Program Files before drive roots, whose
+    # sub-folders other local users may be able to create); inside a folder the highest version wins.
+    absolute = sorted((m for p in patterns or [] if os.path.isabs(p) for m in glob.glob(p)), reverse=True)
+    if absolute:
+        return absolute[0]
+    for base in _program_dirs():
+        found_here = sorted((m for p in patterns or [] if not os.path.isabs(p)
+                             for m in glob.glob(os.path.join(base, p))), reverse=True)
+        if found_here:
+            return found_here[0]
     return None

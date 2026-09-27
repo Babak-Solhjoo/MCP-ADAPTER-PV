@@ -394,8 +394,17 @@ def lua_template(kind: str, model: str = "D:/feko/model.cfx", output: str = "D:/
                  frequency_hz: float = 300e6) -> str:
     if kind not in LUA_TEMPLATES:
         raise KeyError(f"Unknown template {kind!r}; choose one of {', '.join(LUA_TEMPLATES)}")
-    return (LUA_TEMPLATES[kind].replace("%MODEL%", model.replace("\\", "/"))
-            .replace("%OUTPUT%", output.replace("\\", "/")).replace("%FREQ%", repr(float(frequency_hz))))
+    return (LUA_TEMPLATES[kind].replace("[[%MODEL%]]", lua_long_string(model.replace("\\", "/")))
+            .replace("[[%OUTPUT%]]", lua_long_string(output.replace("\\", "/")))
+            .replace("%FREQ%", repr(float(frequency_hz))))
+
+
+def lua_long_string(text: str) -> str:
+    """A Lua long-bracket literal whose level is chosen so that *text* cannot close it (e.g. a path with ']]')."""
+    level = 0
+    while "]" + "=" * level + "]" in text:
+        level += 1
+    return "[" + "=" * level + "[" + text + "]" + "=" * level + "]"
 
 
 feko_adapter = FekoAdapter()

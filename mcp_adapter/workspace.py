@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .config import env, env_bool
+from .config import child_env, env, env_bool
 
 MAX_READ_CHARS = 200_000
 MAX_LIST_ENTRIES = 2000
@@ -36,7 +36,11 @@ def workspace_root() -> Path | None:
 
 
 def workspace_enabled() -> bool:
-    return workspace_root() is not None and env_bool("MCP_ADAPTER_WORK_DIR_ACCESS", False)
+    """Full folder access only for a real task folder: never a drive root or the home folder itself."""
+    root = workspace_root()
+    if root is None or not env_bool("MCP_ADAPTER_WORK_DIR_ACCESS", False):
+        return False
+    return root.parent != root and os.path.normcase(str(root)) != os.path.normcase(str(Path.home().resolve()))
 
 
 def resolve_inside(root: Path, rel: str | os.PathLike = ".") -> Path:
@@ -50,6 +54,22 @@ def resolve_inside(root: Path, rel: str | os.PathLike = ".") -> Path:
     return p
 
 
+def _is_link(p: Path) -> bool:
+    """Symlinks and Windows junctions: never followed while listing or searching (they may point outside)."""
+    try:
+        return p.is_symlink() or (hasattr(os.path, "isjunction") and os.path.isjunction(p))
+    except OSError:
+        return True
+
+
+def _walk(base: Path):
+    """os.walk that does not descend into links/junctions and skips linked files."""
+    for dirpath, dirnames, filenames in os.walk(base):
+        here = Path(dirpath)
+        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS and not _is_link(here / d))
+        yield here, dirnames, sorted(f for f in filenames if not _is_link(here / f))
+
+
 def _entry(root: Path, p: Path) -> dict[str, Any]:
     st = p.stat()
     return {"path": str(p.relative_to(root)).replace("\\", "/"), "type": "dir" if p.is_dir() else "file",
@@ -60,8 +80,7 @@ def _entry(root: Path, p: Path) -> dict[str, Any]:
 def ws_info(root: Path) -> dict[str, Any]:
     root.mkdir(parents=True, exist_ok=True)
     files = dirs = 0
-    for _dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+    for _dirpath, dirnames, filenames in _walk(root):
         dirs += len(dirnames)
         files += len(filenames)
         if files + dirs > 50_000:
@@ -81,10 +100,9 @@ def ws_list(root: Path, path: str = ".", recursive: bool = False, pattern: str |
     if base.is_file():
         return {"path": path, "entries": [_entry(root, base)], "truncated": False}
     if recursive:
-        for dirpath, dirnames, filenames in os.walk(base):
-            dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
+        for dirpath, dirnames, filenames in _walk(base):
             for name in sorted(dirnames + filenames):
-                p = Path(dirpath) / name
+                p = dirpath / name
                 if pattern and not fnmatch.fnmatch(name, pattern):
                     continue
                 entries.append(_entry(root, p))
@@ -95,7 +113,7 @@ def ws_list(root: Path, path: str = ".", recursive: bool = False, pattern: str |
                 break
     else:
         for p in sorted(base.iterdir(), key=lambda x: (x.is_file(), x.name.lower())):
-            if pattern and not fnmatch.fnmatch(p.name, pattern):
+            if _is_link(p) or (pattern and not fnmatch.fnmatch(p.name, pattern)):
                 continue
             entries.append(_entry(root, p))
             if len(entries) >= limit:
@@ -108,7 +126,9 @@ def ws_read(root: Path, path: str, max_chars: int = MAX_READ_CHARS, offset: int 
     p = resolve_inside(root, path)
     if not p.is_file():
         raise WorkspaceError(f"{path!r} is not a file")
-    data = p.read_bytes()
+    size = p.stat().st_size
+    with p.open("rb") as fh:  # read only what can be returned, not the whole file
+        data = fh.read(4 * (max(0, offset) + max(1, min(max_chars, MAX_READ_CHARS))) + 4)
     try:
         text = data.decode("utf-8")
         binary = False
@@ -117,7 +137,7 @@ def ws_read(root: Path, path: str, max_chars: int = MAX_READ_CHARS, offset: int 
         binary = b"\x00" in data[:4096]
     limit = max(1, min(max_chars, MAX_READ_CHARS))
     chunk = text[offset: offset + limit]
-    return {"path": path, "size": len(data), "binary": binary, "offset": offset, "content": chunk,
+    return {"path": path, "size": size, "binary": binary, "offset": offset, "content": chunk,
             "truncated": offset + limit < len(text)}
 
 
@@ -175,12 +195,11 @@ def ws_search(root: Path, text: str, glob: str = "*", path: str = ".", max_resul
     needle = text.lower() if case_insensitive else text
     hits: list[dict[str, Any]] = []
     scanned = 0
-    for dirpath, dirnames, filenames in os.walk(base):
-        dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS]
+    for dirpath, _dirnames, filenames in _walk(base):
         for name in filenames:
             if not fnmatch.fnmatch(name, glob):
                 continue
-            p = Path(dirpath) / name
+            p = dirpath / name
             try:
                 if p.stat().st_size > MAX_SEARCH_FILE_BYTES:
                     continue
@@ -203,7 +222,7 @@ def ws_search(root: Path, text: str, glob: str = "*", path: str = ".", max_resul
 def ws_run(root: Path, command: str, timeout: int = 300) -> dict[str, Any]:
     start = time.time()
     try:
-        proc = subprocess.run(command, shell=True, cwd=str(root), capture_output=True, text=True,
+        proc = subprocess.run(command, shell=True, cwd=str(root), capture_output=True, text=True, env=child_env(),
                               encoding="utf-8", errors="replace", timeout=max(1, min(timeout, 3600)))
     except subprocess.TimeoutExpired as exc:
         return {"command": command, "cwd": str(root), "timed_out": True, "returncode": None,

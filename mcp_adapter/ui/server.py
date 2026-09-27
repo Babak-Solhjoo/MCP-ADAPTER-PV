@@ -186,12 +186,12 @@ class ConfigStore:
     def values(self) -> dict[str, str]:
         if not self.env_path.exists():
             return {}
-        return {k: (v or "") for k, v in dotenv_values(self.env_path).items()}
+        return {k: (v or "") for k, v in dotenv_values(self.env_path, interpolate=False).items()}
 
     def reload_env(self) -> None:
         """Push the current .env into this process' environment (so a freshly saved API key is used)."""
         if self.env_path.exists():
-            load_dotenv(self.env_path, override=True)
+            load_dotenv(self.env_path, override=True, interpolate=False)
 
     # ---- state -----------------------------------------------------------------------------------
     def state(self) -> dict[str, Any]:
@@ -334,7 +334,7 @@ class ConfigStore:
             "provider": prov, "model": model, "base_url": vals.get("OPENAI_BASE_URL", ""),
             "effort": vals.get("AGENT_EFFORT", ""), "max_turns": vals.get("AGENT_MAX_TURNS") or DEFAULT_MAX_TURNS,
             "approve": vals.get("AGENT_APPROVE_TOOLS", "false"), "show_thinking": vals.get("AGENT_SHOW_THINKING", "false"),
-            "work_dir": vals.get("MCP_ADAPTER_WORK_DIR", ""), "work_dir_access": vals.get("AGENT_WORK_DIR_ACCESS", "false"),
+            "work_dir": vals.get("AGENT_WORK_DIR", ""), "work_dir_access": vals.get("AGENT_WORK_DIR_ACCESS", "false"),
         })
 
     def remember_chat_defaults(self, settings: ChatSettings) -> None:
@@ -344,7 +344,7 @@ class ConfigStore:
             ("AGENT_OPENAI_MODEL" if settings.provider == "openai" else "AGENT_MODEL"): settings.model,
             "AGENT_EFFORT": settings.effort, "AGENT_MAX_TURNS": str(settings.max_turns),
             "AGENT_APPROVE_TOOLS": _bool_str(settings.approve), "AGENT_SHOW_THINKING": _bool_str(settings.show_thinking),
-            "MCP_ADAPTER_WORK_DIR": settings.work_dir, "AGENT_WORK_DIR_ACCESS": _bool_str(settings.work_dir_access),
+            "AGENT_WORK_DIR": settings.work_dir, "AGENT_WORK_DIR_ACCESS": _bool_str(settings.work_dir_access),
         }
         if settings.base_url:
             updates["OPENAI_BASE_URL"] = settings.base_url
@@ -360,11 +360,21 @@ class ConfigStore:
     def mcp_env(self) -> dict[str, str]:
         """Environment for the HTTP MCP endpoint used by external apps (default folder + access switch)."""
         vals = self.values()
-        env: dict[str, str] = {}
-        if vals.get("MCP_ADAPTER_WORK_DIR"):
-            env["MCP_ADAPTER_WORK_DIR"] = vals["MCP_ADAPTER_WORK_DIR"]
-            env["MCP_ADAPTER_WORK_DIR_ACCESS"] = _bool_str(vals.get("MCP_ADAPTER_WORK_DIR_ACCESS", "false"))
-        return env
+        folder = (vals.get("MCP_ADAPTER_WORK_DIR") or "").strip()
+        token = (vals.get("MCP_ADAPTER_AUTH_TOKEN") or "").strip()
+        return {**({"MCP_ADAPTER_AUTH_TOKEN": token} if token else {}),  # the child server enforces it
+                "MCP_ADAPTER_WORK_DIR": folder,
+                "MCP_ADAPTER_WORK_DIR_ACCESS": _bool_str(bool(folder) and _truthy(vals.get("MCP_ADAPTER_WORK_DIR_ACCESS"), False))}
+
+    def ensure_auth_token(self) -> str:
+        """The endpoint's bearer token, generated and stored in .env on first use (never shown in the page)."""
+        token = (self.values().get("MCP_ADAPTER_AUTH_TOKEN") or "").strip()
+        if len(token) < 24:
+            token = generate_token()
+            if not self.env_path.exists() and (REPO_ROOT / ".env.example").exists():
+                self.env_path.write_text((REPO_ROOT / ".env.example").read_text(encoding="utf-8"), encoding="utf-8")
+            write_env_updates(self.env_path, {"MCP_ADAPTER_AUTH_TOKEN": token})
+        return token
 
     def mcp_port(self) -> int:
         raw = (self.values().get("MCP_HTTP_PORT") or "").strip()
@@ -394,8 +404,12 @@ def _chat_report_dir(chat) -> Path:
 
 
 def make_handler(store: ConfigStore, token: str, port: int, chats: ChatManager, mcp: McpHttpService):
-    def _page() -> str:  # read on every request so page updates need no restart
-        return (STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("__TOKEN__", token)
+    def _page(nonce: str) -> str:  # read on every request so page updates need no restart
+        # The session token is NOT embedded: any local process could fetch this page. The browser gets the token
+        # only through the launch link's fragment (#t=...), which is never sent to a server.
+        return (STATIC_DIR / "index.html").read_text(encoding="utf-8").replace("__NONCE__", nonce)
+
+    token_bytes = token.encode("ascii")
 
     loopback_names = {"127.0.0.1", "localhost", "::1"}
 
@@ -408,6 +422,13 @@ def make_handler(store: ConfigStore, token: str, port: int, chats: ChatManager, 
 
     class Handler(BaseHTTPRequestHandler):
         server_version = "mcp-adapter-ui"
+        timeout = 30  # idle connections are dropped instead of holding a thread forever
+
+        def end_headers(self):
+            self.send_header("X-Content-Type-Options", "nosniff")
+            self.send_header("Referrer-Policy", "no-referrer")
+            self.send_header("Cross-Origin-Resource-Policy", "same-origin")
+            super().end_headers()
 
         def log_message(self, fmt, *args):  # quieter console: hide the polling of the chat panel
             line = fmt % args if args else fmt
@@ -428,13 +449,16 @@ def make_handler(store: ConfigStore, token: str, port: int, chats: ChatManager, 
                 return False
             origin = self.headers.get("Origin")
             if origin:
-                parsed = urlparse(origin.strip().lower())
-                if parsed.scheme != "http" or _hostname(parsed.netloc) not in loopback_names:
+                own_port = self.server.server_address[1]
+                allowed = {f"http://127.0.0.1:{own_port}", f"http://localhost:{own_port}", f"http://[::1]:{own_port}"}
+                if origin.strip().lower().rstrip("/") not in allowed:
                     self._reject(403, "cross-origin request refused")
                     return False
-            if need_token and not secrets.compare_digest(self.headers.get(TOKEN_HEADER, ""), token):
-                self._reject(403, "missing or invalid session token")
-                return False
+            if need_token:
+                sent = (self.headers.get(TOKEN_HEADER) or "").encode("latin-1", "replace")
+                if not secrets.compare_digest(sent, token_bytes):
+                    self._reject(403, "missing or invalid session token")
+                    return False
             return True
 
         def _json(self, obj: Any, code: int = 200) -> None:
@@ -474,12 +498,16 @@ def make_handler(store: ConfigStore, token: str, port: int, chats: ChatManager, 
             if path in ("/", "/index.html"):
                 if not self._guard(need_token=False):
                     return
-                body = _page().encode("utf-8")
+                nonce = secrets.token_urlsafe(16)
+                body = _page(nonce).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Cache-Control", "no-store")
                 self.send_header("X-Frame-Options", "DENY")
-                self.send_header("Content-Security-Policy", "default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'")
+                self.send_header("Content-Security-Policy",
+                                 f"default-src 'none'; script-src 'nonce-{nonce}'; style-src 'unsafe-inline'; "
+                                 "connect-src 'self'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'; "
+                                 "form-action 'none'")
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
                 self.wfile.write(body)
@@ -532,8 +560,12 @@ def make_handler(store: ConfigStore, token: str, port: int, chats: ChatManager, 
             path = urlparse(self.path).path
             if not self._guard(need_token=True):
                 return
-            length = int(self.headers.get("Content-Length") or 0)
-            if length > 2_000_000:
+            try:
+                length = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                self._reject(400, "invalid Content-Length")
+                return
+            if length < 0 or length > 2_000_000:
                 self._reject(413, "payload too large")
                 return
             try:
@@ -560,6 +592,7 @@ def make_handler(store: ConfigStore, token: str, port: int, chats: ChatManager, 
                     port = payload.get("port") or store.mcp_port()
                     if str(port).isdigit() and int(port) > 0:
                         store.save({"settings": {"MCP_HTTP_PORT": str(port)}})
+                    store.ensure_auth_token()
                     self._json({"ok": True, **mcp.start(int(port), store.mcp_env())})
                 elif path == "/api/mcp/stop":
                     self._json({"ok": True, **mcp.stop()})
@@ -595,7 +628,8 @@ def make_handler(store: ConfigStore, token: str, port: int, chats: ChatManager, 
             elif action == "stop":
                 self._json({"ok": True, "chat": chats.stop(chat_id).to_dict()})
             elif action == "decide":
-                self._json({"ok": True, "chat": chats.decide(chat_id, bool(payload.get("approve"))).to_dict()})
+                self._json({"ok": True, "chat": chats.decide(chat_id, bool(payload.get("approve")),
+                                                              str(payload.get("id") or "")).to_dict()})
             elif action == "rename":
                 self._json({"ok": True, "chat": chats.rename(chat_id, str(payload.get("title", ""))).to_dict()})
             elif action == "delete":
@@ -625,6 +659,10 @@ class _ExclusiveServer(ThreadingHTTPServer):
 def serve(port: int = 8765, open_browser: bool = True, env_path: Path | None = None,
           block: bool = True, chats: ChatManager | None = None, mcp: McpHttpService | None = None) -> ThreadingHTTPServer:
     store = ConfigStore(env_path)
+    if store.env_path.exists():
+        from ..fileperm import restrict_to_owner
+
+        restrict_to_owner(store.env_path)  # tighten an .env created before this version
     chats = chats or ChatManager(store.chat_store_dir(), store.chat_defaults())
     mcp = mcp or McpHttpService()
     token = secrets.token_urlsafe(24)
@@ -635,9 +673,12 @@ def serve(port: int = 8765, open_browser: bool = True, env_path: Path | None = N
               "still running - stop it (Ctrl+C in its terminal) or start this one with --port <other>.",
               file=sys.stderr)
         raise
+    httpd.session_token = token  # type: ignore[attr-defined]  # for in-process callers (tests); never served
     actual_port = httpd.server_address[1]
-    url = f"http://127.0.0.1:{actual_port}/"
-    print(f"[mcp-adapter-ui] workspace UI at {url}  (loopback only; editing {store.env_path}; pid {os.getpid()})",
+    url = f"http://127.0.0.1:{actual_port}/#t={token}"
+    print(f"[mcp-adapter-ui] workspace UI (loopback only; editing {store.env_path}; pid {os.getpid()})",
+          file=sys.stderr)
+    print(f"[mcp-adapter-ui] open this private link (it carries this session's key; do not share it): {url}",
           file=sys.stderr)
     print("[mcp-adapter-ui] press Ctrl+C to stop", file=sys.stderr)
     if _truthy(store.values().get("MCP_HTTP_AUTOSTART"), False):

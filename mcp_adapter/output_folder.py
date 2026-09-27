@@ -24,6 +24,7 @@ from typing import Any
 from .config import (
     IS_WINDOWS,
     PACKAGE_DIR,
+    REPO_ROOT,
     app_subfolders,
     default_output_dir,
     env,
@@ -94,7 +95,7 @@ def check_output_folder(folder: str) -> Path:
     raw = (folder or "").strip().strip('"')
     if not raw:
         raise OutputFolderError("No folder given.")
-    p = Path(os.path.expandvars(os.path.expanduser(raw)))
+    p = Path(os.path.expanduser(raw))  # no %VAR% expansion: it could echo a variable's value in errors
     if is_network_path(p):
         raise OutputFolderError(f"{p} is a network location; results are only written to local disks.")
     if not p.is_absolute():
@@ -117,6 +118,9 @@ def check_output_folder(folder: str) -> Path:
         if _inside(p, loc):
             raise OutputFolderError(f"{p} is inside a protected location ({loc}); system, program, "
                                     "application-data and adapter source folders are refused.")
+    if _inside(p, REPO_ROOT) and not _inside(p, REPO_ROOT / "outputs"):
+        raise OutputFolderError(f"{p} is inside the adapter's own folder (it holds .env and the code); use its "
+                                "outputs folder or a folder of your own.")
     ws = workspace_root()
     if ws is not None and not _inside(p, ws):
         raise OutputFolderError(f"This server is confined to the task's working directory {ws}; the output "

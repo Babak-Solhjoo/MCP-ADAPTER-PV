@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +60,7 @@ class PhotoshopAdapter(BaseAdapter):
 
     # ---- execution -----------------------------------------------------------------------------
     def _result_path(self) -> Path:
-        return self.scripts_dir() / f"result_{int(time.time() * 1000)}.json"
+        return self.scripts_dir() / f"result_{int(time.time() * 1000)}_{uuid.uuid4().hex}.json"
 
     def run_jsx(self, script: str, is_file: bool = False, wait: bool = True,
                 timeout: int | None = None) -> RunResult:

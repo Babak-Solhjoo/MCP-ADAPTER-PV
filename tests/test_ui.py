@@ -63,9 +63,8 @@ def _request(httpd, method, path, headers=None, body=None, host=None):
 def _token(httpd):
     status, page = _request(httpd, "GET", "/")
     assert status == 200 and "MCP Adapter" in page
-    marker = 'const TOKEN = "'
-    start = page.index(marker) + len(marker)
-    return page[start: page.index('"', start)]
+    assert httpd.session_token not in page, "the page must not carry the session key"
+    return httpd.session_token
 
 
 def test_http_api_requires_token_and_localhost(ui_server):
@@ -153,8 +152,8 @@ def test_favicon_is_served(ui_server):
     assert status == 200 and "</svg>" in str(body)
 
 
-def test_second_instance_on_same_port_is_refused(ui_server):
+def test_second_instance_on_same_port_is_refused(ui_server, tmp_path):
     """Two UI instances must never share a port (Windows would otherwise allow it with SO_REUSEADDR)."""
     port = ui_server.server_address[1]
     with pytest.raises(OSError):
-        ui.serve(port=port, open_browser=False, env_path=None, block=False)
+        ui.serve(port=port, open_browser=False, env_path=tmp_path / "other.env", block=False)

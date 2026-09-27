@@ -46,8 +46,9 @@ class McpHttpService:
                 return {**self.status(), "note": "already running"}
             cmd = command or [self.python, "-m", "mcp_adapter.server", "--transport", "streamable-http",
                               "--port", str(port)]
-            env = dict(os.environ)
-            env.update(extra_env or {})
+            from ..config import child_env
+
+            env = child_env({"MCP_ADAPTER_WORK_DIR": "", "MCP_ADAPTER_WORK_DIR_ACCESS": "false", **(extra_env or {})})
             flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0  # type: ignore[attr-defined]
             self.log.clear()
             try:
@@ -150,8 +151,21 @@ print(path or "")
 """
 
 
+_PICKER_LOCK = threading.Lock()
+
+
 def pick_folder(initial: str = "", timeout: int = 300) -> dict[str, Any]:
-    """Open the native folder dialog (Tk) in a helper process and return the chosen path ("" if cancelled)."""
+    """Open the native folder dialog (Tk) in a helper process and return the chosen path ("" if cancelled).
+    Only one dialog at a time; a second request is refused instead of stacking dialogs and threads."""
+    if not _PICKER_LOCK.acquire(blocking=False):
+        return {"ok": False, "path": "", "error": "a folder dialog is already open"}
+    try:
+        return _pick_folder(initial, timeout)
+    finally:
+        _PICKER_LOCK.release()
+
+
+def _pick_folder(initial: str, timeout: int) -> dict[str, Any]:
     try:
         proc = subprocess.run([sys.executable, "-c", PICKER_CODE, initial or ""], capture_output=True, text=True,
                               encoding="utf-8", errors="replace", timeout=timeout)

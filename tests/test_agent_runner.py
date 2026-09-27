@@ -68,7 +68,8 @@ def test_cli_requires_task(capsys):
     assert "give a task" in capsys.readouterr().err
 
 
-@pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="needs an Anthropic API key")
+@pytest.mark.skipif(os.environ.get("RUN_LIVE_TESTS") != "1" or not os.environ.get("ANTHROPIC_API_KEY"),
+                    reason="paid live call: set RUN_LIVE_TESTS=1 (and an Anthropic API key) to run it")
 def test_live_tiny_task(tmp_path):
     cfg = runner.RunConfig(task="Call time_now for UTC and reply with just the ISO timestamp.",
                            only=["nothing_"], max_turns=4, report_path=tmp_path / "live.md", quiet=True)

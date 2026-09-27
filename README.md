@@ -88,7 +88,7 @@ do on the network, and the server enforces them itself at start-up and on every 
 |---|---|---|
 | `MCP_ADAPTER_NETWORK_MODE` | `local` (default) / `network` | `local`: HTTP/SSE transports may only bind `127.0.0.1`/`localhost`; any other `--host` aborts start-up (exit code 2). DNS-rebinding protection rejects requests whose `Host`/`Origin` header is not localhost. `network`: other interfaces are allowed when explicitly requested with `--host`. |
 | `MCP_ADAPTER_ALLOWED_HOSTS` | comma list | `network` mode only: `Host` header allow-list (e.g. `192.168.1.20:8000`); enables rebinding protection for those hosts. |
-| `MCP_ADAPTER_AUTH_TOKEN` | random string (24+ characters) | Bearer token for the HTTP transports. **Required in `network` mode**: without it the server refuses to start an HTTP transport, and every request must send `Authorization: Bearer <token>` (compared in constant time; wrong or missing tokens get `401`). Optional in `local` mode, enforced whenever set. `mcp-adapter-setup` and the workspace UI generate one when you choose network mode; it stays in `.env` and is never shown back in the UI. |
+| `MCP_ADAPTER_AUTH_TOKEN` | random string (24+ characters) | Bearer token for the HTTP transports. **Required for every HTTP transport**, local mode included (other programs and other accounts on the same computer share `127.0.0.1`): without it the server refuses to start an HTTP transport, and every request must send `Authorization: Bearer <token>` (compared in constant time; wrong or missing tokens get `401`). HTTP is also refused if the installed `mcp` package lacks Host/Origin protection. `mcp-adapter-setup` and the workspace UI's endpoint generate the token; it stays in `.env` and is never shown back in the UI. stdio needs no token. |
 | `MCP_ADAPTER_ALLOW_INTERNET` | `true` / `false` (default) | When `false`, `search_docs_online` (Tavily) and `mathematica_wolfram_alpha` are **not registered at all**, so no code path can reach the internet. Everything else is local subprocess automation. |
 
 What each transport does:
@@ -126,7 +126,18 @@ Treat every connected client (and the model behind it) as someone sitting at you
   task folder as working directory; it is not a sandbox.
 * The output-folder checks (`set_output_folder`) prevent mistakes such as writing into system folders or network
   shares; they do not confine the code-running tools above.
-* API keys and the auth token live only in `.env`, which is git-ignored; the UI accepts them write-only.
+* API keys and the auth token live only in `.env`, which is git-ignored and readable only by your account; the UI
+  accepts them write-only. The MCP server keeps them out of its environment, so the applications and shells it
+  starts never see them; tool paths are not expanded (`%VAR%`), so a path cannot echo a key back; and the agent
+  runner removes any key value from transcripts, chat history and reports.
+* Tool paths may not point to network locations (UNC paths, mapped network drives): opening one would make
+  Windows connect to another machine and possibly send your credentials.
+* `OPENAI_API_KEY` is only sent to `api.openai.com`. A custom OpenAI-compatible endpoint (`OPENAI_BASE_URL`) gets
+  `OPENAI_COMPAT_API_KEY` instead and must use HTTPS unless it runs on this computer.
+* The agent is told to treat file contents, tool results and web pages as data, never as instructions, and a
+  model can only call the tools it was given.
+* Programs are never started from the current folder, and Program Files is searched before drive roots, so a
+  planted `matlab.bat` cannot hijack a tool; on shared computers set the `<APP>_EXE` paths explicitly.
 * The workspace UI binds `127.0.0.1` only and needs a per-session token on every API call, so other machines and
   other web pages cannot use it.
 
@@ -165,9 +176,12 @@ Claude Desktop it applies to every chat until it is changed, reset or the app re
 python -m mcp_adapter.ui.server        # or: mcp-adapter-ui
 ```
 
-This starts a tiny local web server, prints `workspace UI at http://127.0.0.1:8765/` and opens the page in your
-browser (`--no-browser` to only print the address, `--port 9000` to change the port). It runs until Ctrl+C; all
+This starts a tiny local web server and opens the page in your browser with a private link of the form
+`http://127.0.0.1:8765/#t=<session key>` (`--no-browser` only prints that link, `--port 9000` changes the port).
+The key after `#t=` is new for every start and is needed to use the page, so another program or another user on
+the same computer cannot drive the UI; the part after `#` never leaves the browser. It runs until Ctrl+C; all
 settings live in `.env` and chats are stored as JSON under `outputs/chats/`, so nothing is lost when it stops.
+`.env` and the chat folder are made readable only by your account.
 
 The page has three tabs:
 
@@ -183,10 +197,12 @@ The page has three tabs:
   provider connected in Settings), **Effort**, the **working folder** (type a path or **Browse...** for the
   native folder dialog), **Folder access**, **Approve calls**, **Reasoning** and **Max turns**. Chip changes are
   saved to the chat immediately and become the defaults for new chats.
-* **Folder access** grants the agent full access *inside that folder only*: the MCP server registers the
-  `workspace_*` tools (list, read, write, move, delete, search, and `workspace_run` for shell commands with the
-  folder as working directory). Nothing outside the folder is reachable; keep it off for untrusted tasks. All
-  files the tools generate, and the run reports (`agent-reports/`), land in that folder.
+* **Folder access** gives the agent the `workspace_*` tools for that folder: list, read, write, move, delete
+  and search, whose paths cannot leave the folder, plus `workspace_run`, which runs shell commands with the folder
+  as working directory. `workspace_run` is a full shell, not a sandbox, so it **always asks for approval**, even
+  when "Approve calls" is off. Keep folder access off for untrusted tasks. A drive root or your home folder is
+  never given full access. All files the tools generate, and the run reports (`agent-reports/`), land in that
+  folder.
 
 **Settings**:
 
@@ -196,7 +212,9 @@ The page has three tabs:
 * **MCP server for other LLM apps** - use these applications from Claude Desktop, Claude Code, Cursor, VS Code
   and similar: ready-to-copy config for stdio clients (they start the server themselves) and a **Start
   endpoint** button that runs the server as a local HTTP MCP endpoint (`http://127.0.0.1:8766/mcp`, loopback only,
-  optional autostart with the UI) for clients that connect to a URL. An optional default working folder plus
+  optional autostart with the UI) for clients that connect to a URL. The endpoint requires the bearer token
+  `MCP_ADAPTER_AUTH_TOKEN`, which the UI creates in `.env` on first start; clients send
+  `Authorization: Bearer <token>` (the config snippets show where). An optional default working folder plus
   access switch applies to those external apps. ChatGPT's connectors need a server on the public internet, so a
   localhost endpoint is not visible to them without a tunnel, which is outside the local-only policy here.
 * **Security & network policy**, adapter mode, timeout and output folder, as described above.
@@ -205,10 +223,12 @@ The page has three tabs:
 Windows), detection status and executable path fields per application; **Re-detect** and **Save** live in the
 header.
 
-The UI is hardened like the server: it binds **127.0.0.1 only**, every API call carries a per-session token
-embedded in the served page, the `Host`/`Origin` headers must be localhost, cross-origin preflights are
-refused, and secrets are never echoed back. Restart the UI server after pulling Python changes; page changes
-show up on reload.
+The UI is hardened like the server: it binds **127.0.0.1 only**; every API call carries the per-session key,
+which reaches the browser only through the launch link and is never embedded in the page; `Host` must be
+localhost and `Origin` must be the UI's own address; cross-origin preflights are refused; a strict content
+security policy with a per-response nonce blocks injected scripts; and secrets are never echoed back. Approvals
+are bound to the exact pending tool call. Restart the UI server after pulling Python changes; page changes show
+up on reload.
 
 ## Adapter behaviour: only installed software is exposed
 

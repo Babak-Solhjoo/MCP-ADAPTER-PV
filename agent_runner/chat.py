@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import threading
 import time
 import uuid
@@ -50,7 +51,9 @@ class ChatSettings:
             prov = str(data["provider"]).strip().lower()
             s.provider = prov if prov in PROVIDERS else s.provider
         if "model" in data and str(data["model"]).strip():
-            s.model = str(data["model"]).strip()
+            model = str(data["model"]).strip()
+            if MODEL_ID_RE.fullmatch(model):  # model ids go into .env and API requests: no spaces or control chars
+                s.model = model
         if "base_url" in data:
             s.base_url = str(data["base_url"] or "").strip()
         if "effort" in data:
@@ -110,11 +113,14 @@ class Chat:
 
     @classmethod
     def from_json(cls, data: dict[str, Any]) -> Chat:
-        chat = cls(data["id"], data.get("title") or "Chat", ChatSettings.from_dict(data.get("settings")),
+        chat_id = str(data.get("id", ""))
+        if not CHAT_ID_RE.fullmatch(chat_id):  # ids are also file names: never accept anything else
+            raise ValueError(f"invalid chat id {chat_id!r}")
+        chat = cls(chat_id, str(data.get("title") or "Chat")[:200], ChatSettings.from_dict(data.get("settings")),
                    data.get("created"))
         chat.updated = data.get("updated", chat.created)
-        chat.messages = list(data.get("messages", []))
-        chat.events = list(data.get("events", []))
+        chat.messages = [_clean_message(m) for m in data.get("messages", []) if isinstance(m, dict)]
+        chat.events = [_clean_event(e) for e in data.get("events", []) if isinstance(e, dict)]
         chat.status = "interrupted" if data.get("status") == "running" else data.get("status", "idle")
         chat.error = data.get("error")
         chat.last_result = data.get("last_result")
@@ -133,6 +139,34 @@ class Chat:
         return [{"role": m["role"], "content": m["text"]} for m in self.messages if m.get("role") in ("user", "assistant")]
 
 
+CHAT_ID_RE = re.compile(r"[0-9a-f]{12}")
+MODEL_ID_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}")
+
+
+def _num(value: Any, kind: type = int) -> Any:
+    try:
+        return kind(value)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _clean_message(m: dict[str, Any]) -> dict[str, Any]:
+    """Messages loaded from disk: numeric fields really are numbers (they are shown in the page)."""
+    m = dict(m)
+    for key in ("turns", "tool_calls"):
+        if key in m:
+            m[key] = _num(m[key])
+    return m
+
+
+def _clean_event(e: dict[str, Any]) -> dict[str, Any]:
+    e = dict(e)
+    for key in ("t", "seq", "run"):
+        if key in e:
+            e[key] = _num(e[key], float if key == "t" else int)
+    return e
+
+
 class ChatManager:
     def __init__(self, store_dir: Path | None = None, defaults: ChatSettings | None = None):
         self.store_dir = Path(store_dir) if store_dir else DEFAULT_STORE_DIR
@@ -144,6 +178,9 @@ class ChatManager:
     # ---- persistence -----------------------------------------------------------------------------
     def load(self) -> None:
         self.store_dir.mkdir(parents=True, exist_ok=True)
+        from mcp_adapter.fileperm import restrict_to_owner
+
+        restrict_to_owner(self.store_dir, recursive=True)  # chats are private; new files inherit the rule
         for path in sorted(self.store_dir.glob("chat_*.json")):
             try:
                 chat = Chat.from_json(json.loads(path.read_text(encoding="utf-8")))
@@ -252,11 +289,12 @@ class ChatManager:
         chat.service.stop()
         return chat
 
-    def decide(self, chat_id: str, approve: bool) -> Chat:
+    def decide(self, chat_id: str, approve: bool, call_id: str = "") -> Chat:
         chat = self.get(chat_id)
         if not chat.service.pending:
             raise RuntimeError("no tool call is waiting for approval")
-        chat.service.decide(approve)
+        if not chat.service.decide(approve, call_id):
+            raise RuntimeError("that approval request is no longer pending (reload the chat)")
         return chat
 
     def events(self, chat_id: str, since: int = 0) -> list[dict[str, Any]]:

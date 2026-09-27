@@ -9,6 +9,7 @@ from __future__ import annotations
 import json
 import os
 import time
+import uuid
 from typing import Any
 
 from .base import BaseAdapter, RunResult, read_text_if_exists, resolve_path
@@ -65,7 +66,7 @@ class AutoCADAdapter(BaseAdapter):
 
         The generated script also defines (mcp-json-write <alist> <path>) so the LISP can return data.
         """
-        result_file = self.scripts_dir() / f"lisp_result_{int(time.time() * 1000)}.json"
+        result_file = self.scripts_dir() / f"lisp_result_{int(time.time() * 1000)}_{uuid.uuid4().hex}.json"
         helper = r"""
 (defun mcp-json-escape (s / out i c)
   (setq out "" i 1)

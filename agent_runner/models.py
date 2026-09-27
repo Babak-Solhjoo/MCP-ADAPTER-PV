@@ -42,9 +42,9 @@ def filter_openai_models(ids: list[str]) -> list[str]:
 def _live_openai(base_url: str | None, timeout: float) -> list[str]:
     from openai import OpenAI
 
-    kwargs: dict[str, Any] = {"timeout": timeout, "max_retries": 0}
-    if base_url:
-        kwargs["base_url"] = base_url
+    from .openai_provider import client_kwargs
+
+    kwargs: dict[str, Any] = {"timeout": timeout, "max_retries": 0, **client_kwargs(base_url)}
     client = OpenAI(**kwargs)
     return filter_openai_models([m.id for m in client.models.list().data])
 
