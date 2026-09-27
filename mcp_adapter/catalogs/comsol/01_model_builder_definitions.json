@@ -1,0 +1,332 @@
+{
+  "category": "Model Builder workflow & global definitions",
+  "description": "The skeleton of every COMSOL Multiphysics 6.3 model: the Model Wizard and Component nodes that create the tree, and the Global Definitions / component Definitions nodes that supply parameters, variables, user-defined functions, materials, named selections, coordinate systems, nonlocal couplings and probes. These nodes are evaluated before the geometry, physics and study nodes that consume them, and each one maps onto a specific COMSOL API for Java call (model.param(), model.variable(), model.func(), model.material(), model.selection(), model.coordSystem(), model.cpl(), model.probe()).",
+  "tools": [
+    {
+      "name": "Model Wizard",
+      "kind": "menu",
+      "description": "Guided entry point for a new model. It asks for the space dimension of the first Component (3D, 2D axisymmetric, 2D, 1D axisymmetric, 1D or 0D), lets you add one or more physics interfaces (including predefined multiphysics interfaces, which are added as their constituent physics plus Multiphysics coupling nodes), lets you review and rename the dependent variables, and finally offers a study type. Use it whenever you start a model from scratch: in one pass it creates the Component, its Geometry, Materials, physics and Mesh nodes plus a Study with a solver configuration. Everything it does can also be done later from the Home toolbar with Add Component, Add Physics, Add Multiphysics and Add Study.",
+      "usage": "File > New > Model Wizard, then Select Space Dimension > Select Physics (Add) > Review Physics Interface > Select Study > Done",
+      "parameters": [
+        {"name": "Space Dimension", "description": "Geometry dimension of the Component being created: 3D, 2D Axisymmetric, 2D, 1D Axisymmetric, 1D or 0D. 0D is used for spatially homogeneous systems (reacting systems, electrical circuits, ODEs/DAEs)."},
+        {"name": "Added physics interfaces", "description": "List of physics interfaces to add. Double-click an interface in the tree, press Enter, or right-click and choose Add physics. Click Remove to take one out again."},
+        {"name": "Dependent Variables", "description": "On the Review Physics Interface page you can rename the field name and the dependent variable names of each added interface before the model is built."},
+        {"name": "Select Study", "description": "Study type to add (Stationary, Time Dependent, Frequency Domain, Eigenfrequency, ...). Click Done instead to add the physics without a study."}
+      ],
+      "example": "// Code equivalent to a 3D / Solid Mechanics / Stationary wizard run\nModel model = ModelUtil.create(\"Model\");\nmodel.component().create(\"comp1\", true);\nmodel.component(\"comp1\").geom().create(\"geom1\", 3);\nmodel.component(\"comp1\").mesh().create(\"mesh1\");\nmodel.component(\"comp1\").physics().create(\"solid\", \"SolidMechanics\", \"geom1\");\nmodel.study().create(\"std1\");\nmodel.study(\"std1\").create(\"stat\", \"Stationary\");",
+      "notes": "The wizard is GUI-only; from the API you reproduce it with the calls above. The second argument of model.component().create() is the defineAllFrames flag - the GUI always sets it to true, which is required by Moving Mesh and Deformed Geometry functionality. Not every physics interface exists in every space dimension.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_environment.18.43.html"
+    },
+    {
+      "name": "Component",
+      "kind": "tool",
+      "description": "A Component node owns one geometry, its Definitions, Materials, physics interfaces, Mesh and Views; a model can hold several components of different space dimensions that are coupled through nonlocal couplings. Add a second Component when you model sub-systems separately (for example a 2D axisymmetric coil plus a 3D device) or when you need an extra dimension or a mesh part. The Component node also controls the geometry shape-function order and can override the model's base unit system.",
+      "usage": "Root node (top of the Model Builder tree) > right-click > Add Component > 3D | 2D | 2D Axisymmetric | 1D | 1D Axisymmetric | 0D  (or Home toolbar > Add Component)",
+      "parameters": [
+        {"name": "type", "description": "API create type: \"Component\" for a normal geometry component, \"ExtraDim\" for an extra dimension, \"MeshComponent\" for a mesh part under Global Definitions."},
+        {"name": "defineAllFrames", "description": "Boolean second argument of create(). true creates the spatial, material, geometry and mesh frames as separate Frame objects (what the GUI always does); false creates a single combined frame."},
+        {"name": "sorder", "description": "Geometry shape function order used by the component and its children: automatic (default), linear, quadratic, cubic, quartic, quintic, ..."},
+        {"name": "baseSystem", "description": "Unit system tag used by this component; overrides the model-wide unit system. Set to null to fall back to the global system."}
+      ],
+      "example": "model.component().create(\"comp1\", true);\nmodel.component(\"comp1\").geom().create(\"geom1\", 3);\nmodel.component(\"comp1\").mesh().create(\"mesh1\");\nmodel.component(\"comp1\").sorder(\"quadratic\");\n\n// a mesh component (mesh part) under Global Definitions\nmodel.component().create(\"mcomp1\", \"MeshComponent\");\nmodel.component(\"mcomp1\").geom().create(\"mgeom1\", 3);\nmodel.component(\"mcomp1\").mesh().create(\"mpart1\", \"mgeom1\");",
+      "notes": "model.component() replaces the older model.modelNode() syntax, which still works for backward compatibility. Couplings between components are made with model.component(<ctag>).cpl() operators (General Extrusion, Integration, ...), not by nesting components. The Multiphysics branch under a Component holds the coupling nodes (Thermal Expansion, Electromagnetic Heating, Fluid-Structure Interaction) created with model.component(<ctag>).multiphysics().",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_modeling.19.007.html"
+    },
+    {
+      "name": "Parameters",
+      "kind": "tool",
+      "description": "Global scalar constants evaluated once, before anything else in the model. Parameters may carry units and may be defined in terms of other parameters, built-in constants and functions. Use them for every dimension, material value, load level and mesh size you might want to sweep or change later; they are the only quantities that a Parametric Sweep, an Auxiliary Sweep or the batch flags -pname/-plist can override. One Parameters node always exists under Global Definitions and cannot be deleted; extra Parameters nodes can be added to group parameters, and a separate Parameters node under Results holds postprocessing-only parameters.",
+      "usage": "Global Definitions > right-click > Parameters  (the first node, Parameters 1, is always present)",
+      "parameters": [
+        {"name": "Name", "description": "Parameter name. The namespace is global, so a name may be used in only one Parameters node."},
+        {"name": "Expression", "description": "Value or expression, optionally with unit syntax, e.g. 10[cm], 2*L, 300[K]. May reference other parameters, built-in constants and functions."},
+        {"name": "Description", "description": "Free-text description shown in the table and in sweep dialogs."},
+        {"name": "Value", "description": "Read-only column showing the evaluated value in the model's base unit system."}
+      ],
+      "example": "model.param().set(\"L\", \"10[cm]\", \"Bar length\");\nmodel.param().set(\"w\", \"L/5\", \"Bar width\");\nmodel.param().set(\"T0\", \"293.15[K]\", \"Ambient temperature\");\n\n// read back\nString expr = model.param().get(\"w\");            // \"L/5\"\ndouble val  = model.param().evaluate(\"L\");        // 0.1 (SI base unit)\nString unit = model.param().evaluateUnit(\"L\");    // \"m\"\nmodel.param().remove(\"T0\");",
+      "notes": "Parameters are global and constant during a solve - use Variables for expressions that depend on space, time or the solution. model.param().loadFile()/saveFile() import and export the table as .txt/.csv/.dat. Parameters in a Results Parameters node are reached with model.result().param().",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.009.html"
+    },
+    {
+      "name": "Parameter Case",
+      "kind": "tool",
+      "description": "A Case subnode of a Parameters node holding an alternative Expression for each parameter of that node. Add several cases to keep named parameter sets (for example \"Copper busbar\" and \"Aluminum busbar\") inside the model instead of in external files, then pick which case feeds the main Parameters node. Cases are also what a Parametric Sweep uses when you sweep over parameter switching rather than over numeric values.",
+      "usage": "Global Definitions > Parameters 1 > right-click > Parameter Case",
+      "parameters": [
+        {"name": "Parameters (Expression column)", "description": "Only the Expression column is editable; the names are inherited from the parent Parameters node."},
+        {"name": "Case (in the parent Parameters node)", "description": "List in the parent Parameters node selecting which case supplies the value of a parameter."}
+      ],
+      "example": "model.param().set(\"L\", \"10[cm]\");\nmodel.param().set(\"k\", \"400[W/(m*K)]\");\n\n// an alternative set of values\nmodel.param().paramCase().create(\"pc1\");\nmodel.param().paramCase(\"pc1\").set(\"L\", \"20[cm]\");\nmodel.param().paramCase(\"pc1\").set(\"k\", \"160[W/(m*K)]\");\n\n// take the value of L from that case\nmodel.param().setFromCase(\"L\", \"pc1\");",
+      "notes": "The documented syntax is model.param(<ptag>).paramCase().create(<pctag>) - use the explicit group tag (par2, par3, ...) when the cases belong to an added Parameters node rather than the default one. Parameter cases apply to global parameters only, not to the Parameters node under Results. Use model.param(<ptag>).setShowInParamSel(false) to keep a group out of parametric sweep selection lists.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.010.html"
+    },
+    {
+      "name": "Variables",
+      "kind": "tool",
+      "description": "A Variables node holds a table of named expressions that are re-evaluated wherever and whenever they are used, so they may depend on the spatial coordinates, on time, and on the dependent variables of the physics. Add a Variables node under Global Definitions for model-wide expressions, or under a Component's Definitions node when the expressions should be restricted to a geometric selection (each variable collection carries at most one selection, so use several nodes to give a variable different definitions on different domains).",
+      "usage": "Global Definitions > right-click > Variables  (global)  |  Component 1 > Definitions > right-click > Variables  (component, with a selection)",
+      "parameters": [
+        {"name": "Name", "description": "Variable name; referenced from physics settings, other variables and results as comp1.<name> when defined in a component."},
+        {"name": "Expression", "description": "Expression that may use coordinates, dependent variables, parameters, functions and coupling operators."},
+        {"name": "Description", "description": "Optional free-text description."},
+        {"name": "Geometric Entity Selection", "description": "Component-level only: the domains, boundaries, edges or points on which the variables are defined. Set with selection().geom(<gtag>, dim) + set(...), or point at a named selection with selection().named(<seltag>)."}
+      ],
+      "example": "// global variables\nmodel.variable().create(\"var1\");\nmodel.variable(\"var1\").set(\"Q_tot\", \"P_in/V_dom\", \"Volumetric heat source\");\n\n// component variables restricted to domains 1 and 2\nmodel.component(\"comp1\").variable().create(\"e1\");\nmodel.component(\"comp1\").variable(\"e1\").set(\"e\", \"x+1\");\nmodel.component(\"comp1\").variable(\"e1\").selection().geom(\"geom1\", 3);\nmodel.component(\"comp1\").variable(\"e1\").selection().set(new int[]{1, 2});\n\n// a second collection with a different definition, using a named selection\nmodel.component(\"comp1\").variable().create(\"e2\");\nmodel.component(\"comp1\").variable(\"e2\").set(\"e\", \"x-1\");\nmodel.component(\"comp1\").variable(\"e2\").selection().named(\"sel1\");",
+      "notes": "A variable collection has exactly one selection - to define the same name differently on different domains you need one Variables node per region, and the last matching node wins where selections overlap. Variables cannot be swept; use Parameters for that. Circular definitions are reported when the model is solved, not when the variable is entered.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.012.html"
+    },
+    {
+      "name": "Analytic",
+      "kind": "function",
+      "description": "User-defined function given by a symbolic expression of one or more named arguments, for example an(T) = 1+0.02*T or f(x,y) = sin(x)*exp(-y). COMSOL differentiates the expression automatically, so an Analytic function is safe to use inside material properties, boundary conditions and sources that are part of a nonlinear solve. Use it for closed-form property laws and excitations; declare argunit/fununit so the function participates correctly in unit checking.",
+      "usage": "Global Definitions > right-click > Functions > Analytic  (or Component 1 > Definitions > right-click > Functions > Analytic for a component-scoped function)",
+      "parameters": [
+        {"name": "expr", "description": "The expression defining the function."},
+        {"name": "args", "description": "String array of argument names used in expr."},
+        {"name": "funcname", "description": "Name the function is called by (defaults to the feature tag, e.g. an1)."},
+        {"name": "argunit", "description": "Comma-separated list of the expected unit of each argument, e.g. \"K\"."},
+        {"name": "fununit", "description": "Unit of the function result, e.g. \"W/(m*K)\"."},
+        {"name": "plotargs", "description": "N-by-3 array (argument name, lower plot limit, upper plot limit) controlling the preview plot."},
+        {"name": "periodic, periodiclower, periodicupper", "description": "Extend the function periodically over the given interval."},
+        {"name": "dermethod, argders", "description": "automatic (default) symbolic differentiation, or manual with explicit (argument, derivative) pairs."}
+      ],
+      "example": "model.func().create(\"an1\", \"Analytic\");\nmodel.func(\"an1\").set(\"funcname\", \"k_T\");\nmodel.func(\"an1\").set(\"expr\", \"400 - 0.07*(T-293.15)\");\nmodel.func(\"an1\").set(\"args\", new String[]{\"T\"});\nmodel.func(\"an1\").set(\"argunit\", \"K\");\nmodel.func(\"an1\").set(\"fununit\", \"W/(m*K)\");\nmodel.func(\"an1\").setIndex(\"plotargs\", \"200\", 0, 1);\nmodel.func(\"an1\").setIndex(\"plotargs\", \"800\", 0, 2);\n// used elsewhere as k_T(T)",
+      "notes": "Analytic, Interpolation and Piecewise functions can also be created directly inside a Material property group with mm.func(). A component-scoped function is referenced from global scope with the component prefix, e.g. comp1.an1(x). Related types on the same node: Piecewise, Step, Ramp, Rectangle, Triangle, Wave, GaussianPulse, Random, External, Image, Elevation.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.056.html"
+    },
+    {
+      "name": "Interpolation",
+      "kind": "function",
+      "description": "Function defined by tabulated values rather than a formula: a local table typed into the Settings window, an external text/CSV/DAT file, a Results table, or a resampling of another function. The data may be structured (grid) or unstructured (point cloud) and may have one to three arguments, which makes this the standard way to bring measured material data, a measured pulse or an imported field into a model. You choose how the function behaves between points (interp) and outside the data range (extrap).",
+      "usage": "Global Definitions > right-click > Functions > Interpolation",
+      "parameters": [
+        {"name": "source", "description": "table (local table), file, resultTable, or function (resample another function)."},
+        {"name": "table", "description": "N-by-2 string array of (argument, value) pairs when source is table."},
+        {"name": "filename", "description": "Path of the data file when source is file (.txt, .csv, .dat, WAVE audio)."},
+        {"name": "struct", "description": "File layout when source is file: spreadsheet (default), grid or sectionwise."},
+        {"name": "funcname / funcnametable", "description": "Function name for a table source; for a file source, a string matrix of (function name, position in file) - a file may define several functions."},
+        {"name": "interp", "description": "Interpolation between data points: neighbor, linear (default), piecewisecubic or cubicspline."},
+        {"name": "extrap", "description": "Extrapolation outside the data: none, const (default), interior, linear or value (with extrapvalue)."},
+        {"name": "nargs", "description": "Number of function arguments (1-3) for spreadsheet or result-table data."},
+        {"name": "defvars / frame", "description": "Use the spatial coordinates of the given frame as default arguments, so the function can be called without arguments."},
+        {"name": "argunit / fununit", "description": "Units of the arguments and of the result."}
+      ],
+      "example": "model.func().create(\"int1\", \"Interpolation\");\nmodel.func(\"int1\").set(\"source\", \"table\");\nmodel.func(\"int1\").set(\"funcname\", \"cp_T\");\nmodel.func(\"int1\").set(\"table\", new String[][]{\n    {\"200\", \"890\"}, {\"300\", \"904\"}, {\"400\", \"949\"}, {\"500\", \"996\"}});\nmodel.func(\"int1\").set(\"interp\", \"piecewisecubic\");\nmodel.func(\"int1\").set(\"extrap\", \"const\");\nmodel.func(\"int1\").set(\"argunit\", \"K\");\nmodel.func(\"int1\").set(\"fununit\", \"J/(kg*K)\");\n\n// from a file instead\nmodel.func().create(\"int2\", \"Interpolation\");\nmodel.func(\"int2\").set(\"source\", \"file\");\nmodel.func(\"int2\").set(\"filename\", \"C:/data/bh_curve.txt\");\nmodel.func(\"int2\").set(\"struct\", \"spreadsheet\");\nmodel.func(\"int2\").setIndex(\"funcnametable\", \"B_H\", 0, 0);\nmodel.func(\"int2\").importData();",
+      "notes": "importData() embeds the file contents in the MPH-file; discardData() removes them again and refresh() rereads the file. Files encoded in UTF-16 must be converted to UTF-8 first or the import fails. Linear interpolation with const extrapolation gives a function with discontinuous derivatives - prefer piecewisecubic or cubicspline inside a nonlinear solve.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.063.html"
+    },
+    {
+      "name": "Piecewise",
+      "kind": "function",
+      "description": "Function built by splicing separate expressions together, each valid on its own interval of a single argument. Use it when a property or load follows different laws in different ranges (a material below and above a phase change, a load schedule made of segments). Because a raw piecewise definition is discontinuous at the interval limits, the node offers smoothing (continuous value, first or second derivative) over a relative smoothing zone, which is usually required to get a convergent nonlinear or time-dependent solve.",
+      "usage": "Global Definitions > right-click > Functions > Piecewise",
+      "parameters": [
+        {"name": "arg", "description": "Name of the function argument (default x)."},
+        {"name": "pieces", "description": "N-by-3 string array: start of interval, end of interval, expression - one row per interval."},
+        {"name": "smooth", "description": "Smoothing at the interval limits: none (default), cont, contd1 or contd2."},
+        {"name": "smoothzone", "description": "Relative size of the smoothing zone (default 0.1)."},
+        {"name": "extrap", "description": "Behaviour outside the outermost interval: const (default), interior, none, periodic or value."},
+        {"name": "extrapvalue", "description": "Value used when extrap is value."},
+        {"name": "funcname", "description": "Name the function is called by (defaults to the tag, e.g. pw1)."},
+        {"name": "argunit / fununit", "description": "Units of the argument and of the result."}
+      ],
+      "example": "model.func().create(\"pw1\", \"Piecewise\");\nmodel.func(\"pw1\").set(\"funcname\", \"k_T\");\nmodel.func(\"pw1\").set(\"arg\", \"T\");\nmodel.func(\"pw1\").set(\"pieces\", new String[][]{\n    {\"200\", \"400\", \"0.6\"},\n    {\"400\", \"800\", \"0.6+0.001*(T-400)\"}});\nmodel.func(\"pw1\").set(\"smooth\", \"contd1\");\nmodel.func(\"pw1\").set(\"smoothzone\", 0.05);\nmodel.func(\"pw1\").set(\"extrap\", \"const\");\nmodel.func(\"pw1\").set(\"argunit\", \"K\");\nmodel.func(\"pw1\").set(\"fununit\", \"W/(m*K)\");",
+      "notes": "Intervals must not overlap and the argument is a single scalar. Smoothing shifts the function slightly inside each smoothing zone - keep smoothzone small compared with the interval length. Step, Ramp, Rectangle, Triangle and Wave offer the same smoothing controls for their standard shapes.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.068.html"
+    },
+    {
+      "name": "Step",
+      "kind": "function",
+      "description": "Smoothed unit-step (Heaviside-like) function that goes from one level to another at a given location. It is the standard way to switch a load, a boundary condition or a material state on and off in a time-dependent or parametric study without introducing a true discontinuity: smoothing is on by default with two continuous derivatives over a smoothing zone on both sides of the transition. Call it as step1(t-t0) or step1(x) depending on what should trigger the switch.",
+      "usage": "Global Definitions > right-click > Functions > Step",
+      "parameters": [
+        {"name": "location", "description": "Where the step is located (default 0)."},
+        {"name": "from", "description": "Value to the left of the location (default 0)."},
+        {"name": "to", "description": "Value to the right of the location (default 1)."},
+        {"name": "smooth", "description": "Boolean; smooth the transition (default true)."},
+        {"name": "smoothzone", "description": "Size of the smoothing zone on both sides of location (default 0.1)."},
+        {"name": "ncontder", "description": "Number of continuous derivatives when smoothing: 1 or 2 (default 2)."},
+        {"name": "locationdef", "description": "Where the smoothing is placed relative to the step: beginning, middle (default) or end."},
+        {"name": "funcname", "description": "Name the function is called by (defaults to the tag, e.g. step1)."}
+      ],
+      "example": "model.func().create(\"step1\", \"Step\");\nmodel.func(\"step1\").set(\"funcname\", \"sw\");\nmodel.func(\"step1\").set(\"location\", \"0.5\");\nmodel.func(\"step1\").set(\"from\", 0);\nmodel.func(\"step1\").set(\"to\", 1);\nmodel.func(\"step1\").set(\"smooth\", true);\nmodel.func(\"step1\").set(\"smoothzone\", \"0.05\");\nmodel.func(\"step1\").set(\"ncontder\", 2);\n// used e.g. as P0*sw(t[1/s]) in a time-dependent source",
+      "notes": "The argument of a Step function is unitless, so divide out the unit at the call site (sw(t/1[s])) or set argunit. Related shapes on the same Functions menu: Ramp (linear rise with optional cutoff), Rectangle (pulse between a lower and an upper limit), Triangle, Wave (sine/square/sawtooth/triangle, API type string \"Wave\" although the node is labelled Waveform) and Gaussian Pulse. All except Gaussian Pulse share the smooth/smoothzone/ncontder settings.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.073.html"
+    },
+    {
+      "name": "Material",
+      "kind": "tool",
+      "description": "A Material node assigns physical property values to a selection of domains (or boundaries, for thin layers). It is a container of property groups: the default user-defined group \"def\" holds the properties every physics interface understands (density, thermalconductivity, electricconductivity, youngsmodulus, ...), while specialized groups add model-specific ones. Add materials from the Add Material window (built-in and add-on material libraries), add a Blank Material and type values yourself, or add a Material Link that points at a global material. Property values may be expressions and may call Analytic/Interpolation/Piecewise functions of model inputs such as temperature.",
+      "usage": "Component 1 > right-click Materials > Blank Material  |  Materials toolbar > Add Material (library browser)  |  Component 1 > right-click Materials > More Materials > Material Link",
+      "parameters": [
+        {"name": "Geometric Entity Selection", "description": "Domains (or boundaries) the material applies to; later materials override earlier ones on overlapping selections."},
+        {"name": "propertyGroup(\"def\")", "description": "Default user-defined property group. Set output properties with set(<name>, <expr>), e.g. density, thermalconductivity, heatcapacity, electricconductivity, relpermittivity, relpermeability, youngsmodulus, poissonsratio, dynamicviscosity."},
+        {"name": "materialType", "description": "solid / nonsolid - determines which frame the properties are attached to."},
+        {"name": "Model inputs", "description": "Quantities such as temperature that the property expressions depend on; added with mm.addInput(<quantity>)."},
+        {"name": "link", "description": "For a Material Link (type \"Link\"): tag of the global material to reference."}
+      ],
+      "example": "model.component(\"comp1\").material().create(\"mat1\", \"Common\");\nmodel.component(\"comp1\").material(\"mat1\").label(\"Copper\");\nmodel.component(\"comp1\").material(\"mat1\").selection().set(new int[]{1, 2});\nmodel.component(\"comp1\").material(\"mat1\").propertyGroup(\"def\")\n     .set(\"density\", \"8960[kg/m^3]\");\nmodel.component(\"comp1\").material(\"mat1\").propertyGroup(\"def\")\n     .set(\"thermalconductivity\", new String[]{\"400[W/(m*K)]\", \"0\", \"0\", \"0\", \"400[W/(m*K)]\", \"0\", \"0\", \"0\", \"400[W/(m*K)]\"});\nmodel.component(\"comp1\").material(\"mat1\").propertyGroup(\"def\")\n     .set(\"heatcapacity\", \"385[J/(kg*K)]\");\n\n// link a component material to a global material\nmodel.component(\"comp1\").material().create(\"matlnk1\", \"Link\");\nmodel.component(\"comp1\").material(\"matlnk1\").set(\"link\", \"mat1\");",
+      "notes": "Tensor properties accept one element (isotropic), three (diagonal) or nine (full 3x3) strings. Materials from the Material Library and the module libraries need the corresponding licence; model.material().insert(\"file.xml\", new String[]{\"mat1\"}) imports materials from an MPH- or XML-file. A property left blank shows up as a missing-material warning on the physics node that needs it, not as an error on the material.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_materials.25.06.html"
+    },
+    {
+      "name": "Explicit",
+      "kind": "tool",
+      "description": "Named selection built by picking geometric entities by hand (or by tag/number from the API). Create one whenever the same set of domains, boundaries, edges or points is used by more than one node: physics features, materials, meshes, couplings and results can all point at the named selection, and updating the selection in one place updates every consumer. Explicit is the default type created by model.selection().create(<tag>).",
+      "usage": "Component 1 > Definitions > right-click > Selections > Explicit",
+      "parameters": [
+        {"name": "Geometric entity level", "description": "Domain, Boundary, Edge or Point; set from the API with .geom(<gtag>, dim) or .geom(dim)."},
+        {"name": "Selection", "description": "The entity numbers; set(...), add(...), remove(...), clear(), all()."},
+        {"name": "groupcontang", "description": "on/off - continuous tangent mode, so set/add/remove operate on whole groups of smoothly connected entities."},
+        {"name": "angletol", "description": "Angle tolerance in degrees used by continuous tangent mode (default 5)."},
+        {"name": "color / customcolor", "description": "Colour used when the selection is rendered in the Graphics window."}
+      ],
+      "example": "model.component(\"comp1\").selection().create(\"sel1\");        // Explicit by default\nmodel.component(\"comp1\").selection(\"sel1\").geom(\"geom1\", 2);  // boundary level in 3D\nmodel.component(\"comp1\").selection(\"sel1\").set(new int[]{3, 4, 7});\nmodel.component(\"comp1\").selection(\"sel1\").label(\"Heated walls\");\n\n// all exterior boundaries of a 2D geometry\nmodel.component(\"comp1\").selection().create(\"outer\")\n     .geom(\"geom1\", 2, 1, new String[]{\"exterior\"});\nmodel.component(\"comp1\").selection(\"outer\").all();\n\n// consume it from a physics feature\nmodel.component(\"comp1\").physics(\"ht\").feature(\"temp1\").selection().named(\"sel1\");",
+      "notes": "Entity numbers change when the geometry sequence changes - prefer Box/Ball/Cylinder/Adjacent selections, or geometry-feature selections created with set(\"selresult\", \"on\"), for geometry that is still being edited. Only the Explicit type supports set/add/remove/all; the other types are driven entirely through their properties.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_visualizationselection.22.22.html"
+    },
+    {
+      "name": "Box",
+      "kind": "tool",
+      "description": "Named selection that collects every entity of a chosen dimension that lies inside, or intersects, an axis-aligned box given by coordinate limits. Because it is geometric rather than by-number, it survives edits to the geometry sequence, which makes it the standard robust way to grab \"all boundaries near the inlet\" or \"the domains in the top half\". The condition property decides whether partial overlap counts, and the input property can restrict the search to other selections. Ball, Cylinder and Disk selections work identically with a different shape.",
+      "usage": "Component 1 > Definitions > right-click > Selections > Box",
+      "parameters": [
+        {"name": "entitydim", "description": "Dimension of the entities to select: 0 (points), 1 (edges), 2 (boundaries), 3 (domains); defaults to the space dimension."},
+        {"name": "xmin, xmax, ymin, ymax, zmin, zmax", "description": "Coordinate limits of the box; defaults are -inf/inf, so leave a pair untouched to make the box unbounded in that direction. Units come from the geometry sequence."},
+        {"name": "condition", "description": "intersects (default), inside, somevertex or allvertices - how much of an entity must lie in the box."},
+        {"name": "inputent / input", "description": "all (default) searches the whole geometry; selections restricts the search to the named selections listed in input."},
+        {"name": "groupcontang / angletol", "description": "Continuous tangent grouping and its angle tolerance."}
+      ],
+      "example": "model.component(\"comp1\").selection().create(\"box1\", \"Box\");\nmodel.component(\"comp1\").selection(\"box1\").label(\"Inlet region\");\nmodel.component(\"comp1\").selection(\"box1\").set(\"entitydim\", \"2\");\nmodel.component(\"comp1\").selection(\"box1\").set(\"xmin\", \"-0.01\");\nmodel.component(\"comp1\").selection(\"box1\").set(\"xmax\", \"0.01\");\nmodel.component(\"comp1\").selection(\"box1\").set(\"condition\", \"inside\");\n\n// same idea with a ball\nmodel.component(\"comp1\").selection().create(\"ball1\", \"Ball\");\nmodel.component(\"comp1\").selection(\"ball1\").set(\"entitydim\", \"2\");\nmodel.component(\"comp1\").selection(\"ball1\").set(\"posx\", \"1\");\nmodel.component(\"comp1\").selection(\"ball1\").set(\"posy\", \"1\");\nmodel.component(\"comp1\").selection(\"ball1\").set(\"posz\", \"1\");\nmodel.component(\"comp1\").selection(\"ball1\").set(\"r\", \"0.5\");",
+      "notes": "With condition set to intersects or inside the test uses the rendering mesh, so a very coarse graphics setting can change the result; ModelUtil.setPreference(\"graphics.rendering.detail\", \"fine\") makes it stricter. Inside the geometry sequence the equivalent features are BoxSelection, BallSelection and CylinderSelection, created on model.component(<ctag>).geom(<gtag>) instead of on Definitions.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_visualizationselection.22.19.html"
+    },
+    {
+      "name": "Adjacent",
+      "kind": "tool",
+      "description": "Named selection derived from other selections: it returns the entities one dimension down (by default) that bound the input selections - for example the boundaries of a set of domains, or the edges of a set of boundaries. Use it to keep a surface selection tied to a volume selection so that both update together when the geometry changes, and switch exterior/interior to get only the outer skin or only the internal interfaces. Complement, Union, Intersection and Difference selections are the other derived types on the same submenu.",
+      "usage": "Component 1 > Definitions > right-click > Selections > Adjacent",
+      "parameters": [
+        {"name": "input", "description": "String array of the tags of the input selections."},
+        {"name": "entitydim", "description": "Dimension of the input entities (defaults to the space dimension)."},
+        {"name": "outputdim", "description": "Dimension of the resulting entities (defaults to sdim-1)."},
+        {"name": "exterior", "description": "on (default) - include boundaries/edges on the outside of the input selection."},
+        {"name": "interior", "description": "off (default) - include boundaries/edges between entities of the input selection."}
+      ],
+      "example": "model.component(\"comp1\").selection().create(\"sel1\");\nmodel.component(\"comp1\").selection(\"sel1\").geom(\"geom1\", 3);\nmodel.component(\"comp1\").selection(\"sel1\").set(new int[]{1, 2});\n\nmodel.component(\"comp1\").selection().create(\"adj1\", \"Adjacent\");\nmodel.component(\"comp1\").selection(\"adj1\").label(\"Skin of the solid\");\nmodel.component(\"comp1\").selection(\"adj1\").set(\"input\", new String[]{\"sel1\"});\nmodel.component(\"comp1\").selection(\"adj1\").set(\"exterior\", \"on\");\nmodel.component(\"comp1\").selection(\"adj1\").set(\"interior\", \"off\");\n\n// boolean selections\nmodel.component(\"comp1\").selection().create(\"dif1\", \"Difference\");\nmodel.component(\"comp1\").selection(\"dif1\").set(\"add\", new String[]{\"box1\"});\nmodel.component(\"comp1\").selection(\"dif1\").set(\"subtract\", new String[]{\"sel1\"});",
+      "notes": "Union, Intersection and Complement take an input string array; Difference uses add and subtract instead. All derived selections require their inputs to be at the same entity dimension. The available named-selection types are Explicit, Union, Intersection, Difference, Complement, Adjacent, Ball, Box, Cylinder, Disk and LogicalExpression.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_visualizationselection.22.17.html"
+    },
+    {
+      "name": "Integration",
+      "kind": "tool",
+      "description": "Nonlocal coupling that turns an integral over a source selection into a globally available operator. After defining intop1 on a boundary, intop1(T) is the integral of T over that boundary anywhere in the model, and intop1(1) is its area - which is how you compute total heat flux, total current, reaction force, or normalize a quantity by a region's measure. Because the destination is global, the operator can be used in physics settings, variables, probes and results, including across components.",
+      "usage": "Component 1 > Definitions > right-click > Component Couplings > Integration",
+      "parameters": [
+        {"name": "opname", "description": "Operator name used in expressions (defaults to the feature tag, e.g. intop1)."},
+        {"name": "Source Selection", "description": "Domains, boundaries, edges or points to integrate over; set with selection().set(...) or selection().named(<seltag>)."},
+        {"name": "method", "description": "integration (default) or summation over the node points of the source."},
+        {"name": "intorder", "description": "Integration order (default 4)."},
+        {"name": "frame", "description": "Frame whose volume element is used: spatial (default), material, geometry or mesh."},
+        {"name": "axisym", "description": "on (default) - multiply by 2*pi*r in axisymmetric geometries so the result is the full revolved integral."}
+      ],
+      "example": "model.component(\"comp1\").cpl().create(\"intop1\", \"Integration\");\nmodel.component(\"comp1\").cpl(\"intop1\").set(\"opname\", \"intBnd\");\nmodel.component(\"comp1\").cpl(\"intop1\").selection().geom(\"geom1\", 2);\nmodel.component(\"comp1\").cpl(\"intop1\").selection().set(new int[]{3, 4});\nmodel.component(\"comp1\").cpl(\"intop1\").set(\"intorder\", \"4\");\nmodel.component(\"comp1\").cpl(\"intop1\").set(\"frame\", \"spatial\");\n\nmodel.variable().create(\"var1\");\nmodel.variable(\"var1\").set(\"Q_tot\", \"comp1.intBnd(ht.ntflux)\", \"Total heat flux\");",
+      "notes": "Sibling coupling types created the same way on model.component(<ctag>).cpl() are Average, Maximum, Minimum (Maximum/Minimum take an optional second argument evaluated where the first is extreme, e.g. maxop1(T, x)), plus the mapping types GeneralExtrusion, LinearExtrusion, GeneralProjection, LinearProjection, BoundarySimilarity and IdentityMapping. In an axisymmetric model leave axisym on unless you deliberately want the per-radian value. Use the dest() operator inside the integrand to build convolution integrals.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.096.html"
+    },
+    {
+      "name": "General Extrusion",
+      "kind": "tool",
+      "description": "Nonlocal coupling that maps a quantity defined on a source selection onto any destination where the destination-map expressions are valid. It is the general mapping operator: extrude a boundary value through a volume, project a 2D result onto a 3D face, compare a solution with itself at a shifted or mirrored location, or transfer data between components of different space dimensions. You supply expressions for the destination map (and optionally a source map); the operator then evaluates its argument at the mapped source point.",
+      "usage": "Component 1 > Definitions > right-click > Component Couplings > General Extrusion",
+      "parameters": [
+        {"name": "opname", "description": "Operator name used in expressions (defaults to the tag, e.g. genext1)."},
+        {"name": "Source Selection", "description": "Geometric entities the data is taken from; set with selection().set(...) or selection().named(...)."},
+        {"name": "dstmap", "description": "String array of expressions for the destination map - where in the intermediate space each destination point is evaluated (set per component with setIndex)."},
+        {"name": "srcmap / usesrcmap", "description": "Optional source map expressions; usesrcmap is off by default, in which case dstmap maps straight to the source geometry."},
+        {"name": "srcframe", "description": "Frame the source mesh is viewed in: spatial (default), material or mesh."},
+        {"name": "method / exttol / searchdist / usenan", "description": "Mesh search settings: usetol (default, with relative tolerance exttol), closest or walk; usenan returns NaN instead of an error when the mapped point falls outside the source."}
+      ],
+      "example": "model.component(\"comp1\").cpl().create(\"genext1\", \"GeneralExtrusion\");\nmodel.component(\"comp1\").cpl(\"genext1\").set(\"opname\", \"mapTop\");\nmodel.component(\"comp1\").cpl(\"genext1\").selection().geom(\"geom1\", 2);\nmodel.component(\"comp1\").cpl(\"genext1\").selection().set(new int[]{5});\n// evaluate the source boundary value directly above each destination point\nmodel.component(\"comp1\").cpl(\"genext1\").setIndex(\"dstmap\", \"x\", 0);\nmodel.component(\"comp1\").cpl(\"genext1\").setIndex(\"dstmap\", \"y\", 1);\nmodel.component(\"comp1\").cpl(\"genext1\").set(\"usesrcmap\", \"off\");\nmodel.component(\"comp1\").cpl(\"genext1\").set(\"usenan\", \"on\");\n// used as comp1.mapTop(T) anywhere in the model",
+      "notes": "Trailing empty expressions in dstmap and srcmap are ignored, and the number of remaining expressions sets the dimension of the intermediate space. Changing the source selection rewrites dstmap/srcmap to keep the dimensions consistent. Linear Extrusion is the simpler variant driven by picking source and destination vertices; General Projection integrates along a line through the source instead of sampling a point.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.087.html"
+    },
+    {
+      "name": "Rotated System",
+      "kind": "tool",
+      "description": "User-defined coordinate system obtained by rotating the global Cartesian system through Euler angles (3D) or a single in-plane angle (2D). Add one when material properties, loads or constraints are aligned with a direction that is not the global axes - orthotropic or anisotropic materials, fibre directions, an inclined roller support - and then select it in the Coordinate System Selection section of the physics feature. Rotated systems are always orthonormal and are relative systems, so they follow the spatial or material frame depending on context.",
+      "usage": "Component 1 > Definitions > right-click > Coordinate Systems > Rotated System",
+      "parameters": [
+        {"name": "angle", "description": "String array of the rotation angles; default unit is radians, so write \"30[deg]\" for degrees. Set element-wise with setIndex(\"angle\", ..., i)."},
+        {"name": "rotationSequence", "description": "Euler rotation sequence: ZXZ (default), XYZ, ZYX, ... ."},
+        {"name": "method / inPlaneAngle", "description": "In 2D: inPlane (default) uses the single angle inPlaneAngle about the out-of-plane axis, instead of a full 3D rotation."},
+        {"name": "origin", "description": "Origin of the system (string array, set with setIndex)."},
+        {"name": "frametype", "description": "Frame used for the origin: spatial (default), material, geometry or mesh."},
+        {"name": "coord", "description": "Names of the system's coordinates (default x1, x2, x3)."}
+      ],
+      "example": "model.component(\"comp1\").coordSystem().create(\"sys2\", \"geom1\", \"Rotated\");\nmodel.component(\"comp1\").coordSystem(\"sys2\").label(\"Fiber direction\");\nmodel.component(\"comp1\").coordSystem(\"sys2\").set(\"rotationSequence\", \"ZXZ\");\nmodel.component(\"comp1\").coordSystem(\"sys2\").setIndex(\"angle\", \"30[deg]\", 0);\nmodel.component(\"comp1\").coordSystem(\"sys2\").setIndex(\"angle\", \"0\", 1);\nmodel.component(\"comp1\").coordSystem(\"sys2\").setIndex(\"angle\", \"0\", 2);\n\n// base-vector system, the other common choice\nmodel.component(\"comp1\").coordSystem().create(\"sys3\", \"VectorBase\");\nmodel.component(\"comp1\").coordSystem(\"sys3\").set(\"base\",\n    new String[][]{{\"0\",\"1\",\"0\"},{\"0\",\"0\",\"1\"},{\"1\",\"0\",\"0\"}});",
+      "notes": "Other coordinate-system types created the same way are Mapping (mapped system), VectorBase (base vector system), Cylindrical, Boundary (boundary system, always present as sys1 on boundaries), Scaling and SystemFromGeometry; PML, InfiniteElement and AbsorbingLayer are also implemented as coordinate systems but need add-on modules. Only Scaling, PML, InfiniteElement and AbsorbingLayer accept a selection - Rotated, VectorBase and Mapping apply wherever a physics feature selects them.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.101.html"
+    },
+    {
+      "name": "Domain Point Probe",
+      "kind": "tool",
+      "description": "Probe that monitors one or more expressions at a freely chosen point inside a domain while a time-dependent, frequency-domain or parametric study runs, plotting the value live and writing it to a probe table. Unlike a Point Probe it does not need a geometric vertex there - you give coordinates, or pick the point interactively along a surface normal or between two points. Add one whenever you want to watch convergence or a transient signal without waiting for the full solution, or to produce a compact table for a sweep.",
+      "usage": "Component 1 > Definitions > right-click > Probes > Domain Point Probe  (a Point Probe Expression subnode is added automatically)",
+      "parameters": [
+        {"name": "coords", "description": "Probe coordinates (matrix of doubles) in the selected frame."},
+        {"name": "method", "description": "Line entry method in 3D: pointnormal (default), pointdirection, twopoints or none (type coordinates directly)."},
+        {"name": "depthpointnormal / depthpointdirection / depthtwopoints", "description": "Value from 0 to 1 giving the position along the entry line."},
+        {"name": "frame", "description": "Frame the coordinates refer to: spatial, material, geometry or mesh."},
+        {"name": "expr (on the Point Probe Expression subnode)", "description": "Expression to evaluate at the probe point; with descr, unit, table and window controlling labelling and output."}
+      ],
+      "example": "model.component(\"comp1\").probe().create(\"pdom1\", \"DomainPoint\");\nmodel.component(\"comp1\").probe(\"pdom1\").model(\"comp1\");\nmodel.component(\"comp1\").probe(\"pdom1\").set(\"method\", \"none\");\nmodel.component(\"comp1\").probe(\"pdom1\").setIndex(\"coords\", 0.05, 0);\nmodel.component(\"comp1\").probe(\"pdom1\").setIndex(\"coords\", 0.02, 1);\nmodel.component(\"comp1\").probe(\"pdom1\").setIndex(\"coords\", 0.01, 2);\nmodel.component(\"comp1\").probe(\"pdom1\").feature(\"ppb1\").set(\"expr\", \"T\");\nmodel.component(\"comp1\").probe(\"pdom1\").feature(\"ppb1\").set(\"unit\", \"K\");\n\n// probes must be prepared explicitly when solving from the API\nmodel.component(\"comp1\").probe(\"pdom1\").genResult(null);",
+      "notes": "When a study is run from the COMSOL Desktop genResult() is called automatically for every active probe; from the API you must call it yourself or the probe table stays empty. Probe types created on model.component(<ctag>).probe() are DomainPoint and BoundaryPoint (point probes, with PointExpr subnodes) and Domain, Boundary, Edge, Point and GlobalVariable (aggregating probes with type average, maximum, minimum or integral). A Global Variable Probe needs no selection and is the cheapest way to watch a global quantity.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.124.html"
+    },
+    {
+      "name": "Units and Unit Syntax",
+      "kind": "tool",
+      "description": "COMSOL carries units through the whole model: every input field has an expected dimension, and a value can be entered in any compatible unit by appending it in square brackets, for example 200[ft], 3e6[kg/m^3] or 25[degC]. A quantity typed without a unit is interpreted in the model's base unit system (SI by default). Use unit syntax in parameters, variables, function definitions, physics settings and result expressions to avoid manual conversions, and change the base unit system on the root node when you want the displayed values in another system.",
+      "usage": "Type the unit in brackets after any value, e.g. L = 10[cm]  |  Root node Settings > Unit system  |  Component 1 > Geometry 1 > Settings > Units (Length unit, Angular unit)",
+      "parameters": [
+        {"name": "Unit bracket syntax", "description": "value[unit], e.g. 2.4[A] or 2.4[ampere]. Appending a unit multiplies the quantity to its left and binds tighter than other operators: 1/2[m] is 0.5 1/m, while (1/2)[m] is 0.5 m."},
+        {"name": "SI prefixes", "description": "Full prefix or symbol, used consistently with the unit name or symbol: [mA] and [milliampere] are valid, [mampere] is not. u is the symbol for micro."},
+        {"name": "Unit system", "description": "Base unit system of the model (SI, CGSA, IPS, MPa, ...); set on the root node with model.baseSystem(<utag>), or per component with model.component(<tag>).baseSystem(<utag>)."},
+        {"name": "Geometry length unit / angular unit", "description": "Per geometry sequence: model.component(<ctag>).geom(<gtag>).lengthUnit(\"mm\") and .angularUnit(\"rad\" | \"deg\")."},
+        {"name": "argunit / fununit", "description": "Declared argument and result units on user-defined functions, so that calls to them are unit-checked."}
+      ],
+      "example": "model.param().set(\"L\", \"10[cm]\");\nmodel.param().set(\"rho\", \"8960[kg/m^3]\");\nmodel.param().set(\"dT\", \"0.5[ft]+33[mm]\");   // mixed units are converted automatically\n\nmodel.component(\"comp1\").geom(\"geom1\").lengthUnit(\"mm\");\nmodel.component(\"comp1\").geom(\"geom1\").angularUnit(\"deg\");\n\n// user-defined unit system\nUnitSystem us = model.unitSystem().create(\"cgs2\");\nmodel.baseSystem(\"cgs2\");\nus.baseUnit().create(\"centimeter\", \"cm\", \"length\");",
+      "notes": "Temperature units are special: 25[degC] is an absolute temperature while a temperature difference should be written in K to avoid the offset. Only unit names that are a single word without spaces or hyphens can be used inside brackets. The SI system is read-only and always present. Changing the geometry length unit rescales the numbers in the geometry sequence unless you disable the scale-on-unit-change setting.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_modeling.19.093.html"
+    },
+    {
+      "name": "Method Call",
+      "kind": "tool",
+      "description": "A Method Call node under Global Definitions runs a model method - a piece of Java written in the Application Builder's Method Editor that manipulates the model tree, for example to build a parameterized geometry, loop over files, or run a custom solver sequence. Unlike Run Method, a Method Call carries input arguments, so the same method can be instantiated several times with different values. Use methods when a workflow cannot be expressed with the built-in nodes, and call them from batch runs with -methodcall.",
+      "usage": "Developer toolbar > New Method (writes the method)  |  Global Definitions > right-click > Method Calls > <method name>  |  Developer toolbar > Run Method Call, or press F8 in the node's Settings window",
+      "parameters": [
+        {"name": "methodname", "description": "Name of the model method the call runs; second argument of model.methodCall().create()."},
+        {"name": "Inputs", "description": "One field per input declared in the method; set from the API with model.methodCall(<tag>).set(<paramname>, <value>), where the value may be a string, number, boolean or array."},
+        {"name": "-methodinputnames / -methodinputvalues / -methodinputfile", "description": "Batch-mode arguments that override method-call inputs from the command line or from a file; quote values that carry units, e.g. \"'500[m]','45[s]'\"."}
+      ],
+      "example": "model.methodCall().create(\"mcall1\", \"buildGeometry\");\nmodel.methodCall(\"mcall1\").set(\"paramname\", \"p1\");\nmodel.methodCall(\"mcall1\").set(\"paramvalues\", new double[]{2.3, 3.7, 5.6});\nmodel.methodCall(\"mcall1\").set(\"sendmail\", true);\nmodel.methodCall(\"mcall1\").run();\n\nString[] names = model.methodCall(\"mcall1\").inputNames();\nString[] all   = model.methodCall(\"mcall1\").methods();",
+      "notes": "Running a model method cannot be undone, and the tree must already be in a state the method expects. Methods used from a Model Java-file must not contain user-interface commands - Confirm, FileOpen, FileSaveAs, ImportFile and Request throw an exception, while Alert, Message, DebugLog, SetProgress and ZoomExtents are ignored. The Java-file history recorded for a method call contains the effects of the call, not the method source.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_modeling.19.023.html"
+    },
+    {
+      "name": "Compact History",
+      "kind": "menu",
+      "description": "A COMSOL model keeps the full history of every action ever performed, and that entire history - including settings that were later deleted - is what File > Save As writes to a Model file for Java (.java) or MATLAB (.m). Compact History rewrites the history so that only the calls needed to rebuild the current state remain. Run it before exporting a model to code: it turns an unreadable multi-thousand-line transcript into a clean script, which is the normal way to obtain correct COMSOL API for Java code for an existing model.",
+      "usage": "File > Compact History  (then File > Save As > Model file for Java (*.java) or Model file for MATLAB (*.m))",
+      "parameters": [
+        {"name": "Save as type", "description": "COMSOL Application (*.mph), Model file for Java (*.java), Model file for MATLAB (*.m) or COMSOL File for VBA (*.vba)."},
+        {"name": "Include author in history export", "description": "Preferences > User Interface option that adds the author to the header of exported Java/MATLAB model files."},
+        {"name": "Revert to Saved", "description": "File > Revert to Saved reloads the last saved version and reinitializes the user interface."}
+      ],
+      "example": "Steps in the COMSOL Desktop:\n1. Build the geometry (Geometry > Build All) - compacting works best on a built geometry.\n2. File > Compact History.\n3. File > Save As, choose \"Model file for Java (*.java)\", save as model.java.\n4. Run the exported file headless:\n   comsol batch -inputfile model.java\n\nThe exported file has the shape:\n   public static Model run() {\n     Model model = ModelUtil.create(\"Model\");\n     model.modelPath(\"C:/work\");\n     model.param().set(\"L\", \"10[cm]\");\n     model.component().create(\"comp1\", true);\n     ...\n     return model;\n   }",
+      "notes": "Compacting is not supported for imported meshes defined by datasets or for models with deformed-geometry configurations, and the result can be wrong when a dataset points at a deleted component, when the Detect Interference node has an active Interfering faces list, or when the geometry changed after solving (result-feature selections are then lost). Renaming tags by hand before compacting can also break the output. Compact History does not delete solution data - it only rewrites the recorded command history.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_environment.18.16.html"
+    }
+  ]
+}

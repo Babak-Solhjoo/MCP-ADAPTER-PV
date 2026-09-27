@@ -1,0 +1,658 @@
+{
+  "category": "IP Integrator, Block Design & IP Catalog",
+  "description": "IP Integrator assembles a system from pre-verified IP connected through AXI and other standard interfaces, and every action on the Block Design canvas has an exact Tcl equivalent in the bd_* command family. This category covers those commands, the IP catalog commands that create, configure, version and synthesise IP outside a block design, and the most commonly instantiated cores from the Vivado IP catalog.",
+  "tools": [
+    {
+      "name": "create_bd_design / open_bd_design / current_bd_design",
+      "kind": "tcl-command",
+      "description": "Create a new block design, open an existing one, or query which block design the bd_* commands currently operate on. Almost every other command in this category acts implicitly on the current block design, so one of these is always the first step of a block-design script. Block designs live inside a Vivado project, so a project must exist before create_bd_design is called.",
+      "usage": "create_bd_design [-dir <path>] <name>\nopen_bd_design <bd_file_or_file_object>\ncurrent_bd_design [<design>]\nclose_bd_design <design>",
+      "parameters": [
+        {"name": "<name>", "description": "Name of the new block design; it becomes the name of the .bd file and of the generated wrapper."},
+        {"name": "-dir", "description": "Directory for the block design sources; defaults to the project's sources fileset location."},
+        {"name": "open_bd_design <file>", "description": "Path to the .bd file, or the file object from [get_files system.bd]."},
+        {"name": "current_bd_design [<design>]", "description": "With no argument, returns the active design; with one, makes that design active when several are open."},
+        {"name": "close_bd_design", "description": "Close a design; unsaved changes are lost unless save_bd_design was called first."}
+      ],
+      "example": "create_project bd_demo ./bd_demo -part xc7z020clg400-1\ncreate_bd_design \"system\"\nputs \"current: [get_property NAME [current_bd_design]]\"\n\n# Re-open the same design in a later session\nopen_project ./bd_demo/bd_demo.xpr\nopen_bd_design [get_files system.bd]\nupdate_compile_order -fileset sources_1",
+      "notes": "A freshly created design is automatically made current, so scripts rarely need current_bd_design except when juggling several designs. create_bd_design fails if a design of that name already exists in the project; delete it or use a different name.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_bd_design"
+    },
+    {
+      "name": "create_bd_cell",
+      "kind": "tcl-command",
+      "description": "Add a cell to the current block design: an IP from the catalog, an empty hierarchy container, or an RTL module already in the project's sources. It is the command behind every drag-and-drop from the IP catalog onto the canvas. The instance name given here is what every later get_bd_cells, connect_bd_net and set_property call refers to.",
+      "usage": "create_bd_cell -type <ip|hier|module|container> [-vlnv <vendor:library:name:version>] [-reference <module_name>] <instance_name>",
+      "parameters": [
+        {"name": "-type ip", "description": "Instantiate a catalog IP; requires -vlnv."},
+        {"name": "-type hier", "description": "Create an empty hierarchical block that other cells can be moved into, keeping large designs readable."},
+        {"name": "-type module", "description": "Instantiate an RTL module from the project sources; requires -reference with the module name."},
+        {"name": "-vlnv", "description": "Vendor:Library:Name:Version identifier of the IP, e.g. xilinx.com:ip:axi_gpio:2.0. List available ones with get_ipdefs."},
+        {"name": "<instance_name>", "description": "Instance name in the block design; prefix with a hierarchy path to place it inside a hierarchy, e.g. dsp_subsystem/fir_0."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_0\n\n# A hierarchy to keep the DSP chain tidy\ncreate_bd_cell -type hier dsp_subsystem\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 dsp_subsystem/axis_data_fifo_0\n\n# A hand-written RTL module as a block\nupdate_compile_order -fileset sources_1\ncreate_bd_cell -type module -reference my_stream_filter my_filter_0",
+      "notes": "For -type module the RTL must already be added to the project and the compile order updated, otherwise the module is not found. Use `get_ipdefs *axi_gpio*` to discover the exact VLNV string including the version suffix installed in your release.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_bd_cell"
+    },
+    {
+      "name": "create_bd_port / create_bd_pin",
+      "kind": "tcl-command",
+      "description": "Create scalar or vector connectivity points: create_bd_port makes an external port on the block-design boundary that becomes a top-level port of the generated wrapper, while create_bd_pin makes a pin on a hierarchy block so signals can cross the hierarchy boundary. Tagging a port with -type clk or -type rst attaches clock and reset metadata that parameter propagation, connection automation and validate_bd_design all rely on.",
+      "usage": "create_bd_port [-dir <I|O|IO>] [-from <msb>] [-to <lsb>] [-type <clk|rst|intr|data|ce>] [-freq_hz <hz>] <name>\ncreate_bd_pin -dir <I|O|IO> [-from <msb>] [-to <lsb>] [-type <clk|rst|...>] <hier_cell>/<name>",
+      "parameters": [
+        {"name": "-dir", "description": "Direction seen from inside the block design: I, O or IO."},
+        {"name": "-from / -to", "description": "MSB and LSB of a vector port or pin; omit both for a scalar."},
+        {"name": "-type", "description": "Semantic type: clk, rst, intr, data or ce. clk and rst carry FREQ_HZ and POLARITY metadata used by automation."},
+        {"name": "-freq_hz", "description": "Frequency in Hz declared on a clock port, e.g. 100000000. Also settable later as CONFIG.FREQ_HZ."},
+        {"name": "<name>", "description": "Port name, or hierarchy-qualified pin name such as dsp_subsystem/clk."}
+      ],
+      "example": "create_bd_port -dir I -type clk -freq_hz 100000000 sys_clk\ncreate_bd_port -dir I -type rst resetn\nset_property CONFIG.POLARITY ACTIVE_LOW [get_bd_ports resetn]\ncreate_bd_port -dir O -from 7 -to 0 led\n\n# Pins on a hierarchy block, then wire through the boundary\ncreate_bd_pin -dir I -type clk dsp_subsystem/clk\ncreate_bd_pin -dir I -type rst dsp_subsystem/aresetn\nconnect_bd_net [get_bd_ports sys_clk] [get_bd_pins dsp_subsystem/clk]",
+      "notes": "Declaring POLARITY on a reset port matters: an ACTIVE_HIGH reset wired to an active-low input is reported by validate_bd_design only if the metadata is correct. Ports created here appear in the wrapper, so make_wrapper must be re-run with -force after adding or removing them.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_bd_port"
+    },
+    {
+      "name": "create_bd_intf_port",
+      "kind": "tcl-command",
+      "description": "Create an external interface port: a bundled group of signals such as an AXI memory-mapped channel set, an AXI4-Stream, a UART pair or an IIC pair, described by an interface VLNV rather than by individual wires. Using interface ports keeps the wrapper's port list structured and lets Vivado check protocol and parameter compatibility when the port is connected. The companion command create_bd_intf_pin does the same on a hierarchy block.",
+      "usage": "create_bd_intf_port -mode <Master|Slave|Monitor> -vlnv <vendor:interface:name:version> <name>\ncreate_bd_intf_pin -mode <Master|Slave> -vlnv <interface_vlnv> <hier_cell>/<name>",
+      "parameters": [
+        {"name": "-mode", "description": "Master, Slave or Monitor, from the point of view of the block design."},
+        {"name": "-vlnv", "description": "Interface definition VLNV, which uses the 'interface' library: xilinx.com:interface:aximm_rtl:1.0, axis_rtl:1.0, uart_rtl:1.0, iic_rtl:1.0, gpio_rtl:1.0, diff_clock_rtl:1.0."},
+        {"name": "<name>", "description": "Port name; the individual wires of the wrapper are derived from it, e.g. uart_rxd / uart_txd."},
+        {"name": "CONFIG.FREQ_HZ", "description": "Property set afterwards on an AXI interface port to declare the clock frequency associated with it."}
+      ],
+      "example": "create_bd_intf_port -mode Slave -vlnv xilinx.com:interface:uart_rtl:1.0 uart\nconnect_bd_intf_net [get_bd_intf_ports uart] [get_bd_intf_pins axi_uartlite_0/UART]\n\n# Expose an AXI master to the outside of the block design\ncreate_bd_intf_port -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 M_AXI\nset_property CONFIG.FREQ_HZ 100000000 [get_bd_intf_ports M_AXI]\n\n# Differential board clock as an interface port\ncreate_bd_intf_port -mode Slave -vlnv xilinx.com:interface:diff_clock_rtl:1.0 sys_diff_clk",
+      "notes": "Interface VLNVs use the 'interface' library and are different from IP VLNVs; get_ipdefs will not find them. The quickest way to create a matching port is to let connection automation make it external, then read the command it echoes to the Tcl console.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_bd_intf_port"
+    },
+    {
+      "name": "connect_bd_net",
+      "kind": "tcl-command",
+      "description": "Wire individual (non-interface) pins and ports together: clocks, resets, interrupts, GPIO vectors and any scalar control signal. One call can list several objects, which creates a single net with one driver and several loads. Connecting to a pin that is already on a net merges the two nets rather than creating a second one.",
+      "usage": "connect_bd_net [-net <net_name>] <object_1> <object_2> [<object_3> ...]",
+      "parameters": [
+        {"name": "-net", "description": "Explicit name for the resulting net; without it Vivado derives a name from the driver pin."},
+        {"name": "<objects>", "description": "Pins and ports from get_bd_pins and get_bd_ports. Exactly one must be a driver."},
+        {"name": "disconnect_bd_net", "description": "Companion command that removes objects from a net: disconnect_bd_net <net> <pins>."}
+      ],
+      "example": "# One clock fanned out to several blocks\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out1] \\\n  [get_bd_pins proc_sys_reset_0/slowest_sync_clk] \\\n  [get_bd_pins axi_gpio_0/s_axi_aclk] \\\n  [get_bd_pins axi_interconnect_0/ACLK]\n\nconnect_bd_net -net ext_rst_n [get_bd_ports resetn] [get_bd_pins proc_sys_reset_0/ext_reset_in]\nconnect_bd_net [get_bd_pins proc_sys_reset_0/peripheral_aresetn] [get_bd_pins axi_gpio_0/s_axi_aresetn]\nconnect_bd_net [get_bd_pins clk_wiz_0/locked] [get_bd_pins proc_sys_reset_0/dcm_locked]",
+      "notes": "Width mismatches are not flagged at connect time but at validate_bd_design, so validate early and often. Use xlconcat, xlslice and xlconstant cells rather than trying to express bit slicing or tie-offs in the net connection itself.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/connect_bd_net"
+    },
+    {
+      "name": "connect_bd_intf_net",
+      "kind": "tcl-command",
+      "description": "Connect two interface pins or ports, such as an AXI master to an AXI slave or an AXI4-Stream source to a sink, wiring every signal of the bundle in one call. Vivado checks that the interface VLNVs are compatible and that the roles are master-to-slave. Parameter propagation then pushes data width, address width, protocol and clock-domain information across the connection, which is why a block design often reconfigures itself as you connect it.",
+      "usage": "connect_bd_intf_net [-intf_net <name>] [-boundary_type upper|lower|both] <intf_object_1> <intf_object_2>",
+      "parameters": [
+        {"name": "<intf_object_1/2>", "description": "Interface pins or ports from get_bd_intf_pins and get_bd_intf_ports; one master and one slave."},
+        {"name": "-intf_net", "description": "Explicit name for the interface net."},
+        {"name": "-boundary_type", "description": "Controls whether the connection is made at the upper or lower side of a hierarchy boundary; rarely needed by hand."}
+      ],
+      "example": "connect_bd_intf_net [get_bd_intf_pins processing_system7_0/M_AXI_GP0] \\\n  [get_bd_intf_pins axi_interconnect_0/S00_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_interconnect_0/M00_AXI] \\\n  [get_bd_intf_pins axi_gpio_0/S_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_interconnect_0/M01_AXI] \\\n  [get_bd_intf_pins axi_uartlite_0/S_AXI]\n\n# Stream from a DMA into a processing block\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXIS_MM2S] \\\n  [get_bd_intf_pins dsp_subsystem/S_AXIS]",
+      "notes": "An AXI4 master connected to an AXI4-Lite slave needs a protocol converter, which axi_interconnect or smartconnect inserts automatically; a direct connection is refused. After connecting, run validate_bd_design so parameter propagation is resolved and any mismatched data width is reported.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/connect_bd_intf_net"
+    },
+    {
+      "name": "apply_bd_automation",
+      "kind": "tcl-command",
+      "description": "Run a block-automation or connection-automation rule, the scripted form of the green 'Run Block Automation' and 'Run Connection Automation' banners in the GUI. A rule adds and wires whole groups of cells: it can apply a board preset to a processing system, build the MicroBlaze local memory and debug subsystem, insert an interconnect and clock/reset infrastructure to reach a chosen master, or make an interface external and attach it to a board component. It is by far the fastest way to bring up a standard system, and the GUI echoes the exact command it ran to the Tcl console.",
+      "usage": "apply_bd_automation -rule <vendor:bd_rule:<rule_name>> -config { <key> <value> ... } [-opts <args>] <objects>",
+      "parameters": [
+        {"name": "-rule", "description": "Rule VLNV, e.g. xilinx.com:bd_rule:processing_system7, xilinx.com:bd_rule:zynq_ultra_ps_e, xilinx.com:bd_rule:microblaze, xilinx.com:bd_rule:axi4, xilinx.com:bd_rule:board, xilinx.com:bd_rule:clkrst, xilinx.com:bd_rule:debug."},
+        {"name": "-config", "description": "Braced key/value list of rule options; the keys differ per rule, e.g. make_external, Master, Slave, Clk, Board_Interface, local_mem, cache, debug_module."},
+        {"name": "<objects>", "description": "What the rule acts on: a cell for block automation ([get_bd_cells ...]), an interface pin or port for connection automation ([get_bd_intf_pins ...])."},
+        {"name": "Clk \"Auto\"", "description": "Common connection-automation value that lets the rule pick or create a clock source and matching proc_sys_reset."}
+      ],
+      "example": "# Zynq-7000 block automation: bring out FIXED_IO and DDR, no AXI ports yet\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 processing_system7_0\napply_bd_automation -rule xilinx.com:bd_rule:processing_system7 \\\n  -config {make_external \"FIXED_IO, DDR\" Master \"Disable\" Slave \"Disable\"} \\\n  [get_bd_cells processing_system7_0]\n\n# Connection automation: hook a GPIO's AXI slave up to the PS master\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_0\napply_bd_automation -rule xilinx.com:bd_rule:axi4 \\\n  -config {Master \"/processing_system7_0/M_AXI_GP0\" Clk \"Auto\"} \\\n  [get_bd_intf_pins axi_gpio_0/S_AXI]",
+      "notes": "Rule names and config keys change between releases and between device families, so the reliable workflow is to do it once in the GUI and copy the command from the Tcl console rather than writing it from memory. Connection automation for AXI adds an interconnect, a clocking wizard and a proc_sys_reset if the design does not already have them, then calls assign_bd_address.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/apply_bd_automation"
+    },
+    {
+      "name": "assign_bd_address",
+      "kind": "tcl-command",
+      "description": "Map memory-mapped slaves into the address spaces of the masters that can reach them, which is the Tcl form of the Address Editor. Called with no arguments it auto-maps every unmapped slave segment into every master address space that has a path to it, choosing offsets and ranges automatically. Called with explicit arguments it places one segment at a chosen offset and range, which is what you want when software expects fixed addresses.",
+      "usage": "assign_bd_address [-target_address_space <space>] [-offset <hex_addr>] [-range <size>] [-force] [<segment_objects>]\ncreate_bd_addr_seg -range <size> -offset <hex_addr> <address_space> <address_segment> <seg_name>\nexclude_bd_addr_seg / include_bd_addr_seg <segment>",
+      "parameters": [
+        {"name": "-target_address_space", "description": "Master address space from get_bd_addr_spaces, e.g. processing_system7_0/Data or microblaze_0/Data."},
+        {"name": "-offset", "description": "Base address as a hex value, e.g. 0x40000000. Must be naturally aligned to the range."},
+        {"name": "-range", "description": "Size of the aperture, given as 4K, 64K, 1M, 512M and so on. Must be a power of two and at least 4K."},
+        {"name": "-force", "description": "Re-map a segment that is already assigned, overriding the existing offset and range."},
+        {"name": "<segment_objects>", "description": "Slave segments from get_bd_addr_segs, e.g. [get_bd_addr_segs axi_gpio_0/S_AXI/Reg]."},
+        {"name": "exclude_bd_addr_seg", "description": "Remove a slave from one master's view without deleting the mapping for other masters."}
+      ],
+      "example": "# Let Vivado map everything it can reach\nassign_bd_address\n\n# Pin one peripheral where the software expects it\nassign_bd_address -force -offset 0x41200000 -range 64K \\\n  -target_address_space [get_bd_addr_spaces processing_system7_0/Data] \\\n  [get_bd_addr_segs axi_gpio_0/S_AXI/Reg]\n\n# Inspect the resulting map\nforeach s [get_bd_addr_segs -of_objects [get_bd_addr_spaces processing_system7_0/Data]] {\n  puts [format \"%-40s %s %s\" $s [get_property OFFSET $s] [get_property RANGE $s]]\n}",
+      "notes": "Unmapped slaves are reported as an error by validate_bd_design, and an overlapping or unaligned assignment is refused. The addresses chosen here are what end up in the exported hardware handoff (XSA) and therefore in the software's xparameters.h, so fix them explicitly rather than letting auto-assignment drift between builds.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/assign_bd_address"
+    },
+    {
+      "name": "set_property CONFIG.*",
+      "kind": "tcl-command",
+      "description": "Configure an IP instance in a block design by setting its CONFIG.* properties, which are exactly the fields of the IP's customisation GUI. Using set_property -dict applies several parameters in one transaction, which is both faster and safer than separate calls because the IP re-customises once. The same mechanism configures interface pins and ports through properties such as CONFIG.FREQ_HZ, CONFIG.POLARITY and CONFIG.PROTOCOL.",
+      "usage": "set_property -dict [list CONFIG.<PARAM> {<value>} CONFIG.<PARAM2> {<value2>}] [get_bd_cells <instance>]\nset_property CONFIG.<PARAM> <value> [get_bd_pins <pin>]\nreport_property [get_bd_cells <instance>]",
+      "parameters": [
+        {"name": "-dict", "description": "Apply a list of property/value pairs in one call; required for parameters that are only legal in combination."},
+        {"name": "CONFIG.<PARAM>", "description": "An IP customisation parameter. Names are IP-specific and case-sensitive, e.g. C_GPIO_WIDTH, CLKOUT1_REQUESTED_OUT_FREQ, NUM_MI."},
+        {"name": "[get_bd_cells ...]", "description": "The target IP instance in the current block design."},
+        {"name": "CONFIG.FREQ_HZ", "description": "Set on a clock pin, interface pin or port to declare the clock frequency when Vivado cannot infer it."},
+        {"name": "report_property / list_property", "description": "List every CONFIG.* property an instance supports, which is how to discover exact parameter names."}
+      ],
+      "example": "set_property -dict [list CONFIG.C_GPIO_WIDTH {8} CONFIG.C_ALL_OUTPUTS {1}] [get_bd_cells axi_gpio_0]\n\nset_property -dict [list \\\n  CONFIG.PRIM_IN_FREQ {100.000} \\\n  CONFIG.NUM_OUT_CLKS {2} \\\n  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {200.000} \\\n  CONFIG.CLKOUT2_USED {true} \\\n  CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {50.000}] [get_bd_cells clk_wiz_0]\n\n# Discover the legal parameter names for an instance\nreport_property [get_bd_cells axi_gpio_0]",
+      "notes": "Parameters that are driven by parameter propagation, such as an AXI data width inherited from the connected master, will be silently overwritten when the design is validated; set those on the source of the propagation instead. Values are braced because many of them are strings containing dots or spaces.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "validate_bd_design / save_bd_design",
+      "kind": "tcl-command",
+      "description": "validate_bd_design runs the design rule checks for the block design: unconnected required pins, interface and parameter mismatches, clock-domain problems, unmapped address segments and illegal IP configurations. save_bd_design writes the .bd file to disk. Always validate before saving and before generating output products, because an error found here becomes an obscure synthesis failure later.",
+      "usage": "validate_bd_design [-force] [-quiet]\nsave_bd_design\nsave_bd_design_as <new_name>",
+      "parameters": [
+        {"name": "-force", "description": "Re-run validation even if the design has not changed since the last successful validation."},
+        {"name": "-quiet", "description": "Return a status instead of raising a Tcl error, so a script can decide what to do."},
+        {"name": "save_bd_design_as", "description": "Save the current design under a new name, creating a copy in the project."}
+      ],
+      "example": "connect_bd_intf_net [get_bd_intf_pins axi_interconnect_0/M00_AXI] [get_bd_intf_pins axi_gpio_0/S_AXI]\nassign_bd_address\nvalidate_bd_design\nsave_bd_design\n\n# Fail a scripted build cleanly on a validation error\nif {[catch {validate_bd_design -force} msg]} {\n  error \"Block design validation failed: $msg\"\n}",
+      "notes": "Validation also triggers parameter propagation, so data widths and clock frequencies shown on the canvas are only trustworthy after it has run. Critical warnings about clock-domain crossings on AXI interfaces are worth reading: they usually mean an interconnect was asked to bridge domains without the right clock conversion enabled.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/validate_bd_design"
+    },
+    {
+      "name": "generate_target",
+      "kind": "tcl-command",
+      "description": "Generate the output products of a block design or an IP: the synthesis HDL, the simulation model, the implementation constraints and the instantiation template. Nothing downstream works until these exist, so this is the step between saving the block design and creating the wrapper. Use 'all' in scripts, and add -force after upgrading IP or changing configuration so stale products are regenerated.",
+      "usage": "generate_target <all|synthesis|simulation|implementation|instantiation_template> [get_files <bd_or_xci_file>] [-force] [-quiet]",
+      "parameters": [
+        {"name": "all", "description": "Generate every target; the normal choice in a build script."},
+        {"name": "synthesis / simulation", "description": "Generate only the synthesis HDL or only the simulation model, which is faster when you need just one."},
+        {"name": "instantiation_template", "description": "Generate the .veo/.vho instantiation template for hand-instantiating an IP in RTL."},
+        {"name": "[get_files ...]", "description": "The .bd file of a block design or the .xci file of a standalone IP. Accepts a list."},
+        {"name": "-force", "description": "Regenerate even when Vivado believes the products are up to date."},
+        {"name": "reset_target", "description": "Companion command that deletes generated products, e.g. reset_target all [get_files system.bd]."}
+      ],
+      "example": "validate_bd_design\nsave_bd_design\ngenerate_target all [get_files system.bd]\n\n# Regenerate everything after an IP upgrade\nupgrade_ip [get_ips *]\nreset_target all [get_files system.bd]\ngenerate_target all [get_files system.bd] -force\nexport_ip_user_files -of_objects [get_files system.bd] -no_script -sync -force -quiet",
+      "notes": "Generation does not synthesise anything; out-of-context synthesis of the IP is separate and is driven by create_ip_run plus launch_runs. Generated products live under the project's .gen (or .srcs in older releases) directory and should not be checked into version control; check in the .bd or a write_bd_tcl script instead.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/generate_target"
+    },
+    {
+      "name": "make_wrapper",
+      "kind": "tcl-command",
+      "description": "Generate an HDL wrapper that instantiates the block design and exposes its external ports as top-level ports, which is what synthesis actually compiles. With -top the wrapper is created for the block design as the top level, and -import adds the generated file to the project so it can immediately be set as the top module. Re-run it with -force whenever the external port list of the block design changes.",
+      "usage": "make_wrapper -files [get_files <bd_file>] -top [-import] [-fileset <fileset>] [-force] [-inst_template]",
+      "parameters": [
+        {"name": "-files", "description": "The .bd file object, normally [get_files system.bd]."},
+        {"name": "-top", "description": "Create a wrapper in which the block design is the top-level module."},
+        {"name": "-import", "description": "Add the generated wrapper file to the project sources instead of only writing it to disk."},
+        {"name": "-fileset", "description": "Fileset to import the wrapper into; defaults to sources_1."},
+        {"name": "-force", "description": "Overwrite an existing wrapper, which is required after ports are added or removed."},
+        {"name": "-inst_template", "description": "Produce an instantiation template instead of a top-level wrapper, for embedding the BD inside your own RTL top."}
+      ],
+      "example": "generate_target all [get_files system.bd]\nmake_wrapper -files [get_files system.bd] -top -import\nset_property top system_wrapper [current_fileset]\nupdate_compile_order -fileset sources_1\n\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1",
+      "notes": "Never edit the generated wrapper by hand; it is overwritten on the next -force run. If you need extra logic at the top level, generate an instantiation template instead and write your own top module that instantiates the block design.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/make_wrapper"
+    },
+    {
+      "name": "write_bd_tcl",
+      "kind": "tcl-command",
+      "description": "Export the current block design as a Tcl script that recreates it from scratch, cell by cell, property by property and connection by connection. This is the recommended way to put a block design under version control, because the script is a readable text file whereas the .bd and its generated products are not meant to be diffed or merged. Sourcing the script in a fresh project rebuilds an identical design.",
+      "usage": "write_bd_tcl [-force] [-no_ip_version] [-include_layout] [-bd_name <name>] [-hier_blks <cells>] [-check_ips] <tcl_file>",
+      "parameters": [
+        {"name": "-force", "description": "Overwrite an existing output file."},
+        {"name": "-no_ip_version", "description": "Omit the version suffix from each IP VLNV so the script still works when the IP has been revised in a newer Vivado release."},
+        {"name": "-include_layout", "description": "Also record the canvas layout so the regenerated design looks the same in the GUI."},
+        {"name": "-bd_name", "description": "Name the recreated design something other than the original."},
+        {"name": "-hier_blks", "description": "Export only the named hierarchy blocks, which is how a reusable subsystem is shared between designs."},
+        {"name": "-check_ips", "description": "Add checks to the generated script that verify every required IP is present in the catalog before building."}
+      ],
+      "example": "write_bd_tcl -force -include_layout -no_ip_version ./scripts/system_bd.tcl\n\n# Rebuild the whole project from scripts\ncreate_project proj ./build/proj -part xc7z020clg400-1\nsource ./scripts/system_bd.tcl\nvalidate_bd_design\nsave_bd_design\ngenerate_target all [get_files system.bd]\nmake_wrapper -files [get_files system.bd] -top -import",
+      "notes": "The generated script defines a proc create_root_design and calls it, so it can be sourced from a larger build script. It records CONFIG.* values that were set explicitly as well as some that were propagated, so review the diff after regenerating rather than assuming it is identical to the previous export.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_bd_tcl"
+    },
+    {
+      "name": "get_bd_cells / get_bd_intf_pins / get_bd_pins",
+      "kind": "tcl-command",
+      "description": "Query the current block design for objects, which is how every other bd_* command is given something to act on. The family covers cells, scalar pins and ports, interface pins and ports, nets, address spaces and address segments, and each accepts patterns, -filter property expressions and -of_objects traversal. Names are hierarchical and use a slash separator, so a cell inside a hierarchy block is /dsp_subsystem/axis_data_fifo_0.",
+      "usage": "get_bd_cells [-hierarchical] [-filter <expr>] [-of_objects <objs>] [-regexp] [-quiet] [<patterns>]\nget_bd_pins / get_bd_intf_pins / get_bd_ports / get_bd_intf_ports / get_bd_nets / get_bd_intf_nets / get_bd_addr_spaces / get_bd_addr_segs",
+      "parameters": [
+        {"name": "-hierarchical", "description": "Search inside hierarchy blocks as well as the top level of the block design."},
+        {"name": "-filter", "description": "Property expression, e.g. {VLNV =~ *axi_gpio*}, {MODE == Slave} or {TYPE == clk}."},
+        {"name": "-of_objects", "description": "Traverse from one object type to another, e.g. all pins of a cell or the cell a pin belongs to."},
+        {"name": "-quiet", "description": "Return an empty list instead of raising an error when nothing matches."},
+        {"name": "<patterns>", "description": "Glob patterns on the object name; brace them when they contain brackets."}
+      ],
+      "example": "# Inventory of the design\nforeach c [get_bd_cells -hierarchical] {\n  puts [format \"%-32s %s\" [get_property NAME $c] [get_property VLNV $c]]\n}\n\n# All AXI slave interfaces that are not yet connected\nget_bd_intf_pins -filter {MODE == Slave && VLNV =~ *aximm*}\n\n# Every clock pin of one cell\nget_bd_pins -of_objects [get_bd_cells axi_dma_0] -filter {TYPE == clk}\n\n# Address map audit\nforeach s [get_bd_addr_segs] { puts \"$s [get_property OFFSET $s] [get_property RANGE $s]\" }",
+      "notes": "These commands only work when a block design is current; outside one they return nothing, which is a common cause of silently empty collections in scripts. They are distinct from the netlist commands get_cells and get_pins, which operate on the synthesized design rather than the block design.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_bd_cells"
+    },
+    {
+      "name": "delete_bd_objs / copy_bd_objs / group_bd_cells",
+      "kind": "tcl-command",
+      "description": "Edit the structure of an existing block design: delete cells, nets and ports, duplicate a configured cell instead of re-entering its parameters, and move a set of cells into a hierarchy block to keep a large design readable. group_bd_cells creates the hierarchy and moves the cells and their connections in one step; ungroup_bd_cells and move_bd_cells undo or adjust the result, and regenerate_bd_layout tidies the canvas afterwards.",
+      "usage": "delete_bd_objs [-quiet] <objects>\ncopy_bd_objs <destination_hierarchy> <objects>\ngroup_bd_cells [<new_hier_name>] <cells>\nungroup_bd_cells <hier_cells>\nmove_bd_cells <destination_hierarchy> <cells>\nregenerate_bd_layout [-routing] [-layout_file <file>]",
+      "parameters": [
+        {"name": "delete_bd_objs <objects>", "description": "Cells, nets, interface nets, ports or pins to remove; deleting a cell also deletes the nets that only touched it."},
+        {"name": "copy_bd_objs <dest>", "description": "Destination hierarchy, '/' for the top level. The copy keeps all CONFIG.* values and gets the next free instance name."},
+        {"name": "group_bd_cells <name>", "description": "Name of the hierarchy block to create; the required boundary pins are created automatically."},
+        {"name": "regenerate_bd_layout -routing", "description": "Re-route the connection lines without moving the blocks, useful after a scripted edit."},
+        {"name": "-layout_file", "description": "Apply a saved canvas layout instead of computing a new one."}
+      ],
+      "example": "# Duplicate a fully configured GPIO rather than re-entering its parameters\ncopy_bd_objs / [get_bd_cells axi_gpio_0]\nset_property CONFIG.C_ALL_INPUTS {1} [get_bd_cells axi_gpio_1]\n\n# Tidy the DSP chain into its own hierarchy\ngroup_bd_cells dsp_subsystem [get_bd_cells fir_compiler_0] [get_bd_cells axis_data_fifo_0]\n\n# Remove an unused block and its wiring\ndelete_bd_objs [get_bd_intf_nets axi_uartlite_0_UART] [get_bd_cells axi_uartlite_0]\n\nregenerate_bd_layout\nvalidate_bd_design\nsave_bd_design",
+      "notes": "Deleting a cell that owns an assigned address segment leaves gaps in the address map, so re-run assign_bd_address and validate_bd_design afterwards. Grouping cells changes their hierarchical names, which invalidates any XDC constraints or debug probes that referenced the old paths.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/group_bd_cells"
+    },
+    {
+      "name": "create_ip",
+      "kind": "tcl-command",
+      "description": "Customise an IP from the catalog as a standalone core, outside any block design, producing an .xci file that is added to the project sources. This is the right path when the IP is instantiated directly in hand-written RTL, for example a FIFO Generator or an FFT inside a data path. Configure it afterwards with set_property CONFIG.*, then generate its output products and optionally synthesise it out of context.",
+      "usage": "create_ip -name <ip_name> -vendor <vendor> -library <library> -version <version> -module_name <instance_name> [-dir <path>] [-force]",
+      "parameters": [
+        {"name": "-name", "description": "Catalog name of the IP, e.g. fifo_generator, xfft, floating_point."},
+        {"name": "-vendor / -library / -version", "description": "The rest of the VLNV: normally xilinx.com, ip, and the installed version such as 13.2."},
+        {"name": "-module_name", "description": "Instance and module name of the generated core; this is the module you instantiate in RTL."},
+        {"name": "-dir", "description": "Directory for the IP sources; defaults to the project's IP location."},
+        {"name": "-force", "description": "Overwrite an existing IP of the same module name."}
+      ],
+      "example": "create_ip -name fifo_generator -vendor xilinx.com -library ip -version 13.2 -module_name fifo_32x512\nset_property -dict [list \\\n  CONFIG.INTERFACE_TYPE {Native} \\\n  CONFIG.Fifo_Implementation {Independent_Clocks_Block_RAM} \\\n  CONFIG.Input_Data_Width {32} \\\n  CONFIG.Input_Depth {512} \\\n  CONFIG.Performance_Options {First_Word_Fall_Through}] [get_ips fifo_32x512]\n\ngenerate_target all [get_files fifo_32x512.xci]\ngenerate_target instantiation_template [get_files fifo_32x512.xci]\ncreate_ip_run [get_files fifo_32x512.xci]\nlaunch_runs fifo_32x512_synth_1 -jobs 8\nwait_on_run fifo_32x512_synth_1",
+      "notes": "The .xci file is the source of truth and the only thing that needs version control; everything else under the IP directory is generated. Use get_ipdefs to find the exact -version string installed in your release, since create_ip fails on a version that is not in the catalog.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_ip"
+    },
+    {
+      "name": "upgrade_ip / report_ip_status / get_ips",
+      "kind": "tcl-command",
+      "description": "Manage IP versions across a Vivado release upgrade. report_ip_status lists every IP in the project with its current version, whether a newer version exists, and whether the IP is locked because it was created by a different release. upgrade_ip revises locked IP to the installed version, and get_ips returns the IP objects for scripting, including the IP contained inside block designs when -all is used.",
+      "usage": "report_ip_status [-name <window>] [-file <file>] [-license_status]\nupgrade_ip [-srcset <fileset>] [-vlnv <new_vlnv>] [-quiet] <ip_objects>\nget_ips [-all] [-filter <expr>] [-of_objects <files>] [-exclude_bd_ips] [<patterns>]",
+      "parameters": [
+        {"name": "report_ip_status -file", "description": "Write the status table to a text file; without it the report opens as a GUI window."},
+        {"name": "upgrade_ip <ip_objects>", "description": "IP to upgrade, normally [get_ips *] for the whole project."},
+        {"name": "upgrade_ip -vlnv", "description": "Upgrade to a specific target VLNV rather than the newest installed version."},
+        {"name": "get_ips -all", "description": "Include IP that lives inside block designs and inside other IP, not just top-level project IP."},
+        {"name": "IS_LOCKED", "description": "IP property that is true when the IP cannot be generated until it is upgraded."},
+        {"name": "UPGRADE_VERSIONS", "description": "IP property listing the versions this IP can be upgraded to."}
+      ],
+      "example": "open_project ./proj/proj.xpr\nreport_ip_status -file ./reports/ip_status.rpt\n\n# Find and upgrade everything that is locked\nset locked [get_ips -all -filter {IS_LOCKED}]\nif {[llength $locked]} {\n  upgrade_ip $locked\n  generate_target all [get_ips -all] -force\n  export_ip_user_files -of_objects [get_ips -all] -sync -force -quiet\n}\nreport_ip_status -file ./reports/ip_status_after.rpt",
+      "notes": "An upgrade can change port names, parameter names and even the register map, so re-run validate_bd_design and re-check the software's address definitions afterwards. Locked IP blocks synthesis entirely, which is the usual reason a project that worked in the previous release refuses to build.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_ip_status"
+    },
+    {
+      "name": "update_ip_catalog / set_property ip_repo_paths",
+      "kind": "tcl-command",
+      "description": "Make user-packaged or third-party IP visible to the project. ip_repo_paths is a project property holding the list of directories Vivado scans for IP definitions, and update_ip_catalog rescans them. The catalog is not refreshed automatically, so changing the repository paths without calling update_ip_catalog leaves the new IP invisible to create_ip and create_bd_cell.",
+      "usage": "set_property ip_repo_paths {<dir> [<dir> ...]} [current_project]\nupdate_ip_catalog [-rebuild] [-add_ip <zip_or_xml>] [-repo_path <dir>] [-delete_ip <ip>] [-quiet]\nget_ipdefs [-filter <expr>] [<patterns>]",
+      "parameters": [
+        {"name": "ip_repo_paths", "description": "Project property: a Tcl list of directories containing packaged IP (each with its component.xml)."},
+        {"name": "-rebuild", "description": "Rescan the repositories from scratch; the normal follow-up to changing ip_repo_paths."},
+        {"name": "-add_ip", "description": "Add a packaged IP archive (.zip) or component.xml to a repository, used together with -repo_path."},
+        {"name": "-repo_path", "description": "Target repository directory for -add_ip."},
+        {"name": "get_ipdefs", "description": "List the VLNVs currently in the catalog, which is how to confirm a repository was picked up."}
+      ],
+      "example": "set_property ip_repo_paths [list ./ip_repo ../shared/ip] [current_project]\nupdate_ip_catalog -rebuild\n\n# Install a packaged core into a repository and use it\nupdate_ip_catalog -add_ip ./dist/my_stream_filter_1.0.zip -repo_path ./ip_repo\nupdate_ip_catalog -rebuild\nputs [get_ipdefs *my_stream_filter*]\ncreate_bd_cell -type ip -vlnv user.org:user:my_stream_filter:1.0 my_filter_0",
+      "notes": "ip_repo_paths is per project, so a build script must set it before creating any IP; a missing repository is the usual cause of 'IP definition not found' when a project is opened on another machine. Relative paths are resolved against the project directory, which makes scripts portable if the repository lives inside the repository tree.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/update_ip_catalog"
+    },
+    {
+      "name": "export_ip_user_files / set_property generate_synth_checkpoint",
+      "kind": "tcl-command",
+      "description": "Control how IP is synthesised and keep the generated simulation and synthesis scripts in step with it. GENERATE_SYNTH_CHECKPOINT on an .xci selects out-of-context synthesis, where the IP is synthesised once into its own checkpoint and reused, versus global synthesis where the IP is compiled with the rest of the design. For a block design the equivalent property is SYNTH_CHECKPOINT_MODE. export_ip_user_files refreshes the static and dynamic files, simulation scripts and wrapper files under the project's ip_user_files directory.",
+      "usage": "set_property generate_synth_checkpoint <true|false> [get_files <ip>.xci]\nset_property synth_checkpoint_mode <Singular|Hierarchical|None> [get_files <design>.bd]\nexport_ip_user_files -of_objects <ip_or_bd_files> [-no_script] [-sync] [-force] [-quiet]\nexport_simulation -of_objects <files> -directory <dir> -simulator <name>",
+      "parameters": [
+        {"name": "generate_synth_checkpoint true", "description": "Out-of-context: the IP is synthesised separately into a .dcp and not re-synthesised with the top design."},
+        {"name": "generate_synth_checkpoint false", "description": "Global synthesis: the IP's RTL is compiled together with the rest of the design, which allows cross-boundary optimisation but costs runtime."},
+        {"name": "synth_checkpoint_mode", "description": "Block-design equivalent: Singular synthesises the whole BD as one OOC module, Hierarchical gives each IP its own run, None uses global synthesis."},
+        {"name": "-sync", "description": "Remove stale exported files before writing the current ones."},
+        {"name": "-no_script", "description": "Do not regenerate the simulation launch scripts, only the source files."},
+        {"name": "-force", "description": "Overwrite files that already exist in ip_user_files."}
+      ],
+      "example": "# One IP compiled together with the design instead of out of context\nset_property generate_synth_checkpoint false [get_files fifo_32x512.xci]\n\n# Per-IP out-of-context runs for a block design\nset_property synth_checkpoint_mode Hierarchical [get_files system.bd]\ngenerate_target all [get_files system.bd]\ncreate_ip_run [get_files system.bd]\nlaunch_runs [get_runs *_synth_1] -jobs 8\n\nexport_ip_user_files -of_objects [get_files system.bd] -no_script -sync -force -quiet\nexport_simulation -of_objects [get_files system.bd] -directory ./sim_scripts -simulator xsim -force",
+      "notes": "Out-of-context synthesis is the default and keeps incremental builds fast, but it blocks optimisation across the IP boundary, which occasionally matters for small glue IP. Switching an IP between the two modes invalidates its runs, so reset and regenerate its targets afterwards.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/export_ip_user_files"
+    },
+    {
+      "name": "Clocking Wizard (clk_wiz)",
+      "kind": "block",
+      "description": "Wraps an MMCM or PLL together with the input buffer, feedback and output buffers needed to turn one board clock into up to seven derived clocks with chosen frequencies and phases. It is the standard clock source of almost every block design, and its locked output is what gates the processor system reset block. Vivado automatically derives timing constraints for the generated clocks, so they must not be constrained again with create_clock.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0",
+      "parameters": [
+        {"name": "CONFIG.PRIM_IN_FREQ", "description": "Input clock frequency in MHz, e.g. {100.000}."},
+        {"name": "CONFIG.PRIM_SOURCE", "description": "Input buffer type: Single_ended_clock_capable_pin, Differential_clock_capable_pin, Global_buffer or No_buffer."},
+        {"name": "CONFIG.NUM_OUT_CLKS", "description": "How many output clocks are enabled, 1 to 7."},
+        {"name": "CONFIG.CLKOUT<n>_REQUESTED_OUT_FREQ", "description": "Requested frequency in MHz for output n; the wizard reports the nearest achievable value."},
+        {"name": "CONFIG.CLKOUT<n>_REQUESTED_PHASE / _DUTY_CYCLE", "description": "Phase in degrees and duty cycle in percent for output n."},
+        {"name": "CONFIG.PRIMITIVE", "description": "MMCM, PLL or Auto. MMCM supports phase shifting and fractional division; PLL is smaller."},
+        {"name": "CONFIG.USE_LOCKED / CONFIG.USE_RESET / CONFIG.RESET_TYPE", "description": "Expose the locked output and reset input, and choose ACTIVE_HIGH or ACTIVE_LOW reset polarity."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:clk_wiz:6.0 clk_wiz_0\nset_property -dict [list \\\n  CONFIG.PRIM_SOURCE {Differential_clock_capable_pin} \\\n  CONFIG.PRIM_IN_FREQ {200.000} \\\n  CONFIG.NUM_OUT_CLKS {2} \\\n  CONFIG.CLKOUT1_REQUESTED_OUT_FREQ {150.000} \\\n  CONFIG.CLKOUT2_USED {true} \\\n  CONFIG.CLKOUT2_REQUESTED_OUT_FREQ {75.000} \\\n  CONFIG.USE_LOCKED {true} \\\n  CONFIG.RESET_TYPE {ACTIVE_LOW}] [get_bd_cells clk_wiz_0]\n\nconnect_bd_net [get_bd_pins clk_wiz_0/locked] [get_bd_pins proc_sys_reset_0/dcm_locked]\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins proc_sys_reset_0/slowest_sync_clk]",
+      "notes": "The version suffix in the VLNV varies by Vivado release; use get_ipdefs *clk_wiz* to get the exact string. Documented in the Clocking Wizard product guide (PG065). The requested frequency is rarely met exactly, so read the achieved value back with report_property before relying on it for a protocol that needs an exact rate."
+    },
+    {
+      "name": "Processor System Reset (proc_sys_reset)",
+      "kind": "block",
+      "description": "Generates a coordinated set of synchronous resets for a processor system from an external reset, an auxiliary reset, a debug reset and the clock-generator locked signal. It holds reset asserted for a number of clock cycles after the clock becomes stable and releases the various reset flavours in the right order. Every clock domain in a block design normally gets its own instance, because the resets it produces are synchronous to the clock on slowest_sync_clk.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_0",
+      "parameters": [
+        {"name": "CONFIG.C_EXT_RESET_HIGH", "description": "1 if the external reset input is active high, 0 if active low."},
+        {"name": "CONFIG.C_AUX_RESET_HIGH", "description": "Polarity of the auxiliary reset input."},
+        {"name": "CONFIG.C_EXT_RST_WIDTH / C_AUX_RST_WIDTH", "description": "Number of clock cycles the input reset must be held to be recognised."},
+        {"name": "CONFIG.C_NUM_BUS_RST", "description": "Width of the bus_struct_reset output vector."},
+        {"name": "CONFIG.C_NUM_PERP_RST / C_NUM_PERP_ARESETN", "description": "Width of the active-high peripheral_reset and active-low peripheral_aresetn vectors."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:proc_sys_reset:5.0 proc_sys_reset_0\nset_property CONFIG.C_EXT_RESET_HIGH {0} [get_bd_cells proc_sys_reset_0]\n\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out1]  [get_bd_pins proc_sys_reset_0/slowest_sync_clk]\nconnect_bd_net [get_bd_ports resetn]             [get_bd_pins proc_sys_reset_0/ext_reset_in]\nconnect_bd_net [get_bd_pins clk_wiz_0/locked]    [get_bd_pins proc_sys_reset_0/dcm_locked]\nconnect_bd_net [get_bd_pins proc_sys_reset_0/interconnect_aresetn] [get_bd_pins axi_interconnect_0/ARESETN]\nconnect_bd_net [get_bd_pins proc_sys_reset_0/peripheral_aresetn]   [get_bd_pins axi_gpio_0/s_axi_aresetn]",
+      "notes": "Use interconnect_aresetn for the interconnect and peripheral_aresetn for the peripherals: the interconnect reset is released one step earlier so the fabric is ready before the slaves come out of reset. Described in the Processor System Reset Module product guide (PG164); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "AXI Interconnect (axi_interconnect)",
+      "kind": "block",
+      "description": "A crossbar that connects several AXI masters to several AXI slaves, with per-port protocol conversion between AXI3, AXI4 and AXI4-Lite, data width conversion, clock-domain crossing and optional register slices and data FIFOs. It is the traditional interconnect of Zynq-7000 and MicroBlaze designs and is inserted automatically by AXI connection automation. For pure AXI4/AXI4-Lite systems SmartConnect is the newer and usually smaller alternative.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0",
+      "parameters": [
+        {"name": "CONFIG.NUM_SI", "description": "Number of slave interfaces, i.e. how many masters connect into the interconnect."},
+        {"name": "CONFIG.NUM_MI", "description": "Number of master interfaces, i.e. how many slaves hang off it."},
+        {"name": "CONFIG.STRATEGY", "description": "0 custom, 1 minimum area (shared-access mode), 2 maximum performance (full crossbar)."},
+        {"name": "CONFIG.S<nn>_HAS_DATA_FIFO / CONFIG.M<nn>_HAS_DATA_FIFO", "description": "Insert a data FIFO on a specific port to decouple bursts and help timing."},
+        {"name": "CONFIG.S<nn>_HAS_REGSLICE / CONFIG.M<nn>_HAS_REGSLICE", "description": "Insert pipeline register slices on a port; the usual first remedy for a failing AXI path."},
+        {"name": "CONFIG.ENABLE_ADVANCED_OPTIONS", "description": "Expose the per-port options above instead of using the automatic settings."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_interconnect:2.1 axi_interconnect_0\nset_property -dict [list CONFIG.NUM_SI {1} CONFIG.NUM_MI {3} CONFIG.STRATEGY {2}] [get_bd_cells axi_interconnect_0]\n\nconnect_bd_intf_net [get_bd_intf_pins processing_system7_0/M_AXI_GP0] [get_bd_intf_pins axi_interconnect_0/S00_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_interconnect_0/M00_AXI]     [get_bd_intf_pins axi_gpio_0/S_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_interconnect_0/M01_AXI]     [get_bd_intf_pins axi_uartlite_0/S_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_interconnect_0/M02_AXI]     [get_bd_intf_pins axi_timer_0/S_AXI]\n\nassign_bd_address\nvalidate_bd_design",
+      "notes": "Each slave and master port has its own ACLK and ARESETN pin, so an interconnect bridging clock domains needs every port clocked correctly; forgetting one is a common validation error. See the AXI Interconnect product guide (PG059); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "AXI SmartConnect (smartconnect)",
+      "kind": "block",
+      "description": "A newer AXI interconnect that infers the minimum network needed for the connections actually present, rather than always building a full crossbar. It generally uses fewer resources and meets timing more easily than AXI Interconnect, and it needs only one active-low reset instead of one per port. Use it for AXI4 and AXI4-Lite systems; AXI3 masters and some advanced per-port tuning still call for AXI Interconnect.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect_0",
+      "parameters": [
+        {"name": "CONFIG.NUM_SI", "description": "Number of slave interfaces (masters connecting in)."},
+        {"name": "CONFIG.NUM_MI", "description": "Number of master interfaces (slaves hanging off)."},
+        {"name": "CONFIG.NUM_CLKS", "description": "Number of clock inputs; more than one enables built-in clock-domain crossing between the connected ports."},
+        {"name": "CONFIG.HAS_ARESETN", "description": "Expose the single active-low reset input."},
+        {"name": "aclk / aclk1 / aresetn", "description": "Pins: a single aresetn plus one aclk per declared clock domain, in contrast to the per-port clocks of AXI Interconnect."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:smartconnect:1.0 smartconnect_0\nset_property -dict [list CONFIG.NUM_SI {2} CONFIG.NUM_MI {2} CONFIG.NUM_CLKS {1}] [get_bd_cells smartconnect_0]\n\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins smartconnect_0/aclk]\nconnect_bd_net [get_bd_pins proc_sys_reset_0/peripheral_aresetn] [get_bd_pins smartconnect_0/aresetn]\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXI_MM2S] [get_bd_intf_pins smartconnect_0/S00_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXI_S2MM] [get_bd_intf_pins smartconnect_0/S01_AXI]\nassign_bd_address",
+      "notes": "SmartConnect only supports an active-low reset, so an active-high reset must be inverted with a util_vector_logic cell. It optimises the network from the connections it sees, which means adding a connection later can change the generated structure and therefore the timing results. See the AXI SmartConnect product guide (PG247); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "AXI GPIO (axi_gpio)",
+      "kind": "block",
+      "description": "An AXI4-Lite slave that drives and samples general-purpose I/O, with one or two independent channels of up to 32 bits each and an optional interrupt output. It is the simplest way to give software control of LEDs, switches, buttons or arbitrary fabric signals. Each channel has a data register and a tri-state register, so a bidirectional channel is controlled entirely from software.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_0",
+      "parameters": [
+        {"name": "CONFIG.C_GPIO_WIDTH", "description": "Width of channel 1, 1 to 32 bits."},
+        {"name": "CONFIG.C_ALL_OUTPUTS / CONFIG.C_ALL_INPUTS", "description": "Set to 1 to make channel 1 output-only or input-only, which removes the unused direction logic and the tri-state buffer."},
+        {"name": "CONFIG.C_IS_DUAL", "description": "1 enables the second GPIO channel."},
+        {"name": "CONFIG.C_GPIO2_WIDTH / C_ALL_OUTPUTS_2 / C_ALL_INPUTS_2", "description": "The same settings for channel 2."},
+        {"name": "CONFIG.C_INTERRUPT_PRESENT", "description": "1 adds the ip2intc_irpt interrupt output, asserted on a change of an input channel."},
+        {"name": "CONFIG.C_DOUT_DEFAULT / C_TRI_DEFAULT", "description": "Reset values of the data and tri-state registers."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_0\nset_property -dict [list CONFIG.C_GPIO_WIDTH {8} CONFIG.C_ALL_OUTPUTS {1}] [get_bd_cells axi_gpio_0]\n\n# Second instance for the push buttons, with an interrupt\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio:2.0 axi_gpio_1\nset_property -dict [list CONFIG.C_GPIO_WIDTH {4} CONFIG.C_ALL_INPUTS {1} \\\n  CONFIG.C_INTERRUPT_PRESENT {1}] [get_bd_cells axi_gpio_1]\n\napply_bd_automation -rule xilinx.com:bd_rule:axi4 \\\n  -config {Master \"/processing_system7_0/M_AXI_GP0\" Clk \"Auto\"} [get_bd_intf_pins axi_gpio_0/S_AXI]\nmake_bd_intf_pins_external [get_bd_intf_pins axi_gpio_0/GPIO]",
+      "notes": "The register map is GPIO_DATA at 0x00, GPIO_TRI at 0x04, GPIO2_DATA at 0x08 and GPIO2_TRI at 0x0C, with the interrupt registers higher in the 64K aperture. Setting C_ALL_OUTPUTS or C_ALL_INPUTS changes the GPIO interface from a tri-state bundle to a plain output or input port, which changes the wrapper's port list. See the AXI GPIO product guide (PG144); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "AXI UART Lite (axi_uartlite)",
+      "kind": "block",
+      "description": "A minimal AXI4-Lite UART with fixed configuration and 16-character transmit and receive FIFOs, intended as the console of a MicroBlaze or Zynq system. Baud rate, data bits and parity are chosen at build time and cannot be changed from software, which is what makes it so small. When software must reconfigure the line settings, or modem control and larger FIFOs are needed, use the AXI UART 16550 core instead.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_uartlite:2.0 axi_uartlite_0",
+      "parameters": [
+        {"name": "CONFIG.C_BAUDRATE", "description": "Fixed baud rate, e.g. {115200}. Burned into the logic at generation time."},
+        {"name": "CONFIG.C_DATA_BITS", "description": "Character length, 5 to 8 bits."},
+        {"name": "CONFIG.C_USE_PARITY / CONFIG.C_ODD_PARITY", "description": "Enable parity and choose odd rather than even."},
+        {"name": "CONFIG.C_S_AXI_ACLK_FREQ_HZ", "description": "Frequency of the AXI clock in Hz, used to compute the baud divisor; it must match the clock actually connected."},
+        {"name": "UART interface", "description": "The core exposes a uart_rtl interface with rxd and txd, plus the interrupt output."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_uartlite:2.0 axi_uartlite_0\nset_property -dict [list CONFIG.C_BAUDRATE {115200} CONFIG.C_DATA_BITS {8} \\\n  CONFIG.C_USE_PARITY {0}] [get_bd_cells axi_uartlite_0]\n\ncreate_bd_intf_port -mode Slave -vlnv xilinx.com:interface:uart_rtl:1.0 uart\nconnect_bd_intf_net [get_bd_intf_ports uart] [get_bd_intf_pins axi_uartlite_0/UART]\napply_bd_automation -rule xilinx.com:bd_rule:axi4 \\\n  -config {Master \"/microblaze_0 (Periph)\" Clk \"Auto\"} [get_bd_intf_pins axi_uartlite_0/S_AXI]",
+      "notes": "Registers are RX_FIFO at 0x00, TX_FIFO at 0x04, STAT_REG at 0x08 and CTRL_REG at 0x0C. If C_S_AXI_ACLK_FREQ_HZ does not match the connected clock the baud rate will be wrong in hardware even though the design builds cleanly; parameter propagation normally sets it, so check it after changing the clocking. See the AXI UART Lite product guide (PG142); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "AXI Quad SPI / AXI IIC / AXI Timer (axi_quad_spi, axi_iic, axi_timer)",
+      "kind": "block",
+      "description": "The standard AXI4-Lite peripheral set of an embedded block design: a SPI master that can also drive quad-mode configuration flash, an I2C master/slave controller, and a dual 32-bit timer/counter with PWM. All three are register-mapped, produce an interrupt, and are driven by the bare-metal drivers that come with the exported hardware handoff. They are usually added through connection automation, which wires the AXI slave, the clock and the reset in one step.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_quad_spi:3.2 axi_quad_spi_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_iic:2.1 axi_iic_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_timer:2.0 axi_timer_0",
+      "parameters": [
+        {"name": "CONFIG.C_SPI_MODE (axi_quad_spi)", "description": "0 standard single-bit SPI, 1 dual, 2 quad. Quad mode is what configuration flash needs."},
+        {"name": "CONFIG.C_NUM_SS_BITS (axi_quad_spi)", "description": "Number of slave-select lines, i.e. how many devices share the bus."},
+        {"name": "CONFIG.C_USE_STARTUP (axi_quad_spi)", "description": "Route the SPI clock through the STARTUP primitive so the same pins used for configuration flash can be reused after boot."},
+        {"name": "CONFIG.C_FIFO_DEPTH (axi_quad_spi)", "description": "Transmit and receive FIFO depth, commonly 0, 16 or 256."},
+        {"name": "CONFIG.C_GPO_WIDTH (axi_iic)", "description": "Width of the general-purpose output port that accompanies the I2C controller, often used for bus mux control."},
+        {"name": "CONFIG.C_COUNT_WIDTH (axi_timer)", "description": "Counter width in bits, normally 32."},
+        {"name": "CONFIG.C_ONE_TIMER_ONLY (axi_timer)", "description": "1 generates a single timer instead of the default pair; the pair is required for PWM mode."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_timer:2.0 axi_timer_0\nset_property -dict [list CONFIG.C_COUNT_WIDTH {32} CONFIG.C_ONE_TIMER_ONLY {0}] [get_bd_cells axi_timer_0]\n\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_quad_spi:3.2 axi_quad_spi_0\nset_property -dict [list CONFIG.C_SPI_MODE {2} CONFIG.C_NUM_SS_BITS {1} \\\n  CONFIG.C_USE_STARTUP {1}] [get_bd_cells axi_quad_spi_0]\n\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_iic:2.1 axi_iic_0\nmake_bd_intf_pins_external [get_bd_intf_pins axi_iic_0/IIC]\n\nassign_bd_address\nvalidate_bd_design",
+      "notes": "The IIC interface must reach the board through bidirectional IOBUFs; making the IIC interface external produces the sda_i/sda_o/sda_t triplet that the wrapper resolves into a true bidirectional port. Product guides: AXI Quad SPI (PG153), AXI IIC (PG090), AXI Timer (PG079); the XADC Wizard (xadc_wiz, PG091) is configured the same way when on-chip voltage and temperature monitoring is needed. VLNV version suffixes vary by release."
+    },
+    {
+      "name": "AXI BRAM Controller / Block Memory Generator (axi_bram_ctrl, blk_mem_gen)",
+      "kind": "block",
+      "description": "Together these build an on-chip memory that a processor or any AXI master can address: the Block Memory Generator instantiates the block RAM array itself, and the AXI BRAM Controller translates AXI4 or AXI4-Lite transactions into native BRAM port accesses. The pair is used for MicroBlaze local memory, shared buffers between the PS and the fabric, and lookup tables that software initialises at run time. The memory depth is derived from the address range assigned to the controller, so it is set in the Address Editor rather than in the memory generator.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_bram_ctrl:4.1 axi_bram_ctrl_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:blk_mem_gen:8.4 blk_mem_gen_0",
+      "parameters": [
+        {"name": "CONFIG.DATA_WIDTH (axi_bram_ctrl)", "description": "AXI and memory data width in bits: 32, 64, 128, 256 or 512."},
+        {"name": "CONFIG.SINGLE_PORT_BRAM (axi_bram_ctrl)", "description": "1 exposes only BRAM_PORTA, 0 exposes both ports so a second master or fabric logic can use port B."},
+        {"name": "CONFIG.PROTOCOL (axi_bram_ctrl)", "description": "AXI4 for burst access or AXI4LITE for simple register-style access."},
+        {"name": "CONFIG.ECC_TYPE (axi_bram_ctrl)", "description": "Enable Hamming or built-in ECC on the memory, with correctable and uncorrectable error reporting."},
+        {"name": "CONFIG.Memory_Type (blk_mem_gen)", "description": "Single_Port_RAM, Simple_Dual_Port_RAM, True_Dual_Port_RAM, Single_Port_ROM or Dual_Port_ROM."},
+        {"name": "CONFIG.Write_Width_A / CONFIG.Write_Depth_A (blk_mem_gen)", "description": "Port A width and depth when the core is used standalone rather than behind a controller."},
+        {"name": "CONFIG.use_bram_block (blk_mem_gen)", "description": "Stand_Alone or BRAM_Controller. The controller mode makes the core inherit its parameters from the attached AXI BRAM Controller."},
+        {"name": "CONFIG.Load_Init_File / CONFIG.Coe_File (blk_mem_gen)", "description": "Initialise the memory contents from a .coe file at configuration time."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_bram_ctrl:4.1 axi_bram_ctrl_0\nset_property -dict [list CONFIG.DATA_WIDTH {32} CONFIG.SINGLE_PORT_BRAM {1} \\\n  CONFIG.PROTOCOL {AXI4}] [get_bd_cells axi_bram_ctrl_0]\n\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:blk_mem_gen:8.4 blk_mem_gen_0\nset_property CONFIG.use_bram_block {BRAM_Controller} [get_bd_cells blk_mem_gen_0]\nconnect_bd_intf_net [get_bd_intf_pins axi_bram_ctrl_0/BRAM_PORTA] [get_bd_intf_pins blk_mem_gen_0/BRAM_PORTA]\n\n# The 8K range here is what sets the memory depth\nassign_bd_address -offset 0xC0000000 -range 8K \\\n  -target_address_space [get_bd_addr_spaces processing_system7_0/Data] \\\n  [get_bd_addr_segs axi_bram_ctrl_0/S_AXI/Mem0] -force\nvalidate_bd_design",
+      "notes": "Enlarging the memory is done by increasing the assigned address range and re-validating, not by editing the Block Memory Generator; its depth parameter is overwritten by parameter propagation. Product guides: AXI BRAM Controller (PG078) and Block Memory Generator (PG058); VLNV version suffixes vary by release."
+    },
+    {
+      "name": "FIFO Generator / AXI4-Stream Data FIFO (fifo_generator, axis_data_fifo)",
+      "kind": "block",
+      "description": "Buffering cores built from block RAM, distributed RAM or the built-in FIFO primitives. FIFO Generator is the general-purpose core with a native interface as well as AXI4, AXI4-Lite and AXI4-Stream wrappers, and is the standard way to cross clock domains with a safe gray-coded pointer design. AXI4-Stream Data FIFO is the stream-only member of the AXI4-Stream Infrastructure suite and is what you normally drop into a block design to decouple a producer from a consumer or to cross clock domains on a stream.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:fifo_generator:13.2 fifo_generator_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 axis_data_fifo_0",
+      "parameters": [
+        {"name": "CONFIG.INTERFACE_TYPE (fifo_generator)", "description": "Native, AXI4_Stream, AXI4 or AXI4_Lite."},
+        {"name": "CONFIG.Fifo_Implementation (fifo_generator)", "description": "Common_Clock_Block_RAM, Common_Clock_Distributed_RAM, Independent_Clocks_Block_RAM and similar; the independent-clock variants are the CDC forms."},
+        {"name": "CONFIG.Input_Data_Width / CONFIG.Input_Depth (fifo_generator)", "description": "Write-side width in bits and depth in words; the read side can differ for an asymmetric FIFO."},
+        {"name": "CONFIG.Performance_Options (fifo_generator)", "description": "Standard_FIFO or First_Word_Fall_Through, which presents the first word on the output without a read strobe."},
+        {"name": "CONFIG.TDATA_NUM_BYTES (axis_data_fifo)", "description": "Stream data width in bytes."},
+        {"name": "CONFIG.FIFO_DEPTH (axis_data_fifo)", "description": "Depth in beats, a power of two, typically 16 to 32768."},
+        {"name": "CONFIG.IS_ACLK_ASYNC (axis_data_fifo)", "description": "1 gives the FIFO separate slave and master clocks so it also performs the clock-domain crossing."},
+        {"name": "CONFIG.HAS_TLAST / CONFIG.HAS_TKEEP (axis_data_fifo)", "description": "Enable the packet-boundary and byte-qualifier sideband signals on the stream."}
+      ],
+      "example": "# Stream FIFO that also crosses from the 200 MHz DSP clock to the 100 MHz AXI clock\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axis_data_fifo:2.0 axis_data_fifo_0\nset_property -dict [list \\\n  CONFIG.TDATA_NUM_BYTES {4} \\\n  CONFIG.FIFO_DEPTH {1024} \\\n  CONFIG.HAS_TLAST {1} \\\n  CONFIG.IS_ACLK_ASYNC {1}] [get_bd_cells axis_data_fifo_0]\n\n# Standalone native FIFO for hand-written RTL\ncreate_ip -name fifo_generator -vendor xilinx.com -library ip -version 13.2 -module_name fifo_32x512\nset_property -dict [list CONFIG.Fifo_Implementation {Independent_Clocks_Block_RAM} \\\n  CONFIG.Input_Data_Width {32} CONFIG.Input_Depth {512} \\\n  CONFIG.Performance_Options {First_Word_Fall_Through}] [get_ips fifo_32x512]\ngenerate_target all [get_files fifo_32x512.xci]",
+      "notes": "An independent-clock FIFO ships its own timing constraints for the pointer crossing, so no set_max_delay or set_bus_skew needs to be written by hand. The empty and full flags of an asynchronous FIFO are pessimistic by design; the almost-full and data-count outputs are the ones to use for flow control. Product guides: FIFO Generator (PG057) and the AXI4-Stream Infrastructure IP Suite (PG085); VLNV version suffixes vary by release."
+    },
+    {
+      "name": "MicroBlaze (microblaze)",
+      "kind": "block",
+      "description": "A configurable 32-bit RISC soft processor that runs bare-metal code, FreeRTOS or Linux depending on how it is configured. It connects to local block RAM over LMB for low-latency instruction and data access, and to peripherals and memory over AXI, with optional caches, floating-point unit, MMU and hardware debug. In a block design it is almost always brought up with block automation, which builds the local memory, debug module, interrupt controller, clocking and reset infrastructure in one step.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze:11.0 microblaze_0",
+      "parameters": [
+        {"name": "CONFIG.C_USE_HW_MUL", "description": "0 none, 1 32-bit multiplier, 2 adds the 64-bit multiply-high instructions."},
+        {"name": "CONFIG.C_USE_BARREL / CONFIG.C_USE_DIV", "description": "Enable the barrel shifter and the hardware divider; both cost area and save many cycles."},
+        {"name": "CONFIG.C_USE_FPU", "description": "0 none, 1 basic single-precision FPU, 2 extended FPU with conversion and square root."},
+        {"name": "CONFIG.C_USE_ICACHE / CONFIG.C_USE_DCACHE", "description": "Enable instruction and data caches, which require the M_AXI_IC and M_AXI_DC ports to reach external memory."},
+        {"name": "CONFIG.C_DEBUG_ENABLED", "description": "Enable the hardware debug interface that the MicroBlaze Debug Module (mdm) connects to."},
+        {"name": "CONFIG.C_AREA_OPTIMIZED", "description": "Trade frequency for area; the 'Microcontroller' style configuration."},
+        {"name": "CONFIG.C_D_AXI / CONFIG.C_D_LMB / CONFIG.C_I_LMB", "description": "Enable the peripheral AXI data port and the local-memory bus ports."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze:11.0 microblaze_0\napply_bd_automation -rule xilinx.com:bd_rule:microblaze \\\n  -config {local_mem \"32KB\" ecc \"None\" cache \"None\" debug_module \"Debug Only\" \\\n           axi_periph \"Enabled\" axi_intc \"1\" clk \"/clk_wiz_0/clk_out1 (100 MHz)\"} \\\n  [get_bd_cells microblaze_0]\n\nset_property -dict [list CONFIG.C_USE_BARREL {1} CONFIG.C_USE_DIV {1} \\\n  CONFIG.C_USE_HW_MUL {2}] [get_bd_cells microblaze_0]\n\nassign_bd_address\nvalidate_bd_design\nsave_bd_design\nwrite_hw_platform -fixed -include_bit -force ./system_wrapper.xsa",
+      "notes": "The reset vector is at address 0x00000000, which must be inside the LMB block RAM, so the local memory size chosen in block automation has to hold the vectors and the boot code. Changing cache or FPU settings changes the compiler flags the software project needs, so re-export the hardware handoff with write_hw_platform afterwards. See the MicroBlaze Processor Reference Guide (UG984); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "Zynq-7000 Processing System (processing_system7)",
+      "kind": "block",
+      "description": "The block-design view of the hard dual-core Arm Cortex-A9 processing system on Zynq-7000 devices, covering the DDR controller, the MIO peripherals, the clock generator and the AXI ports between the PS and the programmable logic. The IP itself consumes no fabric resources: configuring it writes the initialisation code that the boot loader uses to set up the PS. Its FCLK_CLK outputs are the usual clock source for the fabric and FCLK_RESET0_N the usual reset.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 processing_system7_0",
+      "parameters": [
+        {"name": "CONFIG.PCW_USE_M_AXI_GP0 / GP1", "description": "Enable the general-purpose AXI master ports through which the CPU reaches fabric peripherals."},
+        {"name": "CONFIG.PCW_USE_S_AXI_HP0 .. HP3", "description": "Enable the high-performance AXI slave ports that give fabric masters high-bandwidth access to DDR."},
+        {"name": "CONFIG.PCW_USE_S_AXI_ACP", "description": "Enable the accelerator coherency port, which snoops the CPU caches."},
+        {"name": "CONFIG.PCW_FPGA<n>_PERIPHERAL_FREQMHZ", "description": "Requested frequency of fabric clock FCLK_CLK<n> in MHz."},
+        {"name": "CONFIG.PCW_EN_CLK<n>_PORT / PCW_EN_RST<n>_PORT", "description": "Expose fabric clock n and its matching reset output."},
+        {"name": "CONFIG.PCW_USE_FABRIC_INTERRUPT / CONFIG.PCW_IRQ_F2P_INTR", "description": "Enable the IRQ_F2P port so fabric peripherals can interrupt the CPU."},
+        {"name": "CONFIG.PCW_IMPORT_BOARD_PRESET", "description": "Apply a board preset XML that sets the DDR part, MIO assignment and clock frequencies in one go."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:processing_system7:5.5 processing_system7_0\napply_bd_automation -rule xilinx.com:bd_rule:processing_system7 \\\n  -config {make_external \"FIXED_IO, DDR\" Master \"Disable\" Slave \"Disable\"} \\\n  [get_bd_cells processing_system7_0]\n\nset_property -dict [list \\\n  CONFIG.PCW_FPGA0_PERIPHERAL_FREQMHZ {100} \\\n  CONFIG.PCW_USE_S_AXI_HP0 {1} \\\n  CONFIG.PCW_USE_FABRIC_INTERRUPT {1} \\\n  CONFIG.PCW_IRQ_F2P_INTR {1}] [get_bd_cells processing_system7_0]\n\nconnect_bd_net [get_bd_pins processing_system7_0/FCLK_CLK0] [get_bd_pins processing_system7_0/M_AXI_GP0_ACLK]\nvalidate_bd_design",
+      "notes": "The DDR and FIXED_IO interfaces must be made external or the design will not build; the block automation above does exactly that. When a board part is selected, the automation also applies the board preset, which is why the MIO configuration usually needs no manual editing. See the Zynq-7000 Technical Reference Manual (UG585) for the register and peripheral detail; the VLNV version suffix varies by release."
+    },
+    {
+      "name": "Zynq UltraScale+ MPSoC (zynq_ultra_ps_e)",
+      "kind": "block",
+      "description": "The block-design view of the Zynq UltraScale+ processing system: quad-core Cortex-A53 APU, dual-core Cortex-R5F RPU, platform management unit, DDR controller, MIO peripherals and the AXI ports between PS and PL. Like the Zynq-7000 PS it occupies no fabric resources and its configuration becomes PS initialisation data. Its PL clocks pl_clk0 to pl_clk3 and reset pl_resetn0 are the usual clock and reset sources for the programmable logic.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ultra_ps_e_0",
+      "parameters": [
+        {"name": "CONFIG.PSU__USE__M_AXI_GP0 / GP1 / GP2", "description": "Enable the AXI master ports from the PS into the PL (maxihpm0_fpd, maxihpm1_fpd, maxihpm0_lpd)."},
+        {"name": "CONFIG.PSU__USE__S_AXI_GP0 .. GP6", "description": "Enable the AXI slave ports that let PL masters reach DDR, including the cache-coherent HPC ports."},
+        {"name": "CONFIG.PSU__FPGA_PL<n>_ENABLE", "description": "Expose PL clock n on the pl_clk<n> pin."},
+        {"name": "CONFIG.PSU__CRL_APB__PL<n>_REF_CTRL__FREQMHZ", "description": "Requested frequency in MHz for PL clock n."},
+        {"name": "CONFIG.PSU__USE__IRQ0 / IRQ1", "description": "Enable the PL-to-PS interrupt ports pl_ps_irq0 and pl_ps_irq1."},
+        {"name": "CONFIG.PSU__USE__M_AXI_GP2", "description": "The low-power-domain master, commonly used for slow control-plane peripherals."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e:3.3 zynq_ultra_ps_e_0\napply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e \\\n  -config {apply_board_preset \"1\"} [get_bd_cells zynq_ultra_ps_e_0]\n\nset_property -dict [list \\\n  CONFIG.PSU__FPGA_PL0_ENABLE {1} \\\n  CONFIG.PSU__CRL_APB__PL0_REF_CTRL__FREQMHZ {200} \\\n  CONFIG.PSU__USE__M_AXI_GP0 {1} \\\n  CONFIG.PSU__USE__S_AXI_GP2 {1} \\\n  CONFIG.PSU__USE__IRQ0 {1}] [get_bd_cells zynq_ultra_ps_e_0]\n\nconnect_bd_net [get_bd_pins zynq_ultra_ps_e_0/pl_clk0] [get_bd_pins zynq_ultra_ps_e_0/maxihpm0_fpd_aclk]\nassign_bd_address",
+      "notes": "Every enabled AXI port has its own aclk pin that must be driven, and leaving one unconnected is the most common validate_bd_design error on this device. Use an HPC slave port when the fabric master needs cache coherency with the APU and an HP port when it does not. See the Zynq UltraScale+ MPSoC Technical Reference Manual (UG1085); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "Versal CIPS (versal_cips)",
+      "kind": "block",
+      "description": "Control, Interfaces and Processing System: the single IP that configures everything hard on a Versal adaptive SoC, including the platform management controller that boots the device, the Arm Cortex-A72 APU and Cortex-R5F RPU, the MIO peripherals, the clocking and, when present, the CPM PCIe blocks. It replaces the separate PS and configuration IP of earlier families. On Versal, DDR memory and the interconnect between CIPS and the programmable logic go through the AXI NoC rather than a fabric interconnect.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:versal_cips:3.3 versal_cips_0",
+      "parameters": [
+        {"name": "CONFIG.PS_PMC_CONFIG", "description": "The main configuration dictionary: boot mode, MIO peripheral assignment, PL clock enables and frequencies, AXI port enables. Set as a braced key/value list."},
+        {"name": "CONFIG.CPM_CONFIG", "description": "Configuration dictionary for the CPM PCIe controller when the device has one."},
+        {"name": "PMC_CRP_PL0_REF_CTRL_FREQMHZ", "description": "Key inside PS_PMC_CONFIG that sets the frequency of PL clock 0."},
+        {"name": "PS_USE_M_AXI_FPD / PS_USE_S_AXI_FPD", "description": "Keys inside PS_PMC_CONFIG that enable the full-power-domain AXI master and slave ports."},
+        {"name": "pl0_ref_clk / pl0_resetn", "description": "Pins: the PL reference clock and reset that the rest of the block design runs from."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:versal_cips:3.3 versal_cips_0\nset_property -dict [list CONFIG.PS_PMC_CONFIG { \\\n  PMC_CRP_PL0_REF_CTRL_FREQMHZ 200 \\\n  PS_USE_M_AXI_FPD 1 \\\n}] [get_bd_cells versal_cips_0]\n\n# Versal memory and PS-to-PL traffic go through the NoC\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc:1.0 axi_noc_0\nconnect_bd_net [get_bd_pins versal_cips_0/pl0_ref_clk] [get_bd_pins proc_sys_reset_0/slowest_sync_clk]\n\nvalidate_bd_design\nsave_bd_design",
+      "notes": "CIPS configuration is a large nested dictionary and is far easier to set in the GUI and then capture with write_bd_tcl than to write by hand. The DDR memory controller is configured on the AXI NoC IP, not on CIPS. See the Control, Interfaces and Processing System product guide (PG352); the VLNV version suffix varies substantially between Versal releases."
+    },
+    {
+      "name": "AXI Direct Memory Access (axi_dma)",
+      "kind": "block",
+      "description": "Moves data between AXI4 memory and AXI4-Stream in both directions, with an MM2S channel reading memory into a stream and an S2MM channel writing a stream back to memory. In Simple mode software writes a source address and a length to the control registers for each transfer; in Scatter-Gather mode the DMA walks a linked list of buffer descriptors in memory, which is what Linux drivers and multi-buffer video or network pipelines use. It is the standard bridge between a processor's memory and a stream-based accelerator.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_dma:7.1 axi_dma_0",
+      "parameters": [
+        {"name": "CONFIG.c_include_sg", "description": "1 enables Scatter-Gather with buffer descriptors and the M_AXI_SG port; 0 selects Simple mode."},
+        {"name": "CONFIG.c_include_mm2s / CONFIG.c_include_s2mm", "description": "Enable the memory-to-stream and stream-to-memory channels independently."},
+        {"name": "CONFIG.c_m_axi_mm2s_data_width / c_m_axi_s2mm_data_width", "description": "Width of the memory-side AXI ports in bits, typically 32, 64 or 128."},
+        {"name": "CONFIG.c_m_axis_mm2s_tdata_width", "description": "Width of the stream-side data in bits; a width converter is needed if it differs from the memory side."},
+        {"name": "CONFIG.c_sg_length_width", "description": "Bits in the transfer length field, 8 to 26. In Simple mode this sets the maximum transfer size."},
+        {"name": "CONFIG.c_addr_width", "description": "Address width, 32 or up to 64 for devices with more than 4 GB of addressable memory."},
+        {"name": "CONFIG.c_mm2s_burst_size / c_s2mm_burst_size", "description": "Maximum AXI burst length; larger bursts give better DDR efficiency."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_dma:7.1 axi_dma_0\nset_property -dict [list \\\n  CONFIG.c_include_sg {0} \\\n  CONFIG.c_sg_length_width {23} \\\n  CONFIG.c_m_axi_mm2s_data_width {64} \\\n  CONFIG.c_m_axi_s2mm_data_width {64}] [get_bd_cells axi_dma_0]\n\n# Memory side to a PS high-performance slave port, control side to the CPU\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXI_MM2S] [get_bd_intf_pins smartconnect_0/S00_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXI_S2MM] [get_bd_intf_pins smartconnect_0/S01_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXIS_MM2S] [get_bd_intf_pins dsp_subsystem/S_AXIS]\nconnect_bd_intf_net [get_bd_intf_pins dsp_subsystem/M_AXIS]  [get_bd_intf_pins axi_dma_0/S_AXIS_S2MM]\n\nassign_bd_address\nvalidate_bd_design",
+      "notes": "The S2MM channel only completes a transfer when the stream asserts TLAST, so an accelerator that never asserts it will leave the DMA apparently hung. In Simple mode the maximum transfer size is 2^c_sg_length_width minus one bytes, which is the usual reason a large buffer transfer silently truncates. See the AXI DMA product guide (PG021); the VLNV version suffix varies by release."
+    },
+    {
+      "name": "AXI Video DMA / Video Timing Controller (axi_vdma, v_tc)",
+      "kind": "block",
+      "description": "The two cores at the ends of a video pipeline. AXI Video DMA moves two-dimensional frames between DDR and AXI4-Stream, with a circular set of frame buffers and genlock modes that keep the reader and writer from tearing. The Video Timing Controller generates or detects the horizontal and vertical blanking and sync timing of a video standard, and is what turns a bare pixel stream into a timed display output.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vdma:6.3 axi_vdma_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:v_tc:6.2 v_tc_0",
+      "parameters": [
+        {"name": "CONFIG.c_include_mm2s / CONFIG.c_include_s2mm (axi_vdma)", "description": "Enable the read (memory to display) and write (capture to memory) channels."},
+        {"name": "CONFIG.c_num_fstores (axi_vdma)", "description": "Number of frame buffers in the circular buffer set, 1 to 32. Three is the usual choice for tear-free display."},
+        {"name": "CONFIG.c_mm2s_genlock_mode / c_s2mm_genlock_mode (axi_vdma)", "description": "0 master, 1 slave, 2 dynamic master, 3 dynamic slave; genlock ties the two channels so they never work on the same buffer."},
+        {"name": "CONFIG.c_mm2s_linebuffer_depth (axi_vdma)", "description": "Depth of the internal line buffer in bytes; deeper buffers absorb more DDR latency."},
+        {"name": "CONFIG.enable_generation / CONFIG.enable_detection (v_tc)", "description": "Enable the timing generator, the timing detector, or both."},
+        {"name": "CONFIG.max_clocks_per_line / CONFIG.max_lines (v_tc)", "description": "Largest supported total line length and frame height, which sizes the internal counters."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vdma:6.3 axi_vdma_0\nset_property -dict [list \\\n  CONFIG.c_include_mm2s {1} \\\n  CONFIG.c_include_s2mm {0} \\\n  CONFIG.c_num_fstores {3} \\\n  CONFIG.c_mm2s_genlock_mode {0} \\\n  CONFIG.c_m_axi_mm2s_data_width {64}] [get_bd_cells axi_vdma_0]\n\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:v_tc:6.2 v_tc_0\nset_property -dict [list CONFIG.enable_generation {true} CONFIG.enable_detection {false} \\\n  CONFIG.max_clocks_per_line {4096} CONFIG.max_lines {2160}] [get_bd_cells v_tc_0]\n\nconnect_bd_intf_net [get_bd_intf_pins axi_vdma_0/M_AXIS_MM2S] [get_bd_intf_pins v_axi4s_vid_out_0/video_in]\nconnect_bd_intf_net [get_bd_intf_pins v_tc_0/vtiming_out]      [get_bd_intf_pins v_axi4s_vid_out_0/vtiming_in]\nassign_bd_address",
+      "notes": "VDMA needs enough DDR bandwidth for the full frame rate; an underrunning MM2S channel shows up as horizontal tearing or a frozen frame rather than an error. The frame buffer addresses are written by software into the VDMA registers at run time, so the address range assigned in the block design only covers the control registers. Product guides: AXI Video DMA (PG020) and Video Timing Controller (PG016); VLNV version suffixes vary by release."
+    },
+    {
+      "name": "ILA / System ILA (ila, system_ila)",
+      "kind": "block",
+      "description": "On-chip logic analysers that capture fabric signals into block RAM and upload them to the Hardware Manager over JTAG. The plain ILA takes individual probe vectors and is used in RTL or with netlist-level debug insertion. System ILA is the block-design form: it attaches to whole AXI or AXI4-Stream interfaces, understands the protocol, decodes transactions in the waveform and can include an AXI protocol checker. Both consume block RAM proportional to the total probe width times the capture depth.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:ila:6.2 ila_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:system_ila:1.1 system_ila_0",
+      "parameters": [
+        {"name": "CONFIG.C_NUM_OF_PROBES (ila)", "description": "Number of separate probe ports."},
+        {"name": "CONFIG.C_PROBE<n>_WIDTH (ila)", "description": "Width in bits of probe n."},
+        {"name": "CONFIG.C_DATA_DEPTH", "description": "Capture depth in samples: 1024, 2048, 4096, 8192 and so on. This is the main consumer of block RAM."},
+        {"name": "CONFIG.C_NUM_MONITOR_SLOTS (system_ila)", "description": "How many interfaces or signal groups are monitored by one instance."},
+        {"name": "CONFIG.C_SLOT_<n>_INTF_TYPE (system_ila)", "description": "Interface VLNV monitored in slot n, e.g. xilinx.com:interface:aximm_rtl:1.0."},
+        {"name": "CONFIG.C_MON_TYPE (system_ila)", "description": "INTERFACE, NATIVE or MIX, depending on whether the instance monitors interfaces, plain nets, or both."},
+        {"name": "CONFIG.C_ADV_TRIGGER (ila)", "description": "Enable the advanced trigger state machine with sequencing and counters instead of simple comparators."},
+        {"name": "CONFIG.C_INPUT_PIPE_STAGES", "description": "Pipeline stages added on the probe inputs to help timing at high frequency."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:system_ila:1.1 system_ila_0\nset_property -dict [list \\\n  CONFIG.C_NUM_MONITOR_SLOTS {2} \\\n  CONFIG.C_DATA_DEPTH {4096} \\\n  CONFIG.C_MON_TYPE {INTERFACE}] [get_bd_cells system_ila_0]\n\nconnect_bd_intf_net [get_bd_intf_pins axi_gpio_0/S_AXI]  [get_bd_intf_pins system_ila_0/SLOT_0_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXIS_MM2S] [get_bd_intf_pins system_ila_0/SLOT_1_AXIS]\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins system_ila_0/clk]\n\nvalidate_bd_design\nsave_bd_design\n# The .ltx probe file is produced with the bitstream and loaded in the Hardware Manager",
+      "notes": "In the GUI the same result is obtained by marking a block-design net for debug and running connection automation with the xilinx.com:bd_rule:debug rule. Capture depth times total probe width must fit in the available block RAM, and a wide AXI interface at depth 8192 easily exhausts a small device. Product guides: Integrated Logic Analyzer (PG172) and System ILA (PG261); VLNV version suffixes vary by release."
+    },
+    {
+      "name": "VIO / JTAG to AXI Master / Debug Bridge (vio, jtag_axi, debug_bridge)",
+      "kind": "block",
+      "description": "Debug cores that drive the design rather than only observe it. VIO provides virtual inputs and outputs that are read and written from the Hardware Manager, which is the easiest way to toggle a control bit or read a status word without a processor. JTAG to AXI Master issues real AXI read and write transactions from Tcl, so peripheral registers and memories can be exercised with no software at all. Debug Bridge routes the debug network to somewhere other than the device's own JTAG pins, for example over PCIe or from the PS.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:vio:3.0 vio_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:jtag_axi:1.2 jtag_axi_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:debug_bridge:3.0 debug_bridge_0",
+      "parameters": [
+        {"name": "CONFIG.C_NUM_PROBE_IN / CONFIG.C_NUM_PROBE_OUT (vio)", "description": "Number of monitored inputs and driven outputs."},
+        {"name": "CONFIG.C_PROBE_IN<n>_WIDTH / C_PROBE_OUT<n>_WIDTH (vio)", "description": "Width in bits of each probe."},
+        {"name": "CONFIG.C_PROBE_OUT<n>_INIT_VAL (vio)", "description": "Value an output probe drives after configuration and before the Hardware Manager changes it."},
+        {"name": "CONFIG.PROTOCOL (jtag_axi)", "description": "AXI protocol presented by the master, AXI4 or AXI4-Lite."},
+        {"name": "CONFIG.C_DEBUG_MODE (debug_bridge)", "description": "Selects which debug path the bridge implements, for example from BSCAN to the debug hub or from an AXI master into the debug network."},
+        {"name": "create_hw_axi_txn / run_hw_axi", "description": "Hardware Manager commands used to issue transactions through a jtag_axi core."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:vio:3.0 vio_0\nset_property -dict [list CONFIG.C_NUM_PROBE_IN {1} CONFIG.C_PROBE_IN0_WIDTH {32} \\\n  CONFIG.C_NUM_PROBE_OUT {1} CONFIG.C_PROBE_OUT0_WIDTH {4}] [get_bd_cells vio_0]\n\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:jtag_axi:1.2 jtag_axi_0\nconnect_bd_intf_net [get_bd_intf_pins jtag_axi_0/M_AXI] [get_bd_intf_pins smartconnect_0/S02_AXI]\nassign_bd_address\n\n# Later, in the Hardware Manager: read a peripheral register over JTAG\nopen_hw_manager\ncreate_hw_axi_txn rd_gpio [get_hw_axis hw_axi_1] -address 41200000 -len 1 -type read\nrun_hw_axi rd_gpio\nputs [get_property DATA [get_hw_axi_txns rd_gpio]]",
+      "notes": "A jtag_axi master must be given an address mapping with assign_bd_address like any other master, or its transactions decode to nothing. VIO outputs are asynchronous to the design clock, so drive only static control bits with them, never anything that needs a clean single-cycle pulse. Product guides: VIO (PG159), JTAG to AXI Master (PG174), Debug Bridge (PG245); VLNV version suffixes vary by release."
+    },
+    {
+      "name": "Utility cores (xlconstant, xlconcat, xlslice, util_vector_logic)",
+      "kind": "block",
+      "description": "The small glue blocks that make a block design expressible without dropping to RTL: xlconstant ties a signal to a fixed value, xlconcat bundles several scalars or vectors into one wider vector, xlslice extracts a bit range out of a vector, and util_vector_logic performs a single AND, OR, XOR or NOT across a vector. They cost almost no resources and appear in nearly every non-trivial design, most often to invert a reset or to gather interrupt lines into a processor's interrupt port.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 xlconstant_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconcat_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:xlslice:1.0 xlslice_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic:2.0 util_vector_logic_0",
+      "parameters": [
+        {"name": "CONFIG.CONST_VAL / CONFIG.CONST_WIDTH (xlconstant)", "description": "Constant value and its width in bits."},
+        {"name": "CONFIG.NUM_PORTS (xlconcat)", "description": "Number of inputs to concatenate; In0 becomes the least significant field."},
+        {"name": "CONFIG.IN<n>_WIDTH (xlconcat)", "description": "Width of input n, when the widths are not inferred from the connections."},
+        {"name": "CONFIG.DIN_WIDTH (xlslice)", "description": "Width of the input vector."},
+        {"name": "CONFIG.DIN_FROM / CONFIG.DIN_TO (xlslice)", "description": "Upper and lower bit index of the slice taken from the input."},
+        {"name": "CONFIG.C_OPERATION (util_vector_logic)", "description": "and, or, xor or not."},
+        {"name": "CONFIG.C_SIZE (util_vector_logic)", "description": "Vector width the operation is applied to; 1 for a single-bit invert."}
+      ],
+      "example": "# Invert an active-high reset for a core that wants active-low\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:util_vector_logic:2.0 rst_inv\nset_property -dict [list CONFIG.C_OPERATION {not} CONFIG.C_SIZE {1}] [get_bd_cells rst_inv]\nconnect_bd_net [get_bd_pins processing_system7_0/FCLK_RESET0_N] [get_bd_pins rst_inv/Op1]\n\n# Gather three interrupt sources into the PS interrupt port\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat:2.1 xlconcat_0\nset_property CONFIG.NUM_PORTS {3} [get_bd_cells xlconcat_0]\nconnect_bd_net [get_bd_pins axi_gpio_1/ip2intc_irpt] [get_bd_pins xlconcat_0/In0]\nconnect_bd_net [get_bd_pins axi_dma_0/mm2s_introut]  [get_bd_pins xlconcat_0/In1]\nconnect_bd_net [get_bd_pins axi_dma_0/s2mm_introut]  [get_bd_pins xlconcat_0/In2]\nconnect_bd_net [get_bd_pins xlconcat_0/dout] [get_bd_pins processing_system7_0/IRQ_F2P]\n\n# Tie an unused enable high\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:xlconstant:1.1 const_1\nset_property -dict [list CONFIG.CONST_WIDTH {1} CONFIG.CONST_VAL {1}] [get_bd_cells const_1]",
+      "notes": "The bit order of xlconcat matters for interrupt numbering: In0 is the least significant bit and therefore the lowest interrupt ID that software sees. util_vector_logic with C_OPERATION not and C_SIZE 1 is the idiomatic reset inverter in a block design; VLNV version suffixes vary by release."
+    },
+    {
+      "name": "Arithmetic operators (floating_point, cordic, mult_gen, div_gen, cmpy)",
+      "kind": "block",
+      "description": "Generated arithmetic building blocks that map onto DSP slices and LUTs with a configurable latency/area trade-off. Floating-Point Operator covers add, subtract, multiply, divide, square root, compare and fixed/float conversion in single, double or custom precision; CORDIC computes trigonometric, hyperbolic, magnitude and square-root functions iteratively; Multiplier, Divider and Complex Multiplier generate the fixed-point equivalents. All of them present AXI4-Stream interfaces, so they drop straight into a streaming data path.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:floating_point:7.1 floating_point_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:cordic:6.0 cordic_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:mult_gen:12.0 mult_gen_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:div_gen:5.1 div_gen_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:cmpy:6.0 cmpy_0",
+      "parameters": [
+        {"name": "CONFIG.Operation_Type (floating_point)", "description": "Add_Subtract, Multiply, Divide, Square_root, Compare, Fixed_to_float, Float_to_fixed and similar."},
+        {"name": "CONFIG.A_Precision_Type (floating_point)", "description": "Single, Double or Custom; Custom exposes explicit exponent and fraction widths."},
+        {"name": "CONFIG.C_Mult_Usage (floating_point)", "description": "No_Usage, Medium_Usage, Full_Usage or Max_Usage: how aggressively DSP slices are used instead of fabric."},
+        {"name": "CONFIG.Flow_Control", "description": "NonBlocking gives a fixed-latency pipeline with no back-pressure; Blocking honours TREADY at the cost of more logic."},
+        {"name": "CONFIG.Functional_Selection (cordic)", "description": "Rotate, Translate, Sin_and_Cos, Sinh_and_Cosh, Arc_Tan, Arc_Tanh or Square_Root."},
+        {"name": "CONFIG.Input_Width / CONFIG.Output_Width (cordic)", "description": "Operand widths, which together with Iterations set the achievable accuracy."},
+        {"name": "CONFIG.Multiplier_Construction (mult_gen)", "description": "Use_Mults to map onto DSP slices or Use_LUTs to build the multiplier in fabric."},
+        {"name": "CONFIG.PipeStages / CONFIG.C_Latency", "description": "Pipeline depth; deeper pipelines reach higher frequency at the cost of latency and registers."}
+      ],
+      "example": "# Single-precision multiplier as a standalone IP for hand-written RTL\ncreate_ip -name floating_point -vendor xilinx.com -library ip -version 7.1 -module_name fp_mult\nset_property -dict [list \\\n  CONFIG.Operation_Type {Multiply} \\\n  CONFIG.A_Precision_Type {Single} \\\n  CONFIG.C_Mult_Usage {Full_Usage} \\\n  CONFIG.Flow_Control {NonBlocking}] [get_ips fp_mult]\ngenerate_target all [get_files fp_mult.xci]\n\n# CORDIC sine/cosine generator inside a block design\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:cordic:6.0 cordic_0\nset_property -dict [list CONFIG.Functional_Selection {Sin_and_Cos} \\\n  CONFIG.Input_Width {16} CONFIG.Output_Width {16}] [get_bd_cells cordic_0]",
+      "notes": "Latency is reported by the IP customisation GUI and depends on every parameter, so read it back rather than assuming; a change of precision or DSP usage silently shifts the pipeline depth and breaks any hand-balanced parallel path. NonBlocking flow control ignores TREADY entirely, which is efficient but means the downstream block must always be able to accept data. Product guides: Floating-Point Operator (PG060), CORDIC (PG105), Multiplier (PG108), Divider Generator (PG151), Complex Multiplier (PG104); VLNV version suffixes vary by release."
+    },
+    {
+      "name": "DSP function generators (xfft, fir_compiler, dds_compiler)",
+      "kind": "block",
+      "description": "Larger signal-processing cores generated from a functional specification rather than assembled by hand. FFT implements forward and inverse transforms with a choice of architectures trading throughput against resources; FIR Compiler builds single-rate, interpolating, decimating and multi-channel filters from a coefficient vector and uses DSP slice time-sharing to exploit the ratio between clock rate and sample rate; DDS Compiler generates sine and cosine waveforms or acts as a numerically controlled oscillator. All three use AXI4-Stream for data and for run-time configuration.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:xfft:9.1 xfft_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:fir_compiler:7.2 fir_compiler_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:dds_compiler:6.0 dds_compiler_0",
+      "parameters": [
+        {"name": "CONFIG.transform_length (xfft)", "description": "Number of points, a power of two from 8 up to 65536 depending on the architecture."},
+        {"name": "CONFIG.implementation_options (xfft)", "description": "pipelined_streaming_io for continuous throughput, radix_4_burst_io or radix_2_burst_io for smaller area, radix_2_lite_burst_io for the smallest."},
+        {"name": "CONFIG.scaling_options (xfft)", "description": "Scaled, unscaled or block floating point, which decides how internal growth is handled."},
+        {"name": "CONFIG.Coefficient_Vector (fir_compiler)", "description": "Comma-separated list of filter taps, normally produced by a design tool and pasted in."},
+        {"name": "CONFIG.Filter_Type (fir_compiler)", "description": "Single_Rate, Interpolation, Decimation, Hilbert or Interpolated."},
+        {"name": "CONFIG.Sample_Frequency / CONFIG.Clock_Frequency (fir_compiler)", "description": "Input sample rate and clock rate in MHz; their ratio determines how many taps can share one DSP slice."},
+        {"name": "CONFIG.Output_Selection (dds_compiler)", "description": "Sine, Cosine or Sine_and_Cosine."},
+        {"name": "CONFIG.Phase_Increment (dds_compiler)", "description": "Fixed, Programmable or Streaming, which decides whether the output frequency is compiled in or set at run time."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:xfft:9.1 xfft_0\nset_property -dict [list \\\n  CONFIG.transform_length {1024} \\\n  CONFIG.implementation_options {pipelined_streaming_io} \\\n  CONFIG.data_format {fixed_point} \\\n  CONFIG.scaling_options {block_floating_point}] [get_bd_cells xfft_0]\n\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:fir_compiler:7.2 fir_compiler_0\nset_property -dict [list \\\n  CONFIG.Filter_Type {Decimation} \\\n  CONFIG.Sample_Frequency {10.0} \\\n  CONFIG.Clock_Frequency {200.0} \\\n  CONFIG.Coefficient_Width {16}] [get_bd_cells fir_compiler_0]\n\nconnect_bd_intf_net [get_bd_intf_pins axi_dma_0/M_AXIS_MM2S] [get_bd_intf_pins xfft_0/S_AXIS_DATA]\nconnect_bd_intf_net [get_bd_intf_pins xfft_0/M_AXIS_DATA]    [get_bd_intf_pins axis_data_fifo_0/S_AXIS]",
+      "notes": "The FFT's S_AXIS_CONFIG channel must be written at least once before the first frame when a non-default scaling schedule or transform length is used, otherwise the core runs with its reset defaults. FIR Compiler reports the number of DSP slices it will use in the customisation GUI, and an over-sampled clock is what makes a long filter affordable. Product guides: Fast Fourier Transform (PG109), FIR Compiler (PG149), DDS Compiler (PG141); VLNV version suffixes vary by release."
+    },
+    {
+      "name": "Memory and high-speed interface subsystems (ddr4, mig_7series, xdma, axi_ethernet, aurora_8b10b)",
+      "kind": "block",
+      "description": "Large subsystem IP that owns dedicated device resources: hard memory controllers and I/O banks for DDR, integrated PCIe blocks and gigabit transceivers for XDMA and Aurora, and the Ethernet MAC with its PHY interface. Each brings its own clocking, its own timing constraints and its own bank and transceiver location requirements, so they are configured early and the rest of the floorplan is arranged around them. All of them present AXI or AXI4-Stream to the rest of the block design.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:ddr4:2.2 ddr4_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:mig_7series:4.2 mig_7series_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:xdma:4.1 xdma_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_ethernet:7.2 axi_ethernet_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:aurora_8b10b:11.2 aurora_8b10b_0",
+      "parameters": [
+        {"name": "CONFIG.C0.DDR4_MemoryPart (ddr4)", "description": "Exact memory device part number, which sets the timing parameters of the controller."},
+        {"name": "CONFIG.C0.DDR4_DataWidth / CONFIG.C0.DDR4_AxiDataWidth (ddr4)", "description": "DRAM bus width and the width of the AXI user interface the fabric sees."},
+        {"name": "CONFIG.C0.DDR4_InputClockPeriod (ddr4)", "description": "Period of the reference clock in picoseconds; must match the board oscillator."},
+        {"name": "CONFIG.XML_INPUT_FILE (mig_7series)", "description": "Path to the MIG .prj file that holds the whole 7-series memory controller configuration, including pinout."},
+        {"name": "CONFIG.pl_link_cap_max_link_width / _speed (xdma)", "description": "PCIe lane count (X1 to X16) and generation speed, which must be supported by the selected transceivers."},
+        {"name": "CONFIG.axi_data_width (xdma)", "description": "Width of the AXI interface into the fabric, chosen to match the PCIe bandwidth."},
+        {"name": "CONFIG.PHY_TYPE (axi_ethernet)", "description": "Physical interface to the external PHY: MII, GMII, RGMII, SGMII or 1000BaseX."},
+        {"name": "CONFIG.C_LINE_RATE / CONFIG.C_AURORA_LANES (aurora_8b10b)", "description": "Serial line rate in Gb/s and the number of bonded transceiver lanes."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:ddr4:2.2 ddr4_0\nset_property -dict [list \\\n  CONFIG.C0.DDR4_InputClockPeriod {3332} \\\n  CONFIG.C0.DDR4_MemoryType {Components} \\\n  CONFIG.C0.DDR4_DataWidth {64} \\\n  CONFIG.C0.DDR4_AxiSelection {true} \\\n  CONFIG.C0.DDR4_AxiDataWidth {512}] [get_bd_cells ddr4_0]\nmake_bd_intf_pins_external [get_bd_intf_pins ddr4_0/C0_DDR4]\n\n# PCIe DMA bridge, 8 lanes at Gen3\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:xdma:4.1 xdma_0\nset_property -dict [list \\\n  CONFIG.pl_link_cap_max_link_width {X8} \\\n  CONFIG.pl_link_cap_max_link_speed {8.0_GT/s} \\\n  CONFIG.axi_data_width {256_bit}] [get_bd_cells xdma_0]\n\nassign_bd_address\nvalidate_bd_design",
+      "notes": "These cores deliver their own clocks (for example the DDR4 ui_clk and the XDMA axi_aclk) which usually become the clock for the whole subsystem around them, so plan the clocking from the memory or PCIe core outwards rather than from a clocking wizard. They also ship their own XDC, and their I/O bank and transceiver locations are fixed by the board, so the part and package must be chosen before configuring them. Product guides: UltraScale memory IP (PG150), 7 Series Memory Interface Solutions (UG586), DMA/Bridge Subsystem for PCI Express (PG195), AXI 1G/2.5G Ethernet Subsystem (PG138), Aurora 8B/10B (PG046). Exact CONFIG parameter names and VLNV version suffixes vary by device family and release, so confirm with report_property on the instance."
+    }
+  ]
+}

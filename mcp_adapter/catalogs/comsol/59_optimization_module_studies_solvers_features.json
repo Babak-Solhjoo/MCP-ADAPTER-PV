@@ -1,0 +1,528 @@
+{
+  "category": "Optimization Module: optimization studies, solvers, objectives, constraints, controls, topology and shape optimization features",
+  "description": "COMSOL 6.4 Optimization Module in detail: the study steps (Parameter Optimization, General Optimization, Topology Optimization, Shape Optimization, Parameter Estimation, Curve Fitting), the optimization methods (Nelder-Mead, BOBYQA, COBYLA, EGO, IPOPT, MMA/GCMMA, Levenberg-Marquardt), the Optimization interface (GeneralOptimization, opt) objectives and constraints, control variables and functions, P-norm and Standard Deviation helpers, and the topology/shape optimization Definitions features. Type strings verified against the 6.4 completion data; note that SNOPT was removed in 6.4 (optsolver=snopt maps to optmethod=ipopt).",
+  "tools": [
+    {
+      "name": "Parameter Optimization (study step)",
+      "kind": "study",
+      "description": "Study step (new name in 6.4) for derivative-free optimization of model parameters: a global objective expression is minimized or maximized over bounded parameters, optionally with constraints, by Nelder-Mead, BOBYQA, COBYLA or EGO. Control variables are scaled by the distance between their bounds, and initial values can be randomized on a Sobol sequence to hunt for different local optima.",
+      "usage": "Study > Study Steps > Optimization > Parameter Optimization (inserted at the top of the study); API: model.study(\"std1\").create(\"popt\", \"ParameterOptimization\")",
+      "parameters": [
+        {"name": "optmethod", "description": "neldermead | bobyqa | cobyla | ego (derivative-free only)."},
+        {"name": "optobj / objectivetype", "description": "Objective expression(s) and minimization | maximization; multiobjective sum | min | max."},
+        {"name": "pname / initval / lbound / ubound / scale", "description": "Control parameter table (global parameters)."},
+        {"name": "constraintExpression / constraintLbound / constraintUbound", "description": "Global constraint expressions and bounds."},
+        {"name": "opttol / nsolvemax", "description": "Optimality tolerance and maximum number of model evaluations."},
+        {"name": "randboundedglobal / quasirandomindex", "description": "Randomize initial values of bounded controls (Sobol sequence) and shift index for sweeps."},
+        {"name": "addparametercase", "description": "Copy the optimized parameters to a new Parameter Case."}
+      ],
+      "example": "model.study(\"std1\").create(\"popt\", \"ParameterOptimization\");\nmodel.study(\"std1\").feature(\"popt\").set(\"optmethod\", \"bobyqa\");\nmodel.study(\"std1\").feature(\"popt\").setIndex(\"optobj\", \"comp1.maxop1(solid.mises)\", 0);\nmodel.study(\"std1\").feature(\"popt\").setIndex(\"pname\", \"th\", 0);\nmodel.study(\"std1\").feature(\"popt\").setIndex(\"initval\", \"5[mm]\", 0);\nmodel.study(\"std1\").feature(\"popt\").setIndex(\"lbound\", \"2[mm]\", 0);\nmodel.study(\"std1\").feature(\"popt\").setIndex(\"ubound\", \"10[mm]\", 0);\nmodel.study(\"std1\").feature(\"popt\").set(\"addparametercase\", \"on\");\n// Application Library: Optimization_Module/Design_Optimization/tuning_fork_optimization, multistudy_bracket_optimization",
+      "notes": "Incompatible with the Optimization and Parameter Estimation interfaces; use General Optimization for gradient-based methods or physics-defined objectives. Geometry parameters are fine because the mesh is rebuilt each evaluation.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.02.html"
+    },
+    {
+      "name": "General Optimization (study step)",
+      "kind": "study",
+      "description": "The most general optimization study step (named Optimization before 6.4): it combines user-defined global objectives, control parameters and constraints with contributions from Optimization interfaces (field controls, integral and least-squares objectives, pointwise constraints) and supports all methods, derivative-free and gradient-based. It is the choice for optimal control, PDE-constrained optimization with many controls and multi-study objectives via Study References.",
+      "usage": "Study > Study Steps > Optimization > General Optimization; API: model.study(\"std1\").create(\"opt\", \"Optimization\"); set(\"optmethod\", \"neldermead\"|\"bobyqa\"|\"cobyla\"|\"ego\"|\"ipopt\"|\"gcmma\"|\"mma\"|\"lm\")",
+      "parameters": [
+        {"name": "optmethod", "description": "Any of the eight methods; gradient-based ones need differentiable objectives."},
+        {"name": "gradientStep", "description": "Study step whose sensitivities are used for gradient-based methods."},
+        {"name": "objectivesolution / outersolution", "description": "How objectives from multiple solutions (time steps, sweeps) are combined."},
+        {"name": "finaltimeopt / stopcondexpr", "description": "Condition-based final time (6.4): stop the transient solver on a condition and optimize the stop time."},
+        {"name": "constrmethod", "description": "penalty | augLagrange constraint handling for derivative-free methods."},
+        {"name": "Output", "description": "Objective/constraint tables (useobjtable), keep solutions (keepsol), optimization log (convinfo)."}
+      ],
+      "example": "model.study(\"std1\").create(\"opt\", \"Optimization\");\nmodel.study(\"std1\").feature(\"opt\").set(\"optmethod\", \"ipopt\");\nmodel.study(\"std1\").feature(\"opt\").set(\"objectivetype\", \"minimization\");\nmodel.study(\"std1\").feature(\"opt\").set(\"opttol\", \"1e-4\");\nmodel.study(\"std1\").feature(\"opt\").set(\"nsolvemax\", \"200\");\n// Application Library: Optimization_Module/Optimal_Control/optimal_heating_control, lib_charge_rate_optimization",
+      "notes": "Only one Sensitivity/Optimization/Parameter Estimation/Parametric Sweep controlling step per study; nest optimizations via Study Reference. The existing entry 'Optimization' describes the older generic node.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.06.html"
+    },
+    {
+      "name": "Topology Optimization (study step)",
+      "kind": "study",
+      "description": "Gradient-based study step for density-based topology optimization using GCMMA (default), MMA or IPOPT, where the control variable field of one or more Density Model features decides where material is placed. Objectives and constraints (e.g. compliance and a volume fraction on dtopo1.theta_avg) are entered in the study or come from physics.",
+      "usage": "Study > Study Steps > Optimization > Topology Optimization (also offered by the Model Wizard, which then adds a Topology Link material); API: model.study(\"std1\").create(\"topo\", \"TopologyOptimization\")",
+      "parameters": [
+        {"name": "optmethod", "description": "gcmma (default) | mma | ipopt."},
+        {"name": "movelimitactive", "description": "Limit how far the controls may move per outer iteration."},
+        {"name": "Objective / constraints", "description": "Global expressions, e.g. comp1.intop1(solid.Ws) and comp1.dtopo1.theta_avg <= 0.5."},
+        {"name": "opttolinner / mmamaxiter / ipoptmaxiter", "description": "Optimality tolerance and maximum number of iterations for MMA/GCMMA or IPOPT."}
+      ],
+      "example": "model.study(\"std1\").create(\"topo\", \"TopologyOptimization\");\nmodel.study(\"std1\").feature(\"topo\").set(\"optmethod\", \"mma\");\nmodel.study(\"std1\").feature(\"topo\").setIndex(\"optobj\", \"comp1.intop1(solid.Ws)\", 0);\nmodel.study(\"std1\").feature(\"topo\").setIndex(\"constraintExpression\", \"comp1.dtopo1.theta_avg\", 0);\nmodel.study(\"std1\").feature(\"topo\").setIndex(\"constraintUbound\", \"0.5\", 0);\n// Application Library: Optimization_Module/Topology_Optimization/mbb_beam_optimization",
+      "notes": "MMA is first order, so termination on the iteration count is common. In 6.4 both GCMMA and MMA can be chosen directly at study level.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.04.html"
+    },
+    {
+      "name": "Shape Optimization (study step)",
+      "kind": "study",
+      "description": "Gradient-based study step (GCMMA, MMA or IPOPT) that deforms an existing geometry through the mesh using the shape optimization Definitions features (Free Shape Domain/Boundary/Shell, Polynomial Boundary/Shell, Transformation). The achievable deformation is typically limited by mesh quality, controlled through the maximum displacement settings of the features.",
+      "usage": "Study > Study Steps > Optimization > Shape Optimization; API: model.study(\"std1\").create(\"sho\", \"ShapeOptimization\")",
+      "parameters": [
+        {"name": "optmethod", "description": "gcmma | mma | ipopt."},
+        {"name": "Objective / constraints", "description": "Global expressions such as eigenfrequency, stress p-norm, fsd1.volume."},
+        {"name": "Output / keep solutions", "description": "Store intermediate shapes to animate the evolution."}
+      ],
+      "example": "model.study(\"std1\").create(\"sho\", \"ShapeOptimization\");\nmodel.study(\"std1\").feature(\"sho\").set(\"optmethod\", \"gcmma\");\n// Application Library: Optimization_Module/Shape_Optimization/wrench_shape_optimization, flywheel_profile, shell_shape_optimization",
+      "notes": "Inverted elements end the optimization; reduce the maximum displacement or remesh the optimized geometry and restart.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.05.html"
+    },
+    {
+      "name": "Parameter Estimation (study step)",
+      "kind": "study",
+      "description": "Simplified least-squares calibration step: experimental data from a file, local table or results table (or Global Least-Squares objectives defined in components) is compared with model expressions, and parameters are estimated with Levenberg-Marquardt (default), BOBYQA or IPOPT, optionally reporting confidence intervals and the covariance matrix. It can fit multiple curves and works with any other study step.",
+      "usage": "Study > Study Steps > Optimization > Parameter Estimation; API: model.study(\"std1\").create(\"lsqo\", \"LSQOptimization\")",
+      "parameters": [
+        {"name": "source / filename", "description": "file | table (local) | resultTable | all/selected least-squares objectives."},
+        {"name": "Data column settings", "description": "Per column: Time or Value with model expression, unit, scale (automatic/from values/manual) and variance."},
+        {"name": "pname / initval / lbound / ubound", "description": "Estimated parameters."},
+        {"name": "optmethod", "description": "lm (default) | bobyqa | ipopt."},
+        {"name": "addconfint / conflevel", "description": "Compute confidence intervals and covariance tables."}
+      ],
+      "example": "model.study(\"std1\").create(\"lsqo\", \"LSQOptimization\");\nmodel.study(\"std1\").feature(\"lsqo\").set(\"optmethod\", \"lm\");\nmodel.study(\"std1\").feature(\"lsqo\").setIndex(\"pname\", \"C10\", 0);\nmodel.study(\"std1\").feature(\"lsqo\").setIndex(\"initval\", \"1e5\", 0);\nmodel.study(\"std1\").feature(\"lsqo\").set(\"addconfint\", \"on\");\n// Application Library: Optimization_Module/Parameter_Estimation/curve_fit_mooney_rivlin, impedance_tube_parameter_estimation_data",
+      "notes": "API type is LSQOptimization (the older type ParameterEstimation is the Curve Fitting step). Normalize data columns with scales so residuals of different quantities are comparable.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.03.html"
+    },
+    {
+      "name": "Curve Fitting (study step)",
+      "kind": "study",
+      "description": "Lightweight least-squares study step that fits parameters so that a single global model expression from a time-dependent study step matches reference data given by an interpolation function (for example imported measurements) or a user-defined reference expression. Use it for quick fits of one curve; use Parameter Estimation for multiple curves and non-transient studies.",
+      "usage": "Study > Study Steps > Optimization > Curve Fitting; API: model.study(\"std1\").create(\"est\", \"ParameterEstimation\")",
+      "parameters": [
+        {"name": "parameterEstimationStep", "description": "Time-dependent study step supplying the model data."},
+        {"name": "modelExpression", "description": "Global expression compared with the reference."},
+        {"name": "referenceDataSource / referenceFunction / referenceExpression", "description": "function (interpolation) or userDefined."},
+        {"name": "optmethod", "description": "lm (default) | bobyqa | ipopt."}
+      ],
+      "example": "model.study(\"std1\").create(\"est\", \"ParameterEstimation\");\nmodel.study(\"std1\").feature(\"est\").set(\"modelExpression\", \"comp1.T_probe\");\nmodel.study(\"std1\").feature(\"est\").set(\"referenceDataSource\", \"function\");\nmodel.study(\"std1\").feature(\"est\").set(\"referenceFunction\", \"int1\");\nmodel.study(\"std1\").feature(\"est\").setIndex(\"pname\", \"h_conv\", 0);",
+      "notes": "The difference is evaluated at the argument values of the interpolation function or at the output times of the selected step.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.07.html"
+    },
+    {
+      "name": "Nelder-Mead (optimization method)",
+      "kind": "solver",
+      "description": "Derivative-free simplex method using N+1 points that reflects, expands and contracts the worst vertex, with a restart when the simplex degenerates and bound handling by limiting reflections. It is the most robust derivative-free choice for noisy objectives (for example geometry parameters with remeshing) but relatively slow.",
+      "usage": "Parameter Optimization / General Optimization > Optimization Solver > Method: Nelder-Mead; API: set(\"optmethod\", \"neldermead\")",
+      "parameters": [
+        {"name": "opttol", "description": "Relative optimality tolerance on scaled controls."},
+        {"name": "nsolvemax", "description": "Maximum number of model evaluations."},
+        {"name": "constrmethod", "description": "Penalty or augmented Lagrangian for general constraints."}
+      ],
+      "example": "model.study(\"std1\").feature(\"popt\").set(\"optmethod\", \"neldermead\");\nmodel.study(\"std1\").feature(\"popt\").set(\"nsolvemax\", \"300\");\n// Application Library: Optimization_Module/Design_Optimization/beam_optimization",
+      "notes": "Evaluations of a simplex can run in parallel with 'Distribute parametric sweep' on a cluster.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.11.html"
+    },
+    {
+      "name": "BOBYQA (optimization method)",
+      "kind": "solver",
+      "description": "Bound Optimization BY Quadratic Approximation: a derivative-free trust-region method that builds a quadratic model from 2n+1 interpolation points and updates it by minimizing the Frobenius norm of the Hessian change. Usually the fastest derivative-free method for smooth objectives with bound constraints; also available for least-squares parameter estimation.",
+      "usage": "Method: BOBYQA; API: set(\"optmethod\", \"bobyqa\") in ParameterOptimization, Optimization, LSQOptimization or ParameterEstimation",
+      "parameters": [
+        {"name": "Initial trust region radius", "description": "Fixed at 0.2 in scaled control units."},
+        {"name": "opttol / nsolvemax", "description": "Termination criteria."}
+      ],
+      "example": "model.study(\"std1\").feature(\"popt\").set(\"optmethod\", \"bobyqa\");\n// Application Library: tuning_fork_optimization, pyrolysis_wood_odeobj",
+      "notes": "General constraints are handled with the penalty/augmented Lagrangian wrapper; the RESCUE step of the original algorithm is not included.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.12.html"
+    },
+    {
+      "name": "COBYLA (optimization method)",
+      "kind": "solver",
+      "description": "Constrained Optimization BY Linear Approximation: derivative-free method that keeps linear models of the objective and each constraint from a simplex and solves a linear program in a shrinking trust region. It handles general inequality constraints natively and is often preferred over BOBYQA for constrained design problems.",
+      "usage": "Method: COBYLA; API: set(\"optmethod\", \"cobyla\")",
+      "parameters": [
+        {"name": "Constraints", "description": "Global inequality constraints are treated directly by the method."},
+        {"name": "opttol / nsolvemax", "description": "Termination criteria."}
+      ],
+      "example": "model.study(\"std1\").feature(\"popt\").set(\"optmethod\", \"cobyla\");\n// Application Library: Optimization_Module/Design_Optimization/multistudy_bracket_optimization, diagonal_brace_buckling_optimization",
+      "notes": "COBYLA treats simple bounds as constraints, so small bound violations can occur during iterations.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.13.html"
+    },
+    {
+      "name": "EGO - Efficient Global Optimization (optimization method)",
+      "kind": "solver",
+      "description": "Global, derivative-free method that trains a Gaussian process surrogate of the objective (and constraints) and adds sample points by maximizing an Expected Improvement acquisition function, balancing exploration and exploitation. Suited to expensive models with many local optima and few controls, at the cost of many surrogate evaluations.",
+      "usage": "Method: EGO; API: set(\"optmethod\", \"ego\"); Gaussian Process Function section (globalgpfunction, covfunction, meanfunction)",
+      "parameters": [
+        {"name": "ninitsample", "description": "Initial samples per control variable."},
+        {"name": "covfunction / meanfunction", "description": "GP covariance se | matern32 | matern52 | nn; mean const | linear | quadratic."},
+        {"name": "acquisitionmaxmethod / maxgpevalsacquisition / maxgpitersacquisition", "description": "direct | montecarlo maximization of the acquisition function and its limits."},
+        {"name": "gpusage", "description": "restart | continue (improve an existing GP)."}
+      ],
+      "example": "model.study(\"std1\").feature(\"popt\").set(\"optmethod\", \"ego\");\nmodel.study(\"std1\").feature(\"popt\").set(\"ninitsample\", \"5\");\nmodel.study(\"std1\").feature(\"popt\").set(\"covfunction\", \"matern52\");",
+      "notes": "The trained Gaussian Process function is kept in the model and can be reused (Improve) or inspected like any surrogate function.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.14.html"
+    },
+    {
+      "name": "IPOPT (optimization method)",
+      "kind": "solver",
+      "description": "Interior Point OPTimizer: gradient-based interior-point line-search filter method for large nonlinear problems with many or difficult constraints; slack variables turn inequalities into equalities and convergence is judged on KKT error, dual infeasibility, constraint violation and complementarity. In 6.4 it is the second-order method replacing the removed SNOPT.",
+      "usage": "Method: IPOPT; API: set(\"optmethod\", \"ipopt\") (General, Topology, Shape Optimization, Parameter Estimation, Curve Fitting)",
+      "parameters": [
+        {"name": "Gradient method", "description": "Adjoint (default), Forward, Forward numeric or Numeric in the Optimization Solver node."},
+        {"name": "opttol / nsolvemax", "description": "Optimality tolerance and iteration limit."}
+      ],
+      "example": "model.study(\"std1\").feature(\"opt\").set(\"optmethod\", \"ipopt\");\n// Application Library: optimal_heating_control, flywheel_profile, time_dependent_optimization",
+      "notes": "Models saved with SNOPT are migrated to IPOPT and API calls with optsolver = snopt are translated to optmethod = ipopt.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.15.html"
+    },
+    {
+      "name": "MMA / GCMMA - Method of Moving Asymptotes (optimization method)",
+      "kind": "solver",
+      "description": "Svanberg's method of moving asymptotes: convex separable approximations built from gradients at each outer iteration; GCMMA adds inner iterations that make the approximation conservative for global convergence, while classical MMA skips them for speed. It handles very many control variables and is the standard for topology optimization.",
+      "usage": "Method: GCMMA or MMA; API: set(\"optmethod\", \"gcmma\") or set(\"optmethod\", \"mma\"); advanced settings in Solver Configurations > Optimization Solver (MMA Solver Properties)",
+      "parameters": [
+        {"name": "movelimitactive", "description": "Move limits on control updates (topology study)."},
+        {"name": "Maximum number of outer/inner iterations", "description": "First-order method: often terminated by iteration count."},
+        {"name": "Internal tolerance factor / asymptote settings", "description": "Advanced MMA solver properties."}
+      ],
+      "example": "model.study(\"std1\").feature(\"topo\").set(\"optmethod\", \"gcmma\");\n// Application Library: beam_optimization_milling, district_heating_optimization, metalens_topology_optimization",
+      "notes": "Before 6.4 choosing MMA at study level actually ran GCMMA; now both can be selected and the gcmma property on the solver node is deprecated. In 6.4 GCMMA computes sensitivities only for outer iterations.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.16.html"
+    },
+    {
+      "name": "Levenberg-Marquardt (optimization method)",
+      "kind": "solver",
+      "description": "Gradient-based solver dedicated to least-squares objectives: it uses the Gauss-Newton approximation of the Hessian from the residual Jacobian, regularized with an adaptive damping parameter, and supports parameter bounds but not general constraints. It usually converges faster than IPOPT on calibration problems.",
+      "usage": "Method: Levenberg-Marquardt; API: set(\"optmethod\", \"lm\") (default in Parameter Estimation and Curve Fitting)",
+      "parameters": [
+        {"name": "Objective", "description": "Must be of least-squares type (Least-Squares Objective / Parameter Estimation data)."},
+        {"name": "opttol / nsolvemax", "description": "Termination criteria."}
+      ],
+      "example": "model.study(\"std1\").feature(\"lsqo\").set(\"optmethod\", \"lm\");\n// Application Library: curve_fit_mooney_rivlin, impedance_tube_parameter_estimation_data",
+      "notes": "For time-dependent least squares with many time points IPOPT can be cheaper because its sensitivity computation is less expensive.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.17.html"
+    },
+    {
+      "name": "Gradient method: Adjoint / Forward / Forward numeric / Numeric (optimization)",
+      "kind": "reference",
+      "description": "Setting of gradient-based optimization that decides how the discrete gradient of objectives and constraints with respect to the controls is obtained: Adjoint (default, one extra linear solve per objective; required for many controls), Forward (one solve per control), Forward numeric (finite-difference residual assembly) or Numeric (repeated full model solves, most expensive but works everywhere). An Automatic choice in 6.4 picks forward or adjoint to minimize evaluations.",
+      "usage": "Study > Solver Configurations > Solution > Optimization Solver > Gradient method; also the Sensitivity study step",
+      "parameters": [
+        {"name": "Adjoint", "description": "Cost independent of the number of controls; not supported for all features."},
+        {"name": "Forward / Forward numeric", "description": "Cost proportional to the number of controls."},
+        {"name": "Numeric", "description": "Finite differences of full solutions; robust fallback for non-differentiable pipelines."}
+      ],
+      "example": "Topology optimization with 1e5 density controls: keep Adjoint. Shape optimization of 3 CAD parameters that remesh: use a derivative-free method instead, or Numeric gradients with IPOPT.",
+      "notes": "Objectives with max/min operators are not differentiable; use the P-norm feature instead. In 6.4 nonanalytic operators (abs, real, imag) are allowed in eigenvalue sensitivity objectives.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.10.html"
+    },
+    {
+      "name": "Constraint handling for derivative-free optimization (penalty / augmented Lagrangian)",
+      "kind": "reference",
+      "description": "Nelder-Mead, BOBYQA and EGO do not natively support general constraints, so COMSOL wraps them in a penalty method (default) or an augmented Lagrangian loop; COBYLA handles constraints directly. Constraints fall in three classes: simple bounds on controls, pointwise constraints (control variables only) and general constraints on global expressions; equality constraints are written with equal lower and upper bounds.",
+      "usage": "Parameter Optimization / General Optimization > Solver Settings: Constraint handling method (constrmethod = penalty | augLagrange), rho, tau, gamma, mu, nlagevals, constrtol, enfdesconstr",
+      "parameters": [
+        {"name": "constrmethod", "description": "penalty | augLagrange."},
+        {"name": "coefrho / rho", "description": "Automatic or manual penalty parameter."},
+        {"name": "nlagevals / deltachoice", "description": "Maximum augmented iterations and subsolver tolerance strategy (dynamic, dynamic2, static)."},
+        {"name": "constrtol / enfdesconstr", "description": "Constraint tolerance and strict enforcement of design constraints."}
+      ],
+      "example": "model.study(\"std1\").feature(\"popt\").set(\"optmethod\", \"neldermead\");\nmodel.study(\"std1\").feature(\"popt\").set(\"constrmethod\", \"augLagrange\");\nmodel.study(\"std1\").feature(\"popt\").set(\"constrtol\", \"1e-3\");",
+      "notes": "Where possible eliminate equality constraints by a change of variables; not all methods cope with the reduced control space.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_solver.8.20.html"
+    },
+    {
+      "name": "Least-Squares Objective (Optimization interface)",
+      "kind": "function",
+      "description": "Optimization interface feature that builds a sum-of-squares objective from a measurement file, interpolating a model expression at the measurement coordinates on its selection (domain, boundary, edge or point) and, via column subnodes, at the listed times or parameter values. Each node represents one experiment with its own experimental parameter values.",
+      "usage": "Optimization (opt) > Least-Squares Objective (lsobj1) with subnodes Value Column, Time Column, Parameter Column, Coordinate Column, Ignored Column (one per data column, in file order); API: physics(\"opt\").create(\"lsobj1\", \"LeastSquaresObjective\", 3)",
+      "parameters": [
+        {"name": "fileName", "description": "Comma-, semicolon-, space- or tab-separated measurement file."},
+        {"name": "paramNames / paramExprs", "description": "Experimental parameters and their values for this experiment."},
+        {"name": "Column subnodes", "description": "ValueColumn (model expression, unit, weight), TimeColumn, ParameterColumn, CoordinateColumn, IgnoredColumn."}
+      ],
+      "example": "model.component(\"comp1\").physics().create(\"opt\", \"GeneralOptimization\", \"geom1\");\nmodel.component(\"comp1\").physics(\"opt\").create(\"lsobj1\", \"LeastSquaresObjective\", 3);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"lsobj1\").set(\"fileName\", \"C:/data/strain_gauges.csv\");\n// add CoordinateColumn x3, TimeColumn, ValueColumn in the order of the file",
+      "notes": "The number of coordinate columns must equal the geometry dimension. Use Global Least-Squares Objective when the data has no spatial coordinates.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.04.html"
+    },
+    {
+      "name": "Global Least-Squares Objective (Optimization interface)",
+      "kind": "function",
+      "description": "Least-squares objective comparing measured data with global model expressions (no selection, no coordinate columns), with data from a file, a Results table or a local table. Each data column gets a model expression, unit and weight, and rows correspond to times or parameter values.",
+      "usage": "Optimization (opt) > Global > Global Least-Squares Objective (glsobj1); API: physics(\"opt\").create(\"glsobj1\", \"GlobalLeastSquaresObjective\", -1)",
+      "parameters": [
+        {"name": "dataSource", "description": "file | table (Results table) | localTable."},
+        {"name": "Parameter type", "description": "Rows are Time or Parameter values (column, unit or name)."},
+        {"name": "Model expression / Unit / Weight / Use", "description": "Per data column."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"glsobj1\", \"GlobalLeastSquaresObjective\", -1);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"glsobj1\").set(\"dataSource\", \"localTable\");\n// Application Library: Optimization_Module/Parameter_Estimation/curve_fit_mooney_rivlin",
+      "notes": "Parameter Estimation study steps can reference all or selected least-squares objectives from components.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.17.html"
+    },
+    {
+      "name": "Integral Objective / Point Sum Objective (Optimization interface)",
+      "kind": "function",
+      "description": "Objective contribution defined as the integral of an expression of controls and solution over selected domains, boundaries or edges (a sum over selected points), with configurable integration order and frame. Typical objectives are compliance, dissipated power, average temperature deviation or radiated power.",
+      "usage": "Optimization (opt) > Integral Objective (iobj1) at the chosen geometric entity level; API: physics(\"opt\").create(\"iobj1\", \"IntegralObjective\", 3)",
+      "parameters": [
+        {"name": "objectiveExpression", "description": "Integrand (control and solution variables)."},
+        {"name": "integrationOrder / quadratureFrame", "description": "Quadrature order (default 4) and frame (spatial default)."},
+        {"name": "Multiply with 2*pi*r", "description": "Axisymmetric volumetric value."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"iobj1\", \"IntegralObjective\", 3);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"iobj1\").selection().all();\nmodel.component(\"comp1\").physics(\"opt\").feature(\"iobj1\").set(\"objectiveExpression\", \"(T-T_target)^2\");",
+      "notes": "Also available in the Sensitivity interface. Equivalent to a Global Objective with an integration operator, but local and assembled directly.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.10.html"
+    },
+    {
+      "name": "Probe Objective (Optimization interface)",
+      "kind": "function",
+      "description": "Objective contribution given by evaluating an expression at a single point inside the selected domain, specified by probe coordinates (spatial, material or mesh frame). Use it to maximize a displacement at a tip, minimize the temperature at a sensor or match a point value.",
+      "usage": "Optimization (opt) > Probe Objective (pobj1); API: physics(\"opt\").create(\"pobj1\", \"ProbeObjective\", 3)",
+      "parameters": [
+        {"name": "objectiveExpression", "description": "Expression evaluated at the point."},
+        {"name": "probeCoordinates / probeFrame", "description": "Point location and evaluation frame."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"pobj1\", \"ProbeObjective\", 3);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"pobj1\").set(\"objectiveExpression\", \"-w\");\nmodel.component(\"comp1\").physics(\"opt\").feature(\"pobj1\").set(\"probeCoordinates\", new String[]{\"0.1\", \"0\", \"0.01\"});",
+      "notes": "The point must lie in the selected domain.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.11.html"
+    },
+    {
+      "name": "Global Objective (Optimization interface)",
+      "kind": "function",
+      "description": "Adds a globally evaluated objective expression (parameters, global variables, coupling operators, probes, global ODE states) to the total objective of the Optimization interface. It is the most flexible objective and is combined with other contributions by summation.",
+      "usage": "Optimization (opt) > Global > Global Objective (gobj1); API: physics(\"opt\").create(\"gobj1\", \"GlobalObjective\", -1)",
+      "parameters": [
+        {"name": "objectiveExpression", "description": "Global scalar expression, e.g. comp1.intop1(Q)/comp1.intop1(1)."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"gobj1\", \"GlobalObjective\", -1);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gobj1\").set(\"objectiveExpression\", \"comp1.aveop1(solid.mises)\");",
+      "notes": "Minimization/maximization is set on the study step, not on the objective node.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.16.html"
+    },
+    {
+      "name": "Integral Inequality Constraint / Point Sum Inequality Constraint (Optimization interface)",
+      "kind": "function",
+      "description": "Constraint on the integral of an expression over a selection (sum over points), with lower and/or upper bounds; equal bounds give an equality constraint. Typical uses are volume or mass limits, total power budgets and average stress limits.",
+      "usage": "Optimization (opt) > Integral Inequality Constraint (iconstr1); API: physics(\"opt\").create(\"iconstr1\", \"IntegralInequality\", 3)",
+      "parameters": [
+        {"name": "constraintExpression", "description": "Integrand."},
+        {"name": "useLowerBound / lowerBound / useUpperBound / upperBound", "description": "Active bounds."},
+        {"name": "integrationOrder / quadratureFrame", "description": "Quadrature settings."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"iconstr1\", \"IntegralInequality\", 3);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"iconstr1\").selection().all();\nmodel.component(\"comp1\").physics(\"opt\").feature(\"iconstr1\").set(\"constraintExpression\", \"solid.rho\");\nmodel.component(\"comp1\").physics(\"opt\").feature(\"iconstr1\").set(\"useLowerBound\", \"0\");\nmodel.component(\"comp1\").physics(\"opt\").feature(\"iconstr1\").set(\"upperBound\", \"2.5[kg]\");",
+      "notes": "Handled as a single general constraint, so the full gradient is affordable even when it depends on the PDE solution.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.12.html"
+    },
+    {
+      "name": "Pointwise Inequality Constraint (Optimization interface)",
+      "kind": "function",
+      "description": "Bounds on an expression of control variables only, enforced at every node of the selection (nodal, default) or per element node (elemental), with its own Lagrange or discontinuous Lagrange discretization. Use it for thickness limits, gradient limits or smoothness constraints on distributed controls.",
+      "usage": "Optimization (opt) > Pointwise Inequality Constraint (pconstr1); API: physics(\"opt\").create(\"pconstr1\", \"PointwiseInequality\", 3)",
+      "parameters": [
+        {"name": "constraintExpression", "description": "Expression of control variables (no PDE solution variables)."},
+        {"name": "lowerBound / upperBound", "description": "Bounds (useLowerBound/useUpperBound)."},
+        {"name": "shapeFunctionType / order / constraintMethod", "description": "Discretization and nodal/elemental enforcement."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"pconstr1\", \"PointwiseInequality\", 2);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"pconstr1\").selection().set(3);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"pconstr1\").set(\"constraintExpression\", \"d(h,x)\");\nmodel.component(\"comp1\").physics(\"opt\").feature(\"pconstr1\").set(\"lowerBound\", \"-0.2\");\nmodel.component(\"comp1\").physics(\"opt\").feature(\"pconstr1\").set(\"upperBound\", \"0.2\");",
+      "notes": "Produces one constraint per node, so keep it to control-variable expressions to avoid expensive gradients.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.13.html"
+    },
+    {
+      "name": "Global Inequality Constraint (Optimization interface)",
+      "kind": "function",
+      "description": "Bounds on a globally available expression involving controls and solution variables (for example eigenfrequency above a limit, maximum probe temperature, mass). Equality constraints are obtained with identical bounds.",
+      "usage": "Optimization (opt) > Global > Global Inequality Constraint (gconstr1); API: physics(\"opt\").create(\"gconstr1\", \"GlobalInequality\", -1)",
+      "parameters": [
+        {"name": "constraintExpression", "description": "Global expression."},
+        {"name": "useLowerBound / lowerBound / useUpperBound / upperBound", "description": "Bounds."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"gconstr1\", \"GlobalInequality\", -1);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gconstr1\").set(\"constraintExpression\", \"comp1.maxop1(T)\");\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gconstr1\").set(\"useLowerBound\", \"0\");\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gconstr1\").set(\"upperBound\", \"350[K]\");",
+      "notes": "Max/min operators are not differentiable; with gradient-based methods use a P-norm feature expression instead of maxop.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.18.html"
+    },
+    {
+      "name": "Global Control Variables (Optimization interface)",
+      "kind": "function",
+      "description": "Defines scalar control variables inside the Optimization interface with initial values, bounds, unit and scale; unlike parameters they are degrees of freedom of the solver and can be used by gradient-based methods with adjoint sensitivities. Tables can be loaded from or saved to text files (and Excel with LiveLink for Excel).",
+      "usage": "Optimization (opt) > Global > Global Control Variables (gcvar1); API: physics(\"opt\").create(\"gcvar1\", \"GlobalControlVariables\", -1)",
+      "parameters": [
+        {"name": "variableList / initList / lowerBoundList / upperBoundList", "description": "Control table columns."},
+        {"name": "quantity / scale", "description": "Unit quantity and typical magnitude for scaling."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"opt\").create(\"gcvar1\", \"GlobalControlVariables\", -1);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gcvar1\").setIndex(\"variableList\", \"P_heat\", 0);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gcvar1\").setIndex(\"initList\", \"10\", 0);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gcvar1\").setIndex(\"lowerBoundList\", \"0\", 0);\nmodel.component(\"comp1\").physics(\"opt\").feature(\"gcvar1\").setIndex(\"upperBoundList\", \"50\", 0);",
+      "notes": "Geometry dimensions should remain model parameters optimized with derivative-free methods, because controls cannot change the mesh (except through shape optimization features).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.19.html"
+    },
+    {
+      "name": "Control Variable Field (Definitions, optimization)",
+      "kind": "function",
+      "description": "Defines a spatially varying control variable on domains, boundaries, edges or points, discretized with Lagrange, discontinuous Lagrange or constant-per-entity shape functions, with optional bounds. It is the building block for distributed optimal control, material distribution and inverse problems solved with gradient-based methods.",
+      "usage": "Component > Definitions > Optimization > Control Variable Field (cvf1); API: model.component(\"comp1\").common().create(\"cvf1\", \"ControlVariableField\"); (interface variant: physics(\"opt\").create(\"cvar1\", \"ControlVariableField\", 3) with Control Variable Bounds subnode)",
+      "parameters": [
+        {"name": "name / initialValue / unit / scale", "description": "Control variable name, initial value and scaling."},
+        {"name": "useBounds / lbound / ubound", "description": "Box constraints on nodal values."},
+        {"name": "shapeFunctionType / order", "description": "shlag | shdisc | constantOverGeometricEntities; element order 1-4."},
+        {"name": "group", "description": "Group adjacent entities (one value per group with constant discretization)."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"cvf1\", \"ControlVariableField\");\nmodel.component(\"comp1\").common(\"cvf1\").selection().geom(\"geom1\", 2);\nmodel.component(\"comp1\").common(\"cvf1\").selection().set(4);\nmodel.component(\"comp1\").common(\"cvf1\").set(\"name\", \"q\");\nmodel.component(\"comp1\").common(\"cvf1\").set(\"useBounds\", \"on\");\nmodel.component(\"comp1\").common(\"cvf1\").set(\"lbound\", \"0\");\nmodel.component(\"comp1\").common(\"cvf1\").set(\"ubound\", \"1e4\");",
+      "notes": "Many controls require the adjoint gradient method. Also available in the Sensitivity interface.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.49.html"
+    },
+    {
+      "name": "Control Function (Definitions, optimization)",
+      "kind": "function",
+      "description": "Defines a one-argument function whose shape is optimized, discretized as a Bernstein polynomial, piecewise Bernstein polynomial or a Helmholtz-filtered field, with output bounds, start/end boundary conditions, slope limits and periodic extrapolation. Typical uses are optimal time-dependent control signals (heating power, charging current) and shape profiles; in 6.4 the optimized function can be exported to an Analytic or Interpolation function and its average is available as a variable.",
+      "usage": "Component > Definitions > Control Variables > Control Function (cfunc1), called by name in expressions; API: model.component(\"comp1\").common().create(\"cfunc1\", \"ControlFunction\")",
+      "parameters": [
+        {"name": "name / xstart / xend / extrapolation", "description": "Function name, argument range and extrapolation (none, linear, constant, Periodic, nan)."},
+        {"name": "fmin / fmax / c_0", "description": "Output bounds and initial value."},
+        {"name": "fleftType / frightType", "description": "none | Dirichlet | Neumann | Both boundary conditions at the ends."},
+        {"name": "controlType / order / noSegments / noElements / fgradmax", "description": "bernsteinPolynomial | piecewiseBernsteinPolynomial | helmholtzFilter and their resolution and slope limit."},
+        {"name": "addAnalytic", "description": "Create an Analytic/Interpolation function with the optimized result."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"cfunc1\", \"ControlFunction\");\nmodel.component(\"comp1\").common(\"cfunc1\").set(\"name\", \"Pin\");\nmodel.component(\"comp1\").common(\"cfunc1\").set(\"xstart\", \"0\");\nmodel.component(\"comp1\").common(\"cfunc1\").set(\"xend\", \"600\");\nmodel.component(\"comp1\").common(\"cfunc1\").set(\"fmax\", \"1000\");\nmodel.component(\"comp1\").common(\"cfunc1\").set(\"controlType\", \"piecewiseBernsteinPolynomial\");\n// use Pin(t) as heater power; Application Library: optimal_heating_control, lib_charge_rate_optimization",
+      "notes": "Polynomial discretizations satisfy the initial value only at Lagrange points; the Helmholtz filter only approximately.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.48.html"
+    },
+    {
+      "name": "P-norm (Definitions, optimization)",
+      "kind": "function",
+      "description": "Definitions feature (new in 6.4) that computes a differentiable approximation of the maximum of an expression over a selection as a p-norm integral (p = 2...20 or user defined), so peak stress or peak temperature can be used in gradient-based optimization. Quadrature method, order and frame are configurable.",
+      "usage": "Component > Definitions > Optimization > P-norm (pnv1); API: model.component(\"comp1\").common().create(\"pnv1\", \"PNorm\")",
+      "parameters": [
+        {"name": "expression", "description": "Quantity whose maximum is approximated (e.g. solid.mises)."},
+        {"name": "norm / manualNorm", "description": "p value 2-20 (default 10) or user defined."},
+        {"name": "quadratureMethod / integrationOrder / quadratureFrame / axiSymmetry", "description": "Integration settings."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"pnv1\", \"PNorm\");\nmodel.component(\"comp1\").common(\"pnv1\").selection().all();\nmodel.component(\"comp1\").common(\"pnv1\").set(\"expression\", \"solid.mises\");\nmodel.component(\"comp1\").common(\"pnv1\").set(\"norm\", \"12\");\n// Application Library: flywheel_profile, bracket_fatigue_optimization, rim_fatigue_optimization",
+      "notes": "Higher p approaches the true maximum but makes the problem stiffer; scale the expression to order one.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_release_text.06.077.html"
+    },
+    {
+      "name": "Standard Deviation (Definitions, optimization)",
+      "kind": "function",
+      "description": "Definitions feature (new in 6.4) that computes the standard deviation of an expression over a selection, used as an objective or constraint to homogenize a field, for example uniform magnetic field in a coil bore or uniform deposition thickness. Its variable can be minimized directly in a Shape, Topology or General Optimization study.",
+      "usage": "Component > Definitions > Optimization > Standard Deviation (std1); API: model.component(\"comp1\").common().create(\"std1\", \"StandardDeviation\")",
+      "parameters": [
+        {"name": "expression", "description": "Field to homogenize."},
+        {"name": "quadratureMethod / integrationOrder / quadratureFrame", "description": "Integration settings."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"std1\", \"StandardDeviation\");\nmodel.component(\"comp1\").common(\"std1\").selection().set(2);\nmodel.component(\"comp1\").common(\"std1\").set(\"expression\", \"mf.normB\");\n// minimize the std1 variable in a Shape Optimization study (Application Library: coil_shape_optimization)",
+      "notes": "Differentiable, hence usable with gradient-based optimization.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_release_text.06.077.html"
+    },
+    {
+      "name": "Helmholtz filter, projection and SIMP/RAMP/Darcy interpolation (Density Model, DensityTopology)",
+      "kind": "function",
+      "description": "Core settings of the topology optimization Density Model (API type DensityTopology): the control field theta_c in [0,1] is smoothed by a Helmholtz filter of radius R_min (length scale), optionally sharpened by a tanh projection (slope beta, point theta_beta), then penalized by SIMP (p default 3), RAMP, Darcy (fluid damping) or linear/user-defined interpolation into theta_p. Variables dtopo1.theta_c, theta_f, theta, theta_p and theta_avg are used in material laws and volume constraints.",
+      "usage": "Component > Definitions > Topology Optimization > Density Model (dtopo1); API: model.component(\"comp1\").common().create(\"dtopo1\", \"DensityTopology\")",
+      "parameters": [
+        {"name": "filterType / filterLengthType / L_min", "description": "Helmholtz | No_filter; filter radius From mesh or Custom."},
+        {"name": "projectionType / beta / theta_beta", "description": "No_projection | TanhProjection with slope and point."},
+        {"name": "interpolationType / p_SIMP / q_RAMP / q_Darcy / theta_min / theta_u", "description": "Linear_interp | SIMP | RAMP | Darcy | Custom and their parameters."},
+        {"name": "discretization / theta_0", "description": "linear (nodal) or constant (elementwise); initial value."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"dtopo1\", \"DensityTopology\");\nmodel.component(\"comp1\").common(\"dtopo1\").selection().set(1);\nmodel.component(\"comp1\").common(\"dtopo1\").set(\"filterLengthType\", \"Custom\");\nmodel.component(\"comp1\").common(\"dtopo1\").set(\"L_min\", \"2[mm]\");\nmodel.component(\"comp1\").common(\"dtopo1\").set(\"projectionType\", \"TanhProjection\");\nmodel.component(\"comp1\").common(\"dtopo1\").set(\"beta\", \"8\");\nmodel.component(\"comp1\").common(\"dtopo1\").set(\"interpolationType\", \"SIMP\");\nmodel.component(\"comp1\").common(\"dtopo1\").set(\"theta_0\", \"0.5\");\n// Young's modulus E = E0*dtopo1.theta_p (or via Topology Link)",
+      "notes": "Use a fixed filter radius (not the mesh size) for mesh-independent designs. The existing catalog entry 'Density Model (topology optimization)' lists an older API type; the 6.4 completion data uses DensityTopology.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.21.html"
+    },
+    {
+      "name": "Milling and Extrusion manufacturing constraints (Density Model)",
+      "kind": "function",
+      "description": "Manufacturing constraints of the Density Model that restrict topology optimization results to manufacturable shapes: Milling (one or more tool directions with source radius, aggregation exponent and linear/constant discretization; forces projection on) and Extrusion (6.4, constant cross section along a direction taken automatically from a boundary or user defined). The 6.4 manufacturingConstraint property replaces the old millingActive flag.",
+      "usage": "Density Model > Manufacturing Constraints: Disabled | Extrusion | Milling; API: common(\"dtopo1\").set(\"manufacturingConstraint\", \"Milling\"|\"Extrusion\"|\"Disabled\")",
+      "parameters": [
+        {"name": "manufacturingConstraint", "description": "Disabled | Extrusion | Milling."},
+        {"name": "millingBaseSystem / mil_xVector / mil_yVector", "description": "Coordinate system and milling directions."},
+        {"name": "sourceLengthType / L_mil, aggregationType / p_mil", "description": "Source radius (Auto uses the filter radius) and aggregation exponent (Auto = 10)."},
+        {"name": "extrusionType / extrusionDirection / boundaryExtrusionSel", "description": "Extrusion direction Auto from a boundary or Custom."}
+      ],
+      "example": "model.component(\"comp1\").common(\"dtopo1\").set(\"manufacturingConstraint\", \"Extrusion\");\nmodel.component(\"comp1\").common(\"dtopo1\").set(\"extrusionType\", \"Auto\");\n// Application Library: beam_optimization_milling, hook_optimization_stl, mbb_beam_extruded_optimization",
+      "notes": "API migration translates millingActive = Active to manufacturingConstraint = Milling. Extrusion works with Topology Link and Prescribed Density.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.21.html"
+    },
+    {
+      "name": "Prescribed Void / Prescribed Material / Prescribed Density (Topology Optimization)",
+      "kind": "boundary",
+      "description": "Topology optimization features that fix the material volume factor on selected domains or boundaries: Prescribed Void (0), Prescribed Material (1) or Prescribed Density (user-defined theta_fix, or void/material). They extend the Density Model's filtered, projected and penalized variables into those regions so that bolt holes, load pads and keep-out zones are respected while the filter sees them.",
+      "usage": "Component > Definitions > Topology Optimization > Prescribed Void / Prescribed Material / Prescribed Density (and the Boundary variants); API: common().create(\"ftopov1\", \"VoidTopologyDomain\"); create(\"ftopom1\", \"MaterialTopologyDomain\"); create(\"ftopo1\", \"FixedTopologyDomain\"); boundary: VoidTopologyBoundary, MaterialTopologyBoundary, FixedTopologyBoundary",
+      "parameters": [
+        {"name": "Selection", "description": "Domains (or boundaries for shell/boundary density models)."},
+        {"name": "Fixed value (Prescribed Density)", "description": "User-defined theta_fix, Void or Material."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"ftopom1\", \"MaterialTopologyDomain\");\nmodel.component(\"comp1\").common(\"ftopom1\").selection().set(2, 5);\n// Application Library: beam_optimization, bracket_topology_optimization_stl, tesla_microvalve_transient_optimization",
+      "notes": "Prescribed regions are excluded from dtopo1.theta_avg, so volume constraints refer only to the design domain.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.22.html"
+    },
+    {
+      "name": "Mirror Symmetry / Sector Symmetry (Topology Optimization)",
+      "kind": "boundary",
+      "description": "Topology optimization features that impose symmetric designs by mapping the Density Model variables across a reflection plane (Mirror Symmetry, point and normal automatic or user defined) or around a rotation axis (Sector Symmetry, rotation or rotation-and-reflection, number of sectors detected automatically). They reduce design freedom while keeping a full (non-symmetric-physics) model.",
+      "usage": "Component > Definitions > Topology Optimization > Mirror Symmetry (mtopo1) / Sector Symmetry (stopo1); API: common().create(\"mtopo1\", \"MirrorTopology\"); common().create(\"stopo1\", \"SectorTopology\")",
+      "parameters": [
+        {"name": "Point on plane / Normal vector (Mirror)", "description": "Automatic from adjacent flat boundaries or User defined."},
+        {"name": "Point on axis / Direction / Transformation (Sector)", "description": "Axis and Rotation or Rotation and reflection."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"mtopo1\", \"MirrorTopology\");\nmodel.component(\"comp1\").common(\"mtopo1\").selection().set(2);\n// Application Library: beam_eigenfrequency_topology_optimization, bracket_topology_optimization_stl",
+      "notes": "Mapping can fail if the mesh is not mirrored on curved boundaries (shows up as convergence problems); use a copied/mirrored mesh.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.28.html"
+    },
+    {
+      "name": "Topology Link (Materials)",
+      "kind": "tool",
+      "description": "Material node that links a global material (or a Material Switch for material sweeps) to a Density Model, automatically scaling Young's modulus by the penalized volume factor dtopo1.theta_p and density by dtopo1.theta. It is added automatically when a topology optimization study is chosen in the Model Wizard and removes the need to edit material expressions by hand.",
+      "usage": "Component > Materials > More Materials > Topology Link; settings: Material (global material or Switch) and Topology source (Density Model)",
+      "parameters": [
+        {"name": "Material", "description": "Global material, Switch node, or None."},
+        {"name": "Topology source", "description": "The Density Model feature that modifies the material."}
+      ],
+      "example": "Model Wizard > 3D > Structural Mechanics > Solid Mechanics > Topology Optimization, Stationary: a Density Model and a Topology Link to the global material are created; select Structural steel in the Topology Link's Material list. (Application Library: mbb_beam_optimization, loaded_knee, hook_optimization_stl)",
+      "notes": "For non-structural physics, write the interpolation manually with dtopo1.theta_p or use the Darcy interpolation for flow.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_materials.25.27.html"
+    },
+    {
+      "name": "Transformation (Shape Optimization)",
+      "kind": "function",
+      "description": "Shape optimization feature that moves, scales and rotates connected groups of domains or boundaries as rigid-like bodies within bounds, with the surrounding Free Shape Domain mesh smoothed accordingly. Translation can be Free, Distance-limited or Fixed; scaling No/Isotropic/Anisotropic (and planar isotropic in 3D); rotation Fixed or about a prescribed axis, with a center of scaling that in 6.4 can be the Average, Minimum, Maximum or user-defined point.",
+      "usage": "Component > Definitions > Shape Optimization > Transformation (tsf1); API: model.component(\"comp1\").common().create(\"tsf1\", \"Transformation\")",
+      "parameters": [
+        {"name": "moveType / move_lBound / move_uBound / move_lock", "description": "Free | Distance | Fixed translation and bounds per direction."},
+        {"name": "scalingType / scale_lBound* / scale_uBound*", "description": "No_scaling | Isotropic | Anisotropic and bounds."},
+        {"name": "rotateType / rotate_lBound / rotate_uBound", "description": "Fixed | Axis rotation with angle bounds."},
+        {"name": "xCenterType / x_center", "description": "Center of scaling and rotation."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"tsf1\", \"Transformation\");\nmodel.component(\"comp1\").common(\"tsf1\").selection().set(3);\nmodel.component(\"comp1\").common(\"tsf1\").set(\"scalingType\", \"Isotropic\");\nmodel.component(\"comp1\").common(\"tsf1\").set(\"rotateType\", \"Axis\");\n// Application Library: waveguide_filter_optimization_transformation, metasurface_beam_deflector_optimization",
+      "notes": "Transformed parts must be surrounded by void or Free Shape Domain; groups touching fixed points will not move.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.32.html"
+    },
+    {
+      "name": "Free Shape Shell (Shape Optimization)",
+      "kind": "function",
+      "description": "Shape optimization feature for surfaces that are not adjacent to a Free Shape Domain, such as shells and membranes modeled on boundaries: every point may move within a box (or distance) limited by the maximum displacement, regularized by a filter radius (Small, Medium, Large or user defined). It enables eigenfrequency or stiffness optimization of shell structures and, in 6.4, extruded topology problems without equation-based modeling.",
+      "usage": "Component > Definitions > Shape Optimization > Free Shape Shell (fss1); API: model.component(\"comp1\").common().create(\"fss1\", \"FreeShapeShell\")",
+      "parameters": [
+        {"name": "Maximum displacement", "description": "Distance | Box | User-defined (default 5% of bounding box)."},
+        {"name": "Filter radius", "description": "Small, Medium, Large (1, 1.5, 2 x d_max) or user defined."},
+        {"name": "Continuity settings", "description": "Preserve normals at symmetry boundaries and between features."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"fss1\", \"FreeShapeShell\");\nmodel.component(\"comp1\").common(\"fss1\").selection().set(1);\n// Application Library: shell_shape_optimization, shell_eigenfrequency_shape_optimization",
+      "notes": "Not recommended on boundaries adjacent to meshed domains.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.34.html"
+    },
+    {
+      "name": "Polynomial Shell (Shape Optimization)",
+      "kind": "function",
+      "description": "Shape optimization feature that deforms shell boundaries with a low-order Bernstein or Lagrange polynomial displacement field, giving smooth shapes with few control variables. Unlike Polynomial Boundary it does not need to be adjacent to a Free Shape Domain; in 3D only triangular and quadrilateral boundaries are supported.",
+      "usage": "Component > Definitions > Shape Optimization > Polynomial Shell (pls1); API: model.component(\"comp1\").common().create(\"pls1\", \"PolynomialShell\")",
+      "parameters": [
+        {"name": "Type / Order", "description": "Bernstein (default, respects d_max everywhere) or Lagrange; polynomial order n (default 2)."},
+        {"name": "Maximum displacement / Coordinate system", "description": "Control variable bounds."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"pls1\", \"PolynomialShell\");\nmodel.component(\"comp1\").common(\"pls1\").selection().set(4);\n// Application Library: step_thrust_bearing_shape_optimization",
+      "notes": "Existing entry 'Free Shape Domain / Polynomial Boundary / Free Shape Boundary (shape optimization)' covers the volume-based features.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.36.html"
+    },
+    {
+      "name": "Symmetry/Roller, Fixed Boundary, Fixed Edge, Fixed Point, Mirror/Sector Symmetry (Shape Optimization)",
+      "kind": "boundary",
+      "description": "Auxiliary shape optimization features that constrain how the free-shape features may move: Symmetry/Roller lets entities slide only tangentially along straight edges or flat faces (or restricts shell edges to a plane), Fixed Boundary/Edge/Point pin entities that would otherwise move, and Mirror Symmetry/Sector Symmetry enforce symmetric shape changes. They are added from the Shape Optimization context menu under Component > Definitions.",
+      "usage": "Component > Definitions > Shape Optimization > Symmetry/Roller (fsr1), Fixed Boundary (fxb1), Fixed Edge (fse1), Fixed Point (fsp1), Mirror Symmetry (mss1), Sector Symmetry (sss1); API types FreeShapeSymmetry, FixedShapeBoundary, FixedShapeEdge, FixedShapePoint, MirrorShape, SectorShape",
+      "parameters": [
+        {"name": "Selection", "description": "Straight edges / flat faces (Symmetry/Roller), or entities to fix."},
+        {"name": "Normal vector (edge-level Symmetry/Roller)", "description": "Plane in which shell edges may move."}
+      ],
+      "example": "model.component(\"comp1\").common().create(\"fsr1\", \"FreeShapeSymmetry\");\nmodel.component(\"comp1\").common(\"fsr1\").selection().set(1);\nmodel.component(\"comp1\").common().create(\"fxb1\", \"FixedShapeBoundary\");\nmodel.component(\"comp1\").common(\"fxb1\").selection().set(7);",
+      "notes": "Boundaries without any shape feature are fixed automatically unless interior to a Free Shape Domain; Fixed Boundary is mainly used to override other features temporarily.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.opt/opt_ug_opt_interface.6.37.html"
+    }
+  ]
+}

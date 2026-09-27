@@ -1,0 +1,446 @@
+{
+  "category": "CADFEKO Lua API (extended): configurations, sources, requests, solver settings, cables, optimisation and launcher objects",
+  "description": "Object-level detail for the solution side of the cf API: global/per-configuration switches, frequency and power objects, port and source objects with their properties, field-data definitions, request objects, every solver-settings sub-object, ground plane/PBC/symmetry/NGF settings, finite antenna arrays, the cable API (paths, cross sections, harnesses, connectors, schematic components, probes), optimisation searches/goals, launcher settings and validation. Names follow the installed 2019-format wrapper; new-format equivalents are noted.",
+  "tools": [
+    {
+      "name": "SolutionConfigurationCollection: global versus per-configuration sources, loads, frequency and power",
+      "kind": "api",
+      "description": "The collection of configurations decides whether frequency, sources, loads and power are shared by all configurations (global) or defined per configuration; Set*Global(cfg) copies the chosen configuration's settings into the global set, Set*PerConfiguration() splits them, and Is*PerConfiguration() reports the state. The global objects are GlobalFrequency, GlobalSources, GlobalLoads, GlobalNetworks and GlobalPower.",
+      "usage": "sc = project.SolutionConfigurations; sc:SetFrequencyPerConfiguration() | sc:SetFrequencyGlobal(cfg); sc:SetSourcesPerConfiguration() | sc:SetSourcesGlobal(cfg); sc:SetLoadsPerConfiguration() | sc:SetLoadsGlobal(cfg); sc:SetPowerPerConfiguration() | sc:SetPowerGlobal(cfg); sc:IsSourcesPerConfiguration(); sc.GlobalFrequency; sc.GlobalSources; sc.GlobalLoads; sc.GlobalNetworks; sc.GlobalPower; sc:IsSolutionEnabled(...)",
+      "parameters": [],
+      "example": "sc = project.SolutionConfigurations\nsc:SetFrequencyPerConfiguration()\nsc[1].Frequency.Start = 1e9\nsc[2].Frequency.Start = 2e9",
+      "notes": "Configurations can be reordered with cfg:MoveUp()/MoveDown(); a StandardConfiguration also owns ModelDecompositions, ErrorEstimations and receiving-antenna collections.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/solutionconfigurationcollection.htm"
+    },
+    {
+      "name": "Frequency object properties (RangeType, Start, End, NumberOfDiscreteValues, DiscreteFrequencies, Advanced, Export)",
+      "kind": "api",
+      "description": "The Frequency object of a configuration (or the global frequency) has RangeType, Start and End (Hz), NumberOfDiscreteValues for linear/log sweeps, a DiscreteFrequencies list for explicit lists (Add/Modify/Remove), Advanced settings (continuous sampling convergence, quantities, FDTD time interval) and Export settings (discrete samples for .isd/.snp export of continuous results).",
+      "usage": "f = cfg.Frequency; f.RangeType = cf.Enums.FrequencyRangeTypeEnum.DiscreteList; f.DiscreteFrequencies:Add(\"1.5e9\"); f.Advanced (FrequencyAdvancedSettings: Continuous, FDTD); f.Export (FrequencyExportSettings)",
+      "parameters": [],
+      "example": "f = cfg.Frequency\nf.RangeType = cf.Enums.FrequencyRangeTypeEnum.DiscreteList\nf.DiscreteFrequencies:Add(\"0.9e9\")\nf.DiscreteFrequencies:Add(\"1.8e9\")\nf.DiscreteFrequencies:Add(\"2.4e9\")",
+      "notes": "Continuous settings (maximum sample points, minimum increment, convergence accuracy) are under f.Advanced.Continuous in the new-format reference; inspect(f.Advanced) shows the installed names.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/frequency.htm"
+    },
+    {
+      "name": "Power object (ScaleSettings, SourcePower, Z0Real/Z0Imaginary, DecoupleSourcesEnabled)",
+      "kind": "api",
+      "description": "Power scaling of a configuration: NoPowerScaling uses the specified source magnitudes, TotalSourcePower scales the solution so all sources deliver SourcePower watts, IncidentPower treats the sources as fed by lines of characteristic impedance Z0 (mismatch included); DecoupleSourcesEnabled ignores mutual coupling between impressed sources when computing power.",
+      "usage": "p = cfg.Power (or project.SolutionConfigurations.GlobalPower); p.ScaleSettings = cf.Enums.PowerScaleSettingsEnum.NoPowerScaling | TotalSourcePower | IncidentPower; p.SourcePower = 1; p.Z0Real = 50; p.Z0Imaginary = 0; p.DecoupleSourcesEnabled = false",
+      "parameters": [],
+      "example": "p = cfg.Power\np.ScaleSettings = cf.Enums.PowerScaleSettingsEnum.IncidentPower\np.SourcePower = 0.1\np.Z0Real = 50",
+      "notes": "PW card equivalent; gain and SAR values depend on it, impedances do not.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/power.htm"
+    },
+    {
+      "name": "S-parameter configuration object (SParameter.PortProperties:Add, reference impedances, requests per port)",
+      "kind": "api",
+      "description": "An SParameterConfiguration owns an SParameter request whose PortProperties list the ports included (with per-port reference impedance and waveguide mode type) and its own Frequency, Loads and result collections (FarFields, NearFields, Currents, ErrorEstimations, receiving antennas) that are solved for each port excitation.",
+      "usage": "sp = project.SolutionConfigurations:AddMultiportSParameter({ports}); sp.SParameter.PortProperties:Add(port[, referenceImpedance]); inspect(sp.SParameter:GetProperties()); sp.Frequency; sp.FarFields:Add3DPattern()",
+      "parameters": [],
+      "example": "sp = project.SolutionConfigurations:AddMultiportSParameter({p1})\nsp.SParameter.PortProperties:Add(p2, 75)\nsp.FarFields:AddVerticalCutUNPlane()",
+      "notes": "Touchstone export of the request is set in the S-parameter request properties (see GetProperties) or done in POSTFEKO; cf.Enums.SParameterWaveguideModeTypeEnum (Fundamental, TE, TM, TEM) selects waveguide port modes.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/sparameterconfiguration.htm"
+    },
+    {
+      "name": "Characteristic modes request object (CharacteristicModes.NumberOfModes, CoefficientsComputed)",
+      "kind": "api",
+      "description": "A CharacteristicModesConfiguration carries one CharacteristicModes request (NumberOfModes, CoefficientsComputed for modal excitation coefficients, Included) plus its own Frequency, Sources, Loads, FarFields, NearFields and Currents collections so that modal far fields/currents can be requested.",
+      "usage": "cma = project.SolutionConfigurations:AddCharacteristicModes(6); req = cma.CharacteristicModes; req.NumberOfModes = 10; req.CoefficientsComputed = true; cma.FarFields:Add3DPattern(); cma.Currents:Add()",
+      "parameters": [],
+      "example": "cma = project.SolutionConfigurations:AddCharacteristicModes(8)\ncma.Currents:Add()\ncma.FarFields:Add3DPattern()",
+      "notes": "Mode tracking is controlled in the request dialog (OM card 'Disable mode tracking'); check GetProperties() for the installed property name.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/characteristicmodesconfiguration.htm"
+    },
+    {
+      "name": "Reciprocal excitation configuration (AddReciprocalExcitationConfiguration)",
+      "kind": "api",
+      "description": "A configuration type that computes source data for reciprocal use (RT card): the loads listed become the reciprocal excitation points, which lets receive-side quantities be derived from one solution; results appear in POSTFEKO under ReciprocalExcitations.",
+      "usage": "rc = project.SolutionConfigurations:AddReciprocalExcitationConfiguration(); rc2 = project.SolutionConfigurations:AddReciprocalExcitationConfigurationOnLoads({loads})",
+      "parameters": [],
+      "example": "rc = project.SolutionConfigurations:AddReciprocalExcitationConfigurationOnLoads({load1, load2})",
+      "notes": "Documented for the new-format API (the legacy wrapper exposes a TimeConfiguration/reciprocal wrapper); the POSTFEKO macro 'Reciprocal Configuration' post-processes it.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/reciprocalexcitationconfiguration.htm"
+    },
+    {
+      "name": "Port objects: WirePort, EdgePort, MicrostripPort, WaveguidePort properties",
+      "kind": "api",
+      "description": "Port objects expose their defining topology and options: WirePort.Wire, Location, PositionPercentage; EdgePort.PositiveFaces/NegativeFaces (ObjectReferenceList) and PositiveTerminalGrounded/NegativeTerminalGrounded; MicrostripPort.Edges (Add/Remove) with StartPoint/EndPoint; WaveguidePort.Face, DirectionReversed, ManualReferenceVectorEnabled/ManualReferenceVector, ReferenceDirectionRotation, MaxModalExpansionEnabled/IndexM/IndexN. All ports also have schematic properties (Terminals, SchematicLocation, RotateSchematicSymbol) for the network/cable schematic.",
+      "usage": "port.Location = cf.Enums.WirePortLocationEnum.SpecifiedManually; port.PositionPercentage = 30; eport.PositiveTerminalGrounded = true; wgport.DirectionReversed = true; port.Terminals (List of Terminal)",
+      "parameters": [],
+      "example": "p = project.Ports:AddWirePort(monopole.Wires[1])\np.Location = cf.Enums.WirePortLocationEnum.Start\np.Label = \"FeedPort\"",
+      "notes": "Ports are referenced by object in sources/loads; project.Ports:Item(\"FeedPort\") retrieves them by label.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/portcollection.htm"
+    },
+    {
+      "name": "FEM line, FEM modal and FEM distributed line port objects",
+      "kind": "api",
+      "description": "FEMLinePort: DefinitionMethod (UsingEdges/UsingPoints), Edges, Start/End points, PolarityReversed; FEMModalPort: the boundary faces of the port with modal expansion settings; FEMDistributedLinePort (2025.1): two edge lists forming the start and end terminals of N discrete lines, usable instead of waveguide/microstrip ports on coax lines and microstrips inside FEM regions.",
+      "usage": "lp = project.Ports:AddFEMLinePortBetweenPoints(p1, p2); lp.PolarityReversed = true; mp = project.Ports:AddFEMModalPort({faces}); dp = project.Ports:AddFEMDistributedLinePortBetweenEdges({startEdges}, {endEdges}); cfg.Sources:AddCurrentSource(lp); cfg.Sources:AddFEMModalSource(mp)",
+      "parameters": [],
+      "example": "lp = project.Ports:AddFEMLinePortBetweenPoints(cf.Point(0,0.0065,-0.001), cf.Point(0,0.0065,0))\ncfg.Sources:AddCurrentSource(lp)\ncfg.Loads:AddComplex(lp, 50, 0)",
+      "notes": "The FEM line port length should be small compared with the wavelength; AF/LF cards are the EDITFEKO equivalents.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/femlineport.htm"
+    },
+    {
+      "name": "Mesh ports (AddWireMeshPort, AddWireMeshPortOnVertex, AddEdgeMeshPort, AddMicrostripMeshPort, AddWaveguideMeshPort, AddFEMLineMeshPort, AddFEMModalMeshPort)",
+      "kind": "api",
+      "description": "Ports attached to mesh entities (imported or unlinked meshes) instead of geometry: on a segment or a mesh vertex, across mesh face groups, between two mesh vertices for microstrip lines, on a triangle face with a reference vector for waveguides, and between mesh vertices for FEM line/modal ports.",
+      "usage": "project.Ports:AddWireMeshPort(segmentRef); AddWireMeshPortOnVertex(vertexRef); AddEdgeMeshPort({positiveMeshFaces}, {negativeMeshFaces}); AddEdgeMeshPortConnectedToGround({faces}, enum); AddMicrostripMeshPort(startVertex, endVertex); AddWaveguideMeshPort(meshFace, referenceVector); AddFEMLineMeshPort(startVertex, endVertex); AddFEMLineMeshPortBetweenPoints(p1, p2); AddFEMModalMeshPort(v1, v2, v3)",
+      "parameters": [],
+      "example": "mesh = platform:UnlinkMesh()\nseg = mesh.Wires[1]  -- a MeshSegmentWire; use its segment references\nport = project.Ports:AddWireMeshPort(seg.Segments[1])",
+      "notes": "Mesh references (MeshSegmentReference, MeshVertexReference) come from the mesh's Wires/Faces collections; record the GUI action once to get the exact reference objects.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/portcollection.htm"
+    },
+    {
+      "name": "Source objects: VoltageSource and CurrentSource properties (Magnitude, Phase, Impedance, Included)",
+      "kind": "api",
+      "description": "VoltageSource and CurrentSource objects hold Magnitude, Phase (degrees), Impedance (reference/internal impedance used for S-parameters and realised gain) and Included; sources can be duplicated, deleted or excluded per configuration and are listed in cfg.Sources (Item/Items/Contains).",
+      "usage": "src.Magnitude = \"1\"; src.Phase = 90; src.Impedance = 75; src.Included = false; cfg.Sources:Item(\"VoltageSource1\"):Delete()",
+      "parameters": [],
+      "example": "s1 = cfg.Sources:AddVoltageSource(port1); s2 = cfg.Sources:AddVoltageSource(port2)\ns2.Phase = 90  -- quadrature feed for circular polarisation",
+      "notes": "The .out file reports each source under EXCITATION BY VOLTAGE SOURCE ... and DATA OF THE VOLTAGE SOURCE NO. n.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/voltagesource.htm"
+    },
+    {
+      "name": "PlaneWave object properties (Theta/Phi ranges, PolarityType, PolarisationAngle, Ellipticity, DefinitionMethod, CalculateOrthogonalPolarisationsEnabled)",
+      "kind": "api",
+      "description": "The PlaneWave source object: Theta and Phi are PointAngleRange groups (Start, End, Increment) for single or multiple incidence directions, DefinitionMethod selects single/multiple, PolarityType (Linear, LeftHand, RightHand), PolarisationAngle (degrees), Ellipticity (0-1), Magnitude (V/m), Phase, LocalWorkplane and the option to compute both orthogonal polarisations in one run.",
+      "usage": "pw = cfg.Sources:AddPlaneWave(theta, phi); pw.PolarityType = cf.Enums.PlaneWavePolarityTypeEnum.RightHand; pw.Ellipticity = 1; pw.CalculateOrthogonalPolarisationsEnabled = true; pw:SetProperties({StartTheta = 0, EndTheta = 180, ThetaIncrement = 5, DefinitionMethod = cf.Enums.PlaneWaveDefinitionMethodEnum.Multiple})",
+      "parameters": [],
+      "example": "pw = cfg.Sources:AddPlaneWave(0, 0)\npw.PolarityType = cf.Enums.PlaneWavePolarityTypeEnum.Linear\npw.PolarisationAngle = 90",
+      "notes": "The legacy wrapper converts StartTheta/EndTheta/ThetaIncrement (and Phi) keys into the new Theta/Phi range groups; the DefinitionMethod enum members documented are Single and Multiple.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/planewave.htm"
+    },
+    {
+      "name": "ElectricDipole, MagneticDipole and ImpressedCurrent objects (Position, Theta, Phi, Start/End magnitude and phase, Radius)",
+      "kind": "api",
+      "description": "Point and line sources without geometry: dipoles have Position, Theta, Phi (orientation), Magnitude and Phase (and a current type for magnetic dipoles); the impressed current has StartPosition/EndPosition, StartMagnitude/EndMagnitude, StartPhase/EndPhase, Radius and options to connect its end to the closest mesh vertex (ConnectEndToClosestVertex, ImpressedCurrentClosestVertexType).",
+      "usage": "d = cfg.Sources:AddElectricDipole(pos, theta, phi); d.Magnitude = 1; ic = cfg.Sources:AddImpressedCurrent(startPoint, endPoint, radius); ic.StartMagnitude = 1; ic.EndMagnitude = 0; ic.ConnectEndToClosestVertex = true",
+      "parameters": [],
+      "example": "ic = cfg.Sources:AddImpressedCurrent(cf.Point(0,0,0.5), cf.Point(0,0,0.0), 0.001)\nic.ConnectEndToClosestVertex = true  -- AV-card behaviour",
+      "notes": "Point charges at open ends of impressed currents are neglected (AI card discussion); the A5/A6/AI/AV cards are the EDITFEKO forms.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/impressedcurrent.htm"
+    },
+    {
+      "name": "Field data definitions (project.FieldDataList: AddFarFieldData, AddNearFieldDataFullImport, AddNearFieldDataFileStructure, AddSphericalModesData, AddPCBCurrentData, AddSolutionCoefficientData)",
+      "kind": "api",
+      "description": "Field data objects wrap external result files once so several sources or receiving antennas can share them: far-field patterns (.ffe/.ffs/ASCII via FarFieldDataFileTypeEnum), near-field data as a full import of a file set or as a described file structure (E/H file names, coordinate type, NearFieldDataSourceTypeEnum: LoadEfe, LoadHfe, LoadEfeHfe, LoadOneAscii, LoadTwoAscii, LoadPre), spherical modes (TICRA .sph, full import or manually specified mode lists), PCB currents (.rei) and solution coefficients (.sol).",
+      "usage": "ffd = project.FieldDataList:AddFarFieldData(file); nfd = project.FieldDataList:AddNearFieldDataFullImport(file); nfs = project.FieldDataList:AddNearFieldDataFileStructure(propertiesTable); smd = project.FieldDataList:AddSphericalModesData(file) | AddSphericalModesDataFullImport(file) | AddSphericalModesDataManuallySpecified(props); pcb = project.FieldDataList:AddPCBCurrentData(file); sol = project.FieldDataList:AddSolutionCoefficientData(file)",
+      "parameters": [],
+      "example": "nfd = project.FieldDataList:AddNearFieldDataFullImport([[D:/meas/aperture.efe]])\nsrc = cfg.Sources:AddNearFieldSource(nfd)\nrx = cfg.NearFieldReceivingAntennas:Add(nfd)",
+      "notes": "New-format path: project.Definitions.FieldDataList; the spherical-mode source method there is AddSphericalModeSource.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/farfielddata.htm"
+    },
+    {
+      "name": "Far-field, near-field, spherical-mode, PCB and solution-coefficient source objects (FieldData, Position, Theta, Phi, Magnitude, Phase)",
+      "kind": "api",
+      "description": "Equivalent-source objects reference a FieldData item and add placement and scaling: Position (LocalCoordinate), Theta/Phi orientation (far field and spherical modes), Magnitude scaling factor, Phase offset, LocalWorkplane and Transforms; the near-field source adds BoxReferencePoint/ReferencePointType and Visible.",
+      "usage": "src = cfg.Sources:AddFarFieldSource(ffd); src.Position = ...; src.Theta = 90; src.Phi = 45; src.Magnitude = 2; src.Phase = 30; nfs = cfg.Sources:AddNearFieldSource(nfd); sms = cfg.Sources:AddSphericalModesSource(smd); pcb = cfg.Sources:AddPCBSource(pcbData); sc = cfg.Sources:AddSolutionCoefficientSource(solData)",
+      "parameters": [],
+      "example": "src = cfg.Sources:AddFarFieldSource(ffd)\nsrc:SetProperties({[\"Position.U\"] = 1.2, [\"Position.V\"] = 0, [\"Position.N\"] = 0.4})  -- legacy key form accepted by the wrapper\nsrc.Theta = 90",
+      "notes": "Several sources may share one FieldData; the AR card option 'use last pattern' has the same purpose in .pre files.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/farfieldsource.htm"
+    },
+    {
+      "name": "WaveguideSource and FEMModalSource objects (SourceDefinitionType, FundamentalModeOptions, ManuallySpecifiedModesProperties: AddTEMode/AddTMMode/AddTEMMode)",
+      "kind": "api",
+      "description": "A waveguide source excites the fundamental mode or manually specified TE/TM/TEM modes (indices m, n with magnitude and phase, rotation angle for circular/coaxial guides) on a waveguide or waveguide mesh port; the FEM modal source does the same on a FEM modal port. A zero magnitude turns the port into a passive sink (absorbing) port.",
+      "usage": "ws = cfg.Sources:AddWaveguideSource(port); ws.SourceDefinitionType = cf.Enums.WaveguideSourceDefinitionTypeEnum.<option>; ws.FundamentalModeOptions; ws.ManuallySpecifiedModesProperties:AddTEMode(m, n, magnitude, phase) | AddTMMode(...) | AddTEMMode(...); ws.Magnitude; ws.Phase; ms = cfg.Sources:AddFEMModalSource(femModalPort)",
+      "parameters": [],
+      "example": "ws = cfg.Sources:AddWaveguideSource(wgPort)\nws.Magnitude = 1\nws.Phase = 0",
+      "notes": "Check the enum member names with inspect(cf.Enums.WaveguideSourceDefinitionTypeEnum); AW and AB cards are the EDITFEKO forms.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/waveguidesource.htm"
+    },
+    {
+      "name": "Load object properties (LoadType, ImpedanceReal/ImpedanceImaginary, Resistance/Inductance/Capacitance with Enabled flags, Filename, CircuitName)",
+      "kind": "api",
+      "description": "A Load created on a port has LoadType (Complex, Series, Parallel, SinglePortTouchstone, SpiceCircuit), the complex impedance parts, the RLC values (each with an Enabled flag; setting a value enables it), Filename for Touchstone/SPICE loads, CircuitName for the SPICE sub-circuit and Included.",
+      "usage": "ld = cfg.Loads:AddComplex(port, 50, -10); ld.LoadType = cf.Enums.LoadTypeEnum.Series; ld.Resistance = 10; ld.Inductance = 5e-9; ld.CapacitanceEnabled = false; ld.Included = false",
+      "parameters": [],
+      "example": "ld = cfg.Loads:AddSeries(port, 0, 1e-12, 0)\nld.CapacitanceEnabled = true\nld.InductanceEnabled = false",
+      "notes": "A load on a source port is in series with the source; loads on FEM line ports are in parallel with the current source.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/load.htm"
+    },
+    {
+      "name": "TransmissionLine object (Z0Real/Z0Imaginary, LineLength, LengthDetermined, Attenuation, PropagationVelocity, Medium, DefinitionMethod, InputOutputCrossed)",
+      "kind": "api",
+      "description": "An ideal non-radiating transmission line between two terminals: complex characteristic impedance, length (or LengthDetermined from the terminal positions), losses given as attenuation in dB/m with optional velocity of propagation, or derived from a dielectric medium (DefinitionMethod: SpecifiedAttenuation, VelocityOfPropagation, MediumAttenuation), crossed input/output option and schematic placement.",
+      "usage": "tl = cfg.Networks:AddTransmissionLine(length, z0Real, z0Imag, attenuation); tl.PropagationVelocity = 0.66; tl.DefinitionMethod = cf.Enums.TransmissionLineDefinitionMethodEnum.VelocityOfPropagation; tl.InputOutputCrossed = true; tl.Terminals",
+      "parameters": [],
+      "example": "tl = cfg.Networks:AddTransmissionLine(0.25, 50, 0, 0.1, 0.66)",
+      "notes": "Connect terminals in the network schematic (app.Views:ShowNetworkSchematic()) or via the terminal ConnectTo methods recorded from the GUI.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/transmissionline.htm"
+    },
+    {
+      "name": "GeneralNetwork object (DataType, Filename, TerminalCount, CouplingParameters, ReferenceImpedance, SPICEPortReference, Source)",
+      "kind": "api",
+      "description": "A general non-radiating network defined from a Touchstone S/Y/Z matrix file, a SPICE circuit file or manually entered coupling parameters (ParametricComplexExpressionTable) with per-terminal reference impedances; TerminalCount sets the number of ports and Source selects manual versus file data.",
+      "usage": "net = cfg.Networks:AddGeneralNetwork(cf.Enums.GeneralNetworkDataTypeEnum.SMatrix | YMatrix | ZMatrix | SPICENetwork, terminalCount, filename); props = cf.GeneralNetwork.GetDefaultProperties(); props.Source = cf.Enums.GeneralNetworkSourceEnum.Manual; props.ReferenceImpedance[1] = \"50\"; net = cfg.Networks:AddGeneralNetwork(props); net:SetCouplingParameters(...); net:GetReferenceImpedances()",
+      "parameters": [],
+      "example": "net = cfg.Networks:AddGeneralNetwork(cf.Enums.GeneralNetworkDataTypeEnum.SPICENetwork, 2, [[D:/nets/lna.cir]])\nnet.CircuitName = \"LNA\"",
+      "notes": "SPICE probes inside networks appear in POSTFEKO under SpiceProbes; the NW card is the EDITFEKO form.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/generalnetwork.htm"
+    },
+    {
+      "name": "FarField request object (Theta/Phi ranges, U/V, CalculationDirection, CoordinateSystem, Advanced, ScopeSettings, LocalWorkplane)",
+      "kind": "api",
+      "description": "The FarField request has Theta and Phi PointAngleRange groups (Start/End/Increment) or U/V ranges for the Cartesian grid, CoordinateSystem (Spherical/Cartesian), CalculationDirection (SpecifiedPoint or IncidentPlaneWave; the wrapper accepts the legacy names AsSpecified/FromPlaneWave), Advanced settings (export to .ffe, spherical mode coefficients, scattered part only, PBC array pattern, continuous data) and ScopeSettings to limit the radiating entities.",
+      "usage": "ff = cfg.FarFields:Add3DPattern(); ff.Theta.Increment = 2; ff.Phi.Increment = 2; ff.CalculationDirection = cf.Enums.FarFieldCalculationDirectionEnum.IncidentPlaneWave; ff.CoordinateSystem = cf.Enums.FarFieldCoordinateSystemEnum.Spherical; inspect(ff.Advanced); ff.ScopeSettings:SetScopedEntities({parts})",
+      "parameters": [],
+      "example": "ff = cfg.FarFields:Add3DPattern()\nff:SetProperties({[\"Theta.Increment\"] = 1, [\"Phi.Increment\"] = 1})\nff.ScopeSettings:SetScopedEntities({antenna})  -- fields from the antenna currents only",
+      "notes": "Spherical mode coefficient export (.sph, TICRA) and .ffe export are switched on in ff.Advanced; the request label is used by POSTFEKO and OPTFEKO goals.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/farfield.htm"
+    },
+    {
+      "name": "NearField request object (DefinitionMethod, request-point groups, PointSpecificationMethod, SampleOnEdgesEnabled, BoundarySurface, Advanced)",
+      "kind": "api",
+      "description": "The NearField request stores its grid per DefinitionMethod (Cartesian, CartesianBoundary, Cylindrical, CylindricalX/Y, Spherical, Conical, SpecifiedPoints, TetrahedralMesh) in matching request-point groups (start/end/increment or number of points), a boundary-surface definition for Cartesian boundaries, SampleOnEdgesEnabled, RequestPointsAsCartesian (read-only converted coordinates), ScopeSettings and Advanced settings (fields versus potentials, scattered part only, export to .efe/.hfe).",
+      "usage": "nf = cfg.NearFields:AddCartesian(...); nf.DefinitionMethod; nf.CartesianRequestPoints (Start/End/NumberOfPoints or Increment groups); nf.SampleOnEdgesEnabled = true; pts = nf.RequestPointsAsCartesian; inspect(nf.Advanced)",
+      "parameters": [],
+      "example": "nf = cfg.NearFields:AddSpherical(0.5, 0, 0, 0.5, 180, 360, 1, 37, 73)\nnf.SampleOnEdgesEnabled = false",
+      "notes": "Property groups follow the coordinate system; use GetProperties()/inspect to see the installed key names before SetProperties.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/nearfield.htm"
+    },
+    {
+      "name": "Currents request object (CalculationScope, ScopedEntities, ExportSettings)",
+      "kind": "api",
+      "description": "Controls which currents are stored: all, triangles only, segments only or specified entities, and the export settings for .os/.ol files (OS and DA cards).",
+      "usage": "cur = cfg.Currents:Add(); cur.CalculationScope = cf.Enums.CurrentsScopeTypeEnum.TriangleCurrents; cur.ScopedEntities = {parts}; inspect(cur.ExportSettings)",
+      "parameters": [],
+      "example": "cur = cfg.Currents:Add()\ncur.CalculationScope = cf.Enums.CurrentsScopeTypeEnum.SegmentCurrents",
+      "notes": "Requesting only wire currents keeps .bof files small for large platforms.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/currents.htm"
+    },
+    {
+      "name": "SAR request object (CalculationType, RegionType, MediaSelection, SpecifiedMedium, SpecifiedPosition, LayerSelection, SubstrateLayer)",
+      "kind": "api",
+      "description": "SAR request properties: CalculationType (SpatialPeak1g, SpatialPeak10g, VolumeAverage), RegionType (EntireModel, Medium, Position, Substrate), MediaSelection with SpecifiedMedium when the region is a medium, SpecifiedPosition (global coordinates) for a cube centre, LayerSelection and SubstrateLayer for layered Green's-function models.",
+      "usage": "sar = cfg.SAR:Add(); sar.CalculationType = cf.Enums.SARCalculationTypeEnum.VolumeAverage; sar.RegionType = cf.Enums.SARRegionTypeEnum.Position; sar:SetProperties({SpecifiedPosition = {X = 0.1, Y = 0.03, Z = 0.01}})",
+      "parameters": [],
+      "example": "sar = cfg.SAR:Add()\nsar.CalculationType = cf.Enums.SARCalculationTypeEnum.SpatialPeak1g\nsar.RegionType = cf.Enums.SARRegionTypeEnum.EntireModel",
+      "notes": "The .out file reports cube centre, edge, mass and SAR for spatial-peak requests; SA card equivalent.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/sar.htm"
+    },
+    {
+      "name": "TransmissionReflection, ErrorEstimation and ModelDecomposition request objects",
+      "kind": "api",
+      "description": "TransmissionReflection: observation point of the plane wave for FSS/substrate coefficient requests. ErrorEstimation: CalculationScope and ScopedEntities selecting element types/parts, ExportEnabled to write estimates to the .out. ModelDecomposition: CalculationScope/ScopedEntities and a local workplane for the .sol export of solution coefficients (MD card) that becomes a solution-coefficient source elsewhere.",
+      "usage": "tr = cfg.TransmissionReflection:Add(x, y, z); ee = cfg.ErrorEstimations:Add(); ee.ExportEnabled = true; md = cfg.ModelDecompositions:Add(); md.ScopedEntities = {parts}",
+      "parameters": [],
+      "example": "md = cfg.ModelDecompositions:Add()\nmd.CalculationScope = cf.Enums.ModelDecompositionScopeTypeEnum.SpecifiedEntities\nmd.ScopedEntities = {antenna}",
+      "notes": "The exported .sol file is loaded with project.FieldDataList:AddSolutionCoefficientData and used by cfg.Sources:AddSolutionCoefficientSource in another model.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/modeldecomposition.htm"
+    },
+    {
+      "name": "Receiving antenna request objects (FarFieldReceivingAntenna, NearFieldReceivingAntenna, SphericalModesReceivingAntenna)",
+      "kind": "api",
+      "description": "Ideal receiving antennas defined by field data: FieldData reference, Position, Theta/Phi orientation, IncludeScatteredPart (use only the scattered field), LocalWorkplane and Transforms; the near-field variant references aperture data and the spherical-mode variant TICRA mode data (with far-field or spherical-mode coupling approximation).",
+      "usage": "rx = cfg.FarFieldReceivingAntennas:Add(ffd); rx.Position = ...; rx.Theta = 0; rx.IncludeScatteredPart = true; rxn = cfg.NearFieldReceivingAntennas:Add(nfd); rxs = cfg.SphericalModesReceivingAntennas:Add(smd)",
+      "parameters": [],
+      "example": "rx = cfg.FarFieldReceivingAntennas:Add(ffd)\nrx:SetProperties({[\"Position.U\"] = 2.0, [\"Position.V\"] = 0, [\"Position.N\"] = 1.0})",
+      "notes": "RA card equivalent; received power is reported relative to the source power for coupling in dB.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/farfieldreceivingantenna.htm"
+    },
+    {
+      "name": "Solver settings: MLFMMACASettings and MLFMMSolverSettings",
+      "kind": "api",
+      "description": "MLFMMACASettings.ModelSolutionSolveType activates MLFMM or ACA (None, MLFMM, ACA); MLFMMSettings holds BoxSizeSpecificationType (Default/SpecifiedManually) with ManuallySpecifiedBoxSize in wavelengths and the FarFieldCalculationMethod/NearFieldCalculationMethod (Default or TraditionalIntegrationScheme).",
+      "usage": "m = project.SolutionSettings.SolverSettings.MLFMMACASettings; m.ModelSolutionSolveType = cf.Enums.ModelSolutionSolveTypeEnum.MLFMM; m.MLFMMSettings.BoxSizeSpecificationType = cf.Enums.BoxSizeSpecificationTypeEnum.SpecifiedManually; m.MLFMMSettings.ManuallySpecifiedBoxSize = 0.25; m.MLFMMSettings.NearFieldCalculationMethod = cf.Enums.MLFMMNearFieldCalculationMethodEnum.Default",
+      "parameters": [],
+      "example": "m = project.SolutionSettings.SolverSettings.MLFMMACASettings\nm.ModelSolutionSolveType = cf.Enums.ModelSolutionSolveTypeEnum.MLFMM",
+      "notes": "FM card equivalent; additional MLFMM stabilisation and CBFM options are on the FM card dialog.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/mlfmmsolversettings.htm"
+    },
+    {
+      "name": "Solver settings: PreconditionerSettings and IterativeSolverSettings",
+      "kind": "api",
+      "description": "PreconditionerSettings chooses the AdvancedSolverType (Default, DirectSparse, Iterative) and FactorisationType (Auto, Default, StandardFullRank, BlockLowRank for parallel LU); IterativeSolverSettings sets PreconditionerType (Default, SparseApproxInverse, BlockJacobiLU, IncompleteLU, MultiLevelILU, MultiLevelLU, MultilevelFEMMLFMMLU, SparseLU, BlockJacobiMLFMM), MaxIterations, StoppingCriterion/MaxResiduum, BlockSize, LevelOfFill, FillInPerRow, StabilisationFactor and AcceleratedSPAIEnabled.",
+      "usage": "ps = project.SolutionSettings.SolverSettings.PreconditionerSettings; ps.AdvancedSolverType = cf.Enums.AdvancedSolverTypeEnum.Iterative; it = ps.IterativeSolverSettings; it.PreconditionerType = cf.Enums.PreconditionerTypeEnum.BlockJacobiLU_64; it.MaxIterations = 1000; it.StoppingCriterion = 1e-3",
+      "parameters": [],
+      "example": "ps = project.SolutionSettings.SolverSettings.PreconditionerSettings\nps.AdvancedSolverType = cf.Enums.AdvancedSolverTypeEnum.DirectSparse  -- for ACA/FEM",
+      "notes": "CG card equivalent; the defaults are recommended (2025.1 added FGMRES and a domain-level preconditioner chosen automatically).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/iterativesolversettings.htm"
+    },
+    {
+      "name": "Solver settings: GeneralSettings, BasisFunctionSettings (HOBF) and OutputFileSettings",
+      "kind": "api",
+      "description": "GeneralSettings: DataStoragePrecision (Single/Double), LowFrequencyStabilisationEnabled/Mode, GeometryCheckingEnabled, MeshElementSizeCheckingEnabled, ExportGeometryToOutFile, PreFileWritingEnabled, CharacteristicBasisFunctionMethodEnabled/Type; BasisFunctionSettings: HOBFEnabled, ElementOrder (HOBFElementOrderEnum), RangeSelection (BasisFunctionAccuracyEnum); OutputFileSettings: MatrixElements (.mat), LUDecomposedMatrix (.lud), Currents (.str), CablePerUnitLength saved/read per OutputFileSettingsEnum, StoreConvergenceDataEnabled (.cgm) and ThermalAnalysisExportEnabled (.epl/.nas/.map).",
+      "usage": "g = project.SolutionSettings.SolverSettings.GeneralSettings; g.DataStoragePrecision = cf.Enums.PrecisionSettingsEnum.Double; g.BasisFunctionSettings.HOBFEnabled = true; g.OutputFileSettings.Currents = cf.Enums.OutputFileSettingsEnum.SaveToFile; g.OutputFileSettings.StoreConvergenceDataEnabled = true",
+      "parameters": [],
+      "example": "g = project.SolutionSettings.SolverSettings.GeneralSettings\ng.OutputFileSettings.LUDecomposedMatrix = cf.Enums.OutputFileSettingsEnum.SaveToFile  -- reuse with ReadFromFile when only sources change",
+      "notes": "EG, FP and PS card equivalents; thermal export feeds the .epl losses into a NASTRAN thermal analysis.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/generalsolversettings.htm"
+    },
+    {
+      "name": "Solver settings: FEMSettings, FDTDSettings and FDTDBoundary",
+      "kind": "api",
+      "description": "FEMSettings: DecoupleFEMFromMoM, FEMBoundaryCondition (ABC or PMC when decoupled), ElementOrder (Auto/First/Second); FDTDSettings.FDTDEnabled activates the FDTD solver; project.SolutionSettings.FDTDBoundary sets the boundary condition (open CPML, PEC, PMC) on each face of the FDTD box (BC card), and the FDTD time interval/convergence live under the frequency Advanced settings (FD card).",
+      "usage": "fem = project.SolutionSettings.SolverSettings.FEMSettings; fem.DecoupleFEMFromMoM = true; fem.ElementOrder = cf.Enums.FEMElementOrderEnum.First; project.SolutionSettings.SolverSettings.FDTDSettings.FDTDEnabled = true; project.SolutionSettings.FDTDBoundary:SetProperties({...}); cfg.Frequency.Advanced.FDTD.MaximumTimeInterval = ...",
+      "parameters": [],
+      "example": "fem = project.SolutionSettings.SolverSettings.FEMSettings\nfem.ElementOrder = cf.Enums.FEMElementOrderEnum.First  -- fine phantom mesh: fewer unknowns",
+      "notes": "First-order FEM needs a finer mesh for the same accuracy; second order is the default.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/femsettings.htm"
+    },
+    {
+      "name": "Solver settings: HighFrequencySettings (PO/RL-GO/UTD coupling, iterations, ray increments, shadowing)",
+      "kind": "api",
+      "description": "All asymptotic-solver switches: HighFrequencyPOMoMCouplingType (Full/Iterative/Decoupled) with MaxIterations and StoppingCriterion for the iterative hybrid, DecoupleRLGOFromMoM, DecoupleUTDFromMoM, RLGOIncrementType (Automatic/SpecifyIncrements) with Theta/Phi/U/V increments and AdaptiveRayLaunchingAccuracy, MaxRLGORayInteractions and MaxUTDRayInteractions (with Enabled flags), UTDRayContributionsType (Default/Advanced) with RayContributionsUTD/RLGO/FacetedUTD, EnableFacetedUTDAcceleration, RayTraceSymmetryEnabled and StoreShadowingInfoEnabled (.sha files).",
+      "usage": "hf = project.SolutionSettings.SolverSettings.HighFrequencySettings; hf.HighFrequencyPOMoMCouplingType = cf.Enums.HighFrequencyPOMoMCouplingTypeEnum.Iterative; hf.MaxIterations = 10; hf.StoreShadowingInfoEnabled = true; hf.MaxUTDRayInteractionsEnabled = true; hf.MaxUTDRayInteractions = 3",
+      "parameters": [],
+      "example": "hf = project.SolutionSettings.SolverSettings.HighFrequencySettings\nhf.HighFrequencyPOMoMCouplingType = cf.Enums.HighFrequencyPOMoMCouplingTypeEnum.Decoupled\nhf.StoreShadowingInfoEnabled = true  -- reuse PO shadowing between frequencies",
+      "notes": "PO and UT card equivalents; the KA/KL/FO/VS cards add PO edge/wedge corrections, Fock currents and visibility hints.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/highfrequencysettings.htm"
+    },
+    {
+      "name": "Solver settings: DomainDecompositionSettings (DGFM), AdvancedSettings, IntegralEquation and DomainConnections",
+      "kind": "api",
+      "description": "DomainDecompositionSettings.DGFMEnabled activates the domain Green's function method for finite arrays (CouplingDisabled ignores element coupling); AdvancedSettings.LoopedPlaneWaveCompression (Auto/Enabled/...) compresses looped plane-wave sources; IntegralEquation sets the global EFIE/MFIE/CFIE choice (per face via face.IntegralEquation); DomainConnections (DomainConnectivityCollection) connect non-matching meshes across small gaps (DC card).",
+      "usage": "project.SolutionSettings.SolverSettings.DomainDecompositionSettings.DGFMEnabled = true; project.SolutionSettings.SolverSettings.AdvancedSettings.LoopedPlaneWaveCompression = cf.Enums.LoopedPlaneWaveCompressionEnum.Enabled; project.SolutionSettings.SolverSettings.IntegralEquation; project.SolutionSettings.DomainConnections",
+      "parameters": [],
+      "example": "project.SolutionSettings.SolverSettings.AdvancedSettings.LoopedPlaneWaveCompression = cf.Enums.LoopedPlaneWaveCompressionEnum.Enabled  -- many incidence angles",
+      "notes": "Domain connectivity needs a gap of about lambda/1000 (max lambda/100) and works with MoM/MLFMM only.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/domaindecompositionsettings.htm"
+    },
+    {
+      "name": "Numerical Green's function settings (NumericalGreensFunction.Enabled, StaticParts, SolutionControl)",
+      "kind": "api",
+      "description": "Configures the NGF: Enabled, StaticParts (the geometry whose matrix/LU factors are stored in the .ngf file) and SolutionControl (NoAction, Save, Read, ReadFromOrCreate); the legacy wrapper also accepts SetProperties/GetProperties with these keys.",
+      "usage": "ngf = project.SolutionSettings.NumericalGreensFunction; ngf.Enabled = true; ngf.StaticParts = {parts}; ngf.SolutionControl = cf.Enums.NGFControlTypeEnum.Save",
+      "parameters": [],
+      "example": "ngf = project.SolutionSettings.NumericalGreensFunction\nngf:SetProperties({Enabled = true, StaticParts = {platform}, SolutionControl = cf.Enums.NGFControlTypeEnum.ReadFromOrCreate})",
+      "notes": "DD card equivalent; the static mesh must not change between runs.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/numericalgreensfunction.htm"
+    },
+    {
+      "name": "Ground plane and planar substrate API (GroundPlane.DefinitionMethod, Medium, ZValue, Layers:Add/Remove/Modify/Item)",
+      "kind": "api",
+      "description": "project.GroundPlane (identical to project.SolutionSettings.GroundPlane) holds DefinitionMethod, the half-space Medium, ZValue (top of layer 1) and the Layers list of PlanarSubstrate items (Medium, Thickness, GroundBottom); the legacy wrapper inserts layers with Add(index, groundBottom, thickness, medium) (index counts the infinite top layer as 1; the infinite top and bottom layers cannot be removed) while the new API uses Layers:Append() and item properties.",
+      "usage": "gp = project.GroundPlane; gp:SetProperties({DefinitionMethod = cf.Enums.GroundPlaneDefinitionMethodEnum.MultilayerSubstrate}); gp.Layers:Add(2, cf.Enums.GroundBottomTypeEnum.None, 1.6e-3, fr4); gp.Layers:Add(3, cf.Enums.GroundBottomTypeEnum.PEC, 0.8e-3, fr4); gp.Layers:Remove(3); gp.ZValue = 0; layer = gp.Layers:Item(2)",
+      "parameters": [],
+      "example": "gp = project.GroundPlane\ngp:SetProperties({DefinitionMethod = cf.Enums.GroundPlaneDefinitionMethodEnum.MultilayerSubstrate})\ngp.Layers:Add(2, cf.Enums.GroundBottomTypeEnum.PEC, 1.6e-3, fr4)\nprint(gp.Layers:Item(2).Thickness)",
+      "notes": "A finite substrate is instead a dielectric region (SEP/FEM) on a finite ground face; GF/BO cards are the EDITFEKO forms.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/planarsubstrate.htm"
+    },
+    {
+      "name": "Periodic boundary API (SetOneDimension, SetTwoDimensions, ClearDimensions, PhaseShiftMethod, PhaseShift, BeamSquintAngle, StartPoint/EndPointVectorOne/Two)",
+      "kind": "api",
+      "description": "The PeriodicBoundary object: Dimension (None/OneDimension/TwoDimensions), StartPoint and EndPointVectorOne/EndPointVectorTwo (LocalCoordinate groups with U/V/N expressions), PhaseShiftMethod (SpecifyManually, PlaneWaveSource, BeamSquintAngle), PhaseShift (per vector direction) and BeamSquintAngle (theta, phi); the convenience methods SetOneDimension/SetTwoDimensions/ClearDimensions take cf.Point arguments.",
+      "usage": "pbc = project.PeriodicBoundary; pbc:SetTwoDimensions(start, endOne, endTwo); pbc:SetProperties({PhaseShiftMethod = cf.Enums.PeriodicBoundaryPhaseShiftMethodEnum.BeamSquintAngle, [\"BeamSquintAngle.Theta\"] = 20, [\"BeamSquintAngle.Phi\"] = 0}); pbc:ClearDimensions()",
+      "parameters": [],
+      "example": "props = project.PeriodicBoundary:GetProperties()\nprops.Dimension = cf.Enums.PeriodicBoundaryDimensionsEnum.TwoDimensions\nprops.StartPoint.U = \"-dx/2\"; props.StartPoint.V = \"-dy/2\"; props.StartPoint.N = 0\nprops.EndPointVectorOne.U = \"dx/2\"; props.EndPointVectorOne.V = \"-dy/2\"; props.EndPointVectorOne.N = 0\nprops.EndPointVectorTwo.U = \"-dx/2\"; props.EndPointVectorTwo.V = \"dy/2\"; props.EndPointVectorTwo.N = 0\nproject.PeriodicBoundary:SetProperties(props)",
+      "notes": "PE and PP cards are the EDITFEKO forms; examples A.16.x show phase-shift versus squint-angle definitions.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/periodicboundary.htm"
+    },
+    {
+      "name": "Model symmetry API (ModelSymmetry.PlaneX/PlaneY/PlaneZ)",
+      "kind": "api",
+      "description": "The ModelSymmetry object has three properties PlaneX, PlaneY and PlaneZ of type ModelSymmetryTypeEnum (NoSymmetry, Geometric, Electric, Magnetic); the legacy wrapper exposes SetProperties/GetProperties and passes the properties through.",
+      "usage": "sym = project.SolutionSettings.ModelSymmetry; sym:SetProperties({PlaneX = cf.Enums.ModelSymmetryTypeEnum.Electric, PlaneZ = cf.Enums.ModelSymmetryTypeEnum.Geometric}); print(sym:GetProperties().PlaneX)",
+      "parameters": [],
+      "example": "project.SolutionSettings.ModelSymmetry:SetProperties({PlaneX = cf.Enums.ModelSymmetryTypeEnum.Electric})",
+      "notes": "SY card equivalent; symmetry is switched off automatically when the CFIE is used.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/modelsymmetry.htm"
+    },
+    {
+      "name": "Finite antenna arrays API (AntennaArrays:AddPlanarArray, AddCylindricalArray, Distribution, ConvertToCustomArray)",
+      "kind": "api",
+      "description": "project.SolutionSettings.AntennaArrays creates planar/linear arrays (CountU, OffsetU, CountV, OffsetV) and cylindrical/circular arrays (Radius, CountPhi, PhiAngle or uniform spacing, CountN, OffsetN, ElementsRotated); UniformSourceDistributionEnabled = false exposes the Distribution list with MagnitudeScaling and PhaseOffset per element, and ConvertToCustomArray turns the array into individually placeable AntennaArrayElement objects.",
+      "usage": "arrays = project.SolutionSettings.AntennaArrays; arr = arrays:AddPlanarArray(countU, offsetU, countV, offsetV); circ = arrays:AddCylindricalArray(radius, countPhi, phiIncrement, countN, offsetN, elementsRotated); arr.UniformSourceDistributionEnabled = false; arr.Distribution[i].MagnitudeScaling = \"0.7\"; arr.Distribution[i].PhaseOffset = \"90\"; elements = arr:ConvertToCustomArray()",
+      "parameters": [],
+      "example": "arr = project.SolutionSettings.AntennaArrays:AddPlanarArray(4, 0.075, 4, 0.075)\narr.UniformSourceDistributionEnabled = false\nfor i = 1, 16 do arr.Distribution[i].PhaseOffset = tostring((i-1)*22.5) end\nproject.SolutionSettings.SolverSettings.DomainDecompositionSettings.DGFMEnabled = true",
+      "notes": "The legacy wrapper maps project.SolutionSettings.AntennaArrays onto the new-format collection, so the returned objects use the new-format property names. FA card equivalent.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/cylindricalcirculararray.htm"
+    },
+    {
+      "name": "Cable paths and cross sections (Cable.Paths:Add, Cable.CrossSections:AddCoaxial/AddSingleConductor/AddTwistedPair/AddRibbon/AddBundle, AddPredefinedCoaxial, Cable.Shields)",
+      "kind": "api",
+      "description": "The Cable definitions hold Paths (polyline routes with corners, reference vector, twist angle, sampling density, mesh refinement), CrossSections (single conductor with/without insulation, coaxial by dimensions or propagation characteristics with optional coating, twisted pair, ribbon, bundle with/without coating, non-conducting elements, and predefined coaxial types from the database) and Shields (layers with transfer impedance/admittance, braid weave definitions).",
+      "usage": "path = project.Cable.Paths:Add({points}); path.TwistAngle = 0; path.SamplingPointDensityOption; cs = project.Cable.CrossSections:AddSingleConductor(...) | AddSingleConductorWithInsulation(...) | AddCoaxial(...) | AddCoaxialUsingDimensions(...) | AddPredefinedCoaxial(cf.Enums.CablePredefinedCoaxialTypeEnum.<type>) | AddTwistedPair(...) | AddRibbon(...) | AddBundle(...); shields via project.Cable.Shields",
+      "parameters": [],
+      "example": "path = project.Cable.Paths:Add({cf.Point(0,0,0.05), cf.Point(0.5,0,0.05), cf.Point(0.5,0.3,0.05)})\ncoax = project.Cable.CrossSections:AddPredefinedCoaxial(cf.Enums.CablePredefinedCoaxialTypeEnum.RG58)  -- check the enum with inspect()",
+      "notes": "Argument lists of the AddCoaxial*/AddBundle* methods are long; record the dialog once or use the properties-table form. New-format path: project.Definitions.Cables.Paths/CrossSections/Shields.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/cablepathcollection.htm"
+    },
+    {
+      "name": "Cable harnesses, connectors, cable instances and signals (Harnesses:Add, Connectors:Add, CableInstances:Add, Signals, CableCoupling, SolutionMethod)",
+      "kind": "api",
+      "description": "A CableHarness groups cable instances along paths with a SolutionMethod (MTL or MoM for shielded cables) and CableCoupling (irradiating, radiating, radiating with irradiation, crosstalk); Connectors are created at path terminals or coordinates with named pins, CableInstances connect a cross section between two connectors (with route selection), and each instance's Signals map conductors to connector pins (ApplySequentialPinToPinConnections, ApplySignalToPinLabelConnections).",
+      "usage": "h = project.Cable.Harnesses:Add(); h.SolutionMethod = cf.Enums.CableHarnessSolutionMethodEnum.MTL; h.CableCoupling = cf.Enums.CableHarnessCouplingEnum.<Irradiating|Radiating|RadiatingWithIrradiating|...>; c1 = h.Connectors:Add(path.StartTerminal, {\"Pin1\", \"Pin2\"}); c2 = h.Connectors:Add(path.EndTerminal, {\"Pin1\", \"Pin2\"}); inst = h.CableInstances:Add(crossSection, c1, c2); inst:ApplySequentialPinToPinConnections(); inst.Signals[1].Source = c1.Pins[\"Pin1\"]",
+      "parameters": [],
+      "example": "h = project.Cable.Harnesses:Add()\nc1 = h.Connectors:Add(path.StartTerminal, {\"Core\", \"Shield\"})\nc2 = h.Connectors:Add(path.EndTerminal, {\"Core\", \"Shield\"})\ninst = h.CableInstances:Add(coax, c1, c2)\ninst:ApplySequentialPinToPinConnections()",
+      "notes": "New-format: project.Contents.CableHarnesses; connector pins pin 0/-1 conventions (device ground/global ground) apply in the schematic and the CI/LC cards.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/cableharness.htm"
+    },
+    {
+      "name": "Cable schematic components, cable ports and probes (SchematicComponents:AddVoltageSource/AddComplexLoad/AddGeneralNetwork/AddSpiceNetwork, Ports:AddCablePort, Probes:Add)",
+      "kind": "api",
+      "description": "The cable schematic of a harness carries circuit elements between connector pins: voltage sources, complex/series/parallel loads, resistors/inductors/capacitors, transformers, general networks (Touchstone) and SPICE networks (file or inline), device grounds and probes; a cable port between two terminals lets ordinary sources/loads attach, and cable probes measure current/voltage along a path.",
+      "usage": "h.SchematicComponents:AddVoltageSource(...); h.SchematicComponents:AddComplexLoad(...); h.SchematicComponents:AddGeneralNetwork(...); h.SchematicComponents:AddSpiceNetwork(...) | AddSpiceNetworkFromFile(...); port = project.Ports:AddCablePort(h, c1.Pins[\"Core\"].Terminal, c1.Pins[\"Shield\"].Terminal); cfg.Sources:AddVoltageSource(port); cfg.Loads:AddComplex(port, 50, 0); probe = h.Probes:Add(path)",
+      "parameters": [],
+      "example": "t1 = c1.Pins[\"Core\"].Terminal; t2 = c1.Pins[\"Shield\"].Terminal\nport = project.Ports:AddCablePort(h, t1, t2)\nsrc = cfg.Sources:AddVoltageSource(port); src.Impedance = 50\nport2 = project.Ports:AddCablePort(h, c2.Pins[\"Core\"].Terminal, c2.Pins[\"Shield\"].Terminal)\ncfg.Loads:AddComplex(port2, 50, 0)",
+      "notes": "Schematic symbol positions can be set (SetSchematicLocation, RotateSchematicSymbol); app.Views:ShowCableSchematic() opens the schematic view.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/cableport.htm"
+    },
+    {
+      "name": "Optimisation API: searches and parameters (Optimisation.Searches:Add, MethodType, ConvergenceAccuracy, Parameters.Variables:Add, Parameters.Constraints:Add, Masks)",
+      "kind": "api",
+      "description": "project.Optimisation holds Searches and Masks. A search has MethodType, ConvergenceAccuracy (OptimisationConvergenceAccuracyEnum), NumberOfPoints (grid), Advanced settings (max solver runs, random seed), SearchActive/SetActive, Parameters (Variables with Variable/MinimumValue/MaximumValue/start value and Constraints relating two variables) and Goals; masks define target curves for goals (OptimisationTargetValueTypeEnum.MaskValue).",
+      "usage": "s = project.Optimisation.Searches:Add(cf.Enums.OptimisationMethodTypeEnum.GeneticAlgorithm); s.Parameters.Variables:Add(project.Variables:Item(\"len\"), 0.4, 0.5); s.Parameters.Constraints:Add(varA, cf.Enums.OptimisationConstraintRelationEnum.<relation>, varB); s:SetActive(); mask = project.Optimisation.Masks:Add(...)",
+      "parameters": [],
+      "example": "s = project.Optimisation.Searches:Add(cf.Enums.OptimisationMethodTypeEnum.ParticleSwarmOptimisation)\nv = s.Parameters.Variables:Add(project.Variables:Item(\"len\"), 0.40, 0.50)\nw = s.Parameters.Variables:Add(project.Variables:Item(\"gap\"), 0.001, 0.005)",
+      "notes": "Only the active search is written to the .opt/.pfg files; run with optfeko model or project.Launcher:RunOPTFEKO().",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/optimisationsearch.htm"
+    },
+    {
+      "name": "Optimisation API: goals (AddImpedanceGoal, AddFarFieldGoal, AddNearFieldGoal, AddPowerGoal, AddSParameterGoal, AddSARGoal, AddReceivingAntennaGoal, AddTransmissionReflectionGoal, AddCombinedGoal)",
+      "kind": "api",
+      "description": "Goals are added from a properties table (start from cf.<Type>OptimisationGoal.GetDefaultProperties()): FocusSource (the request or source object, or FocusSourceLabel for labels from .pre files), FocusType (per-type focus enum: impedance ReflectionCoefficient/VSWR/InputImpedance..., far field Gain/Directivity/RCS/RadiatedPower..., S-parameter Coupling/Reflect/Transmission...), Operator (OptimisationGoalOperatorEnum), target value or mask, Weight and processing steps; AddCombinedGoal(properties, {goals}) builds a weighted combination.",
+      "usage": "props = cf.ImpedanceOptimisationGoal.GetDefaultProperties(); props.FocusSource = src; props.FocusType = cf.Enums.OptimisationImpedanceFocusTypeEnum.ReflectionCoefficient; props.Operator = cf.Enums.OptimisationGoalOperatorEnum.LessThan; goal = s.Goals:AddImpedanceGoal(props); ff = cf.FarFieldOptimisationGoal.GetDefaultProperties(); ff.FocusSource = farFieldRequest; ff.FocusType = cf.Enums.OptimisationFarFieldFocusTypeEnum.Gain; s.Goals:AddFarFieldGoal(ff); s.Goals:AddCombinedGoal(cprops, {goal1, goal2})",
+      "parameters": [],
+      "example": "props = cf.FarFieldOptimisationGoal.GetDefaultProperties()\ninspect(props)  -- shows Target/Weight/ProcessingSteps keys of the installed version\nprops.FocusSource = cfg.FarFields[1]\nprops.FocusType = cf.Enums.OptimisationFarFieldFocusTypeEnum.Gain\nprops.Operator = cf.Enums.OptimisationGoalOperatorEnum.Maximise\ngoal = s.Goals:AddFarFieldGoal(props)",
+      "notes": "For S-parameter goals the legacy wrapper maps a Quantity key to FocusType; goal target keys differ per version, so inspect the default table.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/optimisationgoalcollection.htm"
+    },
+    {
+      "name": "Launcher settings (Launcher.Settings.FEKO.Parallel/GPU/Remote/ProcessPriority/Advanced, PREFEKO, OPTFEKO) and LaunchResult",
+      "kind": "api",
+      "description": "project.Launcher.Settings (ComponentLaunchOptions) mirrors the Component launch options dialog: FEKO.Parallel (Enabled, ProcessCount, NumberOfProcessesEnabled, AuthenticationMethod, DiagnosticTests), FEKO.GPU (NVIDIAEnabled, Count, List), FEKO.Remote (RemoteExecutionMethodEnum: SSH_RSH, MPI, PowerShell; host), FEKO.ProcessPriority (ProcessPriorityTypeEnum), FEKO.OnlyCheckGeometryEnabled, FEKO.Advanced (extra command-line text), PREFEKO.ErrorsIgnored/ExportVariables, OPTFEKO.FilesDeleted/RestartRunEnabled/RestartFromRunNumber/FarmOutEnabled/ProcessFarmOutCount; RestoreDefaultSettings() resets them. Every Run* call returns a LaunchResult with Succeeded, ExitCode, Output and Errors.",
+      "usage": "st = project.Launcher.Settings; st.FEKO.Parallel.Enabled = true; st.FEKO.Parallel.ProcessCount = 8; st.FEKO.GPU.NVIDIAEnabled = true; st.FEKO.ProcessPriority = cf.Enums.ProcessPriorityTypeEnum.Low; st.FEKO.Advanced = \"--priority 1\"; st.OPTFEKO.FilesDeleted = true; res = project.Launcher:RunFEKO(); print(res.ExitCode, res.Errors)",
+      "parameters": [],
+      "example": "st = project.Launcher.Settings\nst.FEKO.Parallel.Enabled = true\nst.FEKO.Parallel.ProcessCount = 4\nres = project.Launcher:RunFEKO()\nprint(res.Succeeded)",
+      "notes": "Launch settings are saved with the model (they appear in the .cfx) and used by the GUI's Run buttons as well.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/fekoparallelexecutionoptions.htm"
+    },
+    {
+      "name": "Launcher methods (RunFEKO, RunPREFEKO, RunOPTFEKO, RunPOSTFEKO, RunCADFEKO, RunEDITFEKO, GetCommandRun*, cf.Launcher.Run)",
+      "kind": "api",
+      "description": "project.Launcher runs the Feko components on the saved model and blocks until they finish (RunFEKO/RunPREFEKO/RunOPTFEKO return a LaunchResult; RunPOSTFEKO/RunCADFEKO/RunEDITFEKO open the GUIs), GetCommandRunFEKO() etc. return the exact command line that would be executed, and cf.Launcher.Run(command) or Run(executable, {args}) launches any external program and captures its output (blocking).",
+      "usage": "res = project.Launcher:RunFEKO(); cmd = project.Launcher:GetCommandRunFEKO(); project.Launcher:RunPREFEKO(); project.Launcher:RunOPTFEKO(); project.Launcher:RunPOSTFEKO(); r = cf.Launcher.Run(\"python\", {\"post.py\", \"model.out\"})",
+      "parameters": [],
+      "example": "print(project.Launcher:GetCommandRunFEKO())  -- e.g. runfeko \"D:/work/dipole.cfx\" -np 4\nres = project.Launcher:RunFEKO()\nif res.Succeeded then cf.Launcher.Run(\"postfeko\", {\"--non-interactive\", \"--run-script\", \"extract.lua\"}) end",
+      "notes": "Save the model first (app:SaveAs); the new-format API adds RunAMRFEKO and the *AndContinue non-blocking variants on application.Launcher.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/launcher.htm"
+    },
+    {
+      "name": "Model validation and solver input (CEMValidator:Validate, WriteSolverInputFiles, ModelAttributes)",
+      "kind": "api",
+      "description": "project.CEMValidator:Validate() meshes the model and runs the CADFEKO validation (mesh currency, ports, media, solver support), project:WriteSolverInputFiles() writes the .pre/.cfm solver input without launching the solver (equivalent to a save that updates the .pre), and project.ModelAttributes holds the unit settings.",
+      "usage": "ok = project.CEMValidator:Validate(); project:WriteSolverInputFiles(); project.ModelAttributes.Unit",
+      "parameters": [],
+      "example": "if project.CEMValidator:Validate() then project.Launcher:RunFEKO() end",
+      "notes": "Validation messages are also printed in the message window (app.MessageWindow) and the model status panel.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/valdiate_model_feko_t-cadfeko.htm"
+    },
+    {
+      "name": "Custom dialogs (Forms) in CADFEKO and POSTFEKO scripts",
+      "kind": "api",
+      "description": "Scripts can show dialogs built from form items (FormLineEdit, FormCheckBox, FormComboBox, FormDoubleSpinBox, FormIntegerSpinBox, FormRadioButtonGroup, FormFileBrowser, FormDirectoryBrowser, FormLabel, FormImage, FormGroupBox, FormTree, FormProgressDialog, FormPushButton; POSTFEKO adds FormModelSelector, FormConfigurationSelector and FormDataSelector) so application macros can ask for parameters interactively; in --non-interactive runs use --configure-script or hard-coded values instead.",
+      "usage": "form = cf.Form.New(\"Dipole parameters\") (pf.Form in POSTFEKO); edit = cf.FormLineEdit.New(\"Length\", \"0.47\"); form:Add(edit); if form:Run() then value = edit.Value end",
+      "parameters": [],
+      "example": "form = cf.Form.New(\"Array\")\nnx = cf.FormIntegerSpinBox.New(\"Elements in X\", 4)\nform:Add(nx)\nif form:Run() then print(nx.Value) end",
+      "notes": "Constructor names follow the pattern cf.Form<Item>.New; consult the Custom Dialogs (Forms) section and the shipped application macros for full examples.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/scripting/forms_feko_c.htm"
+    }
+  ]
+}

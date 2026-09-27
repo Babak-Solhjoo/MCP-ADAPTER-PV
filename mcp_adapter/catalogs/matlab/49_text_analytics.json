@@ -1,0 +1,611 @@
+{
+  "category": "Text Analytics Toolbox > Text Preparation, Bag-of-Words, Topic Models, Embeddings & Transformers",
+  "description": "Functions of Text Analytics Toolbox for importing and tokenizing text, cleaning and normalizing documents, counting words and n-grams, topic modeling, sentiment and keyword extraction, word embeddings, BERT transformers and document similarity.",
+  "tools": [
+    {
+      "name": "tokenizedDocument",
+      "kind": "function",
+      "description": "Creates an array of tokenized documents from text, splitting it into words, punctuation and detected patterns such as URLs, emails, hashtags and emoticons. It is the central data type for almost every Text Analytics Toolbox preprocessing and modeling function.",
+      "usage": "documents = tokenizedDocument(str)\ndocuments = tokenizedDocument(str, Name=Value)",
+      "parameters": [
+        {"name": "str", "description": "String array, character vector or cell array of text; each element becomes one document."},
+        {"name": "DetectPatterns", "description": "Patterns to keep as single tokens: \"all\" or any of \"email-address\", \"web-address\", \"hashtag\", \"at-mention\", \"emoticon\", \"emoji\", \"digits\"."},
+        {"name": "CustomTokens / RegularExpressions", "description": "Extra tokens or regex patterns that must not be split."},
+        {"name": "Language", "description": "\"en\", \"ja\", \"de\", \"ko\" or \"zh\" (auto-detected by default)."},
+        {"name": "TokenizeMethod", "description": "\"unicode\", \"mecab\" (Japanese/Korean) or \"none\" when str is already tokenized."}
+      ],
+      "example": "str = [\"An example of a short sentence.\"; \"A second short sentence, with #tags!\"];\ndocuments = tokenizedDocument(str)\ndocuments(1).Vocabulary",
+      "notes": "Most string functions (lower, contains, replace, regexprep) have tokenizedDocument overloads. Use string(documents) or joinWords to convert back to text.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.html"
+    },
+    {
+      "name": "extractFileText",
+      "kind": "function",
+      "description": "Reads the text content of plain-text, PDF, Microsoft Word (.docx) and HTML files or web pages into a string. It is the usual entry point for building a corpus from a folder of documents.",
+      "usage": "str = extractFileText(filename)\nstr = extractFileText(filename, Name=Value)",
+      "parameters": [
+        {"name": "filename", "description": "Path or URL of a .txt, .pdf, .docx, .htm/.html file."},
+        {"name": "Pages", "description": "Page numbers to read from a PDF."},
+        {"name": "Password", "description": "Password for protected PDFs."},
+        {"name": "Encoding", "description": "Character encoding for text files."},
+        {"name": "ExtractionMethod", "description": "For HTML: \"tree\" (default), \"article\" or \"all-text\"."}
+      ],
+      "example": "files = dir(\"reports/*.pdf\");\nstr = strings(numel(files),1);\nfor k = 1:numel(files)\n    str(k) = extractFileText(fullfile(files(k).folder, files(k).name));\nend\ndocuments = tokenizedDocument(str);",
+      "notes": "Scanned PDFs contain no text layer; use ocr (Computer Vision Toolbox) instead. Use readPDFFormData for PDF form fields and fileDatastore with ReadFcn=@extractFileText for large collections.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/extractfiletext.html"
+    },
+    {
+      "name": "extractHTMLText",
+      "kind": "function",
+      "description": "Extracts readable text from HTML code or a parsed htmlTree, dropping markup, scripts and styles. The article mode tries to keep only the main content of a web page.",
+      "usage": "str = extractHTMLText(code)\nstr = extractHTMLText(tree)\nstr = extractHTMLText(___, ExtractionMethod=method)",
+      "parameters": [
+        {"name": "code / tree", "description": "HTML as a string, or an htmlTree object."},
+        {"name": "ExtractionMethod", "description": "\"tree\" (default, paragraphs of the whole tree), \"article\" (main article body) or \"all-text\" (all text, including non-visible)."}
+      ],
+      "example": "code = webread(\"https://www.mathworks.com/help/textanalytics/index.html\");\nstr = extractHTMLText(code, ExtractionMethod=\"article\");\ndocuments = tokenizedDocument(str);",
+      "notes": "Use htmlTree + findElement to extract specific elements (tables, links) before extracting text. eraseTags removes tags from text that is not full HTML.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/htmltree.extracthtmltext.html"
+    },
+    {
+      "name": "htmlTree",
+      "kind": "function",
+      "description": "Parses HTML code into a tree object that can be queried with CSS selectors via findElement, and whose attributes and text can be read with getAttribute and extractHTMLText. Useful for web scraping specific elements of a page.",
+      "usage": "tree = htmlTree(code)\nsubtrees = findElement(tree, selector)\nattr = getAttribute(tree, name)",
+      "parameters": [
+        {"name": "code", "description": "HTML code as string or character vector."},
+        {"name": "selector", "description": "CSS selector for findElement, e.g. \"a\", \"div.content p\", \"table#results td\"."}
+      ],
+      "example": "code = webread(\"https://www.mathworks.com/help/textanalytics/index.html\");\ntree = htmlTree(code);\nlinks = findElement(tree, \"a\");\nhrefs = getAttribute(links, \"href\");\nhrefs = hrefs(~ismissing(hrefs));",
+      "notes": "Missing attributes are returned as missing strings; filter them with ismissing. The root of a subtree can be converted back to HTML with string(tree).",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/htmltree.html"
+    },
+    {
+      "name": "erasePunctuation",
+      "kind": "function",
+      "description": "Removes punctuation characters and symbols from text or tokenized documents. It is a standard cleaning step before building bag-of-words models.",
+      "usage": "newStr = erasePunctuation(str)\nnewDocuments = erasePunctuation(documents)\nnewDocuments = erasePunctuation(documents, TokenTypes=types)",
+      "parameters": [
+        {"name": "str / documents", "description": "Text or tokenizedDocument array."},
+        {"name": "TokenTypes", "description": "Token types to process, e.g. \"all\" or {'letters','other'}; by default detected patterns such as emails and URLs are left intact."}
+      ],
+      "example": "documents = tokenizedDocument(\"Hello, world!!! Visit https://example.com :)\");\ndocuments = erasePunctuation(documents)",
+      "notes": "Run it after tokenizing so that detected web addresses, emoticons and hashtags survive. Removing punctuation before splitSentences destroys sentence boundaries.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.erasepunctuation.html"
+    },
+    {
+      "name": "eraseURLs",
+      "kind": "function",
+      "description": "Removes HTTP and HTTPS web addresses from text or documents. Use it when cleaning social media, email or web-scraped text where links carry no useful words.",
+      "usage": "newStr = eraseURLs(str)\nnewDocuments = eraseURLs(documents)",
+      "parameters": [
+        {"name": "str / documents", "description": "Input text or tokenized documents."}
+      ],
+      "example": "str = \"Read the docs at https://www.mathworks.com/help and http://example.org now\";\nnewStr = eraseURLs(str)",
+      "notes": "Related cleaning functions: eraseTags (HTML/XML tags), decodeHTMLEntities (&amp; etc.), erasePunctuation.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/eraseurls.html"
+    },
+    {
+      "name": "removeStopWords",
+      "kind": "function",
+      "description": "Removes common function words such as \"a\", \"the\" and \"in\" from tokenized documents using a built-in language-specific stop list. Removing stop words reduces vocabulary size and emphasizes content words for counting-based models.",
+      "usage": "newDocuments = removeStopWords(documents)\nnewDocuments = removeStopWords(documents, IgnoreCase=tf)",
+      "parameters": [
+        {"name": "documents", "description": "tokenizedDocument array."},
+        {"name": "IgnoreCase", "description": "true (default) to match stop words regardless of case."}
+      ],
+      "example": "documents = tokenizedDocument(\"This is an example of a document about the weather.\");\ndocuments = removeStopWords(documents)",
+      "notes": "Do not remove stop words before addPartOfSpeechDetails, sentiment analysis (negations like \"not\") or transformer models. Use removeWords(documents, stopWords) for a custom list.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.removestopwords.html"
+    },
+    {
+      "name": "stopWords",
+      "kind": "function",
+      "description": "Returns the built-in list of stop words for a language as a string array. Use it to inspect, extend or prune the list before calling removeWords.",
+      "usage": "words = stopWords\nwords = stopWords(Language=language)",
+      "parameters": [
+        {"name": "Language", "description": "\"en\" (default), \"ja\", \"de\", \"ko\" or \"zh\"."}
+      ],
+      "example": "sw = stopWords;\nsw = setdiff(sw, [\"not\" \"no\"]);          % keep negations\nsw = [sw \"figure\" \"table\"];               % add domain words\ndocuments = removeWords(documents, sw);",
+      "notes": "removeWords also accepts a bagOfWords model to remove words from the vocabulary.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/stopwords.html"
+    },
+    {
+      "name": "removeShortWords",
+      "kind": "function",
+      "description": "Removes words with a given number of characters or fewer from documents or a bag-of-words model. Often used to drop stray letters and abbreviations left after punctuation removal.",
+      "usage": "newDocuments = removeShortWords(documents, len)\nnewBag = removeShortWords(bag, len)",
+      "parameters": [
+        {"name": "len", "description": "Maximum length of words to remove (words with length <= len are removed)."}
+      ],
+      "example": "documents = tokenizedDocument(\"An example of a short sentence with x y z tokens\");\ndocuments = removeShortWords(documents, 2)",
+      "notes": "removeLongWords removes words with length >= len, useful for stripping hashes, IDs or corrupted tokens.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.removeshortwords.html"
+    },
+    {
+      "name": "normalizeWords",
+      "kind": "function",
+      "description": "Reduces words to a root form by Porter stemming (default) or dictionary lemmatization, so that variants like \"walking\", \"walked\" and \"walks\" count as one term. Works on tokenized documents or string arrays of words.",
+      "usage": "newDocuments = normalizeWords(documents)\nnewWords = normalizeWords(words)\nnewDocuments = normalizeWords(___, Style=style)",
+      "parameters": [
+        {"name": "Style", "description": "\"stem\" (Porter stemmer, default) or \"lemma\" (dictionary lemma, English)."},
+        {"name": "Language", "description": "Language of the words (stemming supports English; other languages vary)."}
+      ],
+      "example": "documents = tokenizedDocument(\"The cats were running and jumping over the fences\");\ndocuments = addPartOfSpeechDetails(documents);\ndocuments = normalizeWords(documents, Style=\"lemma\")",
+      "notes": "Stems are not always real words (\"studi\"). For lemmatization, call addPartOfSpeechDetails first for better accuracy.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/normalizewords.html"
+    },
+    {
+      "name": "replaceWords",
+      "kind": "function",
+      "description": "Replaces whole words in tokenized documents, for example to merge synonyms, expand abbreviations or map spelling variants to a canonical form.",
+      "usage": "newDocuments = replaceWords(documents, oldWords, newWord)\nnewDocuments = replaceWords(documents, oldWords, newWords)\nnewDocuments = replaceWords(___, IgnoreCase=tf)",
+      "parameters": [
+        {"name": "oldWords", "description": "Word or string array of words to replace."},
+        {"name": "newWord / newWords", "description": "Replacement word(s), scalar or same size as oldWords."},
+        {"name": "IgnoreCase", "description": "Match case-insensitively (default false)."}
+      ],
+      "example": "documents = tokenizedDocument(\"The colour of the car is grey\");\ndocuments = replaceWords(documents, [\"colour\" \"grey\"], [\"color\" \"gray\"])",
+      "notes": "replaceNgrams replaces multi-word sequences; replace works on substrings rather than whole tokens.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/replacewords.html"
+    },
+    {
+      "name": "splitSentences",
+      "kind": "function",
+      "description": "Splits text or tokenized documents into sentences, handling abbreviations and punctuation rules. Use it to create sentence-level documents for summarization, sentiment or embedding analyses.",
+      "usage": "newStr = splitSentences(str)\nnewDocuments = splitSentences(documents)",
+      "parameters": [
+        {"name": "str / documents", "description": "Scalar text or tokenizedDocument scalar."}
+      ],
+      "example": "str = \"Dr. Smith arrived at 5 p.m. The meeting started late. It ended at 7.\";\nsentences = splitSentences(str)\ndocuments = tokenizedDocument(sentences);",
+      "notes": "Use addSentenceDetails to label sentence numbers without splitting, and splitParagraphs for paragraph-level splitting. Customize with the abbreviations table.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.splitsentences.html"
+    },
+    {
+      "name": "addPartOfSpeechDetails",
+      "kind": "function",
+      "description": "Tags each token with its part of speech (noun, verb, adjective, proper noun, ...). The tags are shown by tokenDetails and are used by lemmatization, keyword extraction and custom filtering.",
+      "usage": "updatedDocuments = addPartOfSpeechDetails(documents)\nupdatedDocuments = addPartOfSpeechDetails(documents, Name=Value)",
+      "parameters": [
+        {"name": "RetokenizeMethod", "description": "\"part-of-speech\" (default, retokenize e.g. contractions) or \"none\"."},
+        {"name": "Abbreviations", "description": "Table of abbreviations for sentence detection."},
+        {"name": "DiscardKnownValues", "description": "Recompute tags even if already present."}
+      ],
+      "example": "documents = tokenizedDocument(\"MATLAB makes text analytics easy.\");\ndocuments = addPartOfSpeechDetails(documents);\ntdetails = tokenDetails(documents);\nnouns = tdetails.Token(tdetails.PartOfSpeech == \"noun\")",
+      "notes": "Run on raw documents (before stop-word and punctuation removal) for best accuracy. Supports English, Japanese, German and Korean.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.addpartofspeechdetails.html"
+    },
+    {
+      "name": "addEntityDetails",
+      "kind": "function",
+      "description": "Performs named entity recognition, labeling tokens as person, location, organization, other or non-entity. Read the labels with tokenDetails to extract names, places and companies from text.",
+      "usage": "updatedDocuments = addEntityDetails(documents)\nupdatedDocuments = addEntityDetails(documents, Name=Value)",
+      "parameters": [
+        {"name": "RetokenizeMethod", "description": "\"entity\" (default, merge multi-word entities) or \"none\"."},
+        {"name": "DiscardKnownValues", "description": "Recompute entities that are already set."}
+      ],
+      "example": "documents = tokenizedDocument(\"Mary flew from Boston to Paris to meet MathWorks staff.\");\ndocuments = addEntityDetails(documents);\ntd = tokenDetails(documents);\ntd(td.Entity ~= \"non-entity\", [\"Token\" \"Entity\"])",
+      "notes": "For custom entity types train an hmmEntityModel with trainHMMEntityModel. Supports English, Japanese, German and Korean.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.addentitydetails.html"
+    },
+    {
+      "name": "tokenDetails",
+      "kind": "function",
+      "description": "Returns a table with one row per token of a tokenized document array: the token text, document and line numbers, token type (letters, digits, punctuation, email-address, ...) and language, plus any sentence, part-of-speech, lemma, entity or dependency details that were added.",
+      "usage": "tdetails = tokenDetails(documents)",
+      "parameters": [
+        {"name": "documents", "description": "tokenizedDocument array."}
+      ],
+      "example": "documents = tokenizedDocument(\"Email me at a@b.com or call 555-1234!\");\ntdetails = tokenDetails(documents)\ntdetails(tdetails.Type == \"email-address\", :)",
+      "notes": "Add columns with addSentenceDetails, addPartOfSpeechDetails, addLemmaDetails, addEntityDetails, addDependencyDetails or addTypeDetails.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.tokendetails.html"
+    },
+    {
+      "name": "context",
+      "kind": "function",
+      "description": "Searches documents for occurrences of a word or n-gram and returns them with surrounding text (keyword-in-context concordance), along with the document and word indices.",
+      "usage": "tbl = context(documents, word)\ntbl = context(documents, ngram)\ntbl = context(___, numChars)",
+      "parameters": [
+        {"name": "word / ngram", "description": "Word, or string array of consecutive words."},
+        {"name": "numChars", "description": "Number of characters of context on each side (default 20)."}
+      ],
+      "example": "data = readtable(\"factoryReports.csv\", TextType=\"string\");\ndocuments = tokenizedDocument(data.Description);\ntbl = context(documents, \"leak\", 30);\nhead(tbl)",
+      "notes": "Case-sensitive; lowercase documents first to catch all variants.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.context.html"
+    },
+    {
+      "name": "correctSpelling",
+      "kind": "function",
+      "description": "Corrects misspelled words in tokenized documents using a Hunspell-style dictionary and edit distance. Domain vocabulary can be protected with a list of known words.",
+      "usage": "updatedDocuments = correctSpelling(documents)\nupdatedDocuments = correctSpelling(documents, Name=Value)",
+      "parameters": [
+        {"name": "KnownWords", "description": "Additional words (jargon, product names) to treat as correctly spelled."},
+        {"name": "MaxEditDistance", "description": "Maximum edit distance for candidate corrections."},
+        {"name": "IgnoreCase", "description": "Ignore case when matching."}
+      ],
+      "example": "documents = tokenizedDocument(\"This documnet has sevral spelling erors in MATLAB.\");\ndocuments = correctSpelling(documents, KnownWords=\"MATLAB\")",
+      "notes": "English only. Consider adding domain terms to KnownWords to avoid unwanted replacements. editDistanceSearcher offers custom nearest-word search.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/correctspelling.html"
+    },
+    {
+      "name": "editDistance",
+      "kind": "function",
+      "description": "Computes the Levenshtein (or Damerau-Levenshtein, with swaps) edit distance between two strings or two tokenized documents, with configurable insertion, deletion, substitution and swap costs.",
+      "usage": "d = editDistance(str1, str2)\nd = editDistance(document1, document2)\nd = editDistance(___, Name=Value)",
+      "parameters": [
+        {"name": "InsertCost / DeleteCost / SubstituteCost", "description": "Costs of each operation (default 1)."},
+        {"name": "SwapCost", "description": "Cost of transposing adjacent elements (default Inf, i.e. plain Levenshtein)."}
+      ],
+      "example": "d = editDistance(\"MATLAB\", \"MATLAP\")          % 1\nd2 = editDistance(\"form\", \"from\", SwapCost=1)   % 1 with transpositions",
+      "notes": "For documents the distance is computed over tokens, not characters. Use editDistanceSearcher with knnsearch/rangesearch to find nearest vocabulary words.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/editdistance.html"
+    },
+    {
+      "name": "bagOfWords",
+      "kind": "function",
+      "description": "Creates a bag-of-words model that records the word counts of each document in a sparse Counts matrix together with the Vocabulary. It is the input for topic models, tf-idf weighting, word clouds and classic machine learning classifiers.",
+      "usage": "bag = bagOfWords(documents)\nbag = bagOfWords(uniqueWords, counts)",
+      "parameters": [
+        {"name": "documents", "description": "tokenizedDocument array."},
+        {"name": "uniqueWords, counts", "description": "Vocabulary and a documents-by-words count matrix to build a bag directly."}
+      ],
+      "example": "documents = tokenizedDocument([\"an example of a short sentence\" \"a second short sentence\"]);\nbag = bagOfWords(documents)\nfull(bag.Counts)\nbag.Vocabulary",
+      "notes": "Properties: Counts (sparse NumDocuments-by-NumWords), Vocabulary, NumWords, NumDocuments. Use addDocument/removeDocument to update and bagOfNgrams for multi-word features.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bagofwords.html"
+    },
+    {
+      "name": "bagOfNgrams",
+      "kind": "function",
+      "description": "Creates a bag-of-n-grams model that counts sequences of consecutive words (bigrams, trigrams, ...) per document. N-grams capture phrases such as \"heat exchanger\" that single words miss.",
+      "usage": "bag = bagOfNgrams(documents)\nbag = bagOfNgrams(documents, NgramLengths=lengths)",
+      "parameters": [
+        {"name": "NgramLengths", "description": "N-gram lengths to count, e.g. 2 (default) or [1 2 3]."}
+      ],
+      "example": "documents = tokenizedDocument(\"the heat exchanger failed and the heat exchanger leaked\");\nbag = bagOfNgrams(documents, NgramLengths=[2 3]);\ntopkngrams(bag, 3)",
+      "notes": "Properties Ngrams (string matrix) and Counts. Use removeInfrequentNgrams to prune rare n-grams.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bagofngrams.html"
+    },
+    {
+      "name": "removeInfrequentWords",
+      "kind": "function",
+      "description": "Removes words that appear at most a given total number of times from a bag-of-words model. Pruning rare words shrinks the feature space and reduces noise from typos.",
+      "usage": "newBag = removeInfrequentWords(bag, count)",
+      "parameters": [
+        {"name": "count", "description": "Words with total count <= count are removed."}
+      ],
+      "example": "bag = bagOfWords(documents);\nbag = removeInfrequentWords(bag, 2);\n[bag, idx] = removeEmptyDocuments(bag);",
+      "notes": "After pruning some documents may become empty; remove them with removeEmptyDocuments and keep idx to align labels.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bagofwords.removeinfrequentwords.html"
+    },
+    {
+      "name": "removeEmptyDocuments",
+      "kind": "function",
+      "description": "Removes documents with no tokens from a tokenized document array, bag-of-words or bag-of-n-grams model, and returns the indices of the removed documents so labels can be kept in sync.",
+      "usage": "newDocuments = removeEmptyDocuments(documents)\n[newBag, idx] = removeEmptyDocuments(bag)",
+      "parameters": [
+        {"name": "documents / bag", "description": "Tokenized documents or bag model."}
+      ],
+      "example": "[documents, idx] = removeEmptyDocuments(documents);\nlabels(idx) = [];",
+      "notes": "Empty documents cause errors or NaNs in fitlda, tfidf and embeddings.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/tokenizeddocument.removeemptydocuments.html"
+    },
+    {
+      "name": "topkwords",
+      "kind": "function",
+      "description": "Returns a table of the k most frequent words of a bag-of-words model, or the k highest-probability words of a topic in an LDA model. Used to summarize corpora and label topics.",
+      "usage": "tbl = topkwords(bag)\ntbl = topkwords(bag, k)\ntbl = topkwords(ldaMdl, k, topicIdx)\ntbl = topkwords(___, Name=Value)",
+      "parameters": [
+        {"name": "k", "description": "Number of words (default 10)."},
+        {"name": "topicIdx", "description": "Topic index for LDA models."},
+        {"name": "IgnoreCase", "description": "Merge case variants when counting."},
+        {"name": "Scores", "description": "For LDA: \"probabilities\" (default) or \"inverse-mean-scaled\"."}
+      ],
+      "example": "bag = bagOfWords(documents);\ntopkwords(bag, 5)\nmdl = fitlda(bag, 4, Verbose=0);\ntopkwords(mdl, 8, 2)",
+      "notes": "Returns a table with Word and Count (bag) or Score (LDA). topkngrams is the n-gram counterpart.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bagofwords.topkwords.html"
+    },
+    {
+      "name": "tfidf",
+      "kind": "function",
+      "description": "Computes the term frequency-inverse document frequency matrix from a bag-of-words model, weighting words that are frequent in a document but rare in the corpus. The result is a sparse feature matrix for classifiers, clustering or similarity search.",
+      "usage": "M = tfidf(bag)\nM = tfidf(bag, documents)\nM = tfidf(___, Name=Value)",
+      "parameters": [
+        {"name": "documents", "description": "New documents to weight using the bag's IDF (e.g. test set)."},
+        {"name": "TFWeight", "description": "\"raw\" (default), \"binary\" or \"log\"."},
+        {"name": "IDFWeight", "description": "\"normal\" (default), \"unary\", \"smooth\", \"max\" or \"probabilistic\"."},
+        {"name": "Normalized", "description": "Normalize rows to unit length (default false)."}
+      ],
+      "example": "bag = bagOfWords(trainDocs);\nXTrain = tfidf(bag);\nXTest  = tfidf(bag, testDocs);\nmdl = fitcecoc(XTrain, YTrain, Learners=\"linear\");\nYPred = predict(mdl, XTest);",
+      "notes": "Always compute test features with the training bag so columns align. Output is sparse; many Statistics and Machine Learning Toolbox linear learners accept sparse input.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bagofwords.tfidf.html"
+    },
+    {
+      "name": "encode",
+      "kind": "function",
+      "description": "Encodes documents (or individual words) as a sparse matrix of word or n-gram counts using the vocabulary of an existing bag-of-words or bag-of-n-grams model. Use it to featurize new documents consistently with a trained model.",
+      "usage": "counts = encode(bag, documents)\ncounts = encode(bag, words)\ncounts = encode(___, DocumentsIn=dir)",
+      "parameters": [
+        {"name": "bag", "description": "bagOfWords or bagOfNgrams model."},
+        {"name": "DocumentsIn", "description": "\"rows\" (default) or \"columns\"; orientation of the output matrix."}
+      ],
+      "example": "bag = bagOfWords(trainDocs);\nXNew = encode(bag, tokenizedDocument(\"pump leaking oil\"));",
+      "notes": "Words not in the bag vocabulary are ignored. Transformer tokenizers have their own encode method (bertTokenizer).",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bagofwords.encode.html"
+    },
+    {
+      "name": "fitlda",
+      "kind": "function",
+      "description": "Fits a latent Dirichlet allocation topic model to a bag-of-words model or count matrix, discovering a given number of topics as word distributions and each document's topic mixture.",
+      "usage": "mdl = fitlda(bag, numTopics)\nmdl = fitlda(counts, numTopics)\nmdl = fitlda(___, Name=Value)",
+      "parameters": [
+        {"name": "numTopics", "description": "Number of topics to learn."},
+        {"name": "Solver", "description": "\"cgs\" (collapsed Gibbs sampling, default), \"savb\", \"avb\" or \"cvb0\"."},
+        {"name": "TopicConcentration / WordConcentration", "description": "Dirichlet prior parameters."},
+        {"name": "Verbose", "description": "0 to suppress iteration output."}
+      ],
+      "example": "bag = bagOfWords(removeStopWords(documents));\nbag = removeInfrequentWords(bag, 2);\nrng(\"default\")\nmdl = fitlda(bag, 5, Verbose=0);\ntopicMix = transform(mdl, documents(1:3));\nwordcloud(mdl, 1);",
+      "notes": "Returns an ldaModel with TopicWordProbabilities, DocumentTopicProbabilities and CorpusTopicProbabilities. Use logp for perplexity-based selection of numTopics, predict/transform for new documents and resume to continue fitting.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/fitlda.html"
+    },
+    {
+      "name": "fitlsa",
+      "kind": "function",
+      "description": "Fits a latent semantic analysis model: a truncated SVD of the (weighted) document-term matrix that projects documents into a low-dimensional semantic space. Useful for dimensionality reduction and document similarity.",
+      "usage": "mdl = fitlsa(bag, numComponents)\nmdl = fitlsa(counts, numComponents)\nmdl = fitlsa(___, FeatureStrengthExponent=p)",
+      "parameters": [
+        {"name": "numComponents", "description": "Number of latent dimensions."},
+        {"name": "FeatureStrengthExponent", "description": "Exponent applied to singular values when computing document scores (default 2)."}
+      ],
+      "example": "bag = bagOfWords(documents);\nmdl = fitlsa(bag, 20);\nscores = transform(mdl, documents);\nS = cosineSimilarity(scores);",
+      "notes": "Returns an lsaModel with DocumentScores, WordScores, ComponentWeights and Vocabulary. Unlike LDA, components can have negative weights.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/fitlsa.html"
+    },
+    {
+      "name": "vaderSentimentScores",
+      "kind": "function",
+      "description": "Computes sentiment scores with the rule- and lexicon-based VADER algorithm, returning a compound score between -1 (most negative) and +1 (most positive) per document. It handles negations, intensifiers, capitalization and emoticons and suits short social-media text.",
+      "usage": "compoundScores = vaderSentimentScores(documents)\n[compoundScores, positiveScores, negativeScores, neutralScores] = vaderSentimentScores(documents, Name=Value)",
+      "parameters": [
+        {"name": "SentimentLexicon", "description": "Table with Token and SentimentScore columns to replace the default VADER lexicon."},
+        {"name": "Boosters / Dampeners / Negations", "description": "Custom intensifier, dampener and negation word lists."}
+      ],
+      "example": "documents = tokenizedDocument([\"The service was GREAT!!! :)\"; \"Not good, the pump failed again.\"]);\nscores = vaderSentimentScores(documents)",
+      "notes": "English only. Do not remove stop words or punctuation beforehand, because negations and exclamation marks carry sentiment.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/vadersentimentscores.html"
+    },
+    {
+      "name": "ratioSentimentScores",
+      "kind": "function",
+      "description": "Computes sentiment scores as the ratio of positive to negative word counts using a user-supplied sentiment lexicon. Use it for domain-specific sentiment where you define which words are positive or negative.",
+      "usage": "[compoundScores, positiveScores, negativeScores] = ratioSentimentScores(documents, sentimentWords)",
+      "parameters": [
+        {"name": "sentimentWords", "description": "Table with variables Token and SentimentScore (positive values for positive words, negative for negative words)."}
+      ],
+      "example": "words = [\"reliable\"; \"fast\"; \"broken\"; \"leak\"];\nscore = [1; 1; -1; -1];\nlex = table(words, score, VariableNames=[\"Token\" \"SentimentScore\"]);\ns = ratioSentimentScores(tokenizedDocument([\"fast and reliable\"; \"broken seal leak\"]), lex)",
+      "notes": "Build domain lexicons from seed words with word-embedding similarity. Documents without lexicon words get NaN scores.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/ratiosentimentscores.html"
+    },
+    {
+      "name": "bert",
+      "kind": "function",
+      "description": "Loads a pretrained BERT transformer as a dlnetwork together with its matching bertTokenizer. Use it for feature extraction, fine-tuning or as the backbone of a bertDocumentClassifier.",
+      "usage": "[net, tokenizer] = bert\n[net, tokenizer] = bert(Model=modelName)",
+      "parameters": [
+        {"name": "Model", "description": "\"base\" (default), \"tiny\", \"mini\", \"small\", \"large\" or \"multilingual\"."}
+      ],
+      "example": "[net, tokenizer] = bert(Model=\"tiny\");\n[tokenCodes, segments] = encode(tokenizer, \"MATLAB is great for text analytics.\");",
+      "notes": "Introduced R2023b. Requires the corresponding Text Analytics Toolbox Model for BERT support package (downloaded via Add-On Explorer on first use). Also requires Deep Learning Toolbox.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bert.html"
+    },
+    {
+      "name": "bertTokenizer",
+      "kind": "function",
+      "description": "WordPiece tokenizer used by BERT models. It converts text into token codes and segment indices (encode), splits text into subwords, and maps codes back to tokens (decode).",
+      "usage": "tokenizer = bertTokenizer(vocabulary)\n[tokenCodes, segments] = encode(tokenizer, str)\nwords = decode(tokenizer, tokenCodes)",
+      "parameters": [
+        {"name": "vocabulary", "description": "String array of WordPiece vocabulary (or obtain the tokenizer from bert)."},
+        {"name": "IgnoreCase", "description": "Lowercase text before tokenization (uncased models)."}
+      ],
+      "example": "[~, tok] = bert(Model=\"tiny\");\ncodes = encode(tok, [\"Hello world\"; \"Tokenize me please\"]);\nsubwordTokenize(tok, \"unbelievably\")\ndecode(tok, codes{1})",
+      "notes": "Introduced R2023b. bpeTokenizer provides byte-pair encoding for GPT-style models. Encoded sequences include [CLS] and [SEP] tokens.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/berttokenizer.html"
+    },
+    {
+      "name": "trainBERTDocumentClassifier",
+      "kind": "function",
+      "description": "Fine-tunes a BERT document classifier (bertDocumentClassifier) on labeled text. It handles tokenization and batching internally, so you only provide documents, labels and Deep Learning Toolbox training options.",
+      "usage": "mdlTrained = trainBERTDocumentClassifier(documents, targets, mdl, options)\nmdlTrained = trainBERTDocumentClassifier(tbl, mdl, options)",
+      "parameters": [
+        {"name": "documents", "description": "String array, cellstr or tokenizedDocument array of training text."},
+        {"name": "targets", "description": "Categorical labels."},
+        {"name": "mdl", "description": "bertDocumentClassifier(ClassNames=...) to fine-tune."},
+        {"name": "options", "description": "trainingOptions object (e.g. \"adam\")."}
+      ],
+      "example": "data = readtable(\"factoryReports.csv\", TextType=\"string\");\ndata.Category = categorical(data.Category);\nmdl = bertDocumentClassifier(ClassNames=categories(data.Category));\nopts = trainingOptions(\"adam\", MaxEpochs=4, InitialLearnRate=1e-4, MiniBatchSize=16);\nmdl = trainBERTDocumentClassifier(data.Description, data.Category, mdl, opts);\nYPred = classify(mdl, \"Coolant is pooling underneath sorter.\")",
+      "notes": "Introduced R2023b. A GPU is strongly recommended. Choose a smaller Model (\"tiny\", \"mini\") in bertDocumentClassifier for faster training.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/trainbertdocumentclassifier.html"
+    },
+    {
+      "name": "fastTextWordEmbedding",
+      "kind": "function",
+      "description": "Loads a pretrained 300-dimensional fastText English word embedding (about one million words trained on 16 billion tokens). Embeddings map words to dense vectors whose geometry reflects meaning.",
+      "usage": "emb = fastTextWordEmbedding",
+      "parameters": [],
+      "example": "emb = fastTextWordEmbedding;\nv = word2vec(emb, \"king\") - word2vec(emb, \"man\") + word2vec(emb, \"woman\");\nvec2word(emb, v)   % \"queen\"",
+      "notes": "Requires the Text Analytics Toolbox Model for fastText English 16 Billion Token Word Embedding support package. Use trainWordEmbedding for domain-specific corpora.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/fasttextwordembedding.html"
+    },
+    {
+      "name": "trainWordEmbedding",
+      "kind": "function",
+      "description": "Trains a word embedding (word2vec-style skip-gram or CBOW with subword n-grams) on a text file or tokenized documents. Use it when pretrained embeddings do not cover your domain vocabulary.",
+      "usage": "emb = trainWordEmbedding(filename)\nemb = trainWordEmbedding(documents)\nemb = trainWordEmbedding(___, Name=Value)",
+      "parameters": [
+        {"name": "Dimension", "description": "Embedding dimension (default 100)."},
+        {"name": "Window", "description": "Context window size (default 5)."},
+        {"name": "Model", "description": "\"skipgram\" (default) or \"cbow\"."},
+        {"name": "NumEpochs / MinCount", "description": "Training passes and minimum word frequency."}
+      ],
+      "example": "documents = tokenizedDocument(lower(extractFileText(\"sonnets.txt\")));\nemb = trainWordEmbedding(documents, Dimension=50, NumEpochs=10, Verbose=0);\nvec2word(emb, word2vec(emb, \"love\"), 5)",
+      "notes": "Save and reload embeddings with writeWordEmbedding/readWordEmbedding (word2vec text format).",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/trainwordembedding.html"
+    },
+    {
+      "name": "word2vec",
+      "kind": "function",
+      "description": "Maps words to their embedding vectors using a wordEmbedding model. Out-of-vocabulary words return NaN rows. Combine with vec2word for nearest-word lookups and analogy arithmetic.",
+      "usage": "M = word2vec(emb, words)\nwords = vec2word(emb, M)\nwords = vec2word(emb, M, k)",
+      "parameters": [
+        {"name": "emb", "description": "wordEmbedding object (fastTextWordEmbedding, trainWordEmbedding, readWordEmbedding)."},
+        {"name": "words", "description": "String array of words; M has one row per word."},
+        {"name": "k", "description": "Number of nearest words for vec2word."}
+      ],
+      "example": "emb = fastTextWordEmbedding;\nM = word2vec(emb, [\"pump\" \"valve\" \"motor\"]);\nXY = tsne(M(~any(isnan(M),2),:), Perplexity=2);",
+      "notes": "Check isVocabularyWord(emb, words) before lookup. Average word vectors or use documentEmbedding to get document-level features.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/wordembedding.word2vec.html"
+    },
+    {
+      "name": "wordEncoding",
+      "kind": "function",
+      "description": "Creates a word encoding model that maps each vocabulary word to an integer index and back. It is used with doc2sequence and wordEmbeddingLayer to feed text into deep learning sequence networks.",
+      "usage": "enc = wordEncoding(documents)\nenc = wordEncoding(documents, Name=Value)\nenc = wordEncoding(words)",
+      "parameters": [
+        {"name": "MaxNumWords", "description": "Keep only the most frequent words."},
+        {"name": "Order", "description": "\"frequency\" (default) or \"first-occurrence\" index ordering."}
+      ],
+      "example": "enc = wordEncoding(trainDocs, MaxNumWords=5000);\nidx = word2ind(enc, \"pump\")\nind2word(enc, 1)\nenc.NumWords",
+      "notes": "Build the encoding on training data only. Unknown words are handled by doc2sequence (UnknownWord) or the layer's OOVMode.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/wordencoding.html"
+    },
+    {
+      "name": "doc2sequence",
+      "kind": "function",
+      "description": "Converts tokenized documents into numeric sequences for deep learning: word indices when given a wordEncoding, or embedding-vector sequences when given a wordEmbedding. Sequences can be padded or truncated to a fixed length.",
+      "usage": "sequences = doc2sequence(enc, documents)\nsequences = doc2sequence(emb, documents)\nsequences = doc2sequence(___, Name=Value)",
+      "parameters": [
+        {"name": "Length", "description": "\"longest\" (default), \"shortest\" or a positive integer."},
+        {"name": "PaddingDirection", "description": "\"left\" (default), \"right\" or \"none\"."},
+        {"name": "PaddingValue", "description": "Padding value (default 0)."},
+        {"name": "UnknownWord", "description": "\"discard\" (default) or \"nan\"."}
+      ],
+      "example": "enc = wordEncoding(trainDocs);\nXTrain = doc2sequence(enc, trainDocs, Length=75);\nlayers = [sequenceInputLayer(1)\n    wordEmbeddingLayer(50, enc.NumWords)\n    lstmLayer(80, OutputMode=\"last\")\n    fullyConnectedLayer(numClasses)\n    softmaxLayer];",
+      "notes": "Output is a cell array: 1-by-L index rows for encodings, D-by-L matrices for embeddings. Left padding is best for LSTMs with OutputMode=\"last\".",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/doc2sequence.html"
+    },
+    {
+      "name": "wordEmbeddingLayer",
+      "kind": "function",
+      "description": "Deep learning layer that maps word indices to learnable dense vectors. It is the first layer after sequenceInputLayer in LSTM/GRU/CNN text classifiers and can be initialized from pretrained embedding weights.",
+      "usage": "layer = wordEmbeddingLayer(dimension, numWords)\nlayer = wordEmbeddingLayer(___, Name=Value)",
+      "parameters": [
+        {"name": "dimension", "description": "Embedding vector length."},
+        {"name": "numWords", "description": "Vocabulary size (typically enc.NumWords)."},
+        {"name": "Weights", "description": "Initial dimension-by-(numWords+1) weight matrix, e.g. from word2vec of a pretrained embedding."},
+        {"name": "OOVMode", "description": "\"map-to-last\" (default) or \"error\" for out-of-vocabulary indices."}
+      ],
+      "example": "enc = wordEncoding(trainDocs);\nemb = fastTextWordEmbedding;\nW = word2vec(emb, enc.Vocabulary)';\nW(isnan(W)) = 0;\nlayer = wordEmbeddingLayer(300, enc.NumWords, Weights=[W zeros(300,1)]);",
+      "notes": "Set WeightLearnRateFactor=0 to freeze pretrained vectors. Requires Deep Learning Toolbox.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/nnet.cnn.layer.wordembeddinglayer.html"
+    },
+    {
+      "name": "extractSummary",
+      "kind": "function",
+      "description": "Produces an extractive summary by scoring documents (typically sentences) with TextRank, LexRank or maximal marginal relevance and returning the most important ones.",
+      "usage": "summary = extractSummary(documents)\n[summary, scores] = extractSummary(documents, Name=Value)",
+      "parameters": [
+        {"name": "ScoringMethod", "description": "\"textrank\" (default), \"lexrank\" or \"mmr\"."},
+        {"name": "SummarySize", "description": "Fraction in (0,1) of documents (default 0.1), an integer count, or Inf."},
+        {"name": "OrderBy", "description": "\"score\" (default) or \"position\" (original order)."},
+        {"name": "Query", "description": "Query documents for MMR relevance."}
+      ],
+      "example": "str = extractFileText(\"report.txt\");\nsentences = tokenizedDocument(splitSentences(str));\nsummary = extractSummary(sentences, SummarySize=3, OrderBy=\"position\");\njoinWords(summary)",
+      "notes": "Introduced R2020a. Split text into sentences first; the function selects existing documents, it does not generate new text. textrankScores, lexrankScores and mmrScores expose the raw scores.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/extractsummary.html"
+    },
+    {
+      "name": "rakeKeywords",
+      "kind": "function",
+      "description": "Extracts keywords and key phrases with the RAKE (Rapid Automatic Keyword Extraction) algorithm, which splits text at stop words and punctuation and scores candidate phrases by word co-occurrence.",
+      "usage": "tbl = rakeKeywords(documents)\ntbl = rakeKeywords(documents, Name=Value)",
+      "parameters": [
+        {"name": "MaxNumKeywords", "description": "Maximum keywords per document (default Inf)."},
+        {"name": "Delimiters / MergingDelimiters", "description": "Tokens that split candidates (punctuation) and that can join adjacent keywords (stop words)."},
+        {"name": "IgnoreKeywordCase", "description": "Merge keywords differing only in case."}
+      ],
+      "example": "documents = tokenizedDocument(\"MATLAB provides tools for scientists and engineers. \" + ...\n    \"MATLAB is used by scientists and engineers.\");\ntbl = rakeKeywords(documents, MaxNumKeywords=2)",
+      "notes": "Output table columns: Keyword (string array of tokens), DocumentNumber, Score. Do not remove stop words beforehand, since RAKE uses them as delimiters.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/rakekeywords.html"
+    },
+    {
+      "name": "textrankKeywords",
+      "kind": "function",
+      "description": "Extracts keywords using TextRank: a graph of co-occurring candidate words (by default nouns and adjectives) is ranked with PageRank, and adjacent top words are merged into key phrases.",
+      "usage": "tbl = textrankKeywords(documents)\ntbl = textrankKeywords(documents, Name=Value)",
+      "parameters": [
+        {"name": "MaxNumKeywords", "description": "Maximum keywords per document."},
+        {"name": "Window", "description": "Co-occurrence window size."},
+        {"name": "PartOfSpeech", "description": "Parts of speech allowed as candidates."}
+      ],
+      "example": "documents = tokenizedDocument(extractFileText(\"report.txt\"));\ntbl = textrankKeywords(documents, MaxNumKeywords=10);\ntbl.Keyword",
+      "notes": "Part-of-speech details are added automatically if missing. Compare with rakeKeywords, which does not need POS tags.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/textrankkeywords.html"
+    },
+    {
+      "name": "bm25Similarity",
+      "kind": "function",
+      "description": "Computes document-to-document or document-to-query relevance scores with the Okapi BM25 ranking function (and variants BM11, BM15, BM25+). It is the classic scoring method for keyword search and retrieval-augmented pipelines.",
+      "usage": "similarities = bm25Similarity(documents)\nsimilarities = bm25Similarity(documents, queries)\nsimilarities = bm25Similarity(bag, queries)\nsimilarities = bm25Similarity(___, Name=Value)",
+      "parameters": [
+        {"name": "queries", "description": "Query documents (tokenizedDocument or bag)."},
+        {"name": "TFScaling", "description": "Term frequency saturation k1 (default 1.2)."},
+        {"name": "DocumentLengthScaling", "description": "Length normalization b in [0,1] (default 0.75)."},
+        {"name": "IDFCorrection / DocumentLengthCorrection", "description": "Corrections used by the BM25+ variant."}
+      ],
+      "example": "docs = tokenizedDocument([\"the quick brown fox\"; \"the lazy dog sat\"; \"a fast brown fox\"]);\nq = tokenizedDocument(\"brown fox\");\nscores = bm25Similarity(docs, q);\n[~, best] = max(scores)",
+      "notes": "Output is numDocuments-by-numQueries. Preprocess queries the same way as documents (lowercase, stop words, stemming).",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/bm25similarity.html"
+    },
+    {
+      "name": "cosineSimilarity",
+      "kind": "function",
+      "description": "Computes cosine similarity between documents (via bag-of-words counts), between documents and queries, or between rows of arbitrary feature matrices such as tf-idf, LSA scores or embeddings.",
+      "usage": "similarities = cosineSimilarity(documents)\nsimilarities = cosineSimilarity(documents, queries)\nsimilarities = cosineSimilarity(bag)\nsimilarities = cosineSimilarity(M)\nsimilarities = cosineSimilarity(M1, M2)",
+      "parameters": [
+        {"name": "M, M1, M2", "description": "Numeric feature matrices with one row per document."}
+      ],
+      "example": "bag = bagOfWords(documents);\nS = cosineSimilarity(tfidf(bag));\nheatmap(full(S))",
+      "notes": "Values range from 0 to 1 for non-negative features. For sentence embeddings use documentEmbedding + embed, then cosineSimilarity on the vectors.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/cosinesimilarity.html"
+    },
+    {
+      "name": "textscatter",
+      "kind": "function",
+      "description": "Creates a 2-D scatter plot of text labels, automatically hiding overlapping labels based on density. It is commonly used to visualize word embeddings reduced with tsne or document clusters.",
+      "usage": "textscatter(x, y, str)\ntextscatter(XY, str)\ntextscatter(___, Name=Value)\nts = textscatter(___)",
+      "parameters": [
+        {"name": "x, y / XY", "description": "Coordinates of the labels."},
+        {"name": "str", "description": "Text labels."},
+        {"name": "ColorData", "description": "Colors or categorical groups for the labels."},
+        {"name": "TextDensityPercentage", "description": "Percentage of labels to show in dense areas (default 60)."},
+        {"name": "MaxTextLength", "description": "Maximum characters per label."}
+      ],
+      "example": "emb = fastTextWordEmbedding;\nwords = emb.Vocabulary(1:500);\nXY = tsne(word2vec(emb, words));\ntextscatter(XY, words, TextDensityPercentage=80)",
+      "notes": "textscatter3 is the 3-D version. wordcloud (base MATLAB) visualizes word frequencies instead of positions.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/textscatter.html"
+    },
+    {
+      "name": "splitTextChunks",
+      "kind": "function",
+      "description": "Splits documents recursively into text chunks of a target length, preferring paragraph, then sentence, then token boundaries. It prepares long documents for embedding and retrieval-augmented generation (RAG) workflows.",
+      "usage": "chunkTable = splitTextChunks(str)\nchunkTable = splitTextChunks(t)\nchunkTable = splitTextChunks(___, Name=Value)",
+      "parameters": [
+        {"name": "str / t", "description": "Text, or a table whose first text variable holds documents (other variables are carried along as metadata)."},
+        {"name": "TargetLength", "description": "Target number of characters per chunk (default 4000)."},
+        {"name": "SplitLevels", "description": "Hierarchy of split levels, default [\"paragraph\",\"sentence\",\"token\"]; \"character\" also allowed."}
+      ],
+      "example": "str = extractFileText(\"sonnets.txt\");\nchunks = splitTextChunks(str, TargetLength=500);\nhead(chunks)",
+      "notes": "Recent addition (R2026a). Related chunking functions: splitMarkdownSections, splitHTMLSections, addTextChunkOverlap, joinSimilarTextChunks, formatTextChunks.",
+      "docs": "https://www.mathworks.com/help/textanalytics/ref/splittextchunks.html"
+    }
+  ]
+}

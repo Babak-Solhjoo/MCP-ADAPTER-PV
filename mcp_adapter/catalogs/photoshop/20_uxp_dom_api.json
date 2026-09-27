@@ -1,0 +1,250 @@
+{
+  "category": "UXP API I - the photoshop module DOM (app, Document, Layer, Selection, TextItem)",
+  "description": "The modern promise-based object model from require('photoshop'): Application members, Document creation/saving/geometry/history/colour methods, the Layers collection and Layer properties, transforms, filters and masks, the Selection class (25.0+), TextItem and the constants module. Minimum Photoshop versions follow the UXP API reference; everything that changes the document must run inside core.executeAsModal().",
+  "tools": [
+    {
+      "name": "UXP: app.documents and app.createDocument()",
+      "kind": "api",
+      "description": "`app.documents` is the live collection of open Document objects (iterable, `length`, `getByName`, `forEach`); `app.createDocument(options)` makes a new one from explicit dimensions or a named preset and returns it. Options: width, height, resolution, mode (constants.NewDocumentMode), fill (constants.DocumentFill), name, colorProfile, depth (8/16/32), pixelScaleFactor, or `{preset: \"Photo (4x6)\"}` / `{typename: 'DocumentCreateOptions'}`.",
+      "usage": "const { app, core, constants } = require(\"photoshop\");\nconst doc = await app.createDocument({ width: 1920, height: 1080, resolution: 72, mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.TRANSPARENT, name: \"banner\" });",
+      "parameters": [
+        {"name": "width / height", "description": "Pixels (numbers)."},
+        {"name": "resolution", "description": "Pixels per inch."},
+        {"name": "mode / fill / depth / colorProfile", "description": "Colour mode enum, fill enum, bit depth 8|16|32, profile name string."},
+        {"name": "preset", "description": "Name of a New Document preset, alternative to explicit dimensions."}
+      ],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = await app.createDocument({ width: 1200, height: 628, resolution: 72, mode: constants.NewDocumentMode.RGB, fill: constants.DocumentFill.WHITE, name: \"og-image\" });\n  console.log(app.documents.length, doc.title);\n}, { commandName: \"New OG image\" });",
+      "notes": "Requires executeAsModal (creating documents is a state change). `app.documents` indexes do not correspond to tab order reliably - use `id` or `title`.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/photoshop/"
+    },
+    {
+      "name": "UXP: app.open() and Document close/save/saveAs",
+      "kind": "api",
+      "description": "`app.open(entry?)` opens a file from a UXP storage Entry (obtained via the file picker or a token) or shows the Open dialog when omitted; `doc.close(saveDialogOptions?)`, `doc.closeWithoutSaving()` and `doc.save()` mirror the File menu; `doc.saveAs.psd(entry, options)`, `.jpg`, `.png`, `.gif`, `.bmp` (22.5+) write specific formats with options objects (e.g. `{ quality: 10, embedColorProfile: true }` for JPEG, `{ compression: 6 }` for PNG, `{ layers: true, maximizeCompatibility: true }` for PSD).",
+      "usage": "const fs = require(\"uxp\").storage.localFileSystem;\nconst entry = await fs.getFileForOpening({ types: [\"psd\", \"jpg\", \"png\"] });\nconst doc = await app.open(entry);\nconst out = await fs.getFileForSaving(\"result.jpg\", { types: [\"jpg\"] });\nawait doc.saveAs.jpg(out, { quality: 10, embedColorProfile: true }, true);\nawait doc.closeWithoutSaving();",
+      "parameters": [
+        {"name": "saveAs.<format>(entry, options, asCopy)", "description": "psd | psb | jpg | png | gif | bmp; asCopy=true leaves the document pointing at the original file."},
+        {"name": "close(SaveOptions)", "description": "constants.SaveOptions.SAVECHANGES | DONOTSAVECHANGES | PROMPTTOSAVECHANGES."}
+      ],
+      "example": "const { app, core } = require(\"photoshop\");\nconst fs = require(\"uxp\").storage.localFileSystem;\nawait core.executeAsModal(async () => {\n  const folder = await fs.getFolder();\n  const files = (await folder.getEntries()).filter(e => e.isFile && /\\.psd$/i.test(e.name));\n  for (const f of files) {\n    const doc = await app.open(f);\n    await doc.flatten();\n    const out = await folder.createFile(f.name.replace(/\\.psd$/i, \".jpg\"), { overwrite: true });\n    await doc.saveAs.jpg(out, { quality: 9 }, true);\n    await doc.closeWithoutSaving();\n  }\n}, { commandName: \"Batch JPEG\" });",
+      "notes": "Other formats (TIFF, WebP, PDF) are saved with batchPlay 'save' descriptors. File access outside the plugin folder needs a user-picked folder or a persistent token.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: app.showAlert(), app.currentTool, app.foregroundColor and app.backgroundColor",
+      "kind": "api",
+      "description": "`app.showAlert(message)` shows a simple modal alert (also `core.showAlert({message})`); `app.currentTool` returns `{ id }` of the active tool (e.g. 'moveTool', 'paintbrushTool'); `app.foregroundColor` / `app.backgroundColor` are settable SolidColor objects with `.rgb`, `.hsb`, `.cmyk`, `.lab`, `.gray` sub-objects and `.rgb.hexValue`.",
+      "usage": "await app.showAlert(\"Done\");   const tool = app.currentTool.id;   const c = new (require(\"photoshop\").app.SolidColor)(); c.rgb.hexValue = \"FF6600\"; app.foregroundColor = c;",
+      "parameters": [],
+      "example": "const { app, core } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const SolidColor = app.SolidColor;\n  const c = new SolidColor();\n  c.rgb.red = 30; c.rgb.green = 144; c.rgb.blue = 255;\n  app.foregroundColor = c;\n  await app.showAlert(`Tool: ${app.currentTool.id}`);\n}, { commandName: \"Set colour\" });",
+      "notes": "Setting colours needs executeAsModal. Tool ids match the Action Manager tool classes ('cropTool', 'typeCreateOrEditTool', 'lassoTool'...).",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/photoshop/"
+    },
+    {
+      "name": "UXP: app.preferences (Preferences categories)",
+      "kind": "api",
+      "description": "Since 24.0 the preferences are grouped into category objects: `app.preferences.general` (colorPicker, imageInterpolation, ...), `.interface`, `.workspace`, `.tools`, `.history`, `.fileHandling` (maximizeCompatibility, recentFileListLength...), `.export`, `.performance` (historyStates, cacheLevels...), `.cursors`, `.transparencyAndGamut`, `.unitsAndRulers` (rulerUnits, typeUnits), `.guidesGridsAndSlices`, `.plugins`, `.type`, `.technologyPreviews`, `.notifications` and `.cameraRaw`. Most are read/write.",
+      "usage": "const prefs = require(\"photoshop\").app.preferences;\nprefs.unitsAndRulers.rulerUnits = require(\"photoshop\").constants.RulerUnits.PIXELS;\nconsole.log(prefs.performance.historyStates);",
+      "parameters": [],
+      "example": "const { app, constants } = require(\"photoshop\");\nconst ur = app.preferences.unitsAndRulers;\nconst saved = ur.rulerUnits;\nur.rulerUnits = constants.RulerUnits.PIXELS;\n// ... work ...\nur.rulerUnits = saved;",
+      "notes": "Writing preferences persists them for the user - restore what you change. The exact property set per category is in the ps_reference 'Preferences' classes.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/preferences/"
+    },
+    {
+      "name": "UXP: app.fonts, app.getColorProfiles() and app.convertUnits()",
+      "kind": "api",
+      "description": "`app.fonts` lists TextFont objects (name, postScriptName, family, style); `app.getColorProfiles(colorMode?)` (24.1+) returns the installed ICC profile names for RGB/CMYK/Gray, useful to validate `convertProfile` targets; `app.convertUnits(value, fromUnits, toUnits, resolution?)` (23.4+) converts between px, in, cm, mm, pt, pc using the given ppi.",
+      "usage": "const psName = app.fonts.getByName(\"Arial\").postScriptName;   const profiles = app.getColorProfiles(\"RGB\");   const px = app.convertUnits(2, \"in\", \"px\", 300); // 600",
+      "parameters": [],
+      "example": "const { app } = require(\"photoshop\");\nconst names = app.fonts.map(f => f.postScriptName).filter(n => /^Roboto/.test(n));\nconsole.log(names);\nif (!app.getColorProfiles(\"RGB\").includes(\"ProPhoto RGB\")) console.warn(\"ProPhoto not installed\");",
+      "notes": "Enumerating fonts is slow on large libraries; cache results in the panel.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/photoshop/"
+    },
+    {
+      "name": "UXP: app.actionTree, ActionSet and Action.play()",
+      "kind": "api",
+      "description": "`app.actionTree` returns the Actions panel content as ActionSet objects (name, id, actions[]) whose Action objects expose `name`, `id`, `parent`, `play()`, `duplicate()`, `delete()`, `rename()`; ActionSet has `play()` (plays all), `duplicate()`, `delete()`, `rename()`. This is the UXP way to run recorded .atn actions from a plugin.",
+      "usage": "const set = app.actionTree.find(s => s.name === \"Web\");\nconst act = set.actions.find(a => a.name === \"Export 1200px\");\nawait act.play();",
+      "parameters": [],
+      "example": "const { app, core } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  for (const set of app.actionTree) {\n    for (const a of set.actions) console.log(`${set.name} / ${a.name}`);\n  }\n  const a = app.actionTree.find(s => s.name === \"Default Actions\")?.actions.find(x => x.name === \"Sepia Toning (layer)\");\n  if (a) await a.play();\n}, { commandName: \"Play action\" });",
+      "notes": "Loading .atn files is done with batchPlay ('open' on the .atn path) or by the user. `action.recordAction()` (25.0+) lets a plugin insert its own step into a recording.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/actionset/"
+    },
+    {
+      "name": "UXP: Document.layers, activeLayers and the Layers collection",
+      "kind": "api",
+      "description": "`doc.layers` is the top-level Layers collection (array-like with `getByName`, `forEach`, `map`, `filter`, `length`); groups expose their children via `layer.layers`; `doc.activeLayers` is the array of currently selected layers (settable, multi-select aware, 22.5+); `doc.backgroundLayer` and `doc.artboards` are convenience accessors. Indexing is top-to-bottom as in the panel.",
+      "usage": "const top = doc.layers[0];   const logo = doc.layers.getByName(\"logo\");   doc.activeLayers = [logo];   for (const l of doc.layers) console.log(l.name, l.kind);",
+      "parameters": [],
+      "example": "const { app } = require(\"photoshop\");\nfunction walk(layers, depth = 0) {\n  for (const l of layers) {\n    console.log(\"  \".repeat(depth) + `${l.name} [${l.kind}] id=${l.id}`);\n    if (l.layers) walk(l.layers, depth + 1);\n  }\n}\nwalk(app.activeDocument.layers);",
+      "notes": "Collections are live proxies; cache `id`s rather than objects across awaits when layers may be deleted. `core.getLayerTree({documentID})` returns a plain-JSON tree faster for large documents.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layers/"
+    },
+    {
+      "name": "UXP: Document.createLayer(), createLayerGroup(), createPixelLayer() and createTextLayer()",
+      "kind": "api",
+      "description": "Create layers directly: `createLayer(kind?, options?)` (23.0+) takes constants.LayerKind and options {name, opacity, blendMode, fillNeutral, color}; `createLayerGroup({name, fromLayers?})` (23.0+) makes a group, optionally wrapping existing layers; `createPixelLayer(options)` (24.1+) and `createTextLayer({contents, fontSize, fontName, position, name, textColor?})` (24.2+) are typed shortcuts that return the new Layer.",
+      "usage": "const l = await doc.createLayer(constants.LayerKind.NORMAL, { name: \"paint\", opacity: 80, blendMode: constants.BlendMode.MULTIPLY });\nconst g = await doc.createLayerGroup({ name: \"Retouch\", fromLayers: [l] });\nconst t = await doc.createTextLayer({ contents: \"Hello\", fontSize: 48, fontName: \"Roboto-Bold\", position: { x: 100, y: 200 }, name: \"title\" });",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  const title = await doc.createTextLayer({ contents: \"SPRING SALE\", fontSize: 72, fontName: \"Impact\", position: { x: 80, y: 160 }, name: \"headline\" });\n  const shade = await doc.createLayer(constants.LayerKind.NORMAL, { name: \"shade\", blendMode: constants.BlendMode.MULTIPLY, opacity: 60 });\n  await doc.createLayerGroup({ name: \"Text\", fromLayers: [title, shade] });\n}, { commandName: \"Build headline\" });",
+      "notes": "Adjustment and fill layers are not creatable through createLayer yet - use batchPlay 'make' with 'adjustmentLayer'. New layers are placed above the active layer.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: Document.flatten(), mergeVisibleLayers(), rasterizeAllLayers() and duplicate()",
+      "kind": "api",
+      "description": "Document-wide structure changes as async methods: `flatten()` (22.5+) merges everything into a Background, `mergeVisibleLayers()` (23.0+) merges visible layers into the active one, `rasterizeAllLayers()` (23.0+) converts every layer to pixels, `duplicate(name?, mergeLayersOnly?)` (23.0+) returns a copy Document, `duplicateLayers(layers, targetDocument?)` copies layers into another document and `groupLayers(layers)` wraps them in a group.",
+      "usage": "await doc.flatten();   await doc.mergeVisibleLayers();   const copy = await doc.duplicate(\"export\", true);   const moved = await doc.duplicateLayers([doc.layers[0]], otherDoc);",
+      "parameters": [],
+      "example": "const { app, core } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const src = app.activeDocument;\n  const flat = await src.duplicate(\"flat\", true);\n  await flat.resizeImage(1200, undefined, undefined, require(\"photoshop\").constants.ResampleMethod.BICUBICSHARPER);\n  // save flat, then\n  await flat.closeWithoutSaving();\n}, { commandName: \"Flat export\" });",
+      "notes": "`duplicate()` makes the copy the active document. Merging hides nothing: hidden layers are discarded by flatten only.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: Document.crop(), resizeImage(), resizeCanvas(), rotate(), trim() and revealAll()",
+      "kind": "api",
+      "description": "Geometry methods (23.0+): `crop(bounds, angle?, width?, height?)` crops to {left, top, right, bottom} with optional straighten angle and resample size; `resizeImage(width?, height?, resolution?, resampleMethod?, amount?)` scales (omit one dimension to keep aspect); `resizeCanvas(width, height, anchor?)` adds/removes canvas around an AnchorPosition; `rotate(angles)` rotates the canvas by 90/180/arbitrary degrees; `trim(trimType, top?, left?, bottom?, right?)` removes transparent or colour edges; `revealAll()` grows the canvas to fit all layers.",
+      "usage": "await doc.crop({ left: 100, top: 50, right: 900, bottom: 650 });\nawait doc.resizeImage(1920, undefined, 72, constants.ResampleMethod.BICUBICSHARPER);\nawait doc.resizeCanvas(2000, 1200, constants.AnchorPosition.MIDDLECENTER);\nawait doc.rotate(90);\nawait doc.trim(constants.TrimType.TRANSPARENT);",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  await doc.trim(constants.TrimType.TRANSPARENT, true, true, true, true);\n  await doc.resizeCanvas(doc.width + 80, doc.height + 80, constants.AnchorPosition.MIDDLECENTER);   // 40 px padding\n  await doc.resizeImage(undefined, 1080);   // fit to 1080 tall, keep aspect\n}, { commandName: \"Pad and resize\" });",
+      "notes": "`doc.width`/`height` are pixels (numbers), not UnitValues. Resample method constants include PRESERVEDETAILS2 and DEEPUPSCALE for enlargements.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: Document.suspendHistory() and historyStates",
+      "kind": "api",
+      "description": "`doc.suspendHistory(callback, historyStateName)` (23.0+) runs an async callback while recording one named history state so the user gets a single undo; `doc.historyStates`, `doc.activeHistoryState` (settable, to revert) and `doc.activeHistoryBrushSource` expose the History panel. Inside executeAsModal you can also call `executionContext.hostControl.suspendHistory({documentID, name})` / `resumeHistory(id)` for finer control.",
+      "usage": "await doc.suspendHistory(async () => { await doc.layers[0].applyGaussianBlur(3); await doc.layers[0].applyHighPass(2); }, \"Blur + high pass\");\ndoc.activeHistoryState = doc.historyStates[0];",
+      "parameters": [],
+      "example": "const { app, core } = require(\"photoshop\");\nawait core.executeAsModal(async (ctx) => {\n  const doc = app.activeDocument;\n  const h = await ctx.hostControl.suspendHistory({ documentID: doc.id, name: \"Plugin cleanup\" });\n  try {\n    for (const l of doc.layers) if (l.kind === \"pixel\" && l.bounds.width === 0) l.delete();\n  } finally {\n    await ctx.hostControl.resumeHistory(h);\n  }\n}, { commandName: \"Cleanup\" });",
+      "notes": "`executeAsModal` can also take `{ historyStateInfo: { name, target: [{ _ref: \"document\", _id: doc.id }] } }` in its descriptor to group everything it does.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: Document.changeMode(), convertProfile(), bitsPerChannel and colorProfileName",
+      "kind": "api",
+      "description": "Colour-mode and profile handling (23.0+): `changeMode(constants.ChangeMode.X, options?)` converts mode (options for Bitmap/Indexed), `convertProfile(destinationProfile, intent, blackPointCompensation?, dither?)` changes numbers to keep appearance, `colorProfileName` (settable = assign), `colorProfileType`, `bitsPerChannel` (settable to 8/16/32) and `mode` (read-only DocumentMode).",
+      "usage": "await doc.changeMode(constants.ChangeMode.GRAYSCALE);\nawait doc.convertProfile(\"sRGB IEC61966-2.1\", constants.Intent.RELATIVECOLORIMETRIC, true, true);\ndoc.bitsPerChannel = constants.BitsPerChannelType.EIGHT;",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  if (doc.bitsPerChannel !== constants.BitsPerChannelType.EIGHT) doc.bitsPerChannel = constants.BitsPerChannelType.EIGHT;\n  if (doc.colorProfileName !== \"sRGB IEC61966-2.1\") await doc.convertProfile(\"sRGB IEC61966-2.1\", constants.Intent.RELATIVECOLORIMETRIC, true, true);\n}, { commandName: \"Prep for web\" });",
+      "notes": "Assigning a profile through `colorProfileName` does not convert pixels. 32-bit to 8-bit conversion runs HDR toning defaults silently.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: Document.selection (Selection class, 25.0+)",
+      "kind": "api",
+      "description": "The Selection object gained a full method set in Photoshop 25.0: `selectAll()`, `deselect()`, `inverse()`, `selectRectangle(bounds, mode?, feather?, antiAlias?)`, `selectEllipse(...)`, `selectPolygon(points, ...)`, `selectRow(y)`/`selectColumn(x)`, `selectBorder(width)`, `expand(by)`, `contract(by)`, `feather(by)`, `smooth(radius)`, `grow(tolerance, antiAlias?)`, `load(from, mode?, invert?)` (from a channel or layer), `save(channelName?)`, `saveTo(channel, mode?)`, `makeWorkPath(tolerance?)`, `translateBoundary(dx, dy)`, `resizeBoundary(h%, v%, anchor?)`, `rotateBoundary(angle, anchor?)`, plus read-only `bounds` and `solid`.",
+      "usage": "const sel = doc.selection;\nawait sel.selectRectangle({ left: 0, top: 0, right: 400, bottom: 300 }, constants.SelectionType.REPLACE, 0, true);\nawait sel.feather(8);\nawait sel.save(\"mask 1\");",
+      "parameters": [
+        {"name": "mode", "description": "constants.SelectionType.REPLACE | ADD | DIMINISH | INTERSECT."},
+        {"name": "bounds / points", "description": "{left, top, right, bottom} in pixels, or an array of {x, y} for polygons."}
+      ],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  await doc.selection.selectEllipse({ left: 200, top: 100, right: 800, bottom: 700 }, constants.SelectionType.REPLACE, 20, true);\n  await doc.selection.inverse();\n  const lyr = doc.activeLayers[0];\n  await lyr.applyGaussianBlur(12);   // vignette-style blur outside the ellipse\n  await doc.selection.deselect();\n}, { commandName: \"Blur edges\" });",
+      "notes": "Filling or stroking the selection is still done with batchPlay ('fill' and 'stroke' descriptors). `selection.bounds` is null when nothing is selected. Before 25.0 only `bounds` existed.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/selection/"
+    },
+    {
+      "name": "UXP: Document.sampleColor(), colorSamplers, guides, layerComps, countItems, channels and pathItems",
+      "kind": "api",
+      "description": "Document sub-collections in UXP: `sampleColor({x, y})` (24.0+) returns a SolidColor at a point; `colorSamplers` (24.0+), `guides` (23.0+, `guides.add(direction, coordinate)`), `layerComps` (24.0+, `.apply()`, `.recapture()`), `countItems` (24.1+), `channels` and `activeChannels`/`componentChannels` (23.0/24.5+), `pathItems` (23.3+, with `subPathItems`, `makeSelection()`, `fillPath()`, `strokePath()`), `histogram` (256 counts) and `artboards`.",
+      "usage": "const c = await doc.sampleColor({ x: 10, y: 10 });\ndoc.guides.add(constants.Direction.VERTICAL, 640);\ndoc.layerComps.getByName(\"Dark\").apply();\nconst alpha = doc.channels.getByName(\"Alpha 1\");",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  const cols = 12, margin = 40, gutter = 24;\n  const colW = (doc.width - 2 * margin - (cols - 1) * gutter) / cols;\n  for (let i = 0; i < cols; i++) {\n    const x = margin + i * (colW + gutter);\n    doc.guides.add(constants.Direction.VERTICAL, x);\n    doc.guides.add(constants.Direction.VERTICAL, x + colW);\n  }\n}, { commandName: \"Column guides\" });",
+      "notes": "Guide coordinates are pixels. Channels can be created/deleted via `doc.channels.add()` / `channel.delete()` (23.0+).",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: Document.generativeUpscale() and calculations()",
+      "kind": "api",
+      "description": "Two newer Document methods: `generativeUpscale(model, options?)` (27.2+) runs the Firefly/partner Generative Upscale on the document and returns the upscaled Document (credits are consumed; model names follow the UI picker), and `calculations(calculationsOptions)` (24.5+) performs Image > Calculations between channels of one or two documents, returning a Channel, Document or nothing depending on the `result` option.",
+      "usage": "const big = await doc.generativeUpscale(model, options);   // 27.2+\nawait doc.calculations(calculationsOptions);                       // 24.5+, see the Document reference for the option object",
+      "parameters": [
+        {"name": "model / options (generativeUpscale)", "description": "Model identifier and scale/size options as exposed by the Generative Upscale dialog in that version."},
+        {"name": "calculationsOptions", "description": "Objects describing source1/source2 (document, layer, channel, invert), blending mode, opacity, mask, and the result target (new channel, new document, selection)."}
+      ],
+      "example": "const { app, core } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const up = await app.activeDocument.generativeUpscale(\"firefly\");   // requires Photoshop 27.2+ and generative credits\n  console.log(up.width, up.height);\n}, { commandName: \"Generative Upscale\" });",
+      "notes": "generativeUpscale needs sign-in, internet and available generative credits; check the version with `require('uxp').host.version` before calling. The exact option keys are documented in the Document class reference for your release.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/document/"
+    },
+    {
+      "name": "UXP: Layer properties (name, kind, visible, opacity, fillOpacity, blendMode, bounds, id, locks, parent, isClippingMask)",
+      "kind": "api",
+      "description": "The Layer class covers pixel, group, text, smart-object, adjustment and shape layers with one API: `name`, `kind` (constants.LayerKind / string), `visible`, `opacity`, `fillOpacity`, `blendMode`, `bounds` / `boundsNoEffects` ({left, top, right, bottom, width, height}), `id` (stable, for batchPlay), `locked` (read-only any-lock), `allLocked`, `pixelsLocked`, `positionLocked`, `transparentPixelsLocked`, `parent` (group or null), `layers` (children of a group), `linkedLayers`, `isBackgroundLayer`, `isClippingMask` (23.0+), `document`, `selected`.",
+      "usage": "layer.name = \"hero\"; layer.opacity = 70; layer.blendMode = constants.BlendMode.SCREEN; layer.isClippingMask = true; const { width, height } = layer.bounds;",
+      "parameters": [],
+      "example": "const { app, constants } = require(\"photoshop\");\nconst doc = app.activeDocument;\nconst textLayers = doc.layers.filter(l => l.kind === constants.LayerKind.TEXT);\nfor (const t of textLayers) console.log(t.name, t.textItem.contents, t.bounds.width);",
+      "notes": "Property writes require executeAsModal. `kind` compares against constants.LayerKind (NORMAL='pixel', TEXT='text', GROUP='group', SMARTOBJECT='smartObject', CURVES='curves', ...).",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layer/"
+    },
+    {
+      "name": "UXP: Layer mask properties (layerMaskDensity, layerMaskFeather, vectorMaskDensity, vectorMaskFeather, filterMaskDensity, filterMaskFeather)",
+      "kind": "api",
+      "description": "Six read/write numbers (23.0+) mirroring the Properties panel's mask controls: density (0-100 %, how opaque the mask is) and feather (0-1000 px, non-destructive edge softening) for the pixel layer mask, the vector mask and the Smart Filter mask. Creating or deleting masks themselves is done with batchPlay ('make' with 'channel' / 'delete'), or through imaging.putLayerMask().",
+      "usage": "layer.layerMaskFeather = 4; layer.layerMaskDensity = 80; layer.vectorMaskFeather = 1.5;",
+      "parameters": [],
+      "example": "const { app, core } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  for (const l of app.activeDocument.layers) {\n    if (l.layerMaskDensity !== undefined) { l.layerMaskFeather = 2; }\n  }\n}, { commandName: \"Soften masks\" });",
+      "notes": "Reading a mask property on a layer without that mask returns undefined/throws depending on version - guard with try/catch.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layer/"
+    },
+    {
+      "name": "UXP: Layer.duplicate(), move(), delete(), merge(), rasterize(), bringToFront(), sendToBack(), link() and unlink()",
+      "kind": "api",
+      "description": "Structural Layer methods (23.0+): `duplicate(relativeObject?, insertionLocation?, name?)` (relativeObject may be a Document to copy across), `move(relativeObject, constants.ElementPlacement.PLACEBEFORE | PLACEAFTER | PLACEINSIDE | PLACEATBEGINNING | PLACEATEND)`, `bringToFront()`, `sendToBack()`, `delete()`, `merge()` (merge down / group merge, returns the result), `rasterize(constants.RasterizeType.ENTIRELAYER | TEXTCONTENTS | SHAPE | FILLCONTENT | LAYERCLIPPINGPATH | LINKEDLAYERS | ... )`, `link(target)` / `unlink()`.",
+      "usage": "const copy = await layer.duplicate(undefined, undefined, \"copy\");\nlayer.move(group, constants.ElementPlacement.PLACEINSIDE);\nconst merged = await layer.merge();\nawait layer.rasterize(constants.RasterizeType.ENTIRELAYER);\nlayer.delete();",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  const src = doc.activeLayers[0];\n  const dup = await src.duplicate(undefined, undefined, src.name + \" sharpen\");\n  await dup.applyHighPass(2);\n  dup.blendMode = constants.BlendMode.OVERLAY;\n  dup.move(src, constants.ElementPlacement.PLACEBEFORE);\n}, { commandName: \"High-pass copy\" });",
+      "notes": "`delete()` and `move()` are synchronous; most others return promises. Duplicating into another document requires that document to be open.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layer/"
+    },
+    {
+      "name": "UXP: Layer.translate(), scale(), rotate(), skew() and flip()",
+      "kind": "api",
+      "description": "Transform methods (23.0+): `translate(dx, dy)` moves by pixels (or percent strings), `scale(width%, height%, anchor?, options?)`, `rotate(angle, anchor?, options?)` (clockwise degrees), `skew(angleH, angleV, options?)`, `flip(axis)` with 'horizontal' | 'vertical' | 'both'. Options accept `{ interpolation: constants.InterpolationMethod.BICUBIC }`; anchor is constants.AnchorPosition.",
+      "usage": "await layer.translate(50, -20);\nawait layer.scale(50, 50, constants.AnchorPosition.TOPLEFT);\nawait layer.rotate(-12, constants.AnchorPosition.MIDDLECENTER, { interpolation: constants.InterpolationMethod.BICUBIC });\nawait layer.flip(\"horizontal\");",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  const l = doc.activeLayers[0];\n  const b = l.bounds;\n  await l.translate((doc.width - b.width) / 2 - b.left, (doc.height - b.height) / 2 - b.top);   // centre on canvas\n  await l.scale(80, 80, constants.AnchorPosition.MIDDLECENTER);\n}, { commandName: \"Centre and shrink\" });",
+      "notes": "Each transform resamples pixel layers; convert to a Smart Object first (batchPlay 'newPlacedLayer') for lossless repeated transforms. Locked layers throw.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layer/"
+    },
+    {
+      "name": "UXP: Layer.applyXxx() filter methods",
+      "kind": "api",
+      "description": "Layer exposes typed wrappers for the classic filters (23.5-24.0+): applyAddNoise, applyAverage, applyBlur, applyBlurMore, applyClouds, applyCustomFilter, applyDeInterlace, applyDespeckle, applyDifferenceClouds, applyDiffuseGlow, applyDisplace, applyDustAndScratches, applyGaussianBlur(radius), applyGlassEffect, applyHighPass(radius), applyLensBlur, applyLensFlare, applyMaximum, applyMedianNoise, applyMinimum, applyMotionBlur(angle, distance), applyNTSC, applyOceanRipple, applyOffset, applyPinch, applyPolarCoordinates, applyRipple, applySharpen, applySharpenEdges, applySharpenMore, applyShear, applySmartBlur, applySpherize, applyTwirl, applyUnSharpMask(amount, radius, threshold), applyWave, applyZigZag. Anything else (Smart Sharpen, Blur Gallery, Camera Raw, Neural Filters) goes through batchPlay.",
+      "usage": "await layer.applyGaussianBlur(4);   await layer.applyUnSharpMask(120, 1, 3);   await layer.applyMotionBlur(0, 25);   await layer.applyAddNoise(3, constants.NoiseDistribution.GAUSSIAN, true);",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const l = app.activeDocument.activeLayers[0];\n  await l.applyGaussianBlur(1.5);\n  await l.applyAddNoise(2.5, constants.NoiseDistribution.GAUSSIAN, true);\n  await l.applyUnSharpMask(60, 0.8, 2);\n}, { commandName: \"Film look\" });",
+      "notes": "Filters act on pixel layers only (rasterize or use Smart Objects + batchPlay for Smart Filters). Parameter ranges match the dialogs (e.g. Gaussian radius 0.1-250).",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layer/"
+    },
+    {
+      "name": "UXP: Layer.applyImage(), clear(), copy(), cut()",
+      "kind": "api",
+      "description": "`applyImage(options)` (24.5+) runs Image > Apply Image onto this layer: options describe the source document/layer/channel, `invert`, `blending` mode, `opacity`, `preserveTransparency`, and an optional mask source. `clear()` erases the layer's pixels (within the selection) without touching the clipboard, `copy(merge?)` and `cut()` use the clipboard for transfer to other layers or documents (paste with `doc.paste()`).",
+      "usage": "await layer.applyImage(applyImageOptions);   // 24.5+, option keys per the Layer reference (source document/layer/channel, invert, blending, opacity, preserveTransparency, mask)\nawait layer.copy(true);   await layer.cut();   await layer.clear();",
+      "parameters": [],
+      "example": "const { app, core } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  const target = doc.activeLayers[0];\n  await target.clear();   // empty within current selection\n}, { commandName: \"Clear\" });",
+      "notes": "Consult the Layer reference for the exact `applyImage` option keys in your version (the blend enum is documented alongside the method).",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layer/"
+    },
+    {
+      "name": "UXP: Layer.textItem (TextItem, CharacterStyle, ParagraphStyle, WarpStyle)",
+      "kind": "api",
+      "description": "For text layers (24.1/24.2+): `textItem.contents`, `isPointText` / `isParagraphText`, `orientation`, `textClickPoint`, and the sub-objects `characterStyle` (font, size, color, leading, tracking, kerning, baselineShift, horizontalScale, verticalScale, capitalization, fauxBold, fauxItalic, underline, strikethrough, antiAliasMethod, ligatures, oldStyle...), `paragraphStyle` (justification, indents, spaceBefore/After, hyphenation, composer...) and `warpStyle` (style, bend, horizontalDistortion, verticalDistortion, direction). Methods: `convertToParagraphText()`, `convertToPointText()`, `convertToShape()`, `createWorkPath()`.",
+      "usage": "const ti = layer.textItem;\nti.contents = \"New text\";\nti.characterStyle.font = \"Roboto-Bold\"; ti.characterStyle.size = 36;\nti.paragraphStyle.justification = constants.Justification.CENTER;\nti.warpStyle.style = constants.WarpStyle.ARC; ti.warpStyle.bend = 25;",
+      "parameters": [],
+      "example": "const { app, core, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  for (const l of app.activeDocument.layers) {\n    if (l.kind !== constants.LayerKind.TEXT) continue;\n    const cs = l.textItem.characterStyle;\n    cs.font = \"Inter-SemiBold\";\n    cs.tracking = 20;\n    l.textItem.contents = l.textItem.contents.toUpperCase();\n  }\n}, { commandName: \"Restyle text\" });",
+      "notes": "Setting a font that is not installed throws. Colour is a SolidColor (`cs.color.rgb.hexValue = \"FFFFFF\"`). Mixed formatting within one layer is read as the first run and written to the whole layer.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/textitem/"
+    },
+    {
+      "name": "UXP: constants module (require('photoshop').constants)",
+      "kind": "api",
+      "description": "All enumerations of the UXP DOM live on `constants`: LayerKind, BlendMode, ResampleMethod (incl. PRESERVEDETAILS2, DEEPUPSCALE), AnchorPosition, ElementPlacement, NewDocumentMode, DocumentMode, ChangeMode, DocumentFill, BitsPerChannelType, ColorProfileType, Intent, RasterizeType, SelectionType, TrimType, Direction, Orientation, Justification, AntiAlias, WarpStyle, TextCase, UnderlineType, StrikethroughType, InterpolationMethod, NoiseDistribution, SaveOptions, DialogModes, RulerUnits, TypeUnits, LabelColors, and more. Values are strings matching Action Manager enum names, so they can be passed straight into batchPlay.",
+      "usage": "const { constants } = require(\"photoshop\");\nlayer.blendMode = constants.BlendMode.MULTIPLY;\nconsole.log(constants.BlendMode.MULTIPLY);   // \"multiply\"",
+      "parameters": [],
+      "example": "const { constants } = require(\"photoshop\");\nconsole.log(Object.keys(constants));   // list every enum\nconsole.log(Object.values(constants.LayerKind));",
+      "notes": "Always import from `require('photoshop').constants` (there is no `app.constants`). Enum members are frozen strings, so comparing `layer.kind === \"text\"` also works.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/modules/constants/"
+    }
+  ]
+}

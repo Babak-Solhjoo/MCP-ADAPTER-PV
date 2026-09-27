@@ -1,0 +1,363 @@
+{
+  "category": "Simulation configuration, solvers & analysis",
+  "description": "Everything that controls how a Simulink model is simulated and how the results are inspected: the Configuration Parameters panes (solver selection, step size, tolerances, zero-crossing detection, data import/export and signal logging), the logged-data objects and the Simulation Data Inspector, and the analysis tools that sit on top of a model - Model Advisor, Simulink Profiler, Solver Profiler, linearization and trimming, the Fixed-Point Tool, dependency/variable analysis and model comparison. Every configuration item is given with the exact set_param name so an automation layer can read and write it without opening a dialog.",
+  "tools": [
+    {
+      "name": "Configuration Parameters",
+      "kind": "panel",
+      "description": "The dialog that holds every simulation, diagnostic and code-generation setting for a model, grouped into panes (Solver, Data Import/Export, Math and Data Types, Diagnostics, Hardware Implementation, Model Referencing, Simulation Target, Code Generation). Each field maps one-to-one onto a named parameter you can read with get_param and write with set_param, so the whole dialog is scriptable. Use it to pin down solver behaviour, logging and diagnostics before running a batch of simulations. The settings live in a Simulink.ConfigSet object that can be detached, saved in a data dictionary and reused across models.",
+      "usage": "Modeling tab > Model Settings (Ctrl+E)\nget_param(mdl,'<ParamName>')\nset_param(mdl,'<ParamName>','<value>')\ncs = getActiveConfigSet(mdl)",
+      "parameters": [
+        {"name": "SolverType", "description": "'Variable-step' or 'Fixed-step'. Changing it restricts which Solver values are legal."},
+        {"name": "Solver", "description": "Solver name, e.g. 'VariableStepAuto', 'ode45', 'ode15s', 'FixedStepDiscrete', 'ode3'. SolverName is a read-alias of the same value."},
+        {"name": "StartTime", "description": "Simulation start time as a string expression, default '0.0'."},
+        {"name": "StopTime", "description": "Simulation stop time as a string expression, default '10.0'. Use 'inf' for an endless run driven externally."},
+        {"name": "SimulationMode", "description": "'normal', 'accelerator', 'rapid-accelerator', 'software-in-the-loop (sil)', 'processor-in-the-loop (pil)', 'external' or 'auto'."},
+        {"name": "SaveOutput", "description": "'on'/'off' - log root-level Outport signals to the variable named by OutputSaveName (default 'yout')."}
+      ],
+      "example": "mdl = 'cfgDemo';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/Sine Wave',       [mdl '/Sine'], 'Position',[40 40 70 70]);\nadd_block('simulink/Continuous/Integrator',   [mdl '/Int'],  'Position',[140 40 170 70]);\nadd_block('simulink/Sinks/Out1',              [mdl '/y'],    'Position',[240 45 270 65]);\nadd_line(mdl,'Sine/1','Int/1','autorouting','on');\nadd_line(mdl,'Int/1','y/1','autorouting','on');\n\nset_param(mdl, 'SolverType','Variable-step', 'Solver','ode15s', ...\n               'StartTime','0', 'StopTime','40', 'RelTol','1e-6');\ncs = getActiveConfigSet(mdl);\nfprintf('%s / %s / stop=%s\\n', get_param(mdl,'SolverType'), ...\n        get_param(mdl,'Solver'), get_param(mdl,'StopTime'));\nout = sim(mdl);\nclose_system(mdl,0);",
+      "notes": "Prefer Simulink.SimulationInput().setModelParameter(...) over set_param when you do not want to dirty the saved model - set_param marks the model dirty and the change is saved with it. Copy a whole configuration between models with attachConfigSet/setActiveConfigSet, or store it in an .sldd data dictionary so several models share one configuration.",
+      "docs": "https://www.mathworks.com/help/simulink/ug/configuration-parameters-dialog-box-overview.html"
+    },
+    {
+      "name": "Solver",
+      "kind": "panel",
+      "description": "The Solver pane picks the numerical integration scheme and its step-size and accuracy controls. Variable-step solvers adapt the step to meet an error tolerance and are the right choice for continuous models with widely separated time constants or discontinuities; fixed-step solvers take a constant step and are required for code generation and real-time execution. Choose a stiff solver (ode15s, ode23t, ode23tb, ode23s, daessc) when an explicit solver such as ode45 is forced down to tiny steps, and a discrete solver when the model has no continuous states. Set the pane from MATLAB with set_param using the parameter names below.",
+      "usage": "Modeling tab > Model Settings > Solver\nset_param(mdl,'SolverType','Variable-step','Solver','ode15s')\nset_param(mdl,'SolverType','Fixed-step','Solver','ode3','FixedStep','0.001')",
+      "parameters": [
+        {"name": "Solver", "description": "Variable-step choices: VariableStepAuto, VariableStepDiscrete, ode45, ode23, ode113, ode15s, ode23s, ode23t, ode23tb, odeN, daessc. Fixed-step choices: FixedStepAuto, FixedStepDiscrete, ode1, ode2, ode3, ode4, ode5, ode8, ode14x, ode1be. There is no ode6 or ode7."},
+        {"name": "SolverType", "description": "'Variable-step' or 'Fixed-step'. Set this first; it filters the legal Solver values."},
+        {"name": "StartTime / StopTime", "description": "Simulation interval, as string expressions evaluated in the model or base workspace."},
+        {"name": "MaxStep", "description": "Largest step a variable-step solver may take, 'auto' (= (StopTime-StartTime)/50) by default. Reduce it when the output looks under-sampled or a fast mode is being stepped over."},
+        {"name": "MinStep", "description": "Smallest allowed step, 'auto' by default. A 'minimum step size violation' means the model has a discontinuity or is stiffer than the chosen solver can handle."},
+        {"name": "InitialStep", "description": "Suggested size of the first step, 'auto' by default. Set it when the first step is unusually expensive or unstable."},
+        {"name": "FixedStep", "description": "Constant step size (also the fundamental sample time) for fixed-step solvers; 'auto' derives it from the block sample times."},
+        {"name": "RelTol", "description": "Relative error tolerance per state, default '1e-3' (0.1%). This is the main accuracy/speed knob for variable-step solvers."},
+        {"name": "AbsTol", "description": "Absolute error tolerance, 'auto' by default (RelTol*1e-3 adapted per state). Set it explicitly when a state legitimately gets very close to zero."}
+      ],
+      "example": "mdl = 'solverDemo';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/Step',          [mdl '/u'],  'Position',[40 40 70 70]);\nadd_block('simulink/Continuous/Transfer Fcn',[mdl '/G'], 'Position',[140 40 200 80]);\nadd_block('simulink/Sinks/Out1',            [mdl '/y'],  'Position',[260 45 290 65]);\nset_param([mdl '/G'],'Denominator','[1 2 1]');\nadd_line(mdl,'u/1','G/1','autorouting','on');\nadd_line(mdl,'G/1','y/1','autorouting','on');\n\n% stiff solver, tight tolerance, capped step\nset_param(mdl,'SolverType','Variable-step','Solver','ode15s', ...\n              'RelTol','1e-6','AbsTol','1e-8','MaxStep','0.01','StopTime','10');\nout1 = sim(mdl);\n\n% fixed-step, as required for code generation\nset_param(mdl,'SolverType','Fixed-step','Solver','ode3','FixedStep','1e-3');\nout2 = sim(mdl);\nclose_system(mdl,0);",
+      "notes": "'VariableStepAuto'/'FixedStepAuto' let Simulink pick a solver from the model's dynamics and are a good default. daessc is intended for Simscape physical networks and requires Simscape. odeN is a variable-step solver despite the fixed-order look of its name. Tightening RelTol below about 1e-8 rarely helps and costs a lot of time; profile with the Solver Profiler instead.",
+      "docs": "https://www.mathworks.com/help/simulink/gui/solver-pane.html"
+    },
+    {
+      "name": "ZeroCrossControl",
+      "kind": "panel",
+      "description": "Zero-crossing detection lets a variable-step solver land exactly on the instant a signal crosses a threshold - a switch flipping, a saturation limit being hit, an absolute value changing sign - instead of stepping over it and smearing the event. This group of Solver-pane options turns detection on or off globally and selects the algorithm used to bracket the event. Disable it only to work around a model that chatters, and prefer the adaptive algorithm when a simulation stalls with 'excessive zero-crossing' errors.",
+      "usage": "Modeling tab > Model Settings > Solver > Zero-crossing options\nset_param(mdl,'ZeroCrossControl','UseLocalSettings')\nset_param(mdl,'ZeroCrossAlgorithm','Adaptive')",
+      "parameters": [
+        {"name": "ZeroCrossControl", "description": "'UseLocalSettings' (default; each block's own ZeroCross setting applies), 'EnableAll' or 'DisableAll'."},
+        {"name": "ZeroCrossAlgorithm", "description": "'Nonadaptive' (default, also spelled 'Non-adaptive'; 'Classic' is the legacy value) or 'Adaptive'. The adaptive algorithm adds a tolerance and an iteration limit that prevent chattering from stalling the solver."},
+        {"name": "ConsecutiveZCsStepRelTol", "description": "Relative tolerance used by the adaptive algorithm to decide that consecutive crossings are the same event. Enabled only when ZeroCrossAlgorithm is 'Adaptive'."},
+        {"name": "MaxConsecutiveZCs", "description": "Number of consecutive zero crossings allowed before the simulation errors out. Enabled only for the adaptive algorithm."}
+      ],
+      "example": "mdl = 'zcDemo';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/Sine Wave',        [mdl '/u'],   'Position',[40 40 70 70]);\nadd_block('simulink/Discontinuities/Saturation',[mdl '/Sat'],'Position',[140 40 170 70]);\nadd_block('simulink/Sinks/Out1',               [mdl '/y'],   'Position',[240 45 270 65]);\nadd_line(mdl,'u/1','Sat/1','autorouting','on');\nadd_line(mdl,'Sat/1','y/1','autorouting','on');\n\nset_param(mdl,'SolverType','Variable-step','Solver','ode23t', ...\n              'ZeroCrossControl','UseLocalSettings', ...\n              'ZeroCrossAlgorithm','Adaptive', ...\n              'MaxConsecutiveZCs','1000','StopTime','10');\nout = sim(mdl);\n\n% disable zero-crossing detection on one block only\nset_param([mdl '/Sat'],'ZeroCross','off');\nclose_system(mdl,0);",
+      "notes": "Zero-crossing detection applies to variable-step solvers only; fixed-step solvers always step on the fixed grid. 'DisableAll' makes the simulation faster but can miss events entirely and give silently wrong results. If a model chatters, the usual fixes are the adaptive algorithm, a Signal Threshold on the offending block, or adding hysteresis to the switching logic.",
+      "docs": "https://www.mathworks.com/help/simulink/ug/zero-crossing-detection.html"
+    },
+    {
+      "name": "Data Import/Export",
+      "kind": "panel",
+      "description": "The pane that wires a model to the MATLAB workspace: which root-level inputs are fed in, and which outputs, states, times and logged signals come back. Use it to drive a model from recorded stimulus data and to decide the shape of the results, which determines how easy they are to post-process. The 'Single simulation output' option (ReturnWorkspaceOutputs, on by default) packages everything into one Simulink.SimulationOutput object rather than scattering variables in the base workspace, which is what sim, parsim and batchsim expect.",
+      "usage": "Modeling tab > Model Settings > Data Import/Export\nset_param(mdl,'LoadExternalInput','on','ExternalInput','[t, u]')\nset_param(mdl,'SaveOutput','on','SaveState','on','SaveFormat','Dataset')",
+      "parameters": [
+        {"name": "LoadExternalInput", "description": "'on'/'off' - feed root-level Inport blocks from the workspace."},
+        {"name": "ExternalInput", "description": "Expression evaluated to produce the input, default '[t, u]'. Can be a matrix, a timeseries, or a Simulink.SimulationData.Dataset."},
+        {"name": "SaveOutput", "description": "'on'/'off' - log root-level Outport signals; variable name is OutputSaveName (default 'yout')."},
+        {"name": "SaveState", "description": "'on'/'off' - log the full state vector; variable name is StateSaveName (default 'xout')."},
+        {"name": "SaveTime", "description": "'on'/'off' - log the time vector into TimeSaveName (default 'tout')."},
+        {"name": "SaveFormat", "description": "'Dataset' (default and recommended), 'Array', 'Structure' or 'StructureWithTime'. Dataset keeps names, units and per-signal time bases."},
+        {"name": "SignalLogging", "description": "'on'/'off' - master switch for signals marked 'Log signal data' in the diagram."},
+        {"name": "SignalLoggingName", "description": "Name of the logging variable, default 'logsout'."},
+        {"name": "ReturnWorkspaceOutputs", "description": "'on'/'off' - return one Simulink.SimulationOutput object instead of separate workspace variables."}
+      ],
+      "example": "mdl = 'ioDemo';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/In1',        [mdl '/u'],   'Position',[40 45 70 65]);\nadd_block('simulink/Continuous/Integrator',[mdl '/Int'],'Position',[140 40 170 70]);\nadd_block('simulink/Sinks/Out1',         [mdl '/y'],   'Position',[240 45 270 65]);\nadd_line(mdl,'u/1','Int/1','autorouting','on');\nadd_line(mdl,'Int/1','y/1','autorouting','on');\n\n% mark the integrator output for logging so that logsout is populated\nph = get_param([mdl '/Int'],'PortHandles');\nset_param(ph.Outport(1),'DataLogging','on', ...\n          'DataLoggingNameMode','Custom','DataLoggingName','xInt');\n\nt = (0:0.001:5)';  u = sin(2*pi*3*t);\nassignin('base','t',t); assignin('base','u',u);\nset_param(mdl,'LoadExternalInput','on','ExternalInput','[t, u]', ...\n              'SaveOutput','on','SaveState','on','SaveFormat','Dataset', ...\n              'SignalLogging','on','SignalLoggingName','logsout', ...\n              'StopTime','5');\nout = sim(mdl);\ny  = out.yout{1}.Values;      % Dataset element -> timeseries\nls = out.logsout;             % Simulink.SimulationData.Dataset\nplot(y.Time, y.Data); grid on\nclose_system(mdl,0);",
+      "notes": "Mark an individual signal for logging on the source block's OUTPUT PORT handle, not on the line: ph = get_param(blk,'PortHandles'); set_param(ph.Outport(1),'DataLogging','on','DataLoggingNameMode','Custom','DataLoggingName','mySig'). 'Array' and 'Structure' formats are legacy and lose signal names; new code should use 'Dataset'. To log without touching the saved model, use Simulink.SimulationInput.setModelParameter and setExternalInput.",
+      "docs": "https://www.mathworks.com/help/simulink/gui/data-import-export-pane.html"
+    },
+    {
+      "name": "Simulink.SimulationData.Dataset",
+      "kind": "api",
+      "description": "The container returned for logged signals (logsout), logged states (xout) and root outputs (yout) when SaveFormat is 'Dataset'. It holds an ordered list of elements, each a Simulink.SimulationData.Signal wrapping a timeseries plus the signal's name and block path, so elements can be fetched by index or by name. Use it to pull named signals out of a simulation result, to build stimulus data for setExternalInput, and to hand runs to the Simulation Data Inspector.",
+      "usage": "ds = out.logsout\nel = ds.get('signalName')    % or ds{k}, ds.getElement(k)\nds = addElement(ds, timeseriesObj, 'name')\nn  = ds.numElements",
+      "parameters": [
+        {"name": "get(name) / getElement(idx)", "description": "Fetch an element by signal name or by position."},
+        {"name": "addElement(value, name)", "description": "Append a timeseries, Signal or another Dataset element and give it a name."},
+        {"name": "numElements", "description": "Number of elements in the dataset."},
+        {"name": "find('BlockPath', path)", "description": "Search elements by block path, name or port index."},
+        {"name": "concat(otherDataset)", "description": "Merge two datasets into one."}
+      ],
+      "example": "out = sim('myModel');\nds  = out.logsout;\nfprintf('%d logged signals\\n', ds.numElements);\nsig = ds.get('speed');            % Simulink.SimulationData.Signal\nts  = sig.Values;                 % timeseries\nplot(ts.Time, ts.Data); grid on\n\n% build stimulus for a later run\nin  = Simulink.SimulationData.Dataset;\nin  = addElement(in, timeseries(sin(0:0.01:10)', (0:0.01:10)'), 'u');\nsimIn = Simulink.SimulationInput('myModel');\nsimIn = simIn.setExternalInput(in);\nout2  = sim(simIn);",
+      "notes": "Elements are Signal objects, not raw timeseries - remember the .Values step. Bus signals log as a Simulink.SimulationData.Dataset nested inside the element. Datasets are what Simulink.sdi.createRun and Simulink.sdi.Run.create accept directly.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationdata.dataset.html"
+    },
+    {
+      "name": "Simulink.sdi.createRun",
+      "kind": "function",
+      "description": "Creates a run in the Simulation Data Inspector repository from data you already have in MATLAB - a Dataset, timeseries objects, workspace variable names or matrices. Use it to get measured data, reference results or a previous simulation's output into the Inspector so it can be plotted against a live run or passed to Simulink.sdi.compareRuns. It returns the numeric run ID (and optionally the Simulink.sdi.Run object) that the rest of the sdi API works with.",
+      "usage": "runID = Simulink.sdi.createRun(runName, 'namevalue', {sourceNames}, {sigValues})\nrunID = Simulink.sdi.createRun(runName, 'vars', var1, var2, ...)\nrunID = Simulink.sdi.createRun(runName, 'file', 'data.mat')\n[runID, runIndex, signalIDs] = Simulink.sdi.createRun(___)",
+      "parameters": [
+        {"name": "runName", "description": "Name shown for the run in the Inspector. Called with no arguments it creates an empty, unnamed run."},
+        {"name": "'namevalue'", "description": "Followed by a cell array of source names and a cell array of values (timeseries, Dataset or matrices). The source names set each imported signal's RootSource, TimeSource and DataSource."},
+        {"name": "'vars'", "description": "Followed by the variables themselves - use it for several variables, or for an array of Simulink.SimulationOutput or Dataset objects."},
+        {"name": "'file'", "description": "Followed by a file name to import (MAT, MDF/MF4, CSV, Excel). An optional further argument names the file reader when more than one supports the file."},
+        {"name": "outputs", "description": "Returns the run ID, and optionally the run's index in the Inspector and the imported signal IDs."}
+      ],
+      "example": "t = (0:0.01:10)';\nmeas = timeseries(sin(t) + 0.02*randn(size(t)), t, 'Name','measured');\nrefID = Simulink.sdi.createRun('Bench measurement', 'namevalue', ...\n                               {'speed'}, {meas});\n\nout   = sim('myModel');\nsimID = Simulink.sdi.createRun('Model v3', 'namevalue', ...\n                               {'speed'}, {out.logsout.get('speed').Values});\nSimulink.sdi.view",
+      "notes": "Simulink.sdi.Run.create gives the same result as an object you can populate afterwards with add(). Simulink normally creates a run automatically for every simulation that logs data; use Simulink.sdi.getCurrentSimulationRun(mdl) to get it. Clear the repository between batches with Simulink.sdi.clear.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.sdi.createrun.html"
+    },
+    {
+      "name": "Simulink.sdi.compareRuns",
+      "kind": "function",
+      "description": "Compares two runs signal by signal and returns a Simulink.sdi.DiffRunResult object holding, for every aligned signal pair, the difference signal and whether it stayed inside the given tolerances. This is the programmatic core of regression testing a model: simulate, create a run, compare it with a stored baseline and assert that every signal passed. Alignment is by signal name by default, and absolute, relative and time tolerances can be set per comparison or per signal.",
+      "usage": "diffResult = Simulink.sdi.compareRuns(runID1, runID2)\ndiffResult = Simulink.sdi.compareRuns(runID1, runID2, 'abstol', a, 'reltol', r, 'timetol', t)\ndiffResult = Simulink.sdi.compareRuns(runID1, runID2, 'align', [Simulink.sdi.AlignType.SignalName Simulink.sdi.AlignType.BlockPath])",
+      "parameters": [
+        {"name": "runID1, runID2", "description": "Run IDs from Simulink.sdi.createRun, Simulink.sdi.getAllRunIDs or Simulink.sdi.getCurrentSimulationRun."},
+        {"name": "'abstol' / 'reltol' / 'timetol'", "description": "Global absolute, relative and time tolerances applied to every signal pair. Note the all-lowercase option names."},
+        {"name": "'align'", "description": "Array of Simulink.sdi.AlignType values - SignalName, BlockPath, SID, DataSource, Manual, None, Unset. Only the first three entries are used."},
+        {"name": "diffResult.Status", "description": "Overall comparison status, e.g. Passed / Failed / Pending / Canceled."},
+        {"name": "diffResult.Count", "description": "Number of aligned signal pairs (capital C)."},
+        {"name": "diffResult.getResultByIndex(k)", "description": "Per-signal Simulink.sdi.DiffSignalResult with .Name, .Status, .Diff, .MaxDifference, .SignalID1, .SignalID2."}
+      ],
+      "example": "baseID = Simulink.sdi.createRun('baseline','file','baseline.mat');\nout    = sim('myModel');\nnewID  = Simulink.sdi.getCurrentSimulationRun('myModel');\n\ndr = Simulink.sdi.compareRuns(baseID, newID, 'abstol', 1e-4, 'reltol', 1e-3, ...\n                              'align', Simulink.sdi.AlignType.SignalName);\nfprintf('overall: %s\\n', string(dr.Status));\nfor k = 1:dr.Count\n    r = dr.getResultByIndex(k);\n    fprintf('%-20s %-8s max diff %g\\n', r.Name, string(r.Status), r.MaxDifference);\nend\nSimulink.sdi.view",
+      "notes": "Signals that exist in only one run are reported as unaligned, not as failures - check dr.count against the expected number. For a full test harness with baselines, iterations and reports, Simulink Test (sltest.testmanager.run) wraps this and adds reporting.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.sdi.compareruns.html"
+    },
+    {
+      "name": "Simulink.sdi.view",
+      "kind": "tool",
+      "description": "Opens the Simulation Data Inspector, the app that stores and plots every run's logged data. It gives time plots, XY plots, sparklines, cursors, per-signal tolerance checks and a comparison view that overlays two runs and draws the difference, plus import from MAT, CSV, Excel and MDF files. Use it whenever you need to look at results across several simulations rather than a single scope trace, and to visually inspect the result of Simulink.sdi.compareRuns.",
+      "usage": "Simulink.sdi.view\nSimulation tab > Data Inspector\nSimulink.sdi.clear          % empty the repository\nSimulink.sdi.save('runs.mldatx')",
+      "parameters": [
+        {"name": "Simulink.sdi.clear", "description": "Deletes all runs from the repository. Call it before a batch so old runs do not accumulate."},
+        {"name": "Simulink.sdi.save(file)", "description": "Saves the whole session to an .mldatx file; Simulink.sdi.load restores it."},
+        {"name": "Simulink.sdi.getAllRunIDs", "description": "Vector of every run ID currently held."},
+        {"name": "Simulink.sdi.getCurrentSimulationRun(mdl)", "description": "Run ID created by the most recent simulation of that model."},
+        {"name": "Simulink.sdi.setRunNamingRule(rule)", "description": "Template for automatic run names, e.g. 'Run <run_index>: <model_name>'."}
+      ],
+      "example": "Simulink.sdi.clear;\nfor Kp = [1 2 5]\n    assignin('base','Kp',Kp);\n    out = sim('myModel');\n    rid = Simulink.sdi.getCurrentSimulationRun('myModel');\n    r = Simulink.sdi.getRun(rid);\n    r.Name = sprintf('Kp = %g', Kp);\nend\nSimulink.sdi.view",
+      "notes": "Data logged with the Dataset format lands in the Inspector automatically unless you turn off 'Record logged workspace data in Simulation Data Inspector'. The repository persists between simulations and can grow large - Simulink.sdi.clear is cheap insurance in a loop.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.sdi.view.html"
+    },
+    {
+      "name": "modeladvisor",
+      "kind": "tool",
+      "description": "Opens the Model Advisor on a model or subsystem. The Model Advisor runs a configurable set of static checks - modelling standards, configuration settings that hurt simulation or code generation, unconnected or unused elements, data-type and range issues, and with add-on products MAAB/JMAAB style rules, DO-178 and ISO 26262 checks. Run it before a design review or a code-generation build to catch problems that only show up much later. Results are shown as a pass/warn/fail tree with a fix action for many checks.",
+      "usage": "modeladvisor(mdl)\nmodeladvisor('mdl/subsystem')\nmodeladvisor({'mdlA','mdlB'})\nModeling tab > Model Advisor",
+      "parameters": [
+        {"name": "mdl", "description": "Model name, subsystem path, or a cell array of them to open the Model Advisor in batch (Upgrade/Advisor) mode."},
+        {"name": "Configuration", "description": "A .json configuration created in the Model Advisor Configuration Editor that selects which checks run."}
+      ],
+      "example": "mdl = 'sldemo_fuelsys';\nload_system(mdl);\nmodeladvisor(mdl);",
+      "notes": "Requires no add-on for the base Simulink checks; the compliance check packs (MAAB/JMAAB, DO-178, IEC 61508, ISO 26262, MISRA-oriented code checks) come with Simulink Check. For headless/CI use call ModelAdvisor.run instead. The related Upgrade Advisor (upgradeadvisor) handles release-migration checks and the Performance Advisor handles simulation-speed checks.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/modeladvisor.html"
+    },
+    {
+      "name": "ModelAdvisor.run",
+      "kind": "function",
+      "description": "Runs selected Model Advisor checks on one or more systems without opening the GUI and returns a cell array of ModelAdvisor.SystemResult objects. This is the way to put Model Advisor into a build or CI job: pick a check list or a saved configuration, run it headless, then inspect each result's NumFail/NumWarn counts and fail the job when they are non-zero. Individual checks can be given input parameters, and a report can be generated from the results.",
+      "usage": "results = ModelAdvisor.run(Systems, CheckIDList)\nresults = ModelAdvisor.run(Systems, 'Configuration', configFile)\nresults = ModelAdvisor.run(___, 'DisplayResults','Summary'|'Details'|'None')",
+      "parameters": [
+        {"name": "Systems", "description": "Cell array of model or subsystem names."},
+        {"name": "CheckIDList", "description": "Check ID or cell array of check IDs; use ModelAdvisor.getCheckAll or the Model Advisor GUI to discover IDs."},
+        {"name": "'Configuration'", "description": "Path to a Model Advisor configuration file that selects the checks to run."},
+        {"name": "'Force'", "description": "'On' to save and close dirty models without prompting."},
+        {"name": "'ParallelMode'", "description": "'On' to run the systems across a parallel pool (needs Parallel Computing Toolbox)."}
+      ],
+      "example": "sysList = {'sldemo_fuelsys'};\nchecks  = {'mathworks.design.UnconnectedLinesPorts', ...\n           'mathworks.design.OptimizeBlocksForCodeGen'};\nresults = ModelAdvisor.run(sysList, checks, 'DisplayResults','Summary');\nr = results{1};\nfprintf('pass=%d warn=%d fail=%d\\n', r.NumPass, r.NumWarn, r.NumFail);\nif r.NumFail > 0\n    error('Model Advisor reported %d failures', r.NumFail);\nend",
+      "notes": "ModelAdvisor.run lives in Simulink Check for the full check catalogue, but the core Simulink checks run without it. A model must be loadable and compilable for many checks; wrap the call in try/catch in CI. Use viewReport(r,'HTML') to emit a shareable report.",
+      "docs": "https://www.mathworks.com/help/slcheck/ref/modeladvisor.run.html"
+    },
+    {
+      "name": "Simulink Profiler",
+      "kind": "tool",
+      "description": "Runs a profiling simulation and reports how the total execution time is distributed across blocks, subsystems and referenced models, in both a block-hierarchy view and a function view. Use it when a simulation is slower than expected and you need to know which component to attack - a costly S-function, an over-sampled subsystem, an expensive MATLAB Function block. It complements the Solver Profiler: the Simulink Profiler answers 'which block costs the most', the Solver Profiler answers 'why is the step size so small'.",
+      "usage": "Debug tab > Performance > Simulink Profiler, then click Profile",
+      "parameters": [
+        {"name": "Profiling Report pane", "description": "Per-component total time, self time and number of calls, sortable and expandable along the model hierarchy."},
+        {"name": "Function view", "description": "Groups the same data by simulation phase (Initialize, Outputs, Update, Derivatives, Zero Crossings) rather than by block."}
+      ],
+      "example": "% Open a model, then profile it from the toolstrip\nopen_system('sldemo_fuelsys');\n% Debug tab > Performance > Simulink Profiler > Profile\n% Inspect the Profiling Report pane, sort by Total Time",
+      "notes": "Profiling adds instrumentation overhead, so absolute times are inflated - compare relative shares, not wall-clock seconds. Run the Performance Advisor first for cheap configuration wins (accelerator mode, sample-time and solver settings) before micro-optimising individual blocks.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulinkprofiler.html"
+    },
+    {
+      "name": "solverprofiler.profileModel",
+      "kind": "tool",
+      "description": "Command-line interface to the Solver Profiler, which analyses how the chosen solver behaves over a simulation: the step sizes actually taken, solver resets, Jacobian updates, zero-crossing events and solver exceptions, together with the blocks responsible for limiting the step. Use it on variable-step models whose simulation crawls, to find the state or event that is forcing tiny steps, and on implicit-solver models to see how often the Jacobian is recomputed. Returns a struct of results and can optionally open the Solver Profiler UI.",
+      "usage": "res = solverprofiler.profileModel(mdl)\nres = solverprofiler.profileModel(mdl, 'StartTime', t1, 'StopTime', t2, 'OpenSP','On')\nDebug tab > Performance > Solver Profiler",
+      "parameters": [
+        {"name": "mdl", "description": "Model name to profile."},
+        {"name": "'StartTime' / 'StopTime'", "description": "Restrict profiling to a time window; a StopTime smaller than the model's also stops the simulation there."},
+        {"name": "'SaveStates' / 'SaveZCSignals' / 'SaveSimscapeStates'", "description": "'On' to write state, zero-crossing or Simscape state traces to the results MAT-file."},
+        {"name": "'SaveJacobian'", "description": "'On' to keep the Jacobian matrices in memory - useful when diagnosing an implicit solver."},
+        {"name": "'BufferSize'", "description": "Maximum number of logged events, default 50000. Raise it when events are being dropped."},
+        {"name": "'DataFullFile'", "description": "Full path of the MAT-file that receives the profiling data."},
+        {"name": "'OpenSP'", "description": "'On' to open the Solver Profiler UI when profiling finishes."}
+      ],
+      "example": "mdl = 'sldemo_bounce';\nload_system(mdl);\nset_param(mdl,'SolverType','Variable-step','Solver','ode23t','StopTime','20');\nres = solverprofiler.profileModel(mdl, 'SaveZCSignals','On', 'OpenSP','On');\ndisp(res);",
+      "notes": "Only meaningful for variable-step solvers; a fixed-step model has nothing to report about step size. Typical findings are a chattering zero crossing (fix with the adaptive zero-crossing algorithm or hysteresis), a stiff state (switch to ode15s/ode23t), or an algebraic loop forcing resets.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/solverprofiler.profilemodel.html"
+    },
+    {
+      "name": "linmod",
+      "kind": "function",
+      "description": "Extracts a continuous-time linear state-space model [A,B,C,D] of a whole Simulink model by linearising every block about an operating point. It uses the root-level Inport and Outport blocks as the inputs and outputs, so the model must be wrapped in them. It ships with base Simulink, which makes it the fallback when Simulink Control Design is not licensed, but it is a legacy function: it perturbs blocks numerically, does not handle discrete/multirate models well and cannot linearise at an arbitrary point in the diagram.",
+      "usage": "[A,B,C,D] = linmod(mdl)\n[A,B,C,D] = linmod(mdl, x, u)\nsys = linmod(mdl)        % returns a struct with .a .b .c .d\n[A,B,C,D] = dlinmod(mdl, Ts)   % discrete-time equivalent",
+      "parameters": [
+        {"name": "mdl", "description": "Name of the model to linearise. Inputs and outputs come from root-level Inport/Outport blocks."},
+        {"name": "x, u", "description": "State and input vectors defining the operating point; defaults are the model's initial state and zero input."},
+        {"name": "'v5'", "description": "Option selecting the older full-model perturbation algorithm."},
+        {"name": "para", "description": "Vector of perturbation levels controlling the numerical differencing."}
+      ],
+      "example": "mdl = 'myPlant'; load_system(mdl);\n[A,B,C,D] = linmod(mdl);\nsys = ss(A,B,C,D);\nbode(sys); grid on\ndamp(sys)",
+      "notes": "For anything beyond a quick sanity check use linearize from Simulink Control Design: it is exact block-by-block, supports analysis points anywhere in the diagram, operating-point search, multirate models and block substitutions. trim (also base Simulink) finds a steady-state point to feed linmod; dlinmod is the discrete counterpart.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/linmod.html"
+    },
+    {
+      "name": "linearize",
+      "kind": "function",
+      "description": "Computes an exact linear approximation of a Simulink model, subsystem or block path at a specified operating point, returning a Control System Toolbox state-space (ss) model. Unlike linmod it linearises block by block using analytic block Jacobians, honours linearization I/O points placed anywhere in the diagram, handles discrete and multirate models, and accepts block substitutions for elements that have no useful linearization. This is the standard entry point for control design on a nonlinear Simulink plant.",
+      "usage": "linsys = linearize(mdl, io)\nlinsys = linearize(mdl, io, op)\nlinsys = linearize(mdl, io, op, options)\n[linsys, linop] = linearize(___)",
+      "parameters": [
+        {"name": "mdl", "description": "Model name, or a block path when linearising a single subsystem."},
+        {"name": "io", "description": "Array of linearization I/O points built with linio(block, port, type) where type is 'input', 'output', 'openloop', 'looptransfer', ..."},
+        {"name": "op", "description": "Operating point from operspec/findop, a simulation snapshot time, or an operating point object."},
+        {"name": "options", "description": "linearizeOptions object: SampleTime, UseFullBlockNameLabels, BlockReduction, RateConversionMethod."},
+        {"name": "blocksub", "description": "Substitution structure replacing a block's linearization with a user-supplied model."}
+      ],
+      "example": "mdl = 'watertank'; load_system(mdl);\nio(1) = linio([mdl '/PID Controller'], 1, 'input');\nio(2) = linio([mdl '/Water-Tank System'], 1, 'output');\n\nop = operspec(mdl);\nop.States(1).Known = true; op.States(1).x = 10;\nop = findop(mdl, op);\n\nlinsys = linearize(mdl, io, op);\nbode(linsys); grid on\nC = pidtune(linsys, 'PI');",
+      "notes": "Requires Simulink Control Design (and Control System Toolbox for the returned ss object). The interactive equivalent is the Model Linearizer app (Apps > Linearization Manager / Model Linearizer). Blocks that linearise to zero (saturations at a limit, dead zones) are a common cause of an all-zero result - check with the Linearization Advisor or getBlockInfo.",
+      "docs": "https://www.mathworks.com/help/slcontrol/ug/linearize.html"
+    },
+    {
+      "name": "slLinearizer",
+      "kind": "api",
+      "description": "An interface object that compiles a model once and then serves many linearizations from it. You register analysis points and loop-opening locations on construction, then ask for specific transfer functions with getIOTransfer, getLoopTransfer, getSensitivity and getCompSensitivity without recompiling. Use it when you need several I/O combinations, several operating points or a parameter sweep, where calling linearize repeatedly would be far slower.",
+      "usage": "sllin = slLinearizer(mdl)\nsllin = slLinearizer(mdl, points)\nsllin = slLinearizer(mdl, points, op, param)\nsys = getIOTransfer(sllin, in, out)\nsys = getLoopTransfer(sllin, point)",
+      "parameters": [
+        {"name": "points", "description": "Cell array of analysis-point locations: signal names, block paths with port index, or linio objects."},
+        {"name": "op", "description": "One or an array of operating points; the result of getIOTransfer is then an array of models."},
+        {"name": "param", "description": "Parameter variation structure {Name, Value} for a parameter sweep."},
+        {"name": "getIOTransfer(sllin,in,out)", "description": "Closed-loop transfer from the 'in' analysis point to the 'out' analysis point."},
+        {"name": "getIOTransfer(sllin,in,out,openings)", "description": "Same, with the listed points opened to break feedback paths."},
+        {"name": "getLoopTransfer(sllin,point)", "description": "Open-loop transfer at a point, for stability-margin analysis."}
+      ],
+      "example": "mdl = 'scdcascade'; load_system(mdl);\nsllin = slLinearizer(mdl, {'u1','y1m','y2m'});\n\nTry2u1 = getIOTransfer(sllin, 'u1', 'y2m');\nL      = getLoopTransfer(sllin, 'y1m', -1);\n\nbode(Try2u1); grid on\nmargin(L)",
+      "notes": "Requires Simulink Control Design. The model is compiled lazily on the first query and cached, so the first call is slow and the rest are fast; call refresh(sllin) after changing the model. Analysis points must exist in the diagram (add them with linio or by marking signals in the Linearization Manager).",
+      "docs": "https://www.mathworks.com/help/slcontrol/ug/sllinearizer.html"
+    },
+    {
+      "name": "findop",
+      "kind": "function",
+      "description": "Finds an operating point of a Simulink model, either by trimming (solving for the states and inputs that satisfy a set of constraints, typically steady state) or by taking a snapshot at given simulation times. The trim specification comes from operspec, whose States, Inputs and Outputs entries you mark as Known, SteadyState, Min/Max or with a target value. Use it to get the equilibrium point a controller will be designed around, then pass the result to linearize.",
+      "usage": "op = findop(mdl, opspec)\nop = findop(mdl, opspec, options)\nop = findop(mdl, snapshotTimes)\n[op, opreport] = findop(___)",
+      "parameters": [
+        {"name": "mdl", "description": "Model name."},
+        {"name": "opspec", "description": "Operating point specification from operspec(mdl); edit .States(i).Known/.SteadyState/.x and .Inputs(i).Known/.u."},
+        {"name": "snapshotTimes", "description": "Vector of simulation times at which to capture the operating point instead of trimming."},
+        {"name": "options", "description": "findopOptions object: OptimizerType ('graddescent-elim', 'graddescent', 'lsqnonlin', 'simplex'), OptimizationOptions, DisplayReport."},
+        {"name": "opreport", "description": "Report object showing, per state and input, the achieved value and the residual dx - inspect it to see whether the trim really converged."}
+      ],
+      "example": "mdl = 'watertank'; load_system(mdl);\nop = operspec(mdl);\nop.Outputs(1).Known = true;   op.Outputs(1).y = 10;\nop.States(1).SteadyState = true;\n\nopts = findopOptions('DisplayReport','iter');\n[opPoint, opReport] = findop(mdl, op, opts);\ndisp(opReport)\n\nio(1) = linio([mdl '/PID Controller'],1,'input');\nio(2) = linio([mdl '/Water-Tank System'],1,'output');\nsys = linearize(mdl, io, opPoint);",
+      "notes": "Requires Simulink Control Design. operspec builds the specification and is the object you edit; the base-Simulink equivalent is trim, which is far more limited. Always read opreport - findop returns a point even when the optimisation did not converge, and a bad trim silently produces a meaningless linearization.",
+      "docs": "https://www.mathworks.com/help/slcontrol/ug/findop.html"
+    },
+    {
+      "name": "fxptdlg",
+      "kind": "tool",
+      "description": "Opens the Fixed-Point Tool on a system. The tool drives the floating-point to fixed-point conversion workflow: it instruments the model to collect simulation minimum/maximum ranges (and derived ranges from design ranges), proposes word lengths and binary points for every data type, applies the proposal, then re-simulates and compares the fixed-point behaviour against the original floating-point baseline. Use it before generating code for a fixed-point processor, and to explore how quantisation degrades numerical behaviour.",
+      "usage": "fxptdlg(system)\nApps tab > Fixed-Point Tool\nconverter = DataTypeWorkflow.Converter(mdl)   % scripted equivalent",
+      "parameters": [
+        {"name": "system", "description": "Model or subsystem path to open the tool on."},
+        {"name": "Range collection mode", "description": "'Simulation ranges', 'Derived ranges' or both - how the tool gathers the data needed to propose types."},
+        {"name": "Proposal settings", "description": "Default word length or default fraction length, safety margin, and whether to propose for inherited types."},
+        {"name": "DataTypeWorkflow.Converter", "description": "Scripted API for the same workflow: collectRanges, proposeDataTypes, applyDataTypes, verify, and the Result objects it returns."}
+      ],
+      "example": "mdl = 'ex_fixed_point_workflow';\n% GUI route\n% fxptdlg(mdl)\n\n% scripted route\nconverter = DataTypeWorkflow.Converter(mdl);\nconverter.CurrentRunName = 'BaselineRun';\nconverter.collectRanges();\nproposalSettings = DataTypeWorkflow.ProposalSettings();\nconverter.proposeDataTypes(proposalSettings);\nconverter.applyDataTypes();\nres = converter.verify();",
+      "notes": "Requires Fixed-Point Designer. fxptdlg is the legacy command name and still opens the modern Fixed-Point Tool; the toolstrip route (Apps > Fixed-Point Tool) is the documented way. For MATLAB code rather than blocks, the equivalent tools are the Fixed-Point Converter app and fiaccel.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fxptdlg.html"
+    },
+    {
+      "name": "Simulink.findVars",
+      "kind": "function",
+      "description": "Reports which workspace variables and enumerated types a model, subsystem or block actually uses, and where each one is defined (base workspace, model workspace, mask workspace or data dictionary). It can also be inverted to list variables that are defined but unused. Use it to work out the minimum set of variables a model needs before packaging or running it headless, to find where a parameter really comes from, and to clean dead data out of a workspace or dictionary.",
+      "usage": "vars = Simulink.findVars(context)\nvars = Simulink.findVars(context, 'SearchMethod','cached')\nvars = Simulink.findVars(mdl, 'FindUsedVars', false)\nvars = Simulink.findVars(mdl, 'Name','Kp')",
+      "parameters": [
+        {"name": "context", "description": "Model name, subsystem path, block path, or a cell array of them."},
+        {"name": "'SearchMethod'", "description": "'compiled' (default; compiles the model, accurate and complete) or 'cached' (no compile, uses the last update-diagram results)."},
+        {"name": "'SearchReferencedModels'", "description": "'on' to descend into referenced models."},
+        {"name": "'FindUsedVars'", "description": "true (default) for used variables; false to list variables defined but not used."},
+        {"name": "'SourceType'", "description": "Filter by 'base workspace', 'model workspace', 'mask workspace' or 'data dictionary'."},
+        {"name": "'Name' / 'Regexp'", "description": "Restrict results to a variable name, optionally interpreted as a regular expression."}
+      ],
+      "example": "mdl = 'varDemo';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/In1',        [mdl '/u'], 'Position',[40 45 70 65]);\nadd_block('simulink/Math Operations/Gain',[mdl '/K'], 'Position',[140 40 170 70]);\nadd_block('simulink/Sinks/Out1',         [mdl '/y'], 'Position',[240 45 270 65]);\nset_param([mdl '/K'],'Gain','Kp');\nadd_line(mdl,'u/1','K/1','autorouting','on');\nadd_line(mdl,'K/1','y/1','autorouting','on');\nassignin('base','Kp',2.5);\nassignin('base','Ki',0.1);      % defined but never used\n\nvars = Simulink.findVars(mdl);\nfor k = 1:numel(vars)\n    fprintf('%-20s from %-16s used by %d block(s)\\n', ...\n        vars(k).Name, vars(k).SourceType, numel(vars(k).Users));\nend\n\nunused = Simulink.findVars(mdl, 'FindUsedVars', false);\nfprintf('%d unused variables\\n', numel(unused));\nclose_system(mdl,0);",
+      "notes": "Returns Simulink.VariableUsage objects whose .Users field lists the block paths that reference the variable. The 'compiled' search updates the diagram, so it can be slow and will error on a model that does not compile - fall back to 'cached' after a successful update. Pair it with dependencies.fileDependencyAnalysis to build the full ship list for a model.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.findvars.html"
+    },
+    {
+      "name": "dependencies.fileDependencyAnalysis",
+      "kind": "function",
+      "description": "Finds every file a model needs in order to load and run: referenced models, libraries, data dictionaries, MATLAB code called from callbacks and MATLAB Function blocks, S-function binaries, bus and enumeration definitions, and included data files. It returns the file list plus lists of problem files and unsaved models. Use it before zipping a model for a colleague, before adding it to a project, or in CI to verify nothing outside the repository is being pulled in.",
+      "usage": "files = dependencies.fileDependencyAnalysis(mdl)\n[files, missing, depfile, manifestfile] = dependencies.fileDependencyAnalysis(mdl, manifestName)",
+      "parameters": [
+        {"name": "mdl", "description": "Model name (or cell array of names) to analyse."},
+        {"name": "manifestName", "description": "Optional name for a manifest (.smf) file written with the results."},
+        {"name": "files", "description": "Cell array of absolute paths of every required file."},
+        {"name": "missing", "description": "Files that could not be found - the list to fix before shipping."},
+        {"name": "depfile", "description": "Files whose dependencies could not be fully analysed (for example, protected or P-coded files)."}
+      ],
+      "example": "mdl = 'depDemo';\nnew_system(mdl);\nadd_block('simulink/Sources/Sine Wave',[mdl '/u'], 'Position',[40 40 70 70]);\nadd_block('simulink/Sinks/Out1',       [mdl '/y'], 'Position',[160 45 190 65]);\nadd_line(mdl,'u/1','y/1','autorouting','on');\nsave_system(mdl, fullfile(pwd,[mdl '.slx']));\n\n[files, missing] = dependencies.fileDependencyAnalysis(mdl);\nfprintf('%d required files\\n', numel(files));\nif ~isempty(missing)\n    disp('MISSING:'); disp(missing(:));\nend\nzip('shipme.zip', files);\nclose_system(mdl,0);",
+      "notes": "Analysis is static, so files reached only through eval or a run-time string are not found. Inside a Simulink Project/Project, the Dependency Analyzer (Project tab > Dependency Analyzer) gives the same information with a graph view and impact analysis. dependencies.toolboxDependencyAnalysis reports which toolboxes a model needs.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/dependencies.filedependencyanalysis.html"
+    },
+    {
+      "name": "Model Explorer",
+      "kind": "tool",
+      "description": "A three-pane browser over the whole modelling session: the model hierarchy (models, subsystems, charts, workspaces, data dictionaries, configuration sets) on the left, the contents of the selected node in the middle, and the properties of the selected object on the right. Use it to view and edit many objects at once - retype a hundred signals, audit every Gain value, edit the model workspace, manage bus objects and Simulink.Parameter data, compare configuration sets - which is far faster than opening block dialogs one by one. It also hosts the search facility that finds objects by property across a model.",
+      "usage": "daexplr\nModeling tab > Model Explorer\nView > Model Explorer",
+      "parameters": [
+        {"name": "Model Hierarchy pane", "description": "Base Workspace, Simulink Root, each loaded model and its workspace, configurations, code-generation data and Stateflow objects."},
+        {"name": "Contents pane", "description": "Editable table of the selected node's children; columns are configurable per object type and support multi-select editing."},
+        {"name": "Search bar", "description": "Find objects by name, property value, block type or 'Find Where Used' for a variable."},
+        {"name": "Dialog/Property pane", "description": "Same dialog you would get by double-clicking the object in the diagram."}
+      ],
+      "example": "load_system('sldemo_fuelsys');\ndaexplr;\n% then: select sldemo_fuelsys > Model Workspace to edit its variables,\n% or use the search bar with 'Block Type = Gain' to list every gain.",
+      "notes": "daexplr is the documented programmatic command. Anything editable in Model Explorer is also reachable from get_param/set_param and the workspace APIs (get_param(mdl,'ModelWorkspace'), Simulink.data.dictionary), which is what to use for automation - the Explorer is for interactive bulk edits and auditing.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/modelexplorer.html"
+    },
+    {
+      "name": "visdiff",
+      "kind": "function",
+      "description": "Opens the Comparison tool on two files. For Simulink models it produces a structural, hierarchical diff of the block diagrams rather than a text diff: added, deleted, moved and modified blocks, changed parameters, changed lines and changed configuration settings, with the two diagrams shown side by side and differences highlighted. Use it for model review, to understand what a merge or a colleague's change actually did, and to compare a model against an earlier revision from source control.",
+      "usage": "visdiff(filename1, filename2)\nvisdiff(filename1, filename2, type)\ncomparison = visdiff(filename1, filename2)   % comparison object, does not open the GUI\nIn the Current Folder browser: select two files, right-click > Compare Selected Files/Folders",
+      "parameters": [
+        {"name": "filename1, filename2", "description": "The two files or folders to compare - .slx/.mdl models, MATLAB code, data files."},
+        {"name": "type", "description": "Comparison type: 'xml', 'text' or 'binary'. Omit it and visdiff picks the default for the file type, which for .slx is the Simulink model comparison. Does not apply to folder comparison."},
+        {"name": "comparison (output)", "description": "A comparisons.Comparison object returned instead of opening the Comparison Tool, used to generate reports programmatically. Not supported for every comparison type."},
+        {"name": "Filtering", "description": "Cosmetic differences (block positions and other non-functional parameters) are filtered from the Simulink comparison through the Comparison Tool's own Filter menu, not through a visdiff argument."}
+      ],
+      "example": "% compare a model against its previous revision\ncopyfile(which('sldemo_fuelsys'), 'fuelsys_v1.slx');\nload_system('fuelsys_v1');\nset_param('fuelsys_v1','StopTime','1200');\nsave_system('fuelsys_v1');\nvisdiff(which('sldemo_fuelsys'), 'fuelsys_v1.slx');",
+      "notes": "Three-way model merge (for resolving a source-control conflict) needs Simulink Check via the Simulink three-way merge tool; two-way comparison is available with base Simulink. Comparing .slx files is much more informative than diffing them as text, since .slx is a zipped XML package.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/visdiff.html"
+    },
+    {
+      "name": "SimulationCommand",
+      "kind": "command",
+      "description": "A write-only model parameter that drives a running or idle simulation from MATLAB: start it, pause it, continue it, stop it, step it or force a diagram update. Paired with the read-only 'SimulationStatus' parameter it lets an external program (an MCP server, a test harness, a GUI) control a simulation asynchronously instead of blocking inside sim. 'update' compiles the diagram without simulating, which is how you validate a model you have just built programmatically.",
+      "usage": "set_param(mdl,'SimulationCommand','start'|'pause'|'continue'|'stop'|'step'|'update'|'connect'|'disconnect')\nstatus = get_param(mdl,'SimulationStatus')\nt = get_param(mdl,'SimulationTime')",
+      "parameters": [
+        {"name": "'start'", "description": "Begins the simulation and returns immediately - it does not block like sim."},
+        {"name": "'pause' / 'continue'", "description": "Suspend and resume a running simulation; while paused you can inspect and change block parameters."},
+        {"name": "'stop'", "description": "Ends the simulation; logged data up to that point is still returned."},
+        {"name": "'step'", "description": "Advances one major time step (simulation stepping must be enabled)."},
+        {"name": "'update'", "description": "Compiles and updates the block diagram (Ctrl+D) without simulating - the cheapest way to check that a model is valid."},
+        {"name": "'connect' / 'disconnect'", "description": "Connect to or disconnect from the target in external mode."},
+        {"name": "SimulationStatus", "description": "Read-only: 'stopped', 'initializing', 'running', 'paused', 'updating', 'terminating', 'external', 'compiled'."}
+      ],
+      "example": "mdl = 'cmdDemo';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/Sine Wave',    [mdl '/u'],   'Position',[40 40 70 70]);\nadd_block('simulink/Continuous/Integrator',[mdl '/Int'], 'Position',[140 40 170 70]);\nadd_block('simulink/Sinks/Out1',           [mdl '/y'],   'Position',[240 45 270 65]);\nadd_line(mdl,'u/1','Int/1','autorouting','on');\nadd_line(mdl,'Int/1','y/1','autorouting','on');\n\nset_param(mdl,'SimulationCommand','update');     % compile-only check\nset_param(mdl,'StopTime','60');\nset_param(mdl,'SimulationCommand','start');\n\n% the command is QUEUED - wait for the status to actually change\nfor k = 1:50\n    if ~strcmp(get_param(mdl,'SimulationStatus'),'stopped'), break; end\n    pause(0.1);\nend\n\n% ALWAYS bound the poll loop - never spin on status alone\nfor k = 1:100\n    if strcmp(get_param(mdl,'SimulationStatus'),'stopped'), break; end\n    set_param(mdl,'SimulationCommand','pause');\n    pause(0.1);\n    tNow = get_param(mdl,'SimulationTime');\n    fprintf('t = %g\\n', tNow);\n    if tNow > 10\n        break;\n    end\n    set_param(mdl,'SimulationCommand','continue');\n    pause(0.1);\nend\n\nset_param(mdl,'SimulationCommand','stop');\npause(0.5);\nclose_system(mdl,0);",
+      "notes": "The command is queued, not synchronous: immediately after 'start' the status is usually still 'stopped', so a naive 'while status == running' loop exits at once and leaves the simulation running unattended. Always wait for 'SimulationStatus' to change before entering the control loop, always bound that loop with a maximum iteration count, and give the model a finite StopTime - an unbounded poll loop hangs forever if the status never reaches the value you are waiting for. Under 'matlab -batch' there is no desktop event loop, so an asynchronous simulation may not progress at all; use sim / parsim / batchsim for headless and CI runs and reserve SimulationCommand for interactive or externally driven control. Commands are ignored if the model is in the wrong state (e.g. 'continue' on a stopped model).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/set_param.html"
+    }
+  ]
+}

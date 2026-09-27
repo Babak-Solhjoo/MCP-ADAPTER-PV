@@ -1,0 +1,610 @@
+{
+  "category": "Timing Constraints (XDC) & Design Analysis Reports",
+  "description": "Xilinx Design Constraints are Tcl: SDC timing commands, Vivado physical and attribute constraints applied with set_property, and the report_* family that reads the results back out. Constraints are evaluated in file order against the elaborated or synthesized netlist, and every command operates on design objects returned by the get_* query commands.",
+  "tools": [
+    {
+      "name": "create_clock",
+      "kind": "tcl-command",
+      "description": "Define a primary clock on a port, pin or net, giving the timing engine a period, a name and a waveform. Every path in the design is timed relative to some clock, so an unconstrained clock means unconstrained paths and a misleadingly clean timing report. Use it for clocks that enter the device from outside; clocks generated inside the device by an MMCM, PLL or clock divider should be described with create_generated_clock instead.",
+      "usage": "create_clock -period <ns> [-name <clk_name>] [-waveform {<rise> <fall>}] [-add] [<source_objects>]",
+      "parameters": [
+        {"name": "-period", "description": "Clock period in nanoseconds (the XDC time unit). 10.000 is 100 MHz."},
+        {"name": "-name", "description": "Name of the clock object. If omitted, the clock takes the name of the source object."},
+        {"name": "-waveform", "description": "Rising and falling edge times within one period, e.g. {0 5} for 50% duty. Use it to describe shifted or non-50% clocks."},
+        {"name": "-add", "description": "Add a second clock to a source that already has one instead of replacing it; requires -name."},
+        {"name": "<source_objects>", "description": "Result of get_ports, get_pins or get_nets. A virtual clock is created by omitting the source entirely."}
+      ],
+      "example": "# 100 MHz differential system clock on a package pin\ncreate_clock -period 10.000 -name sys_clk -waveform {0.000 5.000} [get_ports sys_clk_p]\n\n# Virtual clock used only as the reference for board-level I/O delays\ncreate_clock -period 8.000 -name virt_src_clk\n\nreport_clocks",
+      "notes": "MMCM/PLL outputs are auto-derived by Vivado and must not be constrained with create_clock; doing so overrides the derived clock and usually produces wrong results. Use report_clocks to see every clock, including auto-derived ones, and check_timing to find clocks you forgot to define.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_clock"
+    },
+    {
+      "name": "create_generated_clock",
+      "kind": "tcl-command",
+      "description": "Describe a clock that is produced inside the device from another clock, by giving its relationship to the master clock as a division, multiplication, edge list or phase shift. Vivado derives MMCM, PLL and BUFGCE_DIV outputs automatically, so this is mainly needed for clocks built out of user logic, such as a register-based divide-by-2 or a gated clock on a BUFGCE.",
+      "usage": "create_generated_clock -name <name> -source <master_pin> [-divide_by <n>] [-multiply_by <n>] [-edges {<list>}] [-edge_shift {<list>}] [-invert] [-add] <source_objects>",
+      "parameters": [
+        {"name": "-source", "description": "Pin or port where the master clock enters the generating logic. Give the pin, not the clock name."},
+        {"name": "-divide_by / -multiply_by", "description": "Integer frequency relationship to the master clock."},
+        {"name": "-edges", "description": "Which master-clock edges form the generated waveform, e.g. {1 3 5} for a divide-by-2."},
+        {"name": "-edge_shift", "description": "Per-edge shift in nanoseconds; used together with -edges to model duty-cycle changes."},
+        {"name": "-invert", "description": "Generated clock is inverted with respect to the master."},
+        {"name": "-name", "description": "Name of the new clock object."}
+      ],
+      "example": "# Divide-by-2 built from a toggling flip-flop\ncreate_generated_clock -name clk_div2 \\\n  -source [get_pins clk_div_reg/C] -divide_by 2 [get_pins clk_div_reg/Q]\n\n# Clock forwarded off-chip through an ODDR\ncreate_generated_clock -name clk_fwd \\\n  -source [get_pins oddr_inst/C] -multiply_by 1 [get_ports clk_out]\n\nreport_clocks",
+      "notes": "The -source pin and the constrained object must be on the same clock path. If Vivado already auto-derived a clock at that point, add -add or rename it, otherwise the generated clock silently replaces the derived one.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_generated_clock"
+    },
+    {
+      "name": "set_input_delay",
+      "kind": "tcl-command",
+      "description": "Model how long after the reference clock edge data arrives at an input port, so the timing engine can check the setup and hold requirement of the first capture flop inside the device. Without it, input paths are simply not timed. The numbers come from the driving device's datasheet plus board trace delay, and both a -max (setup) and a -min (hold) value should be supplied.",
+      "usage": "set_input_delay -clock <clk> [-clock_fall] [-max|-min] [-add_delay] [-source_latency_included] <delay_ns> <port_objects>",
+      "parameters": [
+        {"name": "-clock", "description": "Clock object the delay is measured against, from get_clocks. May be a virtual clock."},
+        {"name": "-max / -min", "description": "Latest and earliest data arrival, used for setup and hold analysis respectively."},
+        {"name": "-clock_fall", "description": "Reference the falling edge, for DDR or falling-edge-launched interfaces."},
+        {"name": "-add_delay", "description": "Keep any delay already set on the port instead of replacing it; needed when a port is constrained against two clocks or both edges."},
+        {"name": "<port_objects>", "description": "Ports from get_ports, normally a bus pattern such as {din[*]}."}
+      ],
+      "example": "# Source-synchronous input aligned to a 125 MHz clock\nset_input_delay -clock rx_clk -max 3.200 [get_ports {rxd[*]}]\nset_input_delay -clock rx_clk -min 1.100 [get_ports {rxd[*]}]\n\n# DDR: constrain both edges\nset_input_delay -clock rx_clk -max 1.4 -clock_fall -add_delay [get_ports {rxd[*]}]\nset_input_delay -clock rx_clk -min 0.4 -clock_fall -add_delay [get_ports {rxd[*]}]",
+      "notes": "check_timing -override_defaults no_input_delay lists every input port that still has no delay constraint. Asynchronous inputs such as push buttons should get set_false_path instead of a fabricated delay.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_input_delay"
+    },
+    {
+      "name": "set_output_delay",
+      "kind": "tcl-command",
+      "description": "Model the setup and hold requirement of the external device that receives data from an output port, measured against a reference clock. It is the mirror image of set_input_delay and is what makes output paths timed. Supply both -max (external setup plus board delay) and -min (negative of the external hold margin) so that clock-to-out is checked in both directions.",
+      "usage": "set_output_delay -clock <clk> [-clock_fall] [-max|-min] [-add_delay] <delay_ns> <port_objects>",
+      "parameters": [
+        {"name": "-clock", "description": "Reference clock object from get_clocks; often a virtual clock representing the board clock."},
+        {"name": "-max / -min", "description": "External setup requirement and external hold requirement (usually negative for -min)."},
+        {"name": "-clock_fall", "description": "Reference the falling clock edge for DDR outputs."},
+        {"name": "-add_delay", "description": "Add to existing output delays rather than replacing them."},
+        {"name": "<port_objects>", "description": "Output ports from get_ports."}
+      ],
+      "example": "create_clock -period 8.000 -name virt_dac_clk\nset_output_delay -clock virt_dac_clk -max  2.500 [get_ports {dac_data[*]}]\nset_output_delay -clock virt_dac_clk -min -0.500 [get_ports {dac_data[*]}]\n\nreport_timing -to [get_ports {dac_data[*]}] -delay_type max -max_paths 5",
+      "notes": "A negative -min value is normal and encodes the external device's hold time. Outputs that drive LEDs or other untimed loads should be excluded with set_false_path rather than given invented numbers.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_output_delay"
+    },
+    {
+      "name": "set_clock_groups",
+      "kind": "tcl-command",
+      "description": "Tell the timing engine that clocks in different groups are not related, so paths between them are not analysed. Use -asynchronous for clocks from independent sources and -logically_exclusive or -physically_exclusive for clocks that exist on the same net but never run at the same time, such as multiplexed clocks. This is the correct way to handle true clock-domain crossings, and it is bidirectional between every pair of groups.",
+      "usage": "set_clock_groups [-name <n>] -asynchronous|-logically_exclusive|-physically_exclusive -group <clocks> -group <clocks> [-group ...]",
+      "parameters": [
+        {"name": "-asynchronous", "description": "Clocks come from unrelated sources with no fixed phase relationship."},
+        {"name": "-logically_exclusive", "description": "Clocks are multiplexed and never active at the same time, but can still couple through crosstalk."},
+        {"name": "-physically_exclusive", "description": "Clocks can never physically be present together, e.g. two create_clock definitions on the same port."},
+        {"name": "-group", "description": "One group of clock objects; repeat the switch once per group. Paths inside a group remain timed."},
+        {"name": "-name", "description": "Optional name so the constraint can be found later with get_clock_groups."}
+      ],
+      "example": "set_clock_groups -name async_clks -asynchronous \\\n  -group [get_clocks -include_generated_clocks sys_clk] \\\n  -group [get_clocks -include_generated_clocks usb_clk] \\\n  -group [get_clocks -include_generated_clocks eth_rx_clk]\n\nreport_clock_interaction -delay_type min_max -significant_digits 3 -file clk_interaction.rpt",
+      "notes": "Always use -include_generated_clocks so MMCM outputs follow their parent into the group. Grouping clocks still requires proper CDC synchronisers in the RTL; the constraint only silences the analysis. report_cdc checks that the synchronisers are actually there.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_clock_groups"
+    },
+    {
+      "name": "set_false_path",
+      "kind": "tcl-command",
+      "description": "Remove a path from timing analysis entirely. Typical uses are reset or configuration signals that are synchronised in the receiving domain, static control registers written once at start-up, and outputs that drive untimed loads. It has the highest priority of all timing exceptions, so it wins over set_max_delay and set_multicycle_path on the same path.",
+      "usage": "set_false_path [-setup|-hold] [-from <objects>] [-through <objects>] [-to <objects>] [-rise_from|-fall_from ...] [-reset_path]",
+      "parameters": [
+        {"name": "-from", "description": "Startpoints: clocks, input ports, or sequential cell/clock pins."},
+        {"name": "-to", "description": "Endpoints: clocks, output ports, or sequential data pins."},
+        {"name": "-through", "description": "Pins, ports or nets the path must pass through; several -through switches are ANDed in order."},
+        {"name": "-setup / -hold", "description": "Restrict the exception to one analysis type only."},
+        {"name": "-reset_path", "description": "Clear previous exceptions on the same path before applying this one."}
+      ],
+      "example": "# Externally asynchronous reset, synchronised internally\nset_false_path -from [get_ports rst_n]\n\n# Static configuration register read by another domain\nset_false_path -from [get_cells cfg_reg[*]] -to [get_cells {sync/cfg_meta_reg[*]}]\n\n# Untimed status LEDs\nset_false_path -to [get_ports {led[*]}]",
+      "notes": "Prefer set_clock_groups for whole clock-domain crossings; set_false_path is for individual paths. Over-using it hides real problems, and a false path still needs a physical synchroniser in the RTL. Use report_exceptions to list what is actually in effect.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_false_path"
+    },
+    {
+      "name": "set_multicycle_path",
+      "kind": "tcl-command",
+      "description": "Relax the number of clock cycles a path is allowed to take, for logic that is known not to need a result every cycle, such as a data path behind a clock enable that is active every fourth cycle. It is the safest way to close timing on slow paths without disabling analysis. Setup and hold are moved together by default, so a setup multicycle almost always needs a matching hold multicycle one cycle smaller.",
+      "usage": "set_multicycle_path <path_multiplier> [-setup|-hold] [-start|-end] [-from <objects>] [-through <objects>] [-to <objects>]",
+      "parameters": [
+        {"name": "<path_multiplier>", "description": "Number of clock cycles the path may take."},
+        {"name": "-setup / -hold", "description": "Which check to move. A setup multicycle of N normally needs a hold multicycle of N-1."},
+        {"name": "-start / -end", "description": "Whether the multiplier counts launch-clock or capture-clock edges; -end is the default for setup, -start for hold."},
+        {"name": "-from / -to / -through", "description": "Path specification, the same as set_false_path."}
+      ],
+      "example": "# Data path enabled once every 4 cycles, same clock domain\nset_multicycle_path 4 -setup -from [get_cells src_reg[*]] -to [get_cells dst_reg[*]]\nset_multicycle_path 3 -hold  -from [get_cells src_reg[*]] -to [get_cells dst_reg[*]]\n\nreport_timing -from [get_cells src_reg[*]] -to [get_cells dst_reg[*]] -max_paths 3",
+      "notes": "Forgetting the -hold constraint is the classic mistake: the tool then tries to meet an impossibly tight hold requirement and fills the path with route delay. Between different clock domains the -start/-end choice matters and must match which clock the multiplier is counted on.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_multicycle_path"
+    },
+    {
+      "name": "set_max_delay",
+      "kind": "tcl-command",
+      "description": "Put an absolute upper bound in nanoseconds on the delay of a path, replacing the normal clock-based setup requirement. It is most often used on asynchronous crossings that still need a bounded skew, for example a multi-bit bus passing through a handshake synchroniser where the data must be stable when the flag arrives. With -datapath_only the clock skew and uncertainty are excluded, which is the recommended form for CDC.",
+      "usage": "set_max_delay <delay_ns> [-datapath_only] [-from <objects>] [-through <objects>] [-to <objects>] [-reset_path]",
+      "parameters": [
+        {"name": "<delay_ns>", "description": "Maximum allowed delay in nanoseconds, usually set to the period of the faster of the two clocks."},
+        {"name": "-datapath_only", "description": "Analyse only the data path, ignoring clock skew and uncertainty; also implicitly removes the hold check. The standard choice for asynchronous data buses."},
+        {"name": "-from / -to / -through", "description": "Path specification."},
+        {"name": "-reset_path", "description": "Remove previously applied exceptions on the same path first."}
+      ],
+      "example": "# Asynchronous data bus captured by a handshake flag\nset_max_delay -datapath_only 5.000 \\\n  -from [get_cells {tx_data_reg[*]}] -to [get_cells {rx_data_reg[*]}]\n\nreport_timing -from [get_cells {tx_data_reg[*]}] -to [get_cells {rx_data_reg[*]}] -max_paths 5",
+      "notes": "Priority is lower than set_false_path but higher than set_multicycle_path. Without -datapath_only a hold check is still applied across the asynchronous boundary, which is meaningless and hard to meet.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_max_delay"
+    },
+    {
+      "name": "set_min_delay",
+      "kind": "tcl-command",
+      "description": "Set an absolute lower bound in nanoseconds on a path's delay, overriding the normal hold requirement. It is far rarer than set_max_delay and is mostly used for custom interfaces where a minimum propagation time must be guaranteed, or to force the router to add delay on a deliberately padded path.",
+      "usage": "set_min_delay <delay_ns> [-from <objects>] [-through <objects>] [-to <objects>] [-reset_path]",
+      "parameters": [
+        {"name": "<delay_ns>", "description": "Minimum required delay in nanoseconds."},
+        {"name": "-from / -to / -through", "description": "Path specification, same semantics as set_max_delay."},
+        {"name": "-reset_path", "description": "Clear existing exceptions on the path before applying."}
+      ],
+      "example": "set_min_delay 1.200 -from [get_pins strobe_reg/C] -to [get_ports strobe_out]\nreport_timing -to [get_ports strobe_out] -delay_type min -max_paths 3",
+      "notes": "Meeting a min delay costs routing resources because the tool must insert detour routing. Consider adding explicit register stages instead when the required delay is large.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_min_delay"
+    },
+    {
+      "name": "set_clock_uncertainty",
+      "kind": "tcl-command",
+      "description": "Add extra pessimism to the setup and hold checks of a clock or a clock pair, on top of the jitter Vivado already models. Typical uses are reserving margin for effects the tool does not know about, such as board-level jitter on a clock that is not described with set_input_jitter, or deliberately over-constraining a design during exploration.",
+      "usage": "set_clock_uncertainty [-setup|-hold] [-from <clk>] [-to <clk>] [-rise_from|-fall_from ...] <uncertainty_ns> [<clock_objects>]",
+      "parameters": [
+        {"name": "<uncertainty_ns>", "description": "Additional uncertainty in nanoseconds, added to the computed value."},
+        {"name": "-setup / -hold", "description": "Apply to one check only; without either, both are affected."},
+        {"name": "-from / -to", "description": "Apply only to paths launched by one clock and captured by another (inter-clock uncertainty)."},
+        {"name": "<clock_objects>", "description": "Clocks the uncertainty applies to, from get_clocks."}
+      ],
+      "example": "# 100 ps of extra board-level margin on the system clock\nset_clock_uncertainty -setup 0.100 [get_clocks sys_clk]\n\n# Extra pessimism only on one crossing\nset_clock_uncertainty -from [get_clocks clk_a] -to [get_clocks clk_b] 0.250\n\nreport_timing_summary -file timing_with_margin.rpt",
+      "notes": "Remember to remove exploratory over-constraining before sign-off, or the reported slack will not reflect the real design. Use set_input_jitter for genuine source jitter, since the tool then combines it correctly with the internal clocking model.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_clock_uncertainty"
+    },
+    {
+      "name": "set_clock_latency",
+      "kind": "tcl-command",
+      "description": "Describe delay on a clock outside the boundary of the analysis. Source latency (-source) models the delay from the real clock origin to the port, for example a board-level clock buffer or a long PCB trace; network latency models delay from the port into the design. It matters most for source-synchronous interfaces where the same board clock reaches both devices with different delays.",
+      "usage": "set_clock_latency [-source] [-early|-late] [-max|-min] [-clock <clk>] <delay_ns> <objects>",
+      "parameters": [
+        {"name": "-source", "description": "The latency is outside the chip, between the real clock origin and the constrained port."},
+        {"name": "-early / -late", "description": "Earliest and latest possible arrival, used for the optimistic and pessimistic sides of the check."},
+        {"name": "-max / -min", "description": "Latency value used for setup and hold analysis respectively."},
+        {"name": "<objects>", "description": "Clock objects or the clock's source port."}
+      ],
+      "example": "# 1.2 ns of board trace between the oscillator and the FPGA pin\nset_clock_latency -source -max 1.200 [get_clocks sys_clk]\nset_clock_latency -source -min 0.900 [get_clocks sys_clk]\n\nreport_clocks",
+      "notes": "Vivado models on-chip clock network delay itself, so network latency is rarely needed; source latency is the useful form. Adding the same latency to both the launching and capturing clock has no effect on the slack of paths between them.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_clock_latency"
+    },
+    {
+      "name": "set_input_jitter",
+      "kind": "tcl-command",
+      "description": "Declare the peak-to-peak jitter of a primary clock arriving from outside the device, in nanoseconds. Vivado folds it into the clock uncertainty for every check involving that clock, and propagates it correctly through MMCM and PLL models to the generated clocks. Use the number from the oscillator or upstream clock generator datasheet.",
+      "usage": "set_input_jitter <clock_object> <peak_to_peak_jitter_ns>",
+      "parameters": [
+        {"name": "<clock_object>", "description": "The primary clock, from get_clocks. Only clocks created with create_clock accept input jitter."},
+        {"name": "<jitter_ns>", "description": "Peak-to-peak jitter in nanoseconds, e.g. 0.050 for 50 ps."}
+      ],
+      "example": "create_clock -period 10.000 -name sys_clk [get_ports sys_clk_p]\nset_input_jitter [get_clocks sys_clk] 0.050\nset_system_jitter 0.050\n\nreport_clocks",
+      "notes": "Related to set_system_jitter, which sets a global jitter figure applied to all clocks. Input jitter cannot be applied to generated clocks; constrain the master clock instead and let the tool propagate it.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_input_jitter"
+    },
+    {
+      "name": "set_case_analysis",
+      "kind": "tcl-command",
+      "description": "Force a pin or port to a constant logic value for timing analysis, which prunes away the paths that cannot be active in that configuration. The usual applications are selecting one input of a clock multiplexer, disabling a test or debug mode, and tying off a configuration strap so the analysis reflects the mode the board actually runs in.",
+      "usage": "set_case_analysis <0|1|rising|falling> <pin_or_port_objects>",
+      "parameters": [
+        {"name": "<value>", "description": "0, 1, rising or falling. The rising/falling forms restrict which clock edge propagates."},
+        {"name": "<objects>", "description": "Ports or cell pins from get_ports / get_pins."}
+      ],
+      "example": "# Board strap selects the 100 MHz clock branch of a BUFGMUX\nset_case_analysis 0 [get_pins clk_mux/S]\n\n# Disable a test mode permanently\nset_case_analysis 0 [get_ports test_mode]\n\nreport_clocks\nreport_timing_summary -file timing_functional_mode.rpt",
+      "notes": "Case analysis removes paths from the report, so a design can look clean simply because too much was pruned. Run report_timing_summary once per configuration if the board really supports several modes.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_case_analysis"
+    },
+    {
+      "name": "set_disable_timing",
+      "kind": "tcl-command",
+      "description": "Disable timing analysis through a specific arc inside a cell, from one pin to another. It is a surgical tool for breaking combinational loops that the timing engine cannot resolve, or for cutting a feedback arc through a LUT used as a latch or shift register. Unlike set_false_path, it removes the arc itself rather than a path, so every path using that arc disappears.",
+      "usage": "set_disable_timing [-from <pin_name>] [-to <pin_name>] <cell_or_pin_objects>",
+      "parameters": [
+        {"name": "-from", "description": "Name of the source pin of the arc inside the cell, e.g. I0."},
+        {"name": "-to", "description": "Name of the destination pin of the arc, e.g. O."},
+        {"name": "<objects>", "description": "Cells or pins whose internal arc should be disabled."}
+      ],
+      "example": "# Break a combinational loop through one LUT input\nset_disable_timing -from I1 -to O [get_cells ring_osc/lut_inst]\n\nreport_timing_summary -file timing_no_loop.rpt\n# Loops also show up in:\ncheck_timing -override_defaults loops",
+      "notes": "Vivado automatically disables one arc of any combinational loop it finds and reports it as a timing loop; use this command to control which arc is cut rather than accepting the tool's choice. Overuse can silently remove real paths.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_disable_timing"
+    },
+    {
+      "name": "set_bus_skew",
+      "kind": "tcl-command",
+      "description": "Constrain the maximum skew between the individual bits of a bus crossing between clock domains, rather than the absolute delay of each bit. It is the right constraint for a gray-coded pointer or a multi-bit CDC bus, where correctness depends on the bits arriving close together rather than fast. Results are checked with report_bus_skew, not with the normal timing report.",
+      "usage": "set_bus_skew <skew_ns> -from <objects> -to <objects> [-through <objects>]",
+      "parameters": [
+        {"name": "<skew_ns>", "description": "Maximum allowed skew between the bits, in nanoseconds; commonly one destination clock period."},
+        {"name": "-from", "description": "Launching registers of the bus."},
+        {"name": "-to", "description": "Capturing registers of the bus."},
+        {"name": "-through", "description": "Optional pins or nets the paths must pass through."}
+      ],
+      "example": "set_max_delay -datapath_only 6.000 \\\n  -from [get_cells {wr_ptr_gray_reg[*]}] -to [get_cells {wr_ptr_sync_reg[*]}]\nset_bus_skew 4.000 \\\n  -from [get_cells {wr_ptr_gray_reg[*]}] -to [get_cells {wr_ptr_sync_reg[*]}]\n\nreport_bus_skew -file bus_skew.rpt",
+      "notes": "Normally paired with a set_max_delay -datapath_only on the same paths. Bus skew violations do not appear in report_timing_summary's usual tables, so report_bus_skew must be run explicitly during sign-off.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_bus_skew"
+    },
+    {
+      "name": "set_property PACKAGE_PIN",
+      "kind": "tcl-command",
+      "description": "Assign a top-level port to a physical package pin. Together with IOSTANDARD it is the minimum constraint every I/O needs before a bitstream can be generated, and Vivado issues a DRC error for any unlocated port. The pin name comes from the package file or the board definition; the I/O Planning layout in the GUI writes exactly this command into the XDC.",
+      "usage": "set_property PACKAGE_PIN <pin_name> [get_ports <port_name>]",
+      "parameters": [
+        {"name": "PACKAGE_PIN", "description": "Package pin designator such as AH11 or E3, valid for the selected part and package."},
+        {"name": "[get_ports ...]", "description": "The top-level port object. Bus bits are addressed individually, e.g. [get_ports {led[0]}]."}
+      ],
+      "example": "set_property PACKAGE_PIN AH11 [get_ports sys_clk_p]\nset_property IOSTANDARD DIFF_SSTL12 [get_ports sys_clk_p]\n\n# Whole bus in a loop\nset pins {H17 K15 J13 N14}\nfor {set i 0} {$i < 4} {incr i} {\n  set_property PACKAGE_PIN [lindex $pins $i] [get_ports led[$i]]\n  set_property IOSTANDARD LVCMOS33 [get_ports led[$i]]\n}",
+      "notes": "For a differential pair only the P side needs locating; the N side is implied by the package. Use set_property -dict to set PACKAGE_PIN and IOSTANDARD in one call, and report_io to verify all assignments after implementation.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "set_property IOSTANDARD",
+      "kind": "tcl-command",
+      "description": "Set the electrical I/O standard of a port, which determines the drive strength, termination, reference voltage and the VCCO the bank must run at. Every located port needs one, and all ports in the same I/O bank must use standards compatible with a single VCCO. Related properties DRIVE, SLEW, PULLUP/PULLDOWN, DIFF_TERM and IBUF_LOW_PWR fine-tune the same buffer.",
+      "usage": "set_property IOSTANDARD <standard> [get_ports <port_name>]\nset_property -dict {PACKAGE_PIN <pin> IOSTANDARD <standard> DRIVE <mA> SLEW <SLOW|FAST>} [get_ports <port>]",
+      "parameters": [
+        {"name": "IOSTANDARD", "description": "e.g. LVCMOS33, LVCMOS18, LVDS, DIFF_SSTL12, SSTL15, HSTL_I, POD12. The set available depends on the bank type (HR/HP/HD)."},
+        {"name": "DRIVE", "description": "Output drive current in mA for single-ended CMOS standards, typically 4, 8, 12 or 16."},
+        {"name": "SLEW", "description": "SLOW or FAST output edge rate; SLOW reduces SSN, FAST reduces clock-to-out."},
+        {"name": "DIFF_TERM", "description": "TRUE enables the internal 100 ohm differential termination on LVDS inputs."},
+        {"name": "PULLUP / PULLDOWN / PULLTYPE", "description": "Enable the weak internal pull resistor on an input or bidirectional port."}
+      ],
+      "example": "set_property -dict {PACKAGE_PIN H17 IOSTANDARD LVCMOS33 DRIVE 12 SLEW SLOW} [get_ports {led[0]}]\nset_property -dict {PACKAGE_PIN AH11 IOSTANDARD DIFF_SSTL12} [get_ports sys_clk_p]\nset_property DIFF_TERM TRUE [get_ports rx_p]\n\nreport_io -file io.rpt",
+      "notes": "High-performance (HP) banks cannot drive 3.3 V standards; choosing LVCMOS33 on an HP bank is a common DRC failure. report_io shows the resolved standard, bank and VCCO for every port.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/IOSTANDARD"
+    },
+    {
+      "name": "set_property LOC",
+      "kind": "tcl-command",
+      "description": "Lock a cell to a specific site on the device, such as a slice, block RAM, DSP, MMCM or I/O buffer. Use it sparingly: the placer is usually better than a human, and hard placement constraints often hurt the rest of the design. The legitimate cases are clocking resources that must sit in a particular clock region, IOB registers, and reproducing a known-good placement captured from an earlier run.",
+      "usage": "set_property LOC <site_name> [get_cells <cell_name>]\nset_property BEL <bel_name> [get_cells <cell_name>]",
+      "parameters": [
+        {"name": "LOC", "description": "Site name such as SLICE_X10Y50, RAMB36_X2Y10, MMCME4_ADV_X0Y1 or IOB_X0Y12."},
+        {"name": "BEL", "description": "The specific element within the site, e.g. AFF or A6LUT. Normally set together with LOC."},
+        {"name": "[get_cells ...]", "description": "Leaf cell object; use -hierarchical with a filter to find cells deep in the hierarchy."}
+      ],
+      "example": "set_property LOC MMCME4_ADV_X0Y1 [get_cells clk_gen/mmcm_inst]\nset_property LOC RAMB36_X3Y20   [get_cells buffer/ram_reg_0]\nset_property BEL AFF            [get_cells pipe/out_reg]\nset_property LOC SLICE_X12Y88   [get_cells pipe/out_reg]\n\nplace_design\nreport_utilization -file util.rpt",
+      "notes": "Site names differ between devices, so LOC constraints are not portable across parts. To capture an existing placement, open the implemented design and use write_xdc with the appropriate options rather than typing sites by hand.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/LOC"
+    },
+    {
+      "name": "create_pblock",
+      "kind": "tcl-command",
+      "description": "Create a physical block: a named rectangular region of the device that a set of cells is constrained into. Pblocks are used to keep a critical module compact, to isolate a partially reconfigurable region, to separate unrelated clock domains physically, or to reserve area. The family of commands is create_pblock to define it, add_cells_to_pblock to populate it and resize_pblock to give it a shape.",
+      "usage": "create_pblock <name>\nadd_cells_to_pblock [get_pblocks <name>] [get_cells <cells>] [-clear_locs]\nresize_pblock [get_pblocks <name>] -add {SLICE_X0Y0:SLICE_X30Y60 RAMB36_X0Y0:RAMB36_X1Y11}",
+      "parameters": [
+        {"name": "-add", "description": "Site ranges the pblock covers, given as START:END pairs per resource type."},
+        {"name": "-remove", "description": "Remove site ranges from an existing pblock."},
+        {"name": "-clear_locs", "description": "Drop any existing LOC constraints on the cells being added."},
+        {"name": "CONTAIN_ROUTING", "description": "Pblock property; TRUE forces routing as well as logic to stay inside the region (required for Dynamic Function eXchange)."},
+        {"name": "EXCLUDE_PLACEMENT", "description": "Pblock property; TRUE stops cells that are not members from being placed inside the region."}
+      ],
+      "example": "create_pblock pblock_dsp\nadd_cells_to_pblock [get_pblocks pblock_dsp] [get_cells -quiet [list dsp_chain]]\nresize_pblock [get_pblocks pblock_dsp] -add {SLICE_X40Y120:SLICE_X70Y179 DSP48E2_X6Y48:DSP48E2_X9Y71}\nset_property CONTAIN_ROUTING true [get_pblocks pblock_dsp]\n\nplace_design\nreport_utilization -pblocks [get_pblocks pblock_dsp] -file pblock_util.rpt",
+      "notes": "A pblock that is too tight causes placement congestion and worse timing than no pblock at all; check with report_utilization -pblocks that occupancy stays well under 100%. The GUI Floorplanning layout draws pblocks and writes these same commands.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_pblock"
+    },
+    {
+      "name": "set_property CLOCK_DEDICATED_ROUTE",
+      "kind": "tcl-command",
+      "description": "Relax the rule that a clock must travel on dedicated clock routing from its source to its buffer. Vivado raises a Placer error when a clock-capable pin drives a global buffer in a different clock region or half of the device, and this property downgrades that to a warning so the design can be routed on general fabric. It is a deliberate escape hatch, not a fix, and should only be used when the resulting jitter and skew are acceptable.",
+      "usage": "set_property CLOCK_DEDICATED_ROUTE <TRUE|FALSE|BACKBONE|ANY_CMT_COLUMN|SAME_CMT_COLUMN> [get_nets <net>]",
+      "parameters": [
+        {"name": "FALSE", "description": "Allow the clock to use general routing resources; the most common override."},
+        {"name": "BACKBONE", "description": "Allow routing on the clock backbone across regions while still using dedicated resources."},
+        {"name": "ANY_CMT_COLUMN / SAME_CMT_COLUMN", "description": "Restrict how far the clock may travel between clock management tile columns."},
+        {"name": "<net>", "description": "The clock net, usually the output of the IBUF feeding the BUFG, found with get_nets -of_objects."}
+      ],
+      "example": "# Clock enters on a pin in a different region from its BUFG\nset_property CLOCK_DEDICATED_ROUTE FALSE [get_nets clk_in_IBUF]\n\nplace_design\nreport_clock_networks -file clock_networks.rpt\nreport_methodology -file methodology.rpt",
+      "notes": "Always check report_clock_networks and the resulting skew afterwards. The correct long-term fix is to move the clock to a clock-capable pin in the right region, or to re-plan the clock regions.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/CLOCK_DEDICATED_ROUTE"
+    },
+    {
+      "name": "set_property ASYNC_REG",
+      "kind": "tcl-command",
+      "description": "Mark the flip-flops of a synchroniser chain so the tools treat them specially: they are kept, not optimised away or retimed, and the placer puts them in the same slice to minimise the routing delay between stages and maximise mean time between failures. Apply it to every stage of every two- or three-flop synchroniser in the design. report_cdc checks that synchronisers it finds carry this attribute.",
+      "usage": "set_property ASYNC_REG TRUE [get_cells <synchroniser_registers>]\n(* ASYNC_REG = \"TRUE\" *) reg [1:0] sync_ff;   // RTL attribute form",
+      "parameters": [
+        {"name": "ASYNC_REG", "description": "TRUE marks the register as part of an asynchronous clock-domain crossing."},
+        {"name": "[get_cells ...]", "description": "The synchroniser flip-flops; -hierarchical with a NAME filter is the usual way to catch them all."}
+      ],
+      "example": "set_property ASYNC_REG TRUE [get_cells -hierarchical -filter {NAME =~ *sync_ff_reg[*]}]\n\n# Equivalent attribute in SystemVerilog source\n# (* ASYNC_REG = \"TRUE\" *) logic [1:0] meta_q;\n\nreport_cdc -file cdc.rpt",
+      "notes": "ASYNC_REG on its own does not constrain timing; pair it with set_clock_groups or set_max_delay -datapath_only so the crossing is not analysed as a synchronous path. Putting it in the RTL is usually more maintainable than a wildcard XDC match.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/ASYNC_REG"
+    },
+    {
+      "name": "set_property MARK_DEBUG",
+      "kind": "tcl-command",
+      "description": "Flag a net so it survives synthesis optimisation and appears in the debug net list, ready to be connected to an ILA core. It is the netlist-insertion path to debug: mark the nets, run the Set Up Debug wizard or the create_debug_core commands, and the probes appear in the Hardware Manager. Marked nets are not optimised away or renamed, which slightly constrains synthesis.",
+      "usage": "set_property MARK_DEBUG TRUE [get_nets <net_names>]\n(* MARK_DEBUG = \"TRUE\" *) wire [7:0] state;   // RTL attribute form",
+      "parameters": [
+        {"name": "MARK_DEBUG", "description": "TRUE preserves the net and adds it to the debug candidates list."},
+        {"name": "[get_nets ...]", "description": "Nets to preserve; -hierarchical with a filter finds them inside submodules."}
+      ],
+      "example": "set_property MARK_DEBUG TRUE [get_nets {fsm/state_reg[*]}]\nset_property MARK_DEBUG TRUE [get_nets -hierarchical -filter {NAME =~ *axi_awvalid}]\n\n# Then attach the marked nets to an ILA\ncreate_debug_core u_ila_0 ila\nset_property C_DATA_DEPTH 4096 [get_debug_cores u_ila_0]\nconnect_debug_port u_ila_0/clk [get_nets clk_100]\nwrite_debug_probes -force debug_nets.ltx",
+      "notes": "Marked nets block optimisations, so remove the attribute for production builds. DONT_TOUCH has a similar preservation effect but does not add the net to the debug list.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/MARK_DEBUG"
+    },
+    {
+      "name": "set_property DONT_TOUCH",
+      "kind": "tcl-command",
+      "description": "Stop synthesis and implementation from optimising away, merging or renaming a cell or net. Use it to preserve a module boundary for partial reconfiguration, keep a deliberately redundant register such as a reset synchroniser, or hold on to a signal for probing. The related KEEP_HIERARCHY property preserves a hierarchy boundary through synthesis instead of a single object.",
+      "usage": "set_property DONT_TOUCH TRUE [get_cells <cell>]\nset_property KEEP_HIERARCHY TRUE [get_cells <hierarchical_cell>]",
+      "parameters": [
+        {"name": "DONT_TOUCH", "description": "TRUE preserves the object through synthesis, opt_design and physical optimisation."},
+        {"name": "KEEP_HIERARCHY", "description": "TRUE stops synthesis flattening across that module boundary, which keeps names stable for constraints and reports."},
+        {"name": "<objects>", "description": "Cells or nets; applies to the object and, for a hierarchical cell, to everything inside it."}
+      ],
+      "example": "set_property DONT_TOUCH TRUE [get_cells reset_sync_inst]\nset_property KEEP_HIERARCHY TRUE [get_cells dsp_pipeline_inst]\n\nsynth_design -top top -part xcku040-ffva1156-2-e\nreport_utilization -hierarchical -file util_hier.rpt",
+      "notes": "DONT_TOUCH also blocks retiming and register merging, so it can cost timing. Prefer the RTL attribute form (* dont_touch = \"true\" *) so the intent lives with the code, and remove it when it is no longer needed.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/DONT_TOUCH"
+    },
+    {
+      "name": "set_property BITSTREAM.*",
+      "kind": "tcl-command",
+      "description": "Configure how the bitstream is generated and how the device boots, by setting BITSTREAM.* properties on the current design before write_bitstream. These control the configuration rate and bus width, whether unused pins are pulled up, compression, encryption, and the behaviour of the CRC and start-up sequence. They are usually placed in the XDC alongside CFGBVS and CONFIG_VOLTAGE.",
+      "usage": "set_property BITSTREAM.<GROUP>.<OPTION> <value> [current_design]",
+      "parameters": [
+        {"name": "BITSTREAM.GENERAL.COMPRESS", "description": "TRUE enables bitstream compression, reducing file size and configuration time."},
+        {"name": "BITSTREAM.CONFIG.CONFIGRATE", "description": "Configuration clock rate in MHz for master modes, e.g. 33, 50, 66."},
+        {"name": "BITSTREAM.CONFIG.SPI_BUSWIDTH", "description": "1, 2, 4 or 8 for x1/x2/x4/x8 SPI flash configuration."},
+        {"name": "BITSTREAM.CONFIG.UNUSEDPIN", "description": "PULLUP, PULLDOWN or PULLNONE for pins not used by the design."},
+        {"name": "BITSTREAM.GENERAL.CRC", "description": "ENABLE or DISABLE the configuration CRC check."},
+        {"name": "BITSTREAM.ENCRYPTION.ENCRYPT", "description": "YES enables AES bitstream encryption; used with ENCRYPTKEYSELECT and a key file."}
+      ],
+      "example": "set_property CFGBVS VCCO [current_design]\nset_property CONFIG_VOLTAGE 3.3 [current_design]\nset_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]\nset_property BITSTREAM.CONFIG.CONFIGRATE 50 [current_design]\nset_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]\nset_property BITSTREAM.CONFIG.UNUSEDPIN PULLUP [current_design]\n\nwrite_bitstream -force ./top.bit\nwrite_cfgmem -format mcs -interface SPIx4 -size 64 -loadbit \"up 0x0 ./top.bit\" -force ./top.mcs",
+      "notes": "CFGBVS and CONFIG_VOLTAGE must match the board's bank 0 voltage or write_bitstream issues a DRC error. Options are device-family specific; `list_property [current_design]` shows every BITSTREAM.* property the selected part supports.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "report_timing",
+      "kind": "tcl-command",
+      "description": "Report detailed timing for individual paths, showing every cell and net delay from startpoint to endpoint with the arrival and required times. Use it when report_timing_summary has told you which endpoint is failing and you need to see where the delay actually goes. The -from/-through/-to filters and -max_paths let you aim it at exactly the paths you care about.",
+      "usage": "report_timing [-from <objects>] [-through <objects>] [-to <objects>] [-delay_type max|min|min_max] [-max_paths <n>] [-nworst <n>] [-sort_by group|slack] [-path_type full|short|summary|full_clock] [-input_pins] [-file <name>] [-name <window>]",
+      "parameters": [
+        {"name": "-delay_type", "description": "max for setup, min for hold, min_max for both."},
+        {"name": "-max_paths", "description": "Total number of paths to report; -nworst limits how many are reported per endpoint."},
+        {"name": "-path_type", "description": "How much detail to print; full_clock also shows the clock path, which is essential for skew debugging."},
+        {"name": "-input_pins", "description": "Show delay at every input pin along the path, not just the cell outputs."},
+        {"name": "-file / -append", "description": "Write to a text file instead of the console."},
+        {"name": "-name", "description": "Open the result as an interactive GUI window with cross-probing to the schematic and device view."}
+      ],
+      "example": "report_timing -from [get_cells fifo/wr_ptr_reg[*]] -to [get_cells fifo/rd_sync_reg[*]] \\\n  -delay_type max -max_paths 10 -nworst 2 -path_type full_clock -input_pins \\\n  -file ./reports/fifo_paths.rpt\n\n# 20 worst setup paths in the whole design, as a GUI window\nreport_timing -delay_type max -max_paths 20 -sort_by slack -name worst_setup",
+      "notes": "report_timing only analyses the design currently in memory, so open a routed checkpoint or run route_design first if you want real routing delays. get_timing_paths returns the same information as Tcl objects for scripting.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_timing"
+    },
+    {
+      "name": "report_timing_summary",
+      "kind": "tcl-command",
+      "description": "The sign-off timing report. It runs the equivalent of check_timing, lists worst negative slack, total negative slack and failing endpoints for setup, hold and pulse-width checks per clock, and shows the worst paths in each clock group. Run it after route_design on every build and store the output; if WNS and WHS are both non-negative and there are no unconstrained endpoints, timing is closed.",
+      "usage": "report_timing_summary [-delay_type min_max|max|min] [-max_paths <n>] [-report_unconstrained] [-check_timing_verbose] [-significant_digits <n>] [-warn_on_violation] [-file <name>] [-name <window>]",
+      "parameters": [
+        {"name": "-delay_type", "description": "min_max reports setup and hold together (the default for sign-off)."},
+        {"name": "-max_paths", "description": "Number of paths listed per path group."},
+        {"name": "-report_unconstrained", "description": "Include endpoints with no timing constraint, which is how missing constraints are found."},
+        {"name": "-check_timing_verbose", "description": "Embed a full check_timing section in the report."},
+        {"name": "-warn_on_violation", "description": "Emit a critical warning when a violation is found, so a scripted build can react to it."},
+        {"name": "-file / -name", "description": "Write to a file, or open as an interactive GUI window."}
+      ],
+      "example": "route_design\nreport_timing_summary -delay_type min_max -max_paths 10 -report_unconstrained \\\n  -check_timing_verbose -warn_on_violation -file ./reports/timing_summary.rpt\n\n# Gate a scripted build on the result\nset wns [get_property SLACK [get_timing_paths -delay_type max]]\nif {$wns < 0} { error \"Timing not met: WNS = $wns ns\" }",
+      "notes": "Intra-clock, inter-clock and other path-group tables are separate; a design can show WNS met overall while an inter-clock group is badly violated, so read all sections. Always check the unconstrained-endpoint count, which is the single most common cause of a false pass.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_timing_summary"
+    },
+    {
+      "name": "report_clocks",
+      "kind": "tcl-command",
+      "description": "List every clock the timing engine knows about, including user-defined primary clocks, auto-derived MMCM and PLL outputs, and generated clocks, with their period, waveform, source and whether they are propagated. It is the first thing to run after loading constraints, because a missing or duplicated clock explains most strange timing results.",
+      "usage": "report_clocks [-file <name>] [-append] [-return_string] [<clock_objects>]",
+      "parameters": [
+        {"name": "<clock_objects>", "description": "Restrict the report to specific clocks from get_clocks; without it, all clocks are listed."},
+        {"name": "-file / -append", "description": "Write or append to a text file."},
+        {"name": "-return_string", "description": "Return the report as a Tcl string for scripted parsing."}
+      ],
+      "example": "read_xdc ./constrs/top.xdc\nsynth_design -top top -part xcku040-ffva1156-2-e\nreport_clocks -file ./reports/clocks.rpt\n\n# List clock names and periods programmatically\nforeach c [get_clocks] {\n  puts [format \"%-20s %8.3f ns\" $c [get_property PERIOD $c]]\n}",
+      "notes": "Look for clocks with the same name defined twice, clocks whose period does not match the hardware, and auto-derived clocks whose names change between releases. report_clock_networks shows the physical distribution of the same clocks.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_clocks"
+    },
+    {
+      "name": "report_clock_interaction",
+      "kind": "tcl-command",
+      "description": "Produce a matrix of every pair of clocks that has paths between them, showing whether the crossing is constrained, partially constrained through exceptions, asynchronous or unsafe. It is the main tool for verifying that set_clock_groups and set_false_path cover all the real clock-domain crossings, and for finding crossings nobody knew existed.",
+      "usage": "report_clock_interaction [-delay_type min_max] [-significant_digits <n>] [-no_header] [-file <name>] [-name <window>]",
+      "parameters": [
+        {"name": "-delay_type", "description": "Which analysis to base the matrix on; min_max covers setup and hold."},
+        {"name": "-significant_digits", "description": "Number of decimal places in the reported slack values."},
+        {"name": "-file", "description": "Write the matrix to a text file."},
+        {"name": "-name", "description": "Open as a GUI window where each cell can be cross-probed to the offending paths."}
+      ],
+      "example": "report_clock_interaction -delay_type min_max -significant_digits 3 \\\n  -file ./reports/clock_interaction.rpt -name clk_matrix\n\n# Then close the genuinely asynchronous ones\nset_clock_groups -asynchronous \\\n  -group [get_clocks -include_generated_clocks sys_clk] \\\n  -group [get_clocks -include_generated_clocks eth_rx_clk]",
+      "notes": "Pay attention to pairs marked as having no common period or as partially false path: those are the ones that will fail intermittently in hardware. Pair this report with report_cdc, which checks the structure of the synchronisers rather than the constraints.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_clock_interaction"
+    },
+    {
+      "name": "report_cdc",
+      "kind": "tcl-command",
+      "description": "Structurally analyse every clock-domain crossing in the design and classify it by safety: properly synchronised multi-flop chains, asynchronous resets, combinational logic feeding a synchroniser, missing ASYNC_REG attributes, fan-out from a single synchroniser, and unsafe direct crossings. Unlike the timing reports it looks at the circuit, so it catches CDC bugs that constraints have hidden.",
+      "usage": "report_cdc [-details] [-severity <level>] [-no_header] [-file <name>] [-name <window>] [-return_string]",
+      "parameters": [
+        {"name": "-details", "description": "Print every individual crossing rather than a summary count per severity."},
+        {"name": "-severity", "description": "Filter to Critical, Warning or Info level findings."},
+        {"name": "-file / -name", "description": "Write to a file or open as a cross-probing GUI window."},
+        {"name": "-from / -to", "description": "Restrict the analysis to crossings between specific clocks."}
+      ],
+      "example": "synth_design -top top -part xcku040-ffva1156-2-e\nreport_cdc -details -file ./reports/cdc.rpt\n\n# Fix the usual finding: missing ASYNC_REG on synchroniser chains\nset_property ASYNC_REG TRUE [get_cells -hierarchical -filter {NAME =~ *sync_ff_reg[*]}]\nreport_cdc -severity Critical",
+      "notes": "Run it on the synthesized design, before placement, so findings can still be fixed in RTL. A Critical finding almost always means a genuine metastability hazard, not a constraint problem; report_clock_interaction covers the constraint side.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_cdc"
+    },
+    {
+      "name": "report_methodology",
+      "kind": "tcl-command",
+      "description": "Run the Vivado methodology rule checks, which flag constraint and design practices that are technically legal but known to cause trouble: missing input/output delays, clocks without jitter, latches, multi-driven nets, unsafe CDC, badly constrained MMCMs, and inefficient synchronous resets. It is part of the expected sign-off flow alongside report_drc and report_timing_summary.",
+      "usage": "report_methodology [-checks <list>] [-ruledecks <deck>] [-file <name>] [-name <window>] [-return_string]",
+      "parameters": [
+        {"name": "-checks", "description": "Run only named checks, e.g. TIMING-6 or SYNTH-9."},
+        {"name": "-ruledecks", "description": "Run a predefined bundle of checks, such as the default methodology rule deck."},
+        {"name": "-file / -name", "description": "Write to a text file or open a cross-probing GUI window."},
+        {"name": "-waived", "description": "Report only violations that have been waived with create_waiver."}
+      ],
+      "example": "opt_design\nreport_methodology -file ./reports/methodology.rpt -name methodology\n\n# Waive a reviewed and accepted finding so future runs stay clean\ncreate_waiver -type METHODOLOGY -id TIMING-18 \\\n  -objects [get_cells sync/meta_reg] -description \"Reviewed CDC, 3FF sync in place\"",
+      "notes": "Run it after synthesis and again after opt_design; some checks need a placed design. Waive findings with create_waiver rather than ignoring them, so the report stays meaningful and the waiver carries a written justification.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_methodology"
+    },
+    {
+      "name": "report_drc",
+      "kind": "tcl-command",
+      "description": "Run design rule checks against the current design, covering I/O bank and voltage legality, clocking resource placement, unconnected or multi-driven nets, block configuration problems and bitstream-generation prerequisites. It runs automatically before write_bitstream, and errors there will stop the build, so running it early after opt_design saves a lot of time.",
+      "usage": "report_drc [-checks <list>] [-ruledecks <deck>] [-upgrade_cw] [-file <name>] [-name <window>] [-return_string]",
+      "parameters": [
+        {"name": "-checks", "description": "Run specific DRC rules only, e.g. NSTD-1 or UCIO-1."},
+        {"name": "-ruledecks", "description": "Named rule bundle: default, opt_checks, placer_checks, router_checks, bitstream_checks, timing_checks."},
+        {"name": "-file / -name", "description": "Write the report to a file, or open as a GUI window with cross-probing."},
+        {"name": "-upgrade_cw", "description": "Promote critical warnings to errors so a scripted build fails on them."}
+      ],
+      "example": "opt_design\nreport_drc -ruledecks {default} -file ./reports/drc_opt.rpt\n\nroute_design\nreport_drc -ruledecks {bitstream_checks} -file ./reports/drc_bitstream.rpt\nwrite_bitstream -force ./top.bit",
+      "notes": "UCIO-1 (unspecified I/O standard) and NSTD-1 (unspecified I/O location) are the two rules that most often block bitstream generation; both come from missing PACKAGE_PIN or IOSTANDARD constraints. Genuine false positives can be silenced with create_waiver -type DRC.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_drc"
+    },
+    {
+      "name": "report_utilization",
+      "kind": "tcl-command",
+      "description": "Report resource usage for the current design: LUTs, registers, CARRY chains, F7/F8 muxes, block RAM, URAM, DSP slices, I/O, clocking resources and, on SoC devices, the processor subsystem. Run it after synthesis for an early estimate and after implementation for the real number, and use -hierarchical to find which module is consuming the resources.",
+      "usage": "report_utilization [-hierarchical] [-hierarchical_depth <n>] [-pblocks <pblocks>] [-cells <cells>] [-slr] [-file <name>] [-name <window>] [-return_string]",
+      "parameters": [
+        {"name": "-hierarchical", "description": "Break the usage down per module instead of reporting only device totals."},
+        {"name": "-hierarchical_depth", "description": "How many levels of hierarchy to show."},
+        {"name": "-pblocks", "description": "Report utilisation inside specific pblocks, to check a floorplan is not over-full."},
+        {"name": "-slr", "description": "Report per super logic region on stacked-silicon devices."},
+        {"name": "-file / -append", "description": "Write or append to a text file."}
+      ],
+      "example": "synth_design -top top -part xcvu9p-flga2104-2L-e\nreport_utilization -hierarchical -hierarchical_depth 3 -file ./reports/util_synth.rpt\n\nplace_design\nreport_utilization -slr -file ./reports/util_slr.rpt\nreport_utilization -pblocks [get_pblocks pblock_dsp] -file ./reports/util_pblock.rpt",
+      "notes": "Synthesis numbers are optimistic because opt_design and physical optimisation still change the netlist. If block RAM or DSP usage is unexpectedly high, check the synth_design -max_bram / -max_dsp limits and the inference of your RTL.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_utilization"
+    },
+    {
+      "name": "report_power",
+      "kind": "tcl-command",
+      "description": "Estimate static and dynamic power for the current design, broken down by clocks, logic, signals, block RAM, DSP, I/O and any hard blocks, along with junction temperature and thermal margin. Accuracy depends entirely on switching activity, so feed it a SAIF file from simulation with read_saif, or set activity rates explicitly with set_switching_activity, before trusting the numbers.",
+      "usage": "report_power [-advisory] [-hier <level>] [-file <name>] [-xpe <name>] [-name <window>] [-return_string]",
+      "parameters": [
+        {"name": "-advisory", "description": "Include advice on how to improve the confidence level and reduce power."},
+        {"name": "-hier", "description": "Report power per hierarchy level."},
+        {"name": "-xpe", "description": "Write an .xpe file that can be opened in the Xilinx Power Estimator spreadsheet."},
+        {"name": "-file / -name", "description": "Write to a text file or open a GUI window."}
+      ],
+      "example": "open_checkpoint ./post_route.dcp\nread_saif -strip_path tb/dut ./sim/postimpl.saif\nset_switching_activity -default_toggle_rate 25.0 -default_static_probability 0.5\nreport_power -advisory -file ./reports/power.rpt -xpe ./reports/power.xpe\n\n# Power optimisation in the flow\nopt_design\npower_opt_design\nplace_design",
+      "notes": "The report prints a confidence level (Low/Medium/High); Low almost always means no switching activity was supplied. power_opt_design applies clock gating to reduce dynamic power and can be run after opt_design or after place_design.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_power"
+    },
+    {
+      "name": "report_design_analysis",
+      "kind": "tcl-command",
+      "description": "Deep-dive analysis of what is limiting quality of results: the composition of the critical paths (logic levels, net delay share, fan-out, SLR crossings), congestion levels per device region, and the complexity of the netlist. It is the report to open when timing fails but no single path looks obviously wrong, because it shows whether the problem is logic depth, routing congestion or placement spread.",
+      "usage": "report_design_analysis [-timing] [-setup] [-hold] [-congestion] [-complexity] [-logic_level_distribution] [-of_timing_paths <paths>] [-max_paths <n>] [-file <name>] [-name <window>]",
+      "parameters": [
+        {"name": "-timing", "description": "Analyse the critical paths, showing delay split between logic and routing."},
+        {"name": "-congestion", "description": "Report placer and router congestion levels per region, which explains long runtimes and unroutable designs."},
+        {"name": "-complexity", "description": "Report Rent exponent and average fan-out, indicating how hard the netlist is to place."},
+        {"name": "-logic_level_distribution", "description": "Histogram of logic levels per path group; a long tail points at paths needing pipelining."},
+        {"name": "-of_timing_paths", "description": "Analyse a specific set of paths returned by get_timing_paths."}
+      ],
+      "example": "open_checkpoint ./post_route.dcp\nreport_design_analysis -timing -setup -logic_level_distribution \\\n  -of_timing_paths [get_timing_paths -max_paths 50 -delay_type max] \\\n  -file ./reports/design_analysis.rpt\n\nreport_design_analysis -congestion -complexity -file ./reports/congestion.rpt",
+      "notes": "A high net-delay share with few logic levels usually means congestion or placement spread rather than logic depth. Congestion levels of 5 or above in a region typically require floorplanning or RTL restructuring rather than a different implementation directive.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_design_analysis"
+    },
+    {
+      "name": "report_route_status",
+      "kind": "tcl-command",
+      "description": "Summarise the routing state of every net in the design: fully routed, partially routed, unrouted, or having routing conflicts. It is the quickest way to confirm that route_design actually finished, and to find the specific nets that failed when it did not. A design with any unrouted or conflicted nets cannot produce a valid bitstream.",
+      "usage": "report_route_status [-of_objects <nets>] [-list_all_nets] [-show_all] [-file <name>] [-name <window>] [-return_string]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Report only on specific nets from get_nets."},
+        {"name": "-list_all_nets", "description": "List every net and its individual status rather than only the summary counts."},
+        {"name": "-show_all", "description": "Include nets in every status category, including fully routed ones."},
+        {"name": "-file / -name", "description": "Write to a text file or open as a GUI window."}
+      ],
+      "example": "route_design\nreport_route_status -file ./reports/route_status.rpt\n\n# Find and inspect any nets that failed to route\nset bad [get_nets -filter {ROUTE_STATUS != ROUTED && ROUTE_STATUS != INTRASITE}]\nif {[llength $bad]} {\n  report_route_status -of_objects $bad -list_all_nets\n}",
+      "notes": "Unrouted nets almost always come from congestion or an over-tight pblock. Re-running route_design with a different -directive such as Explore or AlternateCLBRouting, or loosening the floorplan, is the usual remedy.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_route_status"
+    },
+    {
+      "name": "check_timing",
+      "kind": "tcl-command",
+      "description": "Audit the constraint set itself rather than the timing results, listing unconstrained internal endpoints, ports with no input or output delay, clocks with no period, combinational loops, partially constrained I/O and multiple clocks reaching the same register. Run it immediately after reading the XDC, because almost every case of 'timing met but the board does not work' starts with a finding here.",
+      "usage": "check_timing [-override_defaults <checks>] [-include <checks>] [-exclude <checks>] [-verbose] [-loop_limit <n>] [-file <name>] [-name <window>] [-return_string]",
+      "parameters": [
+        {"name": "-override_defaults", "description": "Run only the named checks, e.g. no_clock, no_input_delay, no_output_delay, unconstrained_internal_endpoints, loops, multiple_clock."},
+        {"name": "-include / -exclude", "description": "Add to or remove from the default check list."},
+        {"name": "-verbose", "description": "List every affected object instead of a count."},
+        {"name": "-file / -name", "description": "Write to a text file or open as a GUI window."}
+      ],
+      "example": "read_xdc ./constrs/top.xdc\nsynth_design -top top -part xcku040-ffva1156-2-e\ncheck_timing -verbose -file ./reports/check_timing.rpt\n\n# Just the two checks that matter most for board bring-up\ncheck_timing -override_defaults {no_input_delay no_output_delay} -verbose",
+      "notes": "report_timing_summary -check_timing_verbose embeds the same information in the sign-off report. A non-zero unconstrained_internal_endpoints count means part of the design is simply not being timed.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/check_timing"
+    },
+    {
+      "name": "get_cells",
+      "kind": "tcl-command",
+      "description": "Query the netlist for cell objects, which are then passed to constraints, properties and reports. The -hierarchical switch searches the whole design rather than the current level, -filter applies a property expression, and -of_objects walks from pins or nets to the cells attached to them. Together with get_ports, get_nets and get_pins it is the backbone of every non-trivial XDC file.",
+      "usage": "get_cells [-hierarchical] [-regexp] [-nocase] [-filter <expression>] [-of_objects <objects>] [-hsc <separator>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-hierarchical", "description": "Search every level of hierarchy. The pattern then matches the leaf name, so use -filter {NAME =~ ...} to match full paths."},
+        {"name": "-filter", "description": "Property expression, e.g. {REF_NAME == FDRE && IS_PRIMITIVE} or {NAME =~ *sync_reg*}."},
+        {"name": "-of_objects", "description": "Return the cells connected to the given pins, nets or sites."},
+        {"name": "-regexp / -nocase", "description": "Interpret patterns as regular expressions and ignore case."},
+        {"name": "-quiet", "description": "Return an empty list instead of an error when nothing matches; essential in scripts that run before synthesis."}
+      ],
+      "example": "# Every flip-flop in a synchroniser, anywhere in the hierarchy\nset_property ASYNC_REG TRUE [get_cells -hierarchical -filter {NAME =~ *sync_ff_reg[*]}]\n\n# All block RAMs, for a utilisation sanity check\nputs \"BRAMs: [llength [get_cells -hierarchical -filter {PRIMITIVE_TYPE =~ BMEM.*.*}]]\"\n\n# Filter an existing collection further\nset ffs [get_cells -hier -filter {IS_SEQUENTIAL}]\nputs [llength [filter $ffs {NAME =~ *dsp_pipeline*}]]",
+      "notes": "In an XDC read before synthesis only ports exist, so get_cells returns nothing; scope cell constraints to the synthesized design or mark the XDC USED_IN_SYNTHESIS false. The filter command applies the same expression syntax to an already-retrieved collection.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_cells"
+    },
+    {
+      "name": "get_ports",
+      "kind": "tcl-command",
+      "description": "Return top-level port objects, the targets of virtually every physical and I/O timing constraint. Patterns support wildcards for buses, and -filter selects on properties such as DIRECTION, IOSTANDARD or PACKAGE_PIN. Because ports exist in the elaborated design, get_ports works in XDC files read before synthesis, unlike get_cells and get_nets.",
+      "usage": "get_ports [-regexp] [-nocase] [-filter <expression>] [-of_objects <objects>] [-scoped_to_current_instance] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Port name patterns; brace bus patterns such as {led[*]} so Tcl does not treat the brackets as command substitution."},
+        {"name": "-filter", "description": "Property expression, e.g. {DIRECTION == IN} or {IOSTANDARD == LVCMOS33}."},
+        {"name": "-of_objects", "description": "Return ports connected to given nets or clocks."},
+        {"name": "-quiet", "description": "Suppress the error when no port matches."}
+      ],
+      "example": "set_property IOSTANDARD LVCMOS33 [get_ports -filter {DIRECTION == OUT && NAME =~ led*}]\n\n# Apply the same input delay to a whole bus\nset_input_delay -clock rx_clk -max 3.2 [get_ports {rxd[*]}]\n\n# Audit: which ports still have no package pin?\nforeach p [get_ports] {\n  if {[get_property PACKAGE_PIN $p] eq \"\"} { puts \"unlocated: $p\" }\n}",
+      "notes": "Always brace bus patterns: get_ports led[*] without braces is a Tcl syntax error, while get_ports {led[*]} works. all_inputs and all_outputs are convenient shorthands for the common direction filters.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_ports"
+    },
+    {
+      "name": "get_timing_paths",
+      "kind": "tcl-command",
+      "description": "Return timing paths as first-class Tcl objects rather than printed text, so a script can read SLACK, STARTPOINT_PIN, ENDPOINT_PIN, LOGIC_LEVELS and other properties and act on them. This is how a build script gates on WNS, how a report is turned into CSV, and how report_design_analysis is aimed at a specific set of paths.",
+      "usage": "get_timing_paths [-from <objects>] [-through <objects>] [-to <objects>] [-delay_type max|min|min_max] [-max_paths <n>] [-nworst <n>] [-slack_lesser_than <ns>] [-sort_by slack|group] [-quiet]",
+      "parameters": [
+        {"name": "-delay_type", "description": "max for setup paths, min for hold paths."},
+        {"name": "-max_paths / -nworst", "description": "How many paths to return in total and per endpoint."},
+        {"name": "-slack_lesser_than", "description": "Return only paths whose slack is below a threshold, which is the efficient way to find violators."},
+        {"name": "-from / -to / -through", "description": "Path filters, identical to report_timing."},
+        {"name": "-sort_by", "description": "slack or group ordering of the returned collection."}
+      ],
+      "example": "route_design\nset wns [get_property SLACK [lindex [get_timing_paths -delay_type max -max_paths 1] 0]]\nputs \"WNS = $wns ns\"\n\n# Dump every violating path to CSV\nset fh [open ./reports/violations.csv w]\nputs $fh \"slack,levels,startpoint,endpoint\"\nforeach p [get_timing_paths -delay_type max -slack_lesser_than 0 -max_paths 1000] {\n  puts $fh \"[get_property SLACK $p],[get_property LOGIC_LEVELS $p],\\\n[get_property STARTPOINT_PIN $p],[get_property ENDPOINT_PIN $p]\"\n}\nclose $fh",
+      "notes": "report_property on a path object lists every readable property. Paths are only meaningful for the design currently in memory, so open the routed checkpoint first if you want post-route slack.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_timing_paths"
+    },
+    {
+      "name": "all_registers",
+      "kind": "tcl-command",
+      "description": "Return the sequential cells or their pins, optionally restricted to one clock or to a particular kind of pin. It is the natural startpoint or endpoint collection for broad timing exceptions and for writing constraints that apply to a whole clock domain. The companion commands all_clocks, all_inputs, all_outputs, all_fanin and all_fanout cover the other common collections.",
+      "usage": "all_registers [-clock <clk>] [-rise_clock <clk>] [-fall_clock <clk>] [-cells] [-data_pins] [-clock_pins] [-output_pins] [-level_sensitive] [-edge_triggered]",
+      "parameters": [
+        {"name": "-clock", "description": "Only registers clocked by the given clock object."},
+        {"name": "-cells", "description": "Return cell objects instead of the default pin objects."},
+        {"name": "-data_pins / -clock_pins / -output_pins", "description": "Return a specific pin of each register, e.g. the D, C or Q pin."},
+        {"name": "-edge_triggered / -level_sensitive", "description": "Restrict to flip-flops or to latches respectively; -level_sensitive is a quick way to find unintended latches."}
+      ],
+      "example": "# Cut all paths from a slow configuration domain into the fast one\nset_false_path -from [all_registers -clock cfg_clk] -to [all_registers -clock core_clk]\n\n# Count flip-flops per clock\nforeach c [all_clocks] {\n  puts \"$c : [llength [all_registers -clock $c -cells]]\"\n}\n\n# Trace what drives a failing endpoint\nreport_timing -to [get_pins fifo/dout_reg[0]/D] -max_paths 1\nputs [get_cells -of_objects [all_fanin -flat -startpoints_only [get_pins fifo/dout_reg[0]/D]]]",
+      "notes": "Prefer set_clock_groups over a blanket set_false_path between two all_registers collections: the clock-group form also covers generated clocks and future registers automatically. all_fanin/all_fanout accept -flat and -only_cells to control how far they walk.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/all_registers"
+    }
+  ]
+}

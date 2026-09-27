@@ -1,0 +1,499 @@
+{
+  "category": "PSpice netlist dot commands: analyses, output control and simulation control",
+  "description": "The individual PSpice A/D circuit-file commands as documented in the PSpice Reference Guide: analysis statements (.AC, .DC, .TRAN, .OP, .TF, .SENS, .NOISE), sweeps and statistical runs (.STEP, .TEMP, .MC, .WCASE, .DISTRIBUTION), output control (.PRINT, .PLOT, .PROBE, .WATCH, .VECTOR), bias-point files, digital and stimulus helpers, and the convergence/checkpoint commands added in later releases. Each entry gives the exact general form and a runnable line.",
+  "tools": [
+    {
+      "name": ".AC",
+      "kind": "command",
+      "description": "Frequency-response (small-signal AC) analysis. PSpice linearises the circuit around the bias point and sweeps every source that carries an AC specification over the requested frequency range; SIN/PULSE transient specs are ignored. Use it for Bode plots, filter response, gain/phase margin and as the base analysis for .NOISE.",
+      "usage": ".AC <LIN|OCT|DEC> <points value> <start frequency> <end frequency>",
+      "parameters": [
+        {"name": "LIN", "description": "Linear sweep; <points value> is the total number of points."},
+        {"name": "OCT / DEC", "description": "Logarithmic sweep by octaves or decades; <points value> is points per octave/decade."},
+        {"name": "<start> <end>", "description": "Both must be > 0 and end >= start; the sweep must contain at least one point."}
+      ],
+      "example": ".AC DEC 20 1MEG 100MEG\n.AC LIN 101 100Hz 200Hz\n.AC OCT 10 1kHz 16kHz",
+      "notes": "Results only reach the .out/.dat files through .PRINT, .PLOT or .PROBE. Nonlinear behaviour (mixers, AGC, doublers) needs .TRAN instead. Group delay outputs (G suffix) need frequency steps fine enough that phase changes smoothly.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".DC (linear sweep)",
+      "kind": "command",
+      "description": "DC sweep analysis: recomputes the bias point for each value of a sweep variable, which may be an independent source, a model parameter (type and name followed by the parameter in parentheses), TEMP, or a global parameter via the PARAM keyword. The LIN keyword is optional and the sweep may run in either direction.",
+      "usage": ".DC [LIN] <sweep variable name> <start value> <end value> <increment value> [nested sweep specification]",
+      "parameters": [
+        {"name": "<sweep variable name>", "description": "Source name (VIN), model parameter (RES RMOD(R)), TEMP, or PARAM <name>."},
+        {"name": "<increment value>", "description": "Step size, must be > 0 even for descending sweeps."}
+      ],
+      "example": ".DC VIN -.25 .25 .05\n.DC LIN I2 5mA -2mA 0.1mA\n.DC RES RMOD(R) 0.9 1.1 .001",
+      "notes": "MOSFET L and W and temperature coefficients such as TC1/TC2 cannot usefully be swept as model parameters. .DC, .STEP, .TEMP, .MC and .WCASE may not all try to set the same variable.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".DC (DEC/OCT, LIST and nested sweeps)",
+      "kind": "command",
+      "description": "The logarithmic and list forms of the DC sweep, plus the nested (two-variable) sweep. With DEC or OCT the value is swept by decades/octaves with a fixed number of points per decade; with LIST the values after the keyword are used directly. A second sweep specification after the first makes the first sweep the inner loop, and Probe displays the result as a family of curves.",
+      "usage": ".DC <DEC|OCT> <sweep variable> <start> <end> <points per decade/octave> [nested sweep]\n.DC <sweep variable> LIST <value>* [nested sweep]",
+      "parameters": [
+        {"name": "DEC / OCT", "description": "Logarithmic sweep; start must be positive and less than end."},
+        {"name": "LIST", "description": "Explicit list of values; no start/end/increment."},
+        {"name": "nested sweep", "description": "Second variable with its own type/start/end/increment; an entire inner sweep runs per outer value."}
+      ],
+      "example": ".DC DEC NPN QFAST(IS) 1E-18 1E-14 5\n.DC TEMP LIST 0 20 27 50 80 100 PARAM Vsupply 7.5 15 .5\n.DC VCE 0V 10V .5V IB 0mA 1mA 50uA",
+      "notes": "The third example is the classic transistor output-characteristic (VCE swept per IB) family. Each outer value produces its own .PRINT table or .PLOT plot.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".TRAN",
+      "kind": "command",
+      "description": "Transient (time-domain) analysis from TIME=0 to the final time. The print step sets the interval used by .PRINT/.PLOT/.FOUR interpolation (it does not limit Probe data); an optional no-print value suppresses early output; the step ceiling overrides the default internal time-step ceiling of final-time/50. The /OP suffix prints the full transient bias point like .OP, and SKIPBP skips the bias-point calculation so IC= values on capacitors and inductors define the starting state.",
+      "usage": ".TRAN[/OP] <print step value> <final time value> [no-print value [step ceiling value]] [SKIPBP]",
+      "parameters": [
+        {"name": "/OP", "description": "Print the detailed transient bias point (small-signal parameters of all nonlinear devices)."},
+        {"name": "<no-print value>", "description": "Time interval from 0 that is not printed, plotted or passed to Probe."},
+        {"name": "<step ceiling value>", "description": "Maximum internal time step (TMAX). Can be {SCHEDULE(t1,v1,t2,v2,...)} to change it piecewise."},
+        {"name": "SKIPBP", "description": "Skip the bias point; the PSpice equivalent of SPICE's UIC keyword."}
+      ],
+      "example": ".TRAN 1ns 100ns\n.TRAN/OP 1ns 100ns 20ns SKIPBP\n.TRAN 1ns 100ns 0ns .1ns\n.TRAN 1ns 100ns 0ns {SCHEDULE(0,1ns,25ns,.1ns)}",
+      "notes": ".TRAN also defines TSTEP and TSTOP, which are the defaults for PULSE/SIN/EXP waveform parameters. Setting a step ceiling is the usual cure for 'time step too small' or under-sampled switching edges, at the cost of run time.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".OP",
+      "kind": "command",
+      "description": "Requests a detailed bias-point report in the output file: the linearised small-signal parameters of every nonlinear controlled source and semiconductor device in addition to the node voltages, source currents and total power that are always printed. The bias point itself is computed whether or not .OP is present.",
+      "usage": ".OP",
+      "parameters": [],
+      "example": "* op-amp DC operating point\nVCC vcc 0 15\n...\n.OP\n.END",
+      "notes": ".OP writes nothing to the Probe .dat file; if no other analysis is requested no .dat file is created. The transient bias point is controlled by .TRAN/OP instead. In Capture this is the 'Bias Point' analysis type with 'Include detailed bias point information' ticked.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".TF",
+      "kind": "command",
+      "description": "Small-signal DC transfer function. The circuit is linearised around the bias point and the gain from the named input source to the output variable, plus the input and output resistances, are written to the output file. Use it for quick gain/impedance checks of amplifiers and regulators without an AC sweep.",
+      "usage": ".TF <output variable> <input source name>",
+      "parameters": [
+        {"name": "<output variable>", "description": ".PRINT-style variable; a current must be the current through a voltage source."},
+        {"name": "<input source name>", "description": "An independent V or I source."}
+      ],
+      "example": ".TF V(5) VIN\n.TF I(VDRIV) ICNTRL",
+      "notes": "Results appear only in the .out file, never in Probe. No .PRINT/.PLOT/.PROBE is needed.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".SENS",
+      "kind": "command",
+      "description": "DC sensitivity analysis: linearises the circuit around the bias point and reports the sensitivity of each listed output variable to every device value and model parameter. Sensitivities are produced for resistors, independent sources, controlled switches, diodes and bipolar transistors, so it is most useful for bias-network and discrete-analog designs.",
+      "usage": ".SENS <output variable>*",
+      "parameters": [
+        {"name": "<output variable>", "description": "Node voltage or the current through a voltage source."}
+      ],
+      "example": ".SENS V(9) V(4,3) V(17) I(VCC)",
+      "notes": "Output can be very large. Results are only in the .out file. For AC/transient sensitivity with tolerances use .WCASE or PSpice Advanced Analysis Sensitivity instead.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".NOISE",
+      "kind": "command",
+      "description": "Noise analysis run together with an .AC sweep. At each frequency PSpice computes every resistor and semiconductor noise generator, propagates it to the specified output node and RMS-sums it to give total output noise (ONOISE) and the equivalent input noise (INOISE) referred to the named source. An optional print interval writes a per-generator contribution table every n frequencies.",
+      "usage": ".NOISE V(<node>[,<node>]) <name> [interval value]",
+      "parameters": [
+        {"name": "V(<node>[,<node>])", "description": "Output node or differential pair where noise is summed. Alphabetic node names need square brackets, e.g. V([OUT1])."},
+        {"name": "<name>", "description": "Independent V or I source at which the equivalent input noise is calculated (units V/sqrt(Hz) or A/sqrt(Hz))."},
+        {"name": "[interval value]", "description": "Integer print interval for the detailed contribution table; omitted means no table."}
+      ],
+      "example": ".AC DEC 10 10 100k\n.NOISE V([OUT]) VIN 20\n.PRINT NOISE INOISE ONOISE DB(INOISE) DB(ONOISE)",
+      "notes": "Requires an .AC statement. Noise data is also stored in the .dat file for each frequency, so INOISE/ONOISE can be plotted in Probe.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".STEP",
+      "kind": "command",
+      "description": "Parametric analysis: repeats every analysis in the circuit for each value of a stepped variable, producing a family of curves in Probe. The variable can be an independent source, a model parameter (type and model name with the parameter in parentheses), the temperature (TEMP) or a global parameter (PARAM name). Linear, logarithmic (DEC/OCT) and LIST forms exist.",
+      "usage": ".STEP LIN <sweep variable> <start> <end> <increment>\n.STEP [DEC|OCT] <sweep variable> <start> <end> <points>\n.STEP <sweep variable> LIST <value>*",
+      "parameters": [
+        {"name": "source", "description": "Name of an independent V/I source; only its DC component is stepped."},
+        {"name": "model parameter", "description": "e.g. RES RMOD(R) or NPN QFAST(IS)."},
+        {"name": "TEMP", "description": "Steps the global temperature."},
+        {"name": "PARAM <name>", "description": "Steps a .PARAM value; every expression using it is re-evaluated."}
+      ],
+      "example": ".PARAM RVAL=1\nR1 1 2 {RVAL}\n.STEP PARAM RVAL 30 50 5\n.STEP DEC NPN QFAST(IS) 1E-18 1E-14 5\n.STEP TEMP LIST 0 20 27 50 80 100",
+      "notes": "To step the AC magnitude of a source, make it an expression of a parameter (Vac 1 0 AC {var}) and step the parameter. LIST values must be monotonic. .STEP may not set the same variable as .DC, .TEMP, .MC or .WCASE. Stepping a resistor via the R model parameter multiplies the line value, so use a 1-ohm line value.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".TEMP",
+      "kind": "command",
+      "description": "Sets the circuit temperature (in degrees C) at which all analyses run. Several temperatures may be listed, in which case every analysis is repeated per temperature exactly like a .STEP TEMP LIST. Model parameters are assumed measured at TNOM (27 C by default) and are temperature-updated from there.",
+      "usage": ".TEMP <temperature value>*",
+      "parameters": [
+        {"name": "<temperature value>", "description": "One or more temperatures in degrees Celsius."}
+      ],
+      "example": ".TEMP 125\n.TEMP -40 27 85",
+      "notes": "Per-device temperature overrides use the T_ABS / T_REL_GLOBAL / T_REL_LOCAL model parameters. Change TNOM with .OPTIONS TNOM. In Capture, the Temperature (Sweep) option on the simulation profile generates this line.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".MC",
+      "kind": "command",
+      "description": "Monte Carlo statistical analysis. The nominal run is followed by the requested number of runs in which every model parameter carrying a DEV or LOT tolerance is randomly varied; only the selected analysis (DC, AC or TRAN) is repeated. A collapsing function reduces each run's output waveform to one number for the .out summary, and options control listing, which runs produce output, the evaluation range and the random seed.",
+      "usage": ".MC <#runs value> <DC|AC|TRAN> <output variable> <YMAX|MAX|MIN|RISE_EDGE(v)|FALL_EDGE(v)> [LIST] [OUTPUT ALL|FIRST n|EVERY n|RUNS n*] [RANGE(lo,hi)] [SEED=value]",
+      "parameters": [
+        {"name": "<#runs value>", "description": "Total runs; up to 2000 for printed results, 400 for Probe."},
+        {"name": "YMAX", "description": "Greatest absolute deviation of the waveform from the nominal run."},
+        {"name": "MAX / MIN", "description": "Maximum or minimum value of each waveform."},
+        {"name": "RISE_EDGE(v) / FALL_EDGE(v)", "description": "First crossing above/below threshold v."},
+        {"name": "LIST", "description": "List the model parameter values actually used in each run."},
+        {"name": "OUTPUT", "description": "ALL, FIRST <n>, EVERY <n> or RUNS <n>* selects which runs write .PRINT/.PLOT/.PROBE output."},
+        {"name": "RANGE(lo,hi)", "description": "Restrict function evaluation to a sweep-variable range; * means unbounded."},
+        {"name": "SEED", "description": "Odd integer 1..32767 for the random generator; default 17533."}
+      ],
+      "example": ".MC 10 TRAN V(5) YMAX\n.MC 50 DC IC(Q7) YMAX LIST\n.MC 20 AC VP(13,5) YMAX LIST OUTPUT ALL\n.MC 10 TRAN V([OUT1],[OUT2]) YMAX SEED=9321",
+      "notes": "Tolerances are declared on .MODEL parameters (DEV/LOT with optional /GAUSS or user distribution). .MC and .WCASE cannot both be used in one circuit. The function and options affect only the .out file, not Probe data, except OUTPUT which decides which runs are saved.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".WCASE",
+      "kind": "command",
+      "description": "Sensitivity and worst-case analysis. Unlike .MC it varies one toleranced parameter per run to measure the sensitivity of the output to each, then performs a final run with all parameters pushed in the direction (HI or LOW) that produces the worst-case waveform. Options restrict which tolerances (DEV, LOT, BOTH) and which device types take part.",
+      "usage": ".WCASE <DC|AC|TRAN> <output variable> <function> [LIST] [OUTPUT ALL] [RANGE(lo,hi)] [HI|LOW] [VARY DEV|LOT|BOTH] [DEVICES <type letters>]",
+      "parameters": [
+        {"name": "<function>", "description": "YMAX, MAX, MIN, RISE_EDGE(v) or FALL_EDGE(v), as for .MC."},
+        {"name": "HI / LOW", "description": "Direction the function should move for the worst-case run; default HI for YMAX/MAX, otherwise LOW."},
+        {"name": "VARY DEV|LOT|BOTH", "description": "Limit the analysis to DEV-only or LOT-only tolerances; default BOTH."},
+        {"name": "DEVICES", "description": "Device-type letters to include, no spaces, e.g. DEVICES RM for resistors and MOSFETs."},
+        {"name": "OUTPUT ALL", "description": "Save every sensitivity run to Probe, not just nominal and worst case."}
+      ],
+      "example": ".WCASE TRAN V(5) YMAX\n.WCASE DC IC(Q7) YMAX VARY DEV\n.WCASE AC VP(13,5) YMAX DEVICES RQ OUTPUT ALL\n.WCASE TRAN V([OUT1],[OUT2]) YMAX RANGE(.4u,.6u) LIST OUTPUT ALL VARY DEV HI",
+      "notes": "Only one of .MC or .WCASE per circuit. Because worst case assumes monotonic sensitivity it can miss non-monotonic cases; verify with Monte Carlo. Capture's 'Monte Carlo/Worst Case' profile option generates this statement.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".DISTRIBUTION",
+      "kind": "command",
+      "description": "Defines a user tolerance distribution for Monte Carlo and worst-case analyses as a piecewise-linear probability curve of (deviation, relative probability) pairs over the range -1..+1. Reference it from a model tolerance (DEV/<name>) or make it the default with .OPTIONS DISTRIBUTION=<name>.",
+      "usage": ".DISTRIBUTION <name> (<deviation> <probability>)*",
+      "parameters": [
+        {"name": "<deviation>", "description": "Value in (-1,+1), non-decreasing along the list; up to 100 pairs."},
+        {"name": "<probability>", "description": "Relative probability, >= 0."}
+      ],
+      "example": ".DISTRIBUTION bi_modal (-1,1) (-.5,1) (-.5,0) (.5,0) (.5,1) (1,1)\n.DISTRIBUTION triangular (-1,0) (0,1) (1,0)\n.MODEL cmod2 CAP (C=1 DEV/triangular 10%)",
+      "notes": "Built-in distributions are UNIFORM (default) and GAUSS, where the tolerance value is the 1-sigma deviation. Asymmetric distributions let one curve serve components whose +/- tolerances differ in the same ratio.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".PRINT",
+      "kind": "command",
+      "description": "Writes analysis results as text tables (print tables) in the .out file, one column per output variable, for one analysis type per statement. The /DGTLCHG variant prints digital variables only when one of them changes. Column width and digits follow the WIDTH and NUMDGT options.",
+      "usage": ".PRINT[/DGTLCHG] <DC|AC|NOISE|TRAN> [output variable]*",
+      "parameters": [
+        {"name": "<analysis type>", "description": "Exactly one of DC, AC, NOISE, TRAN per .PRINT."},
+        {"name": "[output variable]*", "description": "Any .PROBE-style variable; for AC add M/DB/P/R/I/G suffixes (VM, VDB, VP, IR...)."}
+      ],
+      "example": ".PRINT DC V(3) V(2,3) V(R1) I(VIN) IB(Q13) VBE(Q13)\n.PRINT AC VM(2) VP(2) VDB(5) IR(6) II(7)\n.PRINT NOISE INOISE ONOISE DB(INOISE)\n.PRINT/DGTLCHG TRAN QA QB RESET",
+      "notes": "Square brackets force a name to be read as a node (V([RESET])). Multiple .PRINT statements per analysis are allowed; the number of variables is unlimited but the table wraps by WIDTH.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".PLOT",
+      "kind": "command",
+      "description": "Produces character-based line-printer plots in the .out file for DC, AC, NOISE or TRAN results. Kept for backward compatibility; Probe gives far better graphics. Up to eight output variables per statement, and (lower,upper) pairs placed among the variables define separate Y axes with fixed ranges.",
+      "usage": ".PLOT <DC|AC|NOISE|TRAN> [output variable]* ([<lower limit>,<upper limit>])*",
+      "parameters": [
+        {"name": "(<lower>,<upper>)", "description": "Y-axis range applied to the variables listed before it; ignored for AC (always logarithmic)."}
+      ],
+      "example": ".PLOT TRAN V(3) V(2,3) (0,5V) ID(M2) I(VCC) (-50mA,50mA)\n.PLOT AC VM(2) VP(2) VDB(5)",
+      "notes": "Maximum eight variables per .PLOT, but any number of .PLOT commands. Prefer .PROBE plus Probe or the Capture markers.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".PROBE",
+      "kind": "command",
+      "description": "Writes DC, AC and transient results to the binary .dat file read by the Probe waveform viewer. With no variables every node voltage and device current is saved; listing variables restricts the file to those items (useful for large designs). The /CSDF suffix writes the portable text Common Simulation Data File format instead of binary.",
+      "usage": ".PROBE[/CSDF] [output variable]*",
+      "parameters": [
+        {"name": "/CSDF", "description": "Text CSDF output (.csd), larger but machine-independent."},
+        {"name": "[output variable]*", "description": "V(node), V(a,b), V(dev), Vx(dev), Vxy(dev), I(dev), Ix(dev), Iz(Tline), W(dev), D(node), plus wildcards V(*), I(*), W(*), D(*), and alias(*) forms that skip subcircuit internals."}
+      ],
+      "example": ".PROBE\n.PROBE V(3) V([2],[3]) V(R1) I(VIN) IB(Q13) VBE(Q13)\n.PROBE/CSDF\n.PROBE D(QBAR)",
+      "notes": "For AC analysis, suffixes such as VDB(R1) are ignored in .PROBE (raw complex data is stored) but usable in Probe trace expressions. Capture's Data Collection tab writes the equivalent restriction. The .dat can also be flushed periodically with the -bf command-line option.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".WATCH",
+      "kind": "command",
+      "description": "Displays up to eight output variables in text form in the Simulation Status window (Watch tab) while the simulation runs, optionally with a normal operating range per variable. If a value leaves its range PSpice beeps and pauses so the run can be cancelled or continued, which makes it a lightweight runtime assertion.",
+      "usage": ".WATCH [DC][AC][TRAN] [<output variable> [<lower limit>,<upper limit>]]*",
+      "parameters": [
+        {"name": "DC / AC / TRAN", "description": "One analysis type per statement; one .WATCH per analysis is allowed."},
+        {"name": "(<lower>,<upper>)", "description": "Operating range; exceeding it pauses the simulation once per variable."}
+      ],
+      "example": ".WATCH TRAN VBE(Q13) (0V,5V) ID(M2) I(VCC) (0,500mA)\n.WATCH AC VM(2) VP(2)",
+      "notes": "Digital nodes and group delay are not allowed. Only three variables are visible at a time in the window.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".VECTOR",
+      "kind": "command",
+      "description": "Writes the states of listed digital nodes to a vector file (<circuit>.vec by default) in the same format the FSTIM file-stimulus device reads, so one simulation's digital results can drive the next. Options control the column position, output file, radix and header signal names, and single-bit statements with the same POS can be combined into multi-bit hex/octal columns.",
+      "usage": ".VECTOR <number of nodes> <node>* [POS=<column>] [FILE=<filename>] [RADIX=Binary|Hex|Octal [BIT=<bit index>]] [SIGNAMES=<names>]",
+      "parameters": [
+        {"name": "POS", "description": "Column position 1-255 in the file; default follows statement order."},
+        {"name": "RADIX", "description": "BINARY (default for one node), HEX (default for several) or OCTAL."},
+        {"name": "BIT", "description": "Bit position inside a hex (1-4) or octal (1-3) digit when the node is a single wire."},
+        {"name": "SIGNAMES", "description": "Header names, msb to lsb; node names are used where omitted."}
+      ],
+      "example": ".VECTOR 4 DATA3 DATA2 DATA1 DATA0\n.VECTOR 1 ADDR3 POS=2 RADIX=H BIT=4\n.VECTOR 1 CLOCK SIGNAMES=SYSCLK",
+      "notes": "Capture users place the VECTOR symbol on a wire instead. Multiple .VECTOR statements may target the same FILE.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".SAVEBIAS",
+      "kind": "command",
+      "description": "Saves the bias-point node voltages and inductor currents of an OP, TRAN or DC analysis to a text file as a .NODESET command, optionally at a specific transient time (or repeatedly), temperature, .STEP value, Monte Carlo run or DC sweep value. Used with .LOADBIAS to shorten the bias solution of large circuits or to rescue convergence.",
+      "usage": ".SAVEBIAS \"<file_name>\" <OP|TRAN|DC> [NOSUBCKT] [TIME=<value> [REPEAT]] [TEMP=<value>] [STEP=<value>] [MCRUN=<value>] [DC=<value>] [DC1=<value>] [DC2=<value>]",
+      "parameters": [
+        {"name": "NOSUBCKT", "description": "Do not save subcircuit-internal nodes."},
+        {"name": "TIME=<value> [REPEAT]", "description": "Transient time at/after which to save; with REPEAT, save every interval (latest overwrites)."},
+        {"name": "MCRUN / STEP / TEMP / DC1 / DC2", "description": "Conditions that must all match before the file is written."}
+      ],
+      "example": ".SAVEBIAS \"OPPOINT\" OP\n.SAVEBIAS \"TRANDATA.BSP\" TRAN NOSUBCKT TIME=10u\n.SAVEBIAS \"SAVEDC.BSP\" DC MCRUN=3 DC1=3.5 DC2=100",
+      "notes": "Only one bias point per analysis is saved. Do not .SAVEBIAS and .LOADBIAS the same file in one run. Bias reuse between .STEP/.TEMP/.MC runs is automatic unless .OPTIONS NOREUSE is set.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".LOADBIAS",
+      "kind": "command",
+      "description": "Loads a bias-point file previously written by .SAVEBIAS (a comment block plus one .NODESET line) to seed the bias-point solution. Editing the file to replace .NODESET with .IC turns the seed into a hard initial condition. Nodes in the file that no longer exist are ignored with a warning.",
+      "usage": ".LOADBIAS \"<file name>\"",
+      "parameters": [
+        {"name": "<file name>", "description": "Quoted path of the saved bias file."}
+      ],
+      "example": ".LOADBIAS \"SAVETRAN.NOD\"\n.LOADBIAS \"C:\\PROJECT\\INIT.FIL\"",
+      "notes": "Convergence is helped but not guaranteed. Add .OPTIONS EXPAND to echo the loaded file into the .out file. Capture exposes this as the 'Load Bias Point' option on the simulation profile.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".EXTERNAL",
+      "kind": "command",
+      "description": "Marks digital nets as external ports (INPUT, OUTPUT or BIDIRECTIONAL) of the circuit under simulation. PSpice treats them as primary observation points: if a timing hazard can propagate to an .EXTERNAL net it is reported as a PERSISTENT HAZARD, so the statement is essential for meaningful digital worst-case timing analysis of a board-level model.",
+      "usage": ".EXTERNAL <INPUT|OUTPUT|BIDIRECTIONAL> <node-name>*",
+      "parameters": [
+        {"name": "<attribute>", "description": "INPUT, OUTPUT or BIDIRECTIONAL."},
+        {"name": "<node-name>*", "description": "Digital node names."}
+      ],
+      "example": ".EXTERNAL INPUT Data1, Data2, Data3\n.EXTERNAL OUTPUT P1\n.EXTERNAL BIDIRECTIONAL BPort1 BPort2",
+      "notes": "Applies only to nodes with digital devices attached. Capture inserts it when the EXTERNAL_IN, EXTERNAL_OUT or EXTERNAL_BI symbols are placed.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".ALIASES / .ENDALIASES",
+      "kind": "command",
+      "description": "Block that maps device names to aliases and device pins to node names, and net names to node names, so Probe can label traces by refdes/pin and schematic net name instead of internal $N_ node numbers. Capture writes this block automatically into the .als/.net output.",
+      "usage": ".ALIASES\n<device name> <device alias> (<pin>=<node> ...)\n_ _ (<net>=<node>)\n.ENDALIASES",
+      "parameters": [
+        {"name": "<device alias>", "description": "Short name used in Probe (e.g. RBIAS for R_RBIAS)."},
+        {"name": "_ _ (<net>=<node>)", "description": "Net-to-node equivalence line."}
+      ],
+      "example": ".ALIASES\nR_RBIAS RBIAS (1=$N_0001 2=VDD)\nQ_Q3 Q3 (c=$N_0001 b=$N_0001 e=VEE)\n_ _ (OUT=$N_0007)\n.ENDALIASES",
+      "notes": "The alias(*) forms of .PROBE variables (V(alias(*)), I(alias(*))) rely on this block and exclude subcircuit-internal data.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".STIMULUS",
+      "kind": "command",
+      "description": "Defines a named stimulus containing only the transient-specification part of a V/I source (PULSE, SIN, EXP, PWL, SFFM) or a digital STIM description, so several sources can reference it with STIMULUS=<name>. These statements are normally generated by the Stimulus Editor into .stl libraries.",
+      "usage": ".STIMULUS <stimulus name> <type> <type-specific parameters>*",
+      "parameters": [
+        {"name": "<type>", "description": "PULSE, SIN, EXP, PWL, SFFM or STIM(width,format) for digital."}
+      ],
+      "example": ".STIMULUS InputPulse PULSE (-1mv 1mv 2ns 2ns 50ns 100ns)\n.STIMULUS 50KHZSIN SIN (0 5 50KHZ 0 0 0)\n.STIMULUS DigitalPulse STIM (1,1)\n+ 0S 1\n+ 10NS 0\n+ 20NS 1\nV1 in 0 STIMULUS=InputPulse",
+      "notes": "Not available in PSpice A/D Basics. Libraries of stimuli are attached with .STMLIB and configured on the profile's Configuration Files > Stimulus category.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".STMLIB",
+      "kind": "command",
+      "description": "Makes a stimulus library file (.stl) created by the Stimulus Editor available to the simulation, so sources can reference its .STIMULUS definitions by name. The reference guide heads the section .STIMLIB but the statement itself is spelled .STMLIB.",
+      "usage": ".STMLIB <file name[.stl]>",
+      "parameters": [
+        {"name": "<file name>", "description": "Stimulus library file; the .stl extension is assumed if omitted."}
+      ],
+      "example": ".STMLIB mylib.stl\n.STMLIB dgpulse",
+      "notes": "Capture writes this line from the Stimulus category of the simulation profile's Configuration Files tab.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".TEXT",
+      "kind": "command",
+      "description": "Defines text parameters (string constants or text expressions built with + concatenation and TEXTINT()) used only by digital simulation: JEDEC file names for PLDs, Intel-Hex files for ROM/RAM programming or initialisation, stimulus file/signal names for FSTIM, and text arguments passed to subcircuits via TEXT:.",
+      "usage": ".TEXT <name>=\"<text value>\" ...\n.TEXT <name>=|<text expression>| ...",
+      "parameters": [
+        {"name": "\"...\"", "description": "Text constant."},
+        {"name": "|...|", "description": "Text expression: constants, earlier text parameters, + and TEXTINT(<value>)."}
+      ],
+      "example": ".TEXT MYFILE = \"FILENAME.EXT\"\n.TEXT PROGDAT = |\"ROM\"+TEXTINT(RUN_NO)+\".DAT\"|\nX27 A1 A2 A3 Y PLD PARAMS: MNTYMXDLY=1 TEXT: JEDEC_FILE=MYJEDEC.JED",
+      "notes": "A text parameter name may not collide with a .PARAM name or reserved parameter.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".END",
+      "kind": "command",
+      "description": "Marks the end of a circuit; all data and commands must precede it and analyses start when it is reached. A file may contain several circuits each terminated by .END: everything is reset between them, results of all go into one .out and one .dat, which is a convenient way to queue overnight runs.",
+      "usage": ".END",
+      "parameters": [],
+      "example": "* 1st circuit\n... definition ...\n.END\n* 2nd circuit\n... definition ...\n.END",
+      "notes": "The last statement of an input file must be .END; the first line is always treated as the title.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".AUTOCONVERGE",
+      "kind": "command",
+      "description": "Lets PSpice relax selected simulator tolerances automatically when a run fails to converge. You list the options (ITL1, ITL2, ITL4, RELTOL, ABSTOL, VNTOL, PIVTOL) with looser limits; PSpice retries with them and, with RESTART, restarts the transient from T=0 if convergence still fails. This is the netlist form of the profile's Options > Auto Converge settings.",
+      "usage": ".AUTOCONVERGE <option>=<relaxed value> [<option>=<relaxed value> ...] [RESTART=0|1]",
+      "parameters": [
+        {"name": "<option>", "description": "ITL1, ITL2, ITL4, RELTOL, ABSTOL, VNTOL or PIVTOL."},
+        {"name": "<relaxed value>", "description": "Must be looser than the normal limit."}
+      ],
+      "example": ".AUTOCONVERGE ITL1=1000 RELTOL=0.05 ABSTOL=.001",
+      "notes": "Relaxed tolerances trade accuracy for convergence; verify results with tight tolerances once the topology problem is found. Not in PSpice A/D Basics.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".CHKPT / .RESTART",
+      "kind": "command",
+      "description": "Checkpoint-restart for long transient runs. .CHKPT saves the simulator state at simulation-time intervals (SINT), real-time intervals (RINT) or explicit time points (TP) under a checkpoint name; .RESTART resumes from one of the saved states instead of rerunning from zero. Capture exposes this as the Simulation Settings 'Checkpoint' options.",
+      "usage": ".CHKPT <CheckPoint_name> <SINT|RINT|TP> <value> [<type> <value>] [TSTEP 0|1]\n.RESTART <CheckPoint_name> <state_number> [0|1]",
+      "parameters": [
+        {"name": "SINT", "description": "Simulation-time interval between checkpoints."},
+        {"name": "RINT", "description": "Wall-clock interval between checkpoints."},
+        {"name": "TP", "description": "Comma-separated explicit time points."},
+        {"name": "TSTEP", "description": "0 = checkpoints closest to the engine's own time step, 1 = exactly at user points."}
+      ],
+      "example": ".CHKPT \"D:/simdata/checkset1\" SINT 1ms RINT 10min TP 2.5ms,7.5ms\n.RESTART \"D:/simdata/checkset1\" state20",
+      "notes": "Useful for what-if changes late in a long power-electronics run. Checkpoint files can be large.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".DMFACTOR",
+      "kind": "command",
+      "description": "Scales the simulator's minimum time step (minimum delta) by a factor that must be a power of ten <= 1, letting a transient analysis proceed through extremely fast events that would otherwise stop with 'time step too small'. Also available as the DMFACTOR flag option.",
+      "usage": ".DMFACTOR <value>",
+      "parameters": [
+        {"name": "<value>", "description": "0.1, 0.01, 0.001 ... multiplies the default minimum delta."}
+      ],
+      "example": ".DMFACTOR .1",
+      "notes": "Fix stiff models or ideal switches first; shrinking the minimum step only postpones the symptom and lengthens run time.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "SCHEDULE() (runtime parameter scheduling)",
+      "kind": "function",
+      "description": "Piecewise-constant function of TIME used to change transient runtime parameters mid-run: the step ceiling on .TRAN, and the RELTOL, ABSTOL, VNTOL, GMIN, ITL4 options. Each (time, value) pair applies from that time forward, so a run can use a fine step and tight tolerances only during the interesting interval.",
+      "usage": "{SCHEDULE(<time1>,<value1>,<time2>,<value2>,...)}",
+      "parameters": [
+        {"name": "<time>", "description": "Must include an entry for TIME=0; times >= 0 ascending."},
+        {"name": "<value>", "description": "A legal value for the parameter being scheduled."}
+      ],
+      "example": ".TRAN 1ns 100ns 0ns {SCHEDULE(0,1ns,25ns,.1ns)}\n.OPTIONS RELTOL={SCHEDULE(0s,.001,2s,.005)}",
+      "notes": "Transient analysis only. Options that accept SCHEDULE are marked in the .OPTIONS table (RELTOL, ABSTOL, VNTOL, GMIN, ITL4).",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "* and ; comments, + continuation, title line",
+      "kind": "command",
+      "description": "Netlist syntax rules. The first line of a circuit file is always the title (never a command). A line starting with * is a comment; text after ; on any line is an in-line comment. A line beginning with + continues the previous statement, which is how long .MODEL, .SUBCKT and source cards are wrapped. Statements are case-insensitive.",
+      "usage": "* comment line\nR13 6 8 10 ; in-line comment\n.MODEL big NPN (IS=1e-15\n+ BF=120 VAF=80)",
+      "parameters": [],
+      "example": "Title: RC filter test\n* generated by hand\nR1 in out 1k ; series element\nC1 out 0 100n\n+ IC=0\n.END",
+      "notes": "A forgotten title line makes PSpice swallow the first real statement. Capture generates the title from the design name.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Numeric scale suffixes (F P N U MIL M K MEG G T)",
+      "kind": "reference",
+      "description": "PSpice value notation: standard floating point optionally followed by a scale suffix, with M meaning milli and MEG meaning mega (a frequent mistake), MIL = 25.4e-6, and C = one clock cycle for digital stimulus times. Trailing unit letters (V, A, Hz, sec, ohm) are ignored, so 10kHz and 10k are identical.",
+      "usage": "<number>[F|P|N|U|MIL|M|K|MEG|G|T|C][units]",
+      "parameters": [
+        {"name": "F P N U", "description": "1e-15, 1e-12, 1e-9, 1e-6."},
+        {"name": "M K MEG G T", "description": "1e-3, 1e3, 1e6, 1e9, 1e12."},
+        {"name": "MIL", "description": "25.4e-6 (one thousandth of an inch)."}
+      ],
+      "example": "R1 1 2 4.7k\nC1 2 0 22p\nVin 1 0 AC 1 SIN(0 1 1MEG)\nL1 3 4 10uH",
+      "notes": "Writing 1M for a 1 MOhm resistor gives 1 milliohm. Expressions in braces {} may use these suffixes too.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Global nodes ($G_ prefix) and node 0",
+      "kind": "reference",
+      "description": "Node 0 is the global analog ground. Node names beginning with $G_ are global: they are not prefixed with the subcircuit instance name on expansion and are therefore shared across every subcircuit level. The digital libraries rely on $G_DPWR and $G_DGND as default power and ground for every U device, passed as OPTIONAL: subcircuit nodes.",
+      "usage": "$G_<name>   (e.g. $G_DPWR, $G_DGND, $G_VCC)",
+      "parameters": [],
+      "example": ".SUBCKT 74LS00 A B Y\n+ OPTIONAL: DPWR=$G_DPWR DGND=$G_DGND\n+ PARAMS: MNTYMXDLY=0 IO_LEVEL=0\nU1 NAND(2) DPWR DGND A B Y D0_GATE IO_STD\n.ENDS",
+      "notes": "Capture creates a global net by using a power symbol; nets that only carry a net alias are local to the page hierarchy unless made global through off-page/hierarchical ports.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "IF() / STP() / LIMIT() / TABLE() expression functions",
+      "kind": "function",
+      "description": "Intrinsic functions usable in any {} expression of the netlist (ABM sources, parameters, .FUNC bodies). IF(t,x,y) selects x or y from a Boolean; STP(x) is the unit step used to gate a value until a time has passed; LIMIT(x,min,max) clamps; TABLE(x, x1,y1, ...) is a piecewise-linear look-up with end-value clamping. Also available: ABS, SGN, SQRT, EXP, LOG, LOG10, PWR, PWRS, SIN/COS/TAN, ASIN/ACOS/ATAN/ATAN2, hyperbolics, DDT (time derivative), SDT (time integral), M, P, R, IMG, MAX, MIN, CEIL, FLOOR, INTQ.",
+      "usage": "{IF(<bool>, <x>, <y>)}   {STP(x)}   {LIMIT(x,min,max)}   {TABLE(x, x1,y1, x2,y2, ...)}",
+      "parameters": [
+        {"name": "IF(t,x,y)", "description": "t may use relational and logical operators; model the x/y discontinuity carefully to avoid convergence trouble."},
+        {"name": "STP(x)", "description": "1 if x >= 0, else 0."},
+        {"name": "DDT(x) / SDT(x)", "description": "Time derivative / time integral, transient analysis only."}
+      ],
+      "example": "E1 out 0 VALUE = {IF(V(in)<THL, V(in), V(in)*V(in)/THL)}\nG2 3 0 VALUE = {V(1)*STP(TIME-10ns)}\nE3 5 0 VALUE = {LIMIT(10*V(4), -5, 5)}",
+      "notes": "The waveform-analysis (Probe) function set differs slightly: d(), s(), AVG, RMS, DB exist in Probe but not in netlist expressions, and vice versa for DDT/SDT.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Expression operators (** relational logical ~ & | ^)",
+      "kind": "reference",
+      "description": "Operators allowed inside {} expressions: arithmetic + - * / and ** (same as PWR), plus relational == != > >= < <= and logical ~ (not), & (and), | (or), ^ (xor) that evaluate to 1/0 for use in IF(). Parameters, TIME, node voltages V(), device currents I() and the Laplace variable s (in LAPLACE/FREQ forms) may all appear.",
+      "usage": "{<expr> <op> <expr>}",
+      "parameters": [
+        {"name": "**", "description": "Exponentiation, interchangeable with PWR(x,y)."},
+        {"name": "~ & | ^", "description": "Logical not/and/or/xor for Boolean sub-expressions."}
+      ],
+      "example": ".PARAM gain=20\nE1 out 0 VALUE = {IF((V(en)>2.5) & (TIME>1u), gain*V(in), 0)}\nR2 a b {1k*(1+0.01*TEMP)}",
+      "notes": "Node voltages/currents are not allowed in .PARAM expressions (parameters are evaluated once, before the run) but are allowed in ABM VALUE expressions.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": ".OPTIONS NOICTRANSLATE and IC attributes",
+      "kind": "command",
+      "description": "Capture translates IC properties on capacitors and inductors into .IC pseudo-component statements. The NOICTRANSLATE flag suppresses that translation, so the IC= values only take effect when SKIPBP is appended to .TRAN (i.e. pure SPICE behaviour). Use it when a bias point should still be computed but device-level IC= should only seed the transient.",
+      "usage": ".OPTIONS NOICTRANSLATE",
+      "parameters": [],
+      "example": ".OPTIONS NOICTRANSLATE\nC1 out 0 10u IC=5\n.TRAN 1u 10m SKIPBP",
+      "notes": "Related: .IC clamps nodes through a 0.0002-ohm source during the bias point; .NODESET only seeds the Newton iteration.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Output variable syntax for .PRINT/.PLOT/.PROBE/.MC",
+      "kind": "reference",
+      "description": "The forms accepted wherever an output variable is expected. Voltages: V(node), V(n+,n-), V(two-terminal device), Vx(device) for one terminal of a 3/4-terminal device (x = B,E,C,D,G,S), Vxy(device) across two terminals, Vz(Tline) with z = A or B. Currents: I(two-terminal device), Ix(device), Iz(Tline). W(device) is power, D(node) a digital state. Wildcards V(*), I(*), W(*), D(*) and alias(*) forms save everything or everything outside subcircuits.",
+      "usage": "V(<node>) | V(<+node>,<-node>) | V(<dev>) | Vx(<dev>) | Vxy(<dev>) | I(<dev>) | Ix(<dev>) | W(<dev>) | D(<node>)",
+      "parameters": [
+        {"name": "AC suffixes", "description": "M magnitude (default), DB decibels, P phase (deg), R real, I imaginary, G group delay: VDB(5), VP(2), IR(VIN), IGG(M3)."},
+        {"name": "Two-terminal devices", "description": "C D E F G H I L R S V W."},
+        {"name": "Terminal letters", "description": "B: D G S; J: D G S; M: D G S B; Q: C B E S; Z: C G E; T: A B."}
+      ],
+      "example": ".PRINT TRAN V(3) V(2,3) V(R1) I(VIN) IB(Q13) VBE(Q13) VGS(M13) VA(T2) W(U7)\n.PRINT AC VM(2) VP(2) VDB(R1) IAG(T2) WM(U7)",
+      "notes": "Currents through F and G devices are not directly available; insert a 0 V source in series and print its current. Square brackets force an alphabetic name to be read as a node: V([RESET]).",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "INOISE / ONOISE noise output variables",
+      "kind": "reference",
+      "description": "Predefined output variables of a .NOISE analysis: ONOISE is the total RMS-summed noise at the output node, INOISE the equivalent noise referred to the input source, and DB(INOISE)/DB(ONOISE) their decibel forms. Per-device noise can only be obtained through the .NOISE print interval table, not through .PRINT.",
+      "usage": ".PRINT NOISE INOISE ONOISE DB(INOISE) DB(ONOISE)",
+      "parameters": [],
+      "example": ".AC DEC 20 10 1MEG\n.NOISE V([OUT]) VIN 10\n.PROBE\n* in Probe plot V(ONOISE) and V(INOISE)",
+      "notes": "Units: output noise V/sqrt(Hz); input noise V/sqrt(Hz) for a voltage source, A/sqrt(Hz) for a current source. Integrate with s(V(ONOISE)*V(ONOISE)) in Probe for total noise power over the band.",
+      "docs": "https://www.orcad.com/"
+    }
+  ]
+}

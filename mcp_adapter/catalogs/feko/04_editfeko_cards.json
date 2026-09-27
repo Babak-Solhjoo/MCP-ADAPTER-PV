@@ -1,0 +1,396 @@
+{
+  "category": "EDITFEKO cards and the .pre language",
+  "description": "EDITFEKO edits the text-based .pre input in the PREFEKO language: geometry cards, then EG, then control cards (frequency, sources, loads, solver settings, requests), then EN. The language adds variables (#name), expressions, !!for/!!next loops, !!if/!!else/!!endif blocks, !!print statements, the fileread() function and ** comments, which makes it ideal for generated models and parameter studies from external scripts. Cards take colon-separated fields (DP: A : : : : : x : y : z) or the older column-based layout; the field meaning of every card comes from the EDITFEKO card reference (help.altair.com/feko, Appendix > EDITFEKO Cards) and the card dialog (F1 on a card in EDITFEKO) shows the exact field positions, so treat the positions given below as orientation and confirm them there.",
+  "tools": [
+    {
+      "name": "Variables and expressions (#name = expression)",
+      "kind": "command",
+      "description": "Variables start with # and hold numeric expressions; predefined variables (#pi, #c0, #eps0, #mu0, #zf0) and mathematical functions (sin, cos, sqrt, log, exp, abs, atan2 ...) can be used, and variables can appear in any card field. Node names may embed a variable (P#i) so that points and labels can be generated in loops. This is how parametric models are written in .pre files.",
+      "usage": "#freq = 300e6\n#lam = #c0/#freq",
+      "parameters": [
+        {"name": "#name", "description": "Variable name (case-insensitive); must be defined before use."},
+        {"name": "expression", "description": "Numeric expression using other variables, constants and functions."}
+      ],
+      "example": "#len = 0.47*#lam\n#rad = #len/200\n!!print \"length = \", #len",
+      "notes": "prefeko file.pre -#len=0.5 overrides a variable from the command line; guard the definition with !!if not defined(#len) then ... !!endif so the file value does not overwrite it. See the PREFEKO 'Predefined Variables' and 'Mathematical Functions' pages for the full lists.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/editfeko/variables_feko_c-editfeko.htm"
+    },
+    {
+      "name": "Control flow: !!for/!!next, !!if/!!else/!!endif, !!print, !!exit, ** comments",
+      "kind": "command",
+      "description": "Loops and conditionals generate repeated geometry (arrays, helices from segments) or frequency-dependent settings; !!print, !!print_warning, !!print_error print to the screen and !!print_to_out writes into the .out file; !!exit stops PREFEKO; ** starts a comment (a whole line or trailing text; for request cards the text after ** is the request label used by POSTFEKO and OPTFEKO). The conditional syntax is !!if <condition> then ... !!else ... !!endif and defined(#var) tests whether a variable exists.",
+      "usage": "!!for #i = 1 to 8\n ... cards using #i ...\n!!next\n!!if #a < 2*#b then\n!!print_error \"too small\", #a\n!!exit\n!!endif",
+      "parameters": [
+        {"name": "!!for #i = start to end", "description": "Loop over an integer counter; close with !!next."},
+        {"name": "!!if ... then / !!else / !!endif", "description": "Conditional block; conditions use <, >, =, and, or, not and defined(#var)."},
+        {"name": "!!print / !!print_warning / !!print_error / !!print_to_out", "description": "Print comma-separated strings and expressions to the screen or the .out file."}
+      ],
+      "example": "!!for #k = 1 to 20\nDP: P#k : : : : : #k*#dx : 0 : 0\n!!next\n!!print_to_out \"This run was done with #dx = \", #dx",
+      "notes": "Point labels can be built from loop variables (P#k evaluates #k and rounds it to an integer); PREFEKO expands everything into the .fek file. There is no DEFINE keyword in the PREFEKO language; reusable blocks are placed in separate .pre files and pulled in with the IN card.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/editfeko/conditional_statements_feko_c-editfeko.htm"
+    },
+    {
+      "name": "IN (include file)",
+      "kind": "command",
+      "description": "Includes an external file at that position: another .pre file (inserted as if part of the master file) or a mesh data file (NASTRAN, FEMAP neutral, ASCII, AutoCAD DXF, NEC, CONCEPT, STL, PATRAN, ANSYS CDB, ABAQUS, GiD, I-DEAS UNV) with label selection, an optional scale factor and switches for segments, triangles, quadrangles, tetrahedra, polygons and node points.",
+      "usage": "IN: <import type/flags> : <label selection> : ... : \"filename\"   (fill the card in the EDITFEKO dialog, Construct > Import > Import (IN), to get the exact field layout)",
+      "parameters": [
+        {"name": "File name", "description": "Path (relative or absolute, / or \\ allowed) of the .pre or mesh file."},
+        {"name": "Include segments / triangles / quadrangles / tetrahedra / polygons / node points", "description": "Element types to import; quadrangles are split into triangles."},
+        {"name": "Label selection", "description": "All items, a single label or a label range (NASTRAN property IDs become Feko labels)."},
+        {"name": "Scale factor", "description": "Applied in addition to SF/TG scaling, e.g. 0.001 for a mm file."}
+      ],
+      "example": "** pull a platform mesh exported from HyperMesh and a shared settings file\nIN: ... : \"platform.nas\"\nIN: ... : \"common_settings.pre\"",
+      "notes": "Precede the IN card with an RM card to refine the imported mesh; use CB afterwards to rename imported labels. The numeric option fields differ per import type, so copy them from the dialog.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_in_feko_r.htm"
+    },
+    {
+      "name": "DP (define point)",
+      "kind": "command",
+      "description": "Defines a named point (x, y, z in metres, scaled by SF) that geometry cards refer to; the basic building block of card-based geometry. Point names use a-z, A-Z, 0-9 and _, are case-insensitive and may end in a variable (P#k). An optional last field is the NURBS control-point weight for the NU card. Unlike other geometry cards DP may also appear after EG (for AP apertures).",
+      "usage": "DP: <name> : : : : : x : y : z [: weight]",
+      "parameters": [
+        {"name": "name", "description": "Point name (5 characters in column format)."},
+        {"name": "x, y, z", "description": "Coordinates in m, scaled by the SF card."}
+      ],
+      "example": "DP: A : : : : : 0 : 0 : -0.25\nDP: B : : : : : 0 : 0 : 0.25\n!!for #k = 1 to 20\nDP: P#k : : : : : #k*0.1 : 0 : 0\n!!next",
+      "notes": "Each point also receives the current LA label so that groups of points can be moved with the TP card.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_dp_feko_r.htm"
+    },
+    {
+      "name": "BL (wire segment between two points)",
+      "kind": "command",
+      "description": "Connects two DP points with a straight wire that is subdivided into segments according to the preceding IP card; used for dipoles, monopoles, wire grids and feed pins. The radius can be overridden locally, and different start/end radii create a tapered wire.",
+      "usage": "BL: <point1> : <point2> [: : : : <radius at start> : <radius at end>]",
+      "parameters": [
+        {"name": "point1, point2", "description": "Start and end points defined with DP."},
+        {"name": "radius", "description": "Optional local wire radius (start/end) in m; otherwise from IP."}
+      ],
+      "example": "LA: Feed\nBL: A : B",
+      "notes": "Give the feed wire its own LA label so that A1 (source) and LS/LZ (load) cards can reference it.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_bl_feko_r.htm"
+    },
+    {
+      "name": "BP / BQ / BT / PM (metallic plates: parallelogram, quadrangle, triangle, polygon)",
+      "kind": "command",
+      "description": "Create flat metallic surfaces from DP points, meshed into triangles by PREFEKO: BP is a parallelogram (4 points, very regular mesh), BQ a general quadrangle, BT a single triangle and PM an arbitrary polygon (up to 13 corners in the table form, unlimited with point arrays, concave corners and internal mesh points allowed). PM is the recommended card for planar surfaces; each card accepts non-uniform edge mesh sizes. The triangle normal follows the right-hand rule through the corners (matters for PO, ME and CF cards).",
+      "usage": "BP: P1 : P2 : P3 : P4\nBQ: P1 : P2 : P3 : P4\nBT: P1 : P2 : P3\nPM: (corner points, optional internal points and per-edge mesh sizes; see the dialog)",
+      "parameters": [
+        {"name": "S1..S4", "description": "Corner points in order."},
+        {"name": "mesh size along sides", "description": "Optional finer meshing per edge (m, scaled by SF)."}
+      ],
+      "example": "BQ: C1 : C2 : C3 : C4",
+      "notes": "Surfaces from cards are PEC unless an ME (medium) or SK (skin effect) card applies; reverse normals with CN.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_pm_feko_r.htm"
+    },
+    {
+      "name": "KU / ZY / KK / KR / EL / PB (curved surfaces: sphere, cylinder, cone, disk, ellipsoid, paraboloid)",
+      "kind": "command",
+      "description": "Parametric surface generators meshed directly into triangles: KU spherical section (centre S1, S2 defines theta=0 and the radius, S3 theta=90/phi=0, begin/end angles, normal in/outward), ZY cylinder, KK circular/elliptical cone or cone section (axis S1-S2, S3 on the base radius, optional S4 truncation, start/end angles), KR circular or elliptical disk with optional hole (S1 centre, S2 normal direction, S3 outer radius, S4 inner), EL ellipsoid section (S1 centre, S2/S3/S4 half-axes), PB paraboloid section (S1 centre, S2 normal, S3 rim on the base plane, S4 rim height; f = R^2/(4h)). Each has its own maximum edge length along curved edges.",
+      "usage": "KU: S1 : S2 : S3 : : : : theta_a : phi_a : theta_e : phi_e : edge length   (field order per dialog)",
+      "parameters": [
+        {"name": "S1..S4", "description": "Defining points (see each card's dialog for their meaning)."},
+        {"name": "angles", "description": "Begin/end theta and phi in degrees; a full sphere is 0..180 and 0..360."},
+        {"name": "maximum edge length", "description": "Along curved edges, overrides IP."}
+      ],
+      "example": "** full sphere of radius 0.5 m centred at C\nDP: C : : : : : 0 : 0 : 0\nDP: S2 : : : : : 0 : 0 : 0.5\nDP: S3 : : : : : 0.5 : 0 : 0\nKU: C : S2 : S3 : : : : 0 : 0 : 180 : 360",
+      "notes": "Elliptical variants scale the second half axis; extreme axial ratios can make PREFEKO's distortion formulation fail. CADFEKO export to .pre shows real examples of these cards.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_ku_feko_r.htm"
+    },
+    {
+      "name": "IP (mesh parameters)",
+      "kind": "command",
+      "description": "Sets the meshing sizes for the geometry cards that follow: wire segment radius, maximum triangle edge length, maximum wire segment length, maximum cuboid edge length (VEP dielectrics) and maximum tetrahedron edge length (FEM), all in m and scaled by SF. Can be repeated to change mesh density for different parts; it must appear before the geometry it governs.",
+      "usage": "IP: : : : : <wire radius> : <max triangle edge> : <max segment length> : <max cuboid edge> : <max tetrahedron edge>   (verify the real-field order in the IP dialog)",
+      "parameters": [
+        {"name": "Radius of wire segment", "description": "Default wire radius (m)."},
+        {"name": "Maximum triangle edge length", "description": "Typically lambda/10 at the highest frequency."},
+        {"name": "Maximum wire segment length", "description": "Typically lambda/20."},
+        {"name": "Maximum cuboid / tetrahedron edge length", "description": "For VEP cuboids and FEM tetrahedra."}
+      ],
+      "example": "IP: : : : : #rad : #lam/10 : #lam/20",
+      "notes": "The BL card can override the radius locally. Mesh element size versus wavelength is checked by the solver unless disabled on the EG card.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_ip_feko_r.htm"
+    },
+    {
+      "name": "TG (transform geometry) and SF (scale factor)",
+      "kind": "command",
+      "description": "TG translates/rotates/scales already defined geometry (optionally as copies with label increments, for arrays or placement); SF multiplies all dimension-related values by one factor so geometry can be entered in convenient units (e.g. mm with 0.001). Only one SF card is allowed, it is global, and it must precede EG.",
+      "usage": "TG: <copies> : <start label> : <end label> : ... : rotations : translations (see dialog)\nSF: 1 : 0.001",
+      "parameters": [
+        {"name": "Multiply dimensions with", "description": "Scale factor applied to points, radii, layer thicknesses, request coordinates and more."},
+        {"name": "Modify all dimension related values", "description": "Keep checked (first field 1); unchecked only for legacy files."}
+      ],
+      "example": "SF: 1 : 0.001   ** model entered in mm",
+      "notes": "An IN card's own scale factor is applied in addition to SF/TG scaling.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_sf_feko_r.htm"
+    },
+    {
+      "name": "ME (medium assignment) and DI (dielectric definition)",
+      "kind": "command",
+      "description": "DI defines a labelled medium: dielectric (constant, Debye, Cole-Cole, Havriliak-Negami, Djordjevic-Sarkar or a frequency list from file), metallic, impedance sheet, anisotropic tensor or characterised surface (.tr file). ME then declares the environment of the surface elements that follow (triangles in a homogeneous medium, or triangles forming the boundary between medium A and medium B with the normal pointing from A to B; PEC/PMC/dielectric-boundary triangles) and the type of tetrahedra (FEM dielectric/metallic, VEP dielectric/magnetic). Medium 0 is free space.",
+      "usage": "DI: <label> : ... : epsr : mur : sigma/tan delta (per the DI dialog)\nME: <medium inside/A> : <medium outside/B> : <triangle type> : <tetrahedron type>",
+      "parameters": [
+        {"name": "Medium label", "description": "Name referenced by ME, CO, DL, BO and GF cards."},
+        {"name": "Medium A / Medium B", "description": "Media on the two sides of the boundary triangles (normal from A to B)."}
+      ],
+      "example": "DI: Teflon : : : : 2.1 : 1 : 0\nME: Teflon : 0",
+      "notes": "All triangles and segments before the first ME card are metallic in free space. The same media definitions are available in CADFEKO (Media dialog).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_di_feko_r.htm"
+    },
+    {
+      "name": "SK (skin effect / finite conductivity)",
+      "kind": "command",
+      "description": "Applies finite conductivity and thickness (skin-effect losses), a surface impedance or an ohmic wire resistance to metallic triangles and wire segments with a given label; used for realistic efficiency and loss calculations. The .out file then lists the penetration depth, the conductor impedance and the power loss per label.",
+      "usage": "SK: <label> : <type> : ... : conductivity : thickness (per the SK dialog)",
+      "parameters": [
+        {"name": "label", "description": "Label of the elements to make lossy."},
+        {"name": "conductivity / thickness", "description": "S/m and m (thickness scaled by SF)."}
+      ],
+      "example": "SK: Patch : 1 : : : : 5.8e7 : 35e-6",
+      "notes": "Losses appear in the 'POWER LOSS METAL' and 'SUMMARY OF LOSSES' blocks of the .out file.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_sk_feko_r.htm"
+    },
+    {
+      "name": "SY (symmetry)",
+      "kind": "command",
+      "description": "Declares symmetry planes (geometric, electric or magnetic) for x=0, y=0 and z=0 and mirrors all elements created before the card (triangles, segments, cuboids, tetrahedra, polygonal plates, Fock regions), optionally incrementing the mirrored labels. Sources are not mirrored: a Hertzian dipole on one side needs its image on the other side.",
+      "usage": "SY: 1 : <x plane> : <y plane> : <z plane> : <label increment>   (symmetry type codes per the SY dialog: none / geometric / electric / magnetic)",
+      "parameters": [
+        {"name": "plane type", "description": "Electric = PEC wall (tangential E zero); magnetic = PMC wall; geometric = same currents mirrored (saves fill time only)."},
+        {"name": "label increment", "description": "Added to mirrored labels (label 0 stays 0)."}
+      ],
+      "example": "SY: 1 : 0 : 3 : 0   ** magnetic symmetry in y = 0 (verify the type codes in the dialog)",
+      "notes": "Several SY cards mirror about several planes. Wrong symmetry silently changes the physics; check the current plot in POSTFEKO.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_sy_feko_r.htm"
+    },
+    {
+      "name": "EG (end of geometry)",
+      "kind": "command",
+      "description": "Mandatory card that ends the geometry section. Its fields set global options: write the geometry to the .out/NASTRAN/STL file, message level to standard output, switch off geometry checking or mesh-size checking, single/double precision, low-frequency stabilisation (Auto / Always on) and the maximum identical distance (node coincidence tolerance).",
+      "usage": "EG: <geometry output> : <stdout level> : <geometry checking off> : <mesh size checking off> : <precision> : ... : <max identical distance>   (verify positions in the dialog)",
+      "parameters": [
+        {"name": "Solution accuracy", "description": "Single (default) or double precision for memory-critical arrays."},
+        {"name": "Low frequency stabilisation", "description": "Auto or Always on for kHz-MHz models."}
+      ],
+      "example": "EG: 1 : 0 : 0 : 0 : 0",
+      "notes": "Never switch geometry checking off in new models; it catches unconnected wires and mismatched meshes.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/geometry/card_eg_feko_r.htm"
+    },
+    {
+      "name": "FR (frequency)",
+      "kind": "command",
+      "description": "Sets the solution frequencies in Hz: a single frequency, a discrete range (number of points with linear or multiplicative spacing, given by increment/factor or by the end frequency), a discrete list, or a continuous range solved with adaptive frequency sampling (max. number of sample points, convergence accuracy, quantities to include, minimum increment). Every control card between an FR card and the next FR or EN card is executed for each frequency.",
+      "usage": "FR: <number of frequencies> : <spacing flag> : : : <start frequency> : <end frequency>   (column form: FR   1    0                   #freq)",
+      "parameters": [
+        {"name": "Number of frequency points", "description": "1 for a single frequency; >1 for a sweep."},
+        {"name": "Frequency scale", "description": "Linear or multiplicative (logarithmic)."},
+        {"name": "Starting / ending frequency (Hz)", "description": "Range limits; continuous mode adds max. sample points and minimum increment."}
+      ],
+      "example": "FR: 1 : : : : 300e6\nFR: 41 : 0 : : : 1e9 : 3e9",
+      "notes": "Several FR cards may appear; each starts a new frequency loop for the requests after it. Use the FILEREAD function to read frequency lists from a file.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_fr_feko_r.htm"
+    },
+    {
+      "name": "A0 (plane wave incidence)",
+      "kind": "command",
+      "description": "Defines a linearly or circularly (left/right hand elliptical with ellipticity) polarised incident plane wave, a single direction or a loop over incidence angles (number of theta and phi angles with increments), with magnitude (V/m), phase, polarisation angle eta and optional rotation about the axes; used for RCS, shielding, FSS and cable irradiation. 'New source' replaces earlier sources, 'Add to sources' superimposes.",
+      "usage": "A0: <new/add flag> : <number of theta> : <number of phi> : ... : magnitude : phase : theta0 : phi0 : eta : dtheta : dphi",
+      "parameters": [
+        {"name": "theta0, phi0", "description": "Initial incidence angles (degrees)."},
+        {"name": "number of theta/phi angles and increments", "description": "Define the incidence-angle loop for monostatic RCS."},
+        {"name": "eta", "description": "Polarisation angle (degrees); ellipticity for circular polarisation."}
+      ],
+      "example": "A0: 0 : 1 : 181 : : : 1 : 0 : 90 : 0 : 0 : 0 : 1",
+      "notes": "Combine with FF (fields only in the incident direction) for monostatic RCS; 'Calculate orthogonal polarisations' gives both polarisations in one run.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_a0_feko_r.htm"
+    },
+    {
+      "name": "A1 / A2 / A3 / AE (voltage sources on a segment, a node, a magnetic frill, an edge)",
+      "kind": "command",
+      "description": "Impress a voltage source: A1 on a wire segment selected by label, by position or by a PT port name (magnitude, phase, reference impedance, feed orientation), A2 at a node between two segments or between a segment and a triangle/plate/ground, A3 a magnetic frill (coaxial feed) on a segment, AE across an edge between triangles (patch/slot feeds). The .out file reports input impedance, current and power for each source under 'DATA OF THE VOLTAGE SOURCE'.",
+      "usage": "A1: <new/add flag> : <segment label or PT port> : : : : magnitude : phase : reference impedance\nA2: <flag> : <segment label> : ... : magnitude : phase\nAE: <flag> : <edge/triangle labels> : ... : magnitude : phase",
+      "parameters": [
+        {"name": "Magnitude / Phase", "description": "Volts and degrees."},
+        {"name": "Reference impedance (Ohm)", "description": "Used for S-parameters, realised gain and the reflection coefficient shown in POSTFEKO (50 Ohm if empty)."},
+        {"name": "Reverse feed orientation", "description": "Flips the voltage vector relative to the segment direction."}
+      ],
+      "example": "A1: 0 : Feed : : : : 1 : 0",
+      "notes": "A1 requires the feed segment to carry a label (LA before the BL card) or a PT port definition; the first field controls whether earlier sources are replaced.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_a1_feko_r.htm"
+    },
+    {
+      "name": "A5 / A6 / AI / AV / AR / AS / AP (dipoles, impressed currents, pattern, spherical modes, aperture sources)",
+      "kind": "command",
+      "description": "Sources without geometry: A5 electric and A6 magnetic Hertzian dipole (I*dl magnitude/phase, position, theta/phi orientation), AI impressed line current and AV impressed current connected to a mesh vertex, AR radiation pattern point source from a .ffe/.ffs/ASCII file or inline data (amplitude scale, phase offset, position, rotation about the axes), AS spherical modes source (inline modes or TICRA .sph, inward/outward), AP aperture (near-field) source from .efe/.hfe, CST NFS, Sigrity .nfd, MVG .mfxml or ASCII data on a planar, cylindrical or spherical aperture (converted internally to A5/A6 dipole arrays).",
+      "usage": "A5: <flag> : ... : magnitude : phase : x : y : z : theta : phi\nAR: <flag> : <data source> : ... : scale : phase offset : x : y : z : rotations : \"pattern.ffe\"",
+      "parameters": [
+        {"name": "Add to sources", "description": "Superimpose with previously defined sources (e.g. array of AR sources)."},
+        {"name": "File name", "description": "Data file in the documented Feko/CST/TICRA formats (POSTFEKO exports .ffe/.efe/.hfe/.sph via the DA card)."}
+      ],
+      "example": "A5: 0 : : : : : 0 : 0 : 1 : 1 : 0 : 0 : 0   ** verify field order in the A5 dialog",
+      "notes": "'Use last pattern defined at previous AR card' shares one pattern between many AR sources to save memory.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_ar_feko_r.htm"
+    },
+    {
+      "name": "LS / LP / LZ / LD / L2 / LE / LN / LF (loads on segments, nodes, edges, network ports, FEM)",
+      "kind": "command",
+      "description": "Terminate or load parts of the structure: LS series RLC and LP parallel RLC on a labelled segment (or PT port), LZ complex impedance (or SPICE/Touchstone one-port) on a segment, LD distributed R'/L'/C' per metre along wires, L2 complex/series/parallel/SPICE/Touchstone load on a node (vertex), LE load on an edge between triangles or to ground, LN load on a non-radiating network port, LF complex load between two points inside a FEM region, LT generic port load for FDTD. A load on the port of a voltage source is placed in series with the source.",
+      "usage": "LS: <label or port> : : : : R : L : C\nLZ: <label> : : : : Re(Z) : Im(Z)   (column form: LZ                  0         #Zr       #Zi)",
+      "parameters": [
+        {"name": "Label of segments to load", "description": "All segments with the label receive the load; only one card of each type per label."},
+        {"name": "R, L, C", "description": "Ohm, H, F; empty/zero C in a series circuit means infinite capacitance."}
+      ],
+      "example": "LS: Term : : : : 50 : 0 : 0",
+      "notes": "'Remove all ... loads previously defined' variants clear loads inside frequency loops; LZ impedance is frequency independent, use LS/LP for RLC frequency dependence.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_ls_feko_r.htm"
+    },
+    {
+      "name": "TL (transmission line) and NW (general network)",
+      "kind": "command",
+      "description": "Non-radiating circuit elements between ports: TL an ideal transmission line (Z0, length, attenuation or medium, velocity factor) and NW a general N-port network from S/Y/Z parameters (Touchstone file) or a SPICE circuit (with optional voltage/current probes), whose ports connect to wire segments, vertices, edges, microstrip edges or other network ports; feed networks, matching circuits and amplifiers without geometry. Field coupling between the network and the geometry is neglected.",
+      "usage": "TL: <port 1 connection> : <port 2 connection> : ... : Z0 : length : attenuation\nNW: <new/add> : <network name> : <number of ports> : <port connections> : \"network.s2p\"",
+      "parameters": [
+        {"name": "Network name / port number", "description": "Identify terminals for AN sources and LN loads."},
+        {"name": "Port connection", "description": "Segment label or position, internal port, edge labels, microstrip points, vertex."}
+      ],
+      "example": "TL: P1 : P2 : : : 50 : 0.1 : 0",
+      "notes": "S-parameter requests (SP) include the connected networks; 'Remove all existing networks' clears them.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_nw_feko_r.htm"
+    },
+    {
+      "name": "GF (planar Green's function / layered media)",
+      "kind": "command",
+      "description": "Includes a dielectric environment analytically through a special Green's function: a homogeneous medium filling the whole space, a layered dielectric sphere at the origin, or a planar multilayer substrate in the XY plane with layers that may carry ground planes at arbitrary z values. Used for microstrip antennas and circuits on infinite substrates without meshing the dielectric.",
+      "usage": "GF: <type> : <number of layers> : ... then one line per layer with thickness and medium (see the GF dialog)",
+      "parameters": [
+        {"name": "layers", "description": "Thickness and DI medium per layer, from top to bottom; optional PEC ground at layer bottoms."}
+      ],
+      "example": "** infinite 1.6 mm FR4 substrate with ground: create it in CADFEKO (Planes/arrays > Plane/ground > Planar multilayer substrate) and read the exported .pre",
+      "notes": "Field layout varies with the substrate type; inside a frequency loop GF can also change the medium parameters as a function of frequency.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_gf_feko_r.htm"
+    },
+    {
+      "name": "BO (reflection-coefficient ground plane), PE (periodic boundary) and PP (periodic phase shift)",
+      "kind": "command",
+      "description": "BO switches on an infinite ground at an arbitrary z value: PEC, PMC or a real ground (DI medium) with the reflection-coefficient approximation (structures must stay above it, ideally more than lambda/10 away; exact Sommerfeld grounds use GF); it may also be restricted to post-processing of far/near-field, receiving-antenna and SAR requests. PE defines the unit cell for 1D/2D periodic boundary conditions from points S1, S2 (S3), and PP sets the phase shift between cells manually, from the plane-wave source or from a beam squint angle.",
+      "usage": "BO: <ground type> : <apply to requests> : ... : <medium label> : <z value>\nPE: <dimension> : S1 : S2 : S3\nPP: <method> : ... : phase shift u1 : phase shift u2 | theta : phi",
+      "parameters": [
+        {"name": "Ground type", "description": "None, reflection coefficient, PEC, PMC."},
+        {"name": "PE dimension", "description": "One or two dimensional periodicity; lattice vectors need not be orthogonal."}
+      ],
+      "example": "BO: 1   ** PEC ground at z = 0 (verify the type code in the dialog)",
+      "notes": "MoM/UTD cannot be combined with a real ground; PBC works with the MoM (not MLFMM/PO/UTD/VEP) and only one PE card is allowed.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_bo_feko_r.htm"
+    },
+    {
+      "name": "CG (solver/preconditioner), FM (MLFMM/ACA), PS (data storage), FP (basis functions) and PO / UT / FD (asymptotic and FDTD settings)",
+      "kind": "command",
+      "description": "Solver control cards: CG selects the matrix solution method (default, LU/Gauss, iterative CGM/BCG/Bi-CGSTAB/GMRES variants, direct sparse, ScaLAPACK parallel LU) and preconditioner; FM enables MLFMM or ACA (box size, fast far/near-field methods, characteristic basis functions CBFM, looped plane-wave compression); PS saves/reads the matrix (.mat), LU factors (.lud), currents (.str) or cable per-unit-length parameters; FP sets FEM element order and MoM/HOBF basis-function order and FEM decoupling; PO applies physical optics to a label range (full ray tracing, always illuminated, large-element PO, full/iterative/decoupled MoM coupling, shadowing .sha files); UT applies UTD to polygonal plates/cylinders; FD sets FDTD time-interval and convergence settings. These are the .pre equivalents of the CADFEKO solver settings and 'Solve with' assignments.",
+      "usage": "CG: <method> : <max iterations> : <preconditioner> : ... : <tolerance>\nFM: <none | MLFMM | ACA> : ...\nPO: <label> : <up to label> : <ray tracing option> : <LE-PO> : <coupling> ...",
+      "parameters": [
+        {"name": "FM box size", "description": "MLFMM finest-level box size in wavelengths (default 0.23, change only for convergence problems)."},
+        {"name": "PO coupling", "description": "Full coupling, iterative (max iterations, residuum) or decoupled."}
+      ],
+      "example": "FM: 1\nCG: 1 : 500 : 3 : : : 1e-3   ** verify option codes in the dialogs",
+      "notes": "The CG card should normally be omitted; Feko selects solver and preconditioner automatically. Field semantics change between releases, consult the card reference of the installed version.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_cg_feko_r.htm"
+    },
+    {
+      "name": "FF (far field request)",
+      "kind": "command",
+      "description": "Requests far-field values over a theta/phi (spherical) or u/v (Cartesian) grid: number of points, initial angles and increments, directivity or gain, fields only in the incident direction (monostatic RCS), only integrate over the area (total radiated power), scattered part only, spherical-mode coefficients (max mode index N), far field for a PBC array, continuous far-field data. Used after sources and FR; the text after ** is the request name.",
+      "usage": "FF: <output flag> : <n theta> : <n phi> : <spherical/Cartesian> : ... : theta0 : phi0 : dtheta : dphi ** RequestName",
+      "parameters": [
+        {"name": "Number of theta/phi points, initial values, increments", "description": "Degrees; 37 x 73 with 5 deg steps is a full 3D pattern."},
+        {"name": "Directivity/Gain", "description": "Quantity written to the .out file (gain needs the losses/power scaling)."}
+      ],
+      "example": "FF: 1 : 37 : 73 : 0 : : : 0 : 0 : 5 : 5   ** full 3D pattern",
+      "notes": "For RCS use FF with 'fields calculated only in the incident direction' and an A0 loop; DA exports the .ffe file.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_ff_feko_r.htm"
+    },
+    {
+      "name": "FE (near field request)",
+      "kind": "command",
+      "description": "Requests near fields on a Cartesian, Cartesian boundary, cylindrical (Z/X/Y axis), spherical, conical, specified-point or tetrahedral-mesh grid: E, H, both, E plus SAR in cuboids, or the potentials (A, F, scalar potentials and their gradients); optionally only the scattered part; results go to the .out/.bof and, with DA, to .efe/.hfe files. Potentials are not available with UTD, PO or layered Green's functions, and no fields can be computed below a BO ground plane.",
+      "usage": "FE: <field type> : <n1> : <n2> : <n3> : <coordinate system> : ... : start1 : start2 : start3 : inc1 : inc2 : inc3 ** RequestName",
+      "parameters": [
+        {"name": "Select what to calculate", "description": "E, H, both, E+SAR, potentials."},
+        {"name": "Coordinate system", "description": "Cartesian, Cartesian boundary, cylindrical, spherical, cylindrical X/Y, conical, specified points, tetrahedral mesh."}
+      ],
+      "example": "FE: 1 : 41 : 41 : 1 : 0 : : : -0.2 : -0.2 : 0.05 : 0.01 : 0.01 : 0",
+      "notes": "Large grids bloat the .out file; deactivate the .out output with DA and keep the .efe/.hfe export.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_fe_feko_r.htm"
+    },
+    {
+      "name": "OS (currents/charges output) and SP (S-parameters)",
+      "kind": "command",
+      "description": "OS writes surface and segment currents and charges to the .out/.os/.ol files (all currents, triangles only, segments only, by label or label range, optionally without corner averaging, or as a CableMod/CRIPTE .rsd file); SP requests the S-matrix for the active sources/ports with a system impedance (50 Ohm default; waveguide ports use the waveguide impedance), options to add the port impedance to existing loads, restore loads afterwards, calculate all other requests per port excitation and set the transmit power.",
+      "usage": "OS: <scope> : <label> : <up to label> : <averaging> ** RequestName\nSP: <add port impedance> : <restore loads> : <calculate all requests> : ... : system impedance : transmit power",
+      "parameters": [
+        {"name": "System impedance", "description": "Reference impedance for sources without their own value."},
+        {"name": "Restore loads after calculation", "description": "Removes the automatically applied port impedances afterwards."}
+      ],
+      "example": "OS: 1 : 1\nSP: 1 : 50   ** verify field positions in the dialogs",
+      "notes": "SP excites the ports in turn internally; each port needs its own A1/A2/AE/AN source card. DA writes the Touchstone .snp file.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_sp_feko_r.htm"
+    },
+    {
+      "name": "DA (data export settings) and PW (power settings)",
+      "kind": "command",
+      "description": "DA switches on/off, for the cards that follow, the export of results to additional ASCII files: .efe/.hfe near fields, .ffe far fields, .os/.ol currents and charges, .cgm iterative residuum, .epl EM losses for thermal analysis, .snp Touchstone S-parameters, .sph TICRA spherical wave expansion, SEMCAD .dat, SPARK3D .fse, error estimates, FEST3D .chr, .tr transmission/reflection coefficients and the multiport data package (.mdm/.mcc/.mdp); it also controls whether each result is still written to the .out file. PW scales the whole solution to a total source power (without internal impedance, with internal impedance, or with a transmission-line feed to include mismatch) or leaves the specified voltages.",
+      "usage": "DA: <efe> : <hfe> : <ffe> : <os> : ... (one flag per export, see dialog)\nPW: <scaling type> : : : : power : Re(Zi) : Im(Zi)",
+      "parameters": [
+        {"name": "Source power (W)", "description": "Total power of all sources (or forward waves for transmission-line feeds)."},
+        {"name": "Decouple all sources when calculating power", "description": "Ignore mutual coupling between impressed sources."}
+      ],
+      "example": "DA: 1 : 1 : 1 : 0\nPW: 1 : : : : 1   ** 1 W total source power (verify positions)",
+      "notes": "Export files are written next to the .fek with the model name and request label; multiple DA cards can switch exports on and off per request block.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_da_feko_r.htm"
+    },
+    {
+      "name": "Cable cards: CD, CS, SH, LC, SL, PR, KC, KS (and the legacy CA card)",
+      "kind": "command",
+      "description": "Card-level cable modelling for the MTL and combined MoM/MTL solver: SH defines a cable shield, CD a cable cross section, CS a cable path section with start/end connectors, LC loads (complex, series, parallel, SPICE, Touchstone) between connector pins or pin and ground, SL the schematic link between circuit elements and the full-wave model, PR current/voltage probes along a cable path, KC/KS transfer connector and signal names from CADFEKO to POSTFEKO. CA is the older 'irradiating cable' card (straight shielded sections with terminations, predefined or user cable types) kept for compatibility. These blocks are normally exported from CADFEKO rather than written by hand.",
+      "usage": "See the card reference; export a CADFEKO cable model to .pre to obtain a template.",
+      "parameters": [
+        {"name": "Connector label / pin", "description": "Identify load and probe positions; pin 0 = local device ground, -1 = global ground."}
+      ],
+      "example": "-- exported cable models contain SH/CD/CS/LC/PR blocks with all fields filled",
+      "notes": "Editing these by hand is error-prone; build cables in CADFEKO's cable schematic.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_ca_feko_r.htm"
+    },
+    {
+      "name": "EN (end of file)",
+      "kind": "command",
+      "description": "Terminates the control section; it is essential, has no parameters and PREFEKO stops reading there. Every .pre file ends with EN.",
+      "usage": "EN",
+      "parameters": [],
+      "example": "EN",
+      "notes": "Cards after EN are ignored.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_en_feko_r.htm"
+    },
+    {
+      "name": "PREFEKO, the .fek file and the .out file",
+      "kind": "reference",
+      "description": "PREFEKO expands the .pre file (variables, loops, includes, geometry cards -> triangles/segments) into the binary .fek solver input; runfeko does this automatically, and prefeko can also be run alone (prefeko model.pre [-#var=value] [--print-variables] [--ignore-errors] [--num-threads N] [--fek-format x]). The solver then writes the .out text file whose blocks (geometric data, excitation, currents and charges, finite conductivity/losses, near fields and SAR, far fields and receiving antennas, S-parameters, computation time and peak memory) mirror the requests in card order, which makes it straightforward to parse.",
+      "usage": "prefeko model.pre -> model.fek; runfeko model.pre -> model.out, model.bof",
+      "parameters": [
+        {"name": "-#var=value", "description": "Set a variable from the command line (record it with !!print_to_out)."}
+      ],
+      "example": "prefeko dipole.pre -#len=0.5 --print-variables\nrunfeko dipole.pre",
+      "notes": "Both CADFEKO and EDITFEKO models end up as .fek; POSTFEKO reads .fek + .bof. prefeko without arguments prints its usage (passing --help as the first argument is treated as a file name).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/running_prefeko_feko_r.htm"
+    },
+    {
+      "name": "Complete minimal .pre example (dipole with pattern)",
+      "kind": "reference",
+      "description": "A self-contained wire dipole at 300 MHz with a centre feed and a full far-field pattern, showing the order variables -> IP -> DP -> LA/BL -> EG -> FR -> source -> request -> EN.",
+      "usage": "Save as dipole.pre and run: runfeko dipole.pre",
+      "parameters": [],
+      "example": "** dipole.pre\n#freq = 300e6\n#lam = #c0/#freq\n#len = 0.47*#lam\nIP: : : : : #len/200 : : #lam/20\nDP: A : : : : : 0 : 0 : -#len/2\nDP: B : : : : : 0 : 0 : #len/2\nLA: Feed\nBL: A : B\nEG: 1 : 0 : 0 : 0 : 0\nFR: 1 : : : : #freq\nA1: 0 : Feed : : : : 1 : 0\nFF: 1 : 37 : 73 : 0 : : : 0 : 0 : 5 : 5 ** FarField1\nEN",
+      "notes": "LA sets the label for subsequent geometry (here the feed wire); the A1 card references it. Field positions of IP/EG/A1/FF should be checked against the installed card dialogs (F1 in EDITFEKO).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/editfeko/structure_pre_file_feko_c-editfeko.htm"
+    }
+  ]
+}

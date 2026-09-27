@@ -1,0 +1,634 @@
+{
+  "category": "Blocks, Attributes & Dynamic Blocks",
+  "description": "Everything around block definitions beyond the basic BLOCK/INSERT/WBLOCK/ATTDEF entries: the command-line insert variants that scripts use, the Blocks palette, the Block Editor authoring commands that turn a static block into a dynamic one (parameters, actions, visibility states, lookup tables, block property tables), the attribute display/edit/extract commands, the Smart Blocks AI commands added in 2024-2026 (BREPLACE, BCONVERT, BSEARCH, BDETECT) and the block-related Express Tools.",
+  "tools": [
+    {
+      "name": "-BLOCK",
+      "kind": "command",
+      "description": "Command-line version of BLOCK that defines a block from selected objects without opening the Block Definition dialog. It prompts for the name, the base point and the objects, so it can be driven from scripts, macros and (command ...) calls. Answering the name prompt with ? lists the blocks already defined in the drawing.",
+      "usage": "-BLOCK\nEnter block name or [?]: <name>\nSpecify insertion base point or [Annotative]: <point> | A\nSelect objects: <selection> Enter",
+      "parameters": [
+        {"name": "block name", "description": "Up to 255 characters; letters, digits, spaces and most punctuation except < > / \\ \" : ; ? * | , = ` are allowed. Giving an existing name asks whether to redefine it."},
+        {"name": "?", "description": "List defined blocks. Anonymous blocks (names starting with *) such as hatch, dimension and dynamic-block instances are shown separately."},
+        {"name": "Annotative (A)", "description": "Make the block annotative so it scales with CANNOSCALE; also asks whether to match the block orientation to the layout."},
+        {"name": "BLOCKCREATEMODE", "description": "System variable (2022+) that decides what happens to the selected objects afterwards: 0 retain, 1 convert to a block reference, 2 delete."}
+      ],
+      "example": "; Script: build a block from everything on layer SYMB and replace the originals by one reference\nBLOCKCREATEMODE\n1\n-BLOCK\nNORTH_ARROW\n0,0\n(select objects)\n\n\n; AutoLISP\n(command \"_.-BLOCK\" \"TITLE_STAMP\" '(0 0 0) ss \"\")",
+      "notes": "The selected objects are removed from the drawing after definition unless BLOCKCREATEMODE says otherwise (older releases always deleted them; OOPS brings them back). Objects drawn on layer 0 with colour/linetype ByBlock take the properties of the reference when inserted, which is the convention for reusable symbols.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "-INSERT",
+      "kind": "command",
+      "description": "Command-line INSERT: places a block definition or an external DWG file as a block reference by prompting for name, insertion point, scale factors and rotation. This is the form scripts, CUI macros and AutoLISP use because no dialog appears. Prefixing the name with an asterisk inserts the block exploded, and giving a name in the form NEWNAME=file.dwg inserts the file under a different block name.",
+      "usage": "-INSERT\nEnter block name or [?] <last>: <name> | *name | name=path\\file.dwg | ~\nSpecify insertion point or [Basepoint/Scale/X/Y/Z/Rotate/PScale/PX/PY/PZ/PRotate]: <point>\nEnter X scale factor, specify opposite corner, or [Corner/XYZ] <1>:\nEnter Y scale factor <use X scale factor>:\nSpecify rotation angle <0>:",
+      "parameters": [
+        {"name": "name / path", "description": "A block already in the drawing, or a DWG path (with or without .dwg). name=path redefines/creates the block from the file; entering just name=  after a block exists prompts to redefine it from the file of the same name."},
+        {"name": "*name", "description": "Insert the block exploded into its component objects; only a uniform scale can be given."},
+        {"name": "~", "description": "Open the Select Drawing File dialog even when FILEDIA is 0."},
+        {"name": "Scale / X / Y / Z / Rotate", "description": "Preset the scale or rotation before the insertion point is picked so the drag preview is correct. The P-prefixed variants set a preview value that is prompted for again afterwards."},
+        {"name": "Basepoint", "description": "Temporarily change the base point of the block being dragged."},
+        {"name": "ATTREQ / ATTDIA", "description": "ATTREQ 0 suppresses the attribute prompts (defaults are used); ATTDIA 1 shows the Edit Attributes dialog, which must be 0 for scripts."}
+      ],
+      "example": "; Script - insert a title block from a file, scale 1, rotation 0, answer two attributes\nATTDIA 0\nATTREQ 1\n-INSERT\nC:/lib/A1_TITLE.dwg\n0,0\n1\n1\n0\nPROJECT 1042\nSHEET 1 OF 4\n\n; AutoLISP with uniform scale via the Scale option\n(command \"_.-INSERT\" \"BOLT_M12\" \"_S\" 2.0 (getpoint \"\\nInsertion: \") 0)",
+      "notes": "When the block name already exists in the drawing the definition in the drawing wins and the file is not re-read; force a refresh with name=path. In AutoLISP, if a block has attributes and ATTREQ is 1 the command needs one answer per attribute or it stalls. INSERT (dialog) and CLASSICINSERT cover the same ground interactively.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "CLASSICINSERT",
+      "kind": "command",
+      "description": "Opens the classic Insert dialog box that INSERT used before AutoCAD 2020, when INSERT was redirected to the Blocks palette gallery. Useful for users who prefer a modal dialog with explicit Name, Browse, Insertion point, Scale, Rotation and Explode fields, and for CUI macros written against the old behaviour.",
+      "usage": "CLASSICINSERT  (opens the Insert dialog; INSERT now shows the ribbon gallery / Blocks palette)",
+      "parameters": [
+        {"name": "Name / Browse", "description": "Pick a block defined in the drawing or browse to a DWG file."},
+        {"name": "Specify On-screen", "description": "Per-field checkboxes for insertion point, scale and rotation; unchecked fields take the typed values."},
+        {"name": "Uniform Scale / Explode", "description": "Lock X=Y=Z, or insert as individual objects."},
+        {"name": "Block Unit / Factor", "description": "Read-only display of INSUNITS conversion between the block and the drawing."}
+      ],
+      "example": "CLASSICINSERT\n(choose block NORTH_ARROW, uncheck Specify On-screen for scale, type 2 in X with Uniform Scale, OK, click the insertion point)",
+      "notes": "Introduced in 2020 alongside BLOCKSPALETTE. Command-line scripts should still use -INSERT. The dialog shares the same block name list, so a block inserted from a file here becomes available in the Current Drawing tab of the palette.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "-INSERTCONTENT",
+      "kind": "command",
+      "description": "Command-line command (2021+) that inserts a drawing file or block with the same prompts as -INSERT but is what the Blocks palette runs behind the scenes, so it honours the palette's Recent/Favorites/Libraries synchronisation. It exists mainly so palette actions can be recorded and replayed; for hand-written scripts -INSERT is the conventional choice.",
+      "usage": "-INSERTCONTENT\nEnter block name or [?]: <name | path>\nSpecify insertion point or [Basepoint/Scale/X/Y/Z/Rotate/Explode/REpeat]: ...",
+      "parameters": [
+        {"name": "Explode", "description": "Insert the block exploded."},
+        {"name": "REpeat", "description": "Keep inserting the same block until Esc, mirroring the palette's Repeat Placement option."}
+      ],
+      "example": "-INSERTCONTENT\nC:/lib/CHAIR.dwg\n_RE\n(click several insertion points, Esc to finish)",
+      "notes": "Blocks inserted this way are added to the Recent tab (BLOCKSRECENTFOLDER) and, if signed in, synchronised through BLOCKSYNCFOLDER. Available in AutoCAD LT too.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BLOCKSPALETTE",
+      "kind": "panel",
+      "description": "Opens the Blocks palette (2020+), the modeless replacement for the Insert dialog. Its tabs show blocks in the Current Drawing, Recent insertions, Favorites (2021+) and Libraries (a folder or DWG chosen with BLOCKNAVIGATE). Blocks are inserted by drag, click or right-click with the insertion options - scale, rotation, Repeat Placement, Explode, auto-placement - set at the bottom of the palette.",
+      "usage": "BLOCKSPALETTE  (Insert tab > Block panel > Insert > Blocks from Libraries..., or Ctrl+3 style palette toggle)\nBLOCKSPALETTECLOSE to close",
+      "parameters": [
+        {"name": "Current Drawing tab", "description": "Every non-anonymous block definition in the open drawing, searchable by name."},
+        {"name": "Recent / Favorites tabs", "description": "Recently inserted or starred blocks, stored in BLOCKSRECENTFOLDER and synchronised via BLOCKSYNCFOLDER when signed in."},
+        {"name": "Libraries tab", "description": "A folder of DWG files or a single DWG treated as a block library; the path lives in BLOCKNAVIGATE."},
+        {"name": "Insertion options", "description": "Insertion Point, Scale, Rotation (on-screen or typed), Repeat Placement, Explode and, from 2024, Smart Blocks placement suggestions (AUTOPLACEMENT)."},
+        {"name": "BLOCKSTATE / BLOCKMRULIST", "description": "Reports whether the palette is open; controls how many recent blocks are kept."}
+      ],
+      "example": "BLOCKNAVIGATE\nC:\\CAD\\Library\\Furniture.dwg\nBLOCKSPALETTE\n(open the Libraries tab, tick Repeat Placement, click CHAIR and place several copies)",
+      "notes": "The palette replaces INSERT's dialog but INSERT itself now drops down a gallery on the ribbon and opens this palette for anything else. Blocks dragged from a library DWG are copied into the current drawing's block table on first use, so a later change to the library file does not propagate unless the block is reinserted with name=path.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BSAVE",
+      "kind": "command",
+      "description": "Saves the block definition currently open in the Block Editor back to the drawing's block table, updating every reference. BSAVEAS saves it under a new name (optionally as a new DWG through Save Block As) and BCLOSE leaves the editor, prompting to save if there are unsaved changes. These are the Block Editor equivalents of QSAVE, SAVEAS and CLOSE.",
+      "usage": "BSAVE            (Block Editor contextual tab > Open/Save > Save Block)\nBSAVEAS          (Save Block As dialog: new name, optionally 'Save block definition to drawing file')\nBCLOSE           (Close Block Editor; asks to save or discard)",
+      "parameters": [
+        {"name": "BSAVEAS name", "description": "New block name; the original definition is left unchanged. Ticking Save block definition to drawing file writes a separate DWG as WBLOCK would."},
+        {"name": "BLOCKEDITLOCK", "description": "System variable: 1 prevents the Block Editor from opening at all, protecting dynamic block definitions in released libraries."},
+        {"name": "BLOCKEDITOR", "description": "Read-only variable, 1 while the Block Editor is active - check it in LISP before calling commands that are disabled inside the editor."}
+      ],
+      "example": "BEDIT\nDOOR_900\n(add a Linear parameter and a Stretch action)\nBSAVE\nBCLOSE\n\n; AutoLISP guard\n(if (= 1 (getvar \"BLOCKEDITOR\")) (alert \"Close the Block Editor first\"))",
+      "notes": "Saving a block that already has references regenerates every insertion; references with grip-edited dynamic values keep their values if the parameter still exists. Many commands (PLOT, SAVEAS, XREF) are unavailable while the editor is open, and the drawing itself is not saved by BSAVE - follow with QSAVE.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BCLOSE",
+      "kind": "command",
+      "description": "Closes the Block Editor and returns to the drawing. If the definition has unsaved changes a dialog offers Save, Discard or Cancel. In scripts and LISP it is the only supported way to leave the editor, because Esc does not close it.",
+      "usage": "BCLOSE  (Block Editor tab > Close Block Editor)",
+      "parameters": [
+        {"name": "Save the changes", "description": "Equivalent to BSAVE then close."},
+        {"name": "Discard the changes", "description": "Abandon the edit session; the block table entry is untouched."}
+      ],
+      "example": "; Batch: open every block, run BTABLE-style clean up via LISP, save and close\n(vl-cmdf \"_.BEDIT\" \"VALVE_DN50\")\n(vl-cmdf \"_.BSAVE\")\n(vl-cmdf \"_.BCLOSE\")",
+      "notes": "Close the Block Editor before AUDIT, PURGE or SAVEAS; those commands refuse to run inside it. BTESTBLOCK opens a separate test window that is closed with BCLOSE as well.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BAUTHORPALETTE",
+      "kind": "panel",
+      "description": "Opens the Block Authoring Palettes inside the Block Editor: four tabs (Parameters, Actions, Parameter Sets, Constraints) of drag-and-drop tools for building dynamic blocks. Parameter Sets are the shortcut most people use - one drop adds a parameter with its matching action already associated (for example Linear Stretch or Polar Array). BAUTHORPALETTECLOSE hides it again.",
+      "usage": "BAUTHORPALETTE          (Block Editor tab > Manage > Authoring Palettes)\nBAUTHORPALETTECLOSE",
+      "parameters": [
+        {"name": "Parameters tab", "description": "Point, Linear, Polar, XY, Rotation, Alignment, Flip, Visibility, Lookup, Base Point - same as BPARAMETER."},
+        {"name": "Actions tab", "description": "Move, Scale, Stretch, Polar Stretch, Rotate, Flip, Array, Lookup - same as BACTION."},
+        {"name": "Parameter Sets tab", "description": "Pre-paired parameter+action combinations such as Point Move, Linear Stretch, Polar Array, XY Move Pair, Rotation Set, Flip Set, Visibility Set, Lookup Set."},
+        {"name": "Constraints tab", "description": "Geometric and dimensional constraints plus Block Table for constraint-driven (parametric) dynamic blocks."}
+      ],
+      "example": "BEDIT\nWINDOW_1200\nBAUTHORPALETTE\n(drag Linear Stretch from Parameter Sets, pick the two endpoints, then use BACTIONSET to give the stretch its frame and objects)",
+      "notes": "The palette only exists inside the Block Editor. Everything on it is also reachable by keyboard through BPARAMETER, BACTION and GEOMCONSTRAINT/DIMCONSTRAINT.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BPARAMETER",
+      "kind": "command",
+      "description": "Adds a parameter to the dynamic block definition open in the Block Editor. A parameter defines the custom property and the grips a user will see on the block reference - a Linear parameter exposes a distance, a Rotation parameter an angle, a Visibility parameter a state list. Parameters do nothing on their own; a matching BACTION (or a constraint) must be tied to them.",
+      "usage": "BPARAMETER\nEnter parameter type [Alignment/Base/Point/Linear/Polar/XY/Rotation/Flip/Visibility/Lookup]: <type>\n(type-specific prompts: start/end points, label, grip count, value set)",
+      "parameters": [
+        {"name": "Point", "description": "A location; pairs with Move or Stretch actions."},
+        {"name": "Linear / Polar / XY", "description": "A distance along a fixed direction, a distance plus angle, or independent X and Y distances. Pair with Move, Scale, Stretch, Polar Stretch or Array."},
+        {"name": "Rotation", "description": "An angle; pairs with a Rotate action."},
+        {"name": "Alignment", "description": "Rotates the whole reference to align tangent or perpendicular to geometry under the grip; needs no action."},
+        {"name": "Flip", "description": "A reflection line; pairs with a Flip action."},
+        {"name": "Visibility", "description": "Creates named visibility states edited with BVSTATE; only one per block, needs no action."},
+        {"name": "Lookup", "description": "A property whose value is looked up from a table (BLOOKUPTABLE) driven by other parameters."},
+        {"name": "Base", "description": "Moves the insertion base point of the dynamic block."},
+        {"name": "Label / Value set", "description": "Each parameter has a label shown in Properties; Linear/Polar/XY/Rotation can have a Value Set of List or Increment to restrict the allowed values."}
+      ],
+      "example": "; In the Block Editor: a 100-unit linear parameter named Width with two grips\nBPARAMETER\nL\n0,0\n100,0\n(place the label)\n2\n\n; then\nBACTION\n(pick the Width parameter) -> Stretch, define the frame and select objects",
+      "notes": "Set a Value Set (right-click parameter > Properties > Dist type = Increment/List) to stop users stretching to arbitrary sizes. BPARAMETERCOLOR, BPARAMETERFONT and BPARAMETERSIZE control how parameters look in the editor. Constraint-based blocks (Block Table) are often simpler than parameter/action pairs for engineering parts.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BACTION",
+      "kind": "command",
+      "description": "Adds an action to a dynamic block and links it to an existing parameter. The action describes what happens to a selection set of geometry when the parameter changes: Move, Scale, Stretch, Polar Stretch, Rotate, Flip, Array or Lookup. Each action type is only valid with certain parameter types, which is why BACTION first asks which parameter to attach to.",
+      "usage": "BACTION\nSelect parameter: <pick parameter>\nSelect action type [Move/Scale/Stretch/Polar stretch/Rotate/Flip/Array/Lookup]: <type>\n(type-specific prompts: stretch frame, objects, distance multiplier, angle offset)",
+      "parameters": [
+        {"name": "Move / Scale", "description": "Translate or scale the selected objects by the parameter's distance. Move pairs with Point, Linear, Polar, XY; Scale with Linear, Polar, XY."},
+        {"name": "Stretch / Polar stretch", "description": "Stretch objects inside a crossing frame; Polar Stretch also rotates them. Pair with Linear, Polar, XY (Polar Stretch with Polar only)."},
+        {"name": "Rotate / Flip", "description": "Rotate about the Rotation parameter's base; mirror across the Flip parameter's line."},
+        {"name": "Array", "description": "Repeat the objects at a column/row spacing as the Linear, Polar or XY parameter grows - the way dynamic ladder, grating or bolt patterns are made."},
+        {"name": "Lookup", "description": "Attach a lookup table to a Lookup parameter (BLOOKUPTABLE)."},
+        {"name": "Distance multiplier / Angle offset", "description": "Per-action overrides so, for example, a centred object moves half the parameter distance."},
+        {"name": "BACTIONBAR / BACTIONBARMODE", "description": "Actions are shown in the editor as action bars next to their parameter (BACTIONBARMODE 1) or as legacy action icons (0)."}
+      ],
+      "example": "; Make a dynamic 'Length' block: Linear parameter + Stretch action\nBPARAMETER L 0,0 200,0 (label) 1\nBACTION\n(select the Length parameter)\nS\n(pick the parameter grip at 200,0 as the point to associate)\n(specify a crossing frame around the right-hand end)\n(select the objects to stretch) Enter",
+      "notes": "Actions are stored in the block definition, not on references, so redefining the block with BSAVE updates every insertion. BACTIONSET re-selects the objects of an existing action; BASSOCIATE re-links an orphaned action to a parameter; BACTIONTOOL is the palette-driven equivalent of BACTION.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BACTIONSET",
+      "kind": "command",
+      "description": "Re-specifies the selection set of objects that an existing action operates on, either by adding to it (New) or replacing it entirely. Use it after adding geometry to a dynamic block so the new objects are stretched or moved with everything else, without deleting and recreating the action.",
+      "usage": "BACTIONSET\nSelect action: <pick action bar or icon>\nSpecify selection set for action object [New/Modify] <New>:\nSelect objects: ...",
+      "parameters": [
+        {"name": "New", "description": "Replace the action's objects with a fresh selection."},
+        {"name": "Modify", "description": "Add or remove objects (Shift-select) from the current set."},
+        {"name": "Stretch frame", "description": "For Stretch and Polar Stretch actions the crossing frame is re-specified as well."}
+      ],
+      "example": "BEDIT\nDOOR_900\n(draw an extra line for a threshold)\nBACTIONSET\n(pick the Stretch action bar)\nM\n(select the new line) Enter\nBSAVE\nBCLOSE",
+      "notes": "Objects that belong to no action show a yellow alert in the editor when BDEPENDENCYHIGHLIGHT is on. BACTIONTOOL creates an action from the Authoring palette with the same prompts as BACTION.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BASSOCIATE",
+      "kind": "command",
+      "description": "Associates an orphaned action with a parameter. Actions lose their parameter when the parameter is erased or when an action is copied from another block; BASSOCIATE picks the action, then the parameter (and for some types the key point on the parameter), restoring the link so the action fires again.",
+      "usage": "BASSOCIATE\nSelect action object: <pick>\nSelect parameter to associate with action: <pick>\nSelect parameter point to associate with action: (Linear/Polar/XY only)",
+      "parameters": [
+        {"name": "Parameter point", "description": "For distance parameters, which grip drives the action - start or end (Linear), base or end (Polar)."}
+      ],
+      "example": "BASSOCIATE\n(pick the orphaned Stretch action, then the Linear parameter, then its end point)",
+      "notes": "The Block Editor flags orphaned actions with a warning icon; BASSOCIATE is the fix. It only works inside the editor.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BVSTATE",
+      "kind": "command",
+      "description": "Creates, renames, deletes and sets the current visibility state of a dynamic block that has a Visibility parameter. Each state records which objects in the definition are visible; a reference then exposes a Visibility grip and property to switch between, for example, plan/elevation/section symbols or valve types inside a single block. BVSHOW and BVHIDE change object visibility in the current state; BVMODE decides whether hidden objects are shown dimmed while editing.",
+      "usage": "BVSTATE\nEnter an option [New/Set/Delete/Rename/?] <New>:\nNew: Enter name of new visibility state: <name>\n     Enter object visibility for new state [Hide all/Show all/Current visibility] <Current>:\n\nBVSHOW / BVHIDE: Select objects to make visible/invisible in current state or [All]",
+      "parameters": [
+        {"name": "New (N)", "description": "Create a state, starting from all hidden, all shown or the current arrangement."},
+        {"name": "Set (S)", "description": "Make a state current in the editor so BVSHOW/BVHIDE edits apply to it; also the default state for new insertions is the one listed first in the Visibility States dialog."},
+        {"name": "Delete / Rename", "description": "Remove or rename a state; a block must keep at least one."},
+        {"name": "BVMODE", "description": "0 hides invisible objects in the editor, 1 shows them dimmed."}
+      ],
+      "example": "BEDIT\nVALVE\nBPARAMETER V (place the visibility grip)\nBVSTATE N GATE S\nBVHIDE (select the ball-valve geometry) Enter\nBVSTATE N BALL H\nBVSHOW (select the ball-valve geometry) Enter\nBSAVE\nBCLOSE",
+      "notes": "Only one Visibility parameter is allowed per block. Visibility states are exposed to LISP/.NET through the dynamic block properties (vla-GetDynamicBlockProperties / DynamicBlockReferencePropertyCollection) under the property named Visibility, and to DATAEXTRACTION as a column.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BLOOKUPTABLE",
+      "kind": "command",
+      "description": "Opens the Property Lookup Table dialog for a Lookup parameter/action pair. Each row maps a combination of input parameter values (Linear distances, Rotation angles and so on) to a lookup value, so the block can display a readable size name (\"DN50\") or, in reverse lookup mode, let the user choose a name and have the geometry set itself to the matching values. This is the classic way to build a size-driven dynamic block.",
+      "usage": "BLOOKUPTABLE\nSelect lookup action or [Parameter]: <pick the Lookup action>\n(Property Lookup Table dialog: Add Properties, Input Properties columns, Lookup Properties column, Read only / Allow reverse lookup)",
+      "parameters": [
+        {"name": "Input Properties", "description": "Existing parameters whose values are matched (e.g. Length, Width). Cells can be single values or ranges such as [0,50] or >100."},
+        {"name": "Lookup Properties", "description": "The Lookup parameter(s) whose value is displayed or chosen."},
+        {"name": "Allow reverse lookup", "description": "Makes the lookup value editable on the reference so picking a size sets the input parameters; every row must then be unique."},
+        {"name": "<Unmatched>", "description": "Row shown when the current parameter values do not match any table row."}
+      ],
+      "example": "BEDIT\nBOLT\n(add Linear parameter Length with a value set list 20,30,40)\nBPARAMETER L(ookup) -> place, label Size\nBACTION (select Size) L(ookup)\nBLOOKUPTABLE\n(Add Properties: Length; rows 20->M8x20, 30->M8x30, 40->M8x40; tick Allow reverse lookup)",
+      "notes": "Since 2010 the Block Properties Table (BTABLE) does the same job with constraints and is easier to maintain; lookup tables remain for parameter/action blocks. Lookup values are strings, and DATAEXTRACTION can report them.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BTABLE",
+      "kind": "command",
+      "description": "Creates or edits the Block Properties Table of a constraint-based dynamic block. The table has one column per user parameter or dimensional constraint (plus optional attributes and flip/visibility properties) and one row per allowed configuration; the reference shows a single grip that picks a row, which drives every constrained dimension at once. It is the modern alternative to lookup tables for size-driven parts.",
+      "usage": "BTABLE\nSpecify parameter location or [Palette]: <point where the table grip sits> | P\nEnter number of grips [0/1] <1>:\n(Block Properties Table dialog: add properties, fill rows, Block properties must match a row in the table, Audit)",
+      "parameters": [
+        {"name": "Properties", "description": "Dimensional constraints (d1, ang1...), user parameters defined in PARAMETERS, attributes and Flip/Visibility parameters can be columns."},
+        {"name": "Block properties must match a row", "description": "When checked the user can only choose rows; when unchecked values can be typed and the table acts as a lookup."},
+        {"name": "Default row", "description": "The row used for new insertions is the one whose values match the definition when saved."},
+        {"name": "Audit", "description": "Checks that rows are unique and that every cell has a value."}
+      ],
+      "example": "BEDIT\nHEX_BOLT\nDCLINEAR (dimension the shank) -> d1\nDCLINEAR (dimension the head) -> d2\nBTABLE\n(place grip) 1\n(add d1 and d2, rows: 20/13, 30/13, 40/17; tick 'must match a row')\nBSAVE\nBCLOSE",
+      "notes": "BTABLE requires the geometry to be fully constrained; unconstrained objects do not follow the table. BTMARKDISPLAY controls whether the table marker is displayed in the editor. Rows can be pasted from Excel.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BCONSTRUCTION",
+      "kind": "command",
+      "description": "Converts geometry in the Block Editor to construction geometry, which is visible only while authoring and never appears in block references or plots. Typical uses are a reference circle for a Polar parameter, alignment lines for a Flip parameter or guide geometry that constraints are attached to. The same command converts construction geometry back.",
+      "usage": "BCONSTRUCTION\nSelect objects: <selection>\nEnter an option [Convert/Revert] <Convert>:",
+      "parameters": [
+        {"name": "Convert", "description": "Make the objects construction geometry (drawn dashed grey in the editor)."},
+        {"name": "Revert", "description": "Turn construction geometry back into normal block geometry."},
+        {"name": "BCONSTATUSMODE", "description": "System variable that colour-codes objects by their constraint status in the editor (0 off, 1 on)."}
+      ],
+      "example": "BEDIT\nARROW\n(draw a centreline for the Flip parameter)\nBCONSTRUCTION\n(select the centreline) Enter\nC",
+      "notes": "Construction geometry is not exported by WBLOCK and not seen by EXPLODE, DATAEXTRACTION or object snaps on references. Only available inside the Block Editor.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BATTORDER",
+      "kind": "command",
+      "description": "Opens the Attribute Order dialog inside the Block Editor to set the sequence in which attributes are prompted on insertion and listed by ATTEDIT/EATTEDIT/DATAEXTRACTION. Without it the order is the order in which the ATTDEF objects were selected when the block was defined, which is rarely what a title block needs.",
+      "usage": "BATTORDER  (Block Editor only; dialog with Move Up / Move Down)",
+      "parameters": [
+        {"name": "Move Up / Move Down", "description": "Reorder the selected attribute tag."}
+      ],
+      "example": "BEDIT\nA1_TITLE\nBATTORDER\n(move PROJECT to the top, SHEET last)\nBSAVE\nBCLOSE\nATTSYNC N A1_TITLE",
+      "notes": "Run ATTSYNC after saving so existing references adopt the new order; otherwise only new insertions do. The order is stored in the block definition, not in each reference.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BTESTBLOCK",
+      "kind": "command",
+      "description": "Opens a temporary Test Block window from inside the Block Editor containing one reference of the block being edited, so parameters, actions, constraints and visibility states can be grip-tested without saving the definition or leaving the editor. Close the test window with BCLOSE (Close Test Block Window) to return to authoring.",
+      "usage": "BTESTBLOCK  (Block Editor tab > Open/Save > Test Block)\nBCLOSE      (in the test window: Close Test Block Window)",
+      "parameters": [
+        {"name": "Test window", "description": "A separate drawing tab named 'Test Block: <name>' where the reference can be moved, stretched and its properties inspected."},
+        {"name": "BLOCKTESTWINDOW", "description": "Read-only system variable, 1 while a test window is active."}
+      ],
+      "example": "BEDIT\nDOOR_900\n(add a Rotation parameter and Rotate action)\nBTESTBLOCK\n(drag the rotation grip, check the Properties palette)\nBCLOSE\nBSAVE",
+      "notes": "Edits made in the test window are discarded. Commands that change the database (SAVE, XREF, PURGE) are blocked while the test window is open.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BCYCLEORDER",
+      "kind": "command",
+      "description": "Sets which grips of a dynamic block are included in insertion cycling and their order. When a dynamic block is inserted, pressing Ctrl cycles the insertion point through the grips flagged for cycling, so a door block can be dropped by its hinge, its latch or its centre. The dialog lists every parameter grip with a Cycling on/off flag and Move Up/Down buttons.",
+      "usage": "BCYCLEORDER  (Block Editor only; Insertion Cycling Order dialog)",
+      "parameters": [
+        {"name": "Cycling", "description": "Yes/No per grip; the base point is always first."},
+        {"name": "Move Up / Move Down", "description": "Order in which Ctrl cycles through the grips."}
+      ],
+      "example": "BEDIT\nDOOR_900\nBCYCLEORDER\n(enable cycling for the hinge and latch point parameters, order hinge first)\nBSAVE\nBCLOSE\n-INSERT DOOR_900 (press Ctrl while dragging to cycle the insertion grip)",
+      "notes": "Grips of Alignment and Base Point parameters can be cycled too. Cycling also works with the Blocks palette and INSERT.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BGRIPSET",
+      "kind": "command",
+      "description": "Creates, deletes or repositions the custom grips of a parameter in the Block Editor. Each parameter type has a fixed maximum number of grips (a Linear parameter 0-2, XY 0-4, Visibility 1); BGRIPSET changes the count, resets grips to their default positions or lets you drag a grip away from the parameter's key point so it sits somewhere sensible on the geometry.",
+      "usage": "BGRIPSET\nSelect parameter: <pick>\nEnter number of grip objects for parameter or [Reposition] <n>:",
+      "parameters": [
+        {"name": "number of grips", "description": "0 hides the grips (the property is then only editable via Properties); the allowed maximum depends on the parameter type."},
+        {"name": "Reposition", "description": "Move the grips back to the parameter's key points after they have been dragged elsewhere."},
+        {"name": "BGRIPOBJCOLOR / BGRIPOBJSIZE", "description": "System variables that control grip colour and size inside the Block Editor."}
+      ],
+      "example": "BGRIPSET\n(pick the Width parameter)\n1\n(then drag the remaining grip to the right-hand edge of the geometry)",
+      "notes": "Hiding all grips of a parameter is a common way to keep a helper parameter (used only by a lookup or a chain action) out of the user's way.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "ATTDISP",
+      "kind": "command",
+      "description": "Controls the global visibility of block attributes: Normal honours each attribute's own Invisible flag, ON forces every attribute visible (useful for checking hidden data such as part numbers) and OFF hides all of them. It sets the ATTMODE system variable and triggers a regeneration.",
+      "usage": "ATTDISP\nEnter attribute visibility setting [Normal/ON/OFF] <Normal>:",
+      "parameters": [
+        {"name": "Normal (N)", "description": "ATTMODE 1 - per-attribute Invisible setting is respected."},
+        {"name": "ON", "description": "ATTMODE 2 - all attributes visible including invisible ones."},
+        {"name": "OFF", "description": "ATTMODE 0 - no attributes displayed or plotted."}
+      ],
+      "example": "ATTDISP\nON\n(check the hidden PARTNO attributes)\nATTDISP\nN\n\n; LISP equivalent\n(setvar \"ATTMODE\" 2)",
+      "notes": "Attributes hidden with ATTMODE 0 do not plot, so verify ATTMODE before batch plotting. Per-attribute visibility is edited with BATTMAN or EATTEDIT (Invisible flag); ATTDISP does not change the flags.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "ATTEDIT",
+      "kind": "command",
+      "description": "Opens the Edit Attributes dialog for one block reference, listing every attribute tag with an editable value field (up to 15 per page). It is the legacy single-block editor; EATTEDIT (Enhanced Attribute Editor) adds text and property tabs and is what double-clicking a block runs, so ATTEDIT is mostly kept for muscle memory and old macros.",
+      "usage": "ATTEDIT\nSelect block reference: <pick>\n(Edit Attributes dialog: value per tag, Previous/Next pages)",
+      "parameters": [
+        {"name": "Value fields", "description": "One per attribute; constant attributes are not shown."},
+        {"name": "Previous / Next", "description": "Page through blocks with more than 15 attributes."}
+      ],
+      "example": "ATTEDIT\n(pick the title block)\n(change SHEET to 2 OF 4, OK)",
+      "notes": "Blocks whose attributes are all constant give 'That block has no editable attributes'. ATTDIA has no effect on ATTEDIT (it only governs INSERT). Use -ATTEDIT for scripted global changes.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "-ATTEDIT",
+      "kind": "command",
+      "description": "Command-line attribute editor that changes attribute values (and optionally position, height, angle, style, layer and colour) either one at a time or globally across many block references filtered by block name, tag and current value. Its global string-replace mode is the classic way to update a revision letter or a project number across every title block in a drawing from a script.",
+      "usage": "-ATTEDIT\nEdit attributes one at a time? [Yes/No] <Y>: N\nEdit only attributes visible on screen? [Yes/No] <Y>:\nEnter block name specification <*>:\nEnter attribute tag specification <*>:\nEnter attribute value specification <*>:\nSelect Attributes: (or Enter for all when not visible-only)\nEnter string to change:\nEnter new string:",
+      "parameters": [
+        {"name": "one at a time = Yes", "description": "Cycles through selected attributes with options Value/Position/Height/Angle/Style/Layer/Color/Next."},
+        {"name": "one at a time = No", "description": "Global mode: replaces a substring in every matching attribute value in one pass."},
+        {"name": "block / tag / value specification", "description": "Wildcards (* ? ~ [..]) filter which attributes are touched; case-sensitive."},
+        {"name": "visible on screen = No", "description": "Edit all attributes in the drawing, including those off screen and invisible ones."}
+      ],
+      "example": "; Script: change revision A to B in every A1_TITLE block\n-ATTEDIT\nN\nN\nA1_TITLE\nREV\n*\nA\nB\n\n; Replace a project number everywhere regardless of block\n-ATTEDIT N N * * * 1041 1042",
+      "notes": "Global mode works on substrings, so changing '1' to '2' also hits '10' - be specific. Use ATTSYNC afterwards if the definition changed; for wholesale data updates from a spreadsheet the Express Tools ATTOUT/ATTIN or DATAEXTRACTION plus a data link are more controllable.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "ATTIPEDIT",
+      "kind": "command",
+      "description": "Edits a single attribute in place with the in-place text editor, exactly like double-clicking a text object. Pick one attribute inside a block reference and it opens for editing with the MTEXT-style ribbon (single-line attributes get the simple in-place editor, multiline attributes the full one). Faster than EATTEDIT when only one value needs a change.",
+      "usage": "ATTIPEDIT\nSelect attribute to edit: <pick the attribute text>",
+      "parameters": [
+        {"name": "ATTIPE", "description": "System variable: 1 gives multiline attributes the full in-place MTEXT editor with ribbon, 0 the abbreviated one."},
+        {"name": "ATTMULTI", "description": "0 disables the creation of multiline attributes in ATTDEF."}
+      ],
+      "example": "ATTIPEDIT\n(click the DRAWN_BY value, type the initials, click outside to finish)",
+      "notes": "Only the value can be changed here; tag, prompt, style and position need EATTEDIT or BATTMAN. Works on attributes of nested blocks as well.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "ATTEXT",
+      "kind": "command",
+      "description": "Legacy attribute extraction: writes attribute values from selected blocks to a CDF (comma-delimited), SDF (space/fixed-width) or DXF text file using a template (.txt) file that names the fields (BL:NAME, BL:X, tag names with format codes). -ATTEXT is the command-line form for scripts. It predates DATAEXTRACTION, which should be preferred for anything new, but ATTEXT still runs and is the only one that works from a script without a .dxe file.",
+      "usage": "ATTEXT  (Attribute Extraction dialog: file format, Select Objects, Template File, Output File)\n-ATTEXT\nEnter extraction type or enable object selection [Cdf/Sdf/Dxf/Objects] <C>:\nEnter template file name: <path.txt>\nEnter extract file name: <path>",
+      "parameters": [
+        {"name": "Cdf / Sdf / Dxf", "description": "Comma-delimited, fixed-width or DXF-format (.dxx) output."},
+        {"name": "Template file", "description": "One line per field: 'BL:NAME C012000' (character, width 12), 'PARTNO C010000', 'QTY N005000' (numeric, width 5, 0 decimals); BL:X/BL:Y/BL:LAYER/BL:HANDLE/BL:NUMBER are built-in fields."},
+        {"name": "Objects", "description": "Restrict the extraction to a selection instead of the whole drawing."}
+      ],
+      "example": "; template.txt\nBL:NAME C012000\nPARTNO C015000\nQTY N005000\n\n; script\n-ATTEXT\nC\nC:/proj/template.txt\nC:/proj/parts.csv",
+      "notes": "The template must contain at least one attribute tag and the field widths must be wide enough or values are truncated silently. Requires FILEDIA 0 for the file prompts to accept typed paths in scripts.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "ATTREDEF",
+      "kind": "command",
+      "description": "Redefines a block and updates its attributes on every reference in one step: draw the new geometry and ATTDEFs in place, then ATTREDEF asks for the block name, the new objects and the base point. Existing references keep the values of attributes whose tags still exist, gain new attributes with their defaults and lose deleted ones. It is the pre-Block-Editor way of updating attributed blocks and still the fastest from the command line.",
+      "usage": "ATTREDEF\nEnter name of the block you wish to redefine: <name>\nSelect objects for new Block...: <selection>\nSpecify insertion base point of new Block: <point>",
+      "parameters": [
+        {"name": "block name", "description": "Must already exist; the selected objects become the new definition."},
+        {"name": "objects", "description": "Geometry plus ATTDEF objects; constant attributes are handled too."},
+        {"name": "base point", "description": "New insertion base."}
+      ],
+      "example": "; Insert the old block exploded, edit it, then redefine\n-INSERT *A1_TITLE 0,0 1 0\n(add an ATTDEF tagged CHECKED_BY)\nATTREDEF\nA1_TITLE\n(select all the geometry and attribute definitions)\n0,0",
+      "notes": "Changes to attribute position or text properties in the definition are applied to references; use BATTMAN/ATTSYNC for the modern equivalent that keeps the Block Editor workflow. ATTREDEF is an AutoLISP-defined command (attredef.lsp) and is not available in AutoCAD LT before 2024.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BREPLACE",
+      "kind": "command",
+      "description": "Smart Blocks: Replacement (2024+). Replaces selected block references with another block chosen from a palette of suggestions - Similar blocks recognised by machine learning, Recently used blocks or any block in the Current Drawing - preserving each reference's insertion point, scale, rotation and matching attribute values. -BREPLACE is the command-line form that takes the replacement block name directly and can purge the old definition.",
+      "usage": "BREPLACE\nSelect block references to replace: <selection> Enter\n(Replace Block palette: Similar / Recent / Current drawing; pick a block; options Purge unreferenced block, Match orientation)\n\n-BREPLACE\nSelect block references to replace: ...\nEnter name of replacement block: <name>\nPurge unreferenced block definition? [Yes/No]",
+      "parameters": [
+        {"name": "Similar", "description": "Blocks in the drawing whose geometry the recognition service judges similar; requires BLOCKSDATACOLLECTION consent (BLOCKSDATAOPTION)."},
+        {"name": "Recent / Current drawing", "description": "Recently inserted blocks or the full block table of the drawing."},
+        {"name": "Purge unreferenced block definition", "description": "Remove the old definition when the last reference is replaced."},
+        {"name": "Match orientation", "description": "Keep the rotation/scale of each replaced reference."}
+      ],
+      "example": "-BREPLACE\n(select all DOOR_OLD references)\nDOOR_900\nY",
+      "notes": "Distinct from the Express Tool BLOCKREPLACE, which swaps all instances by block name without AI suggestions. Attribute values are carried across by matching tag names. Available in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/ACD/2024/ENU/?guid=GUID-4F8E11D6-917A-43F3-B596-C8F296D32519"
+    },
+    {
+      "name": "BCONVERT",
+      "kind": "command",
+      "description": "Smart Blocks: Search and Convert (2025). Select loose geometry that should be a block and BCONVERT finds every identical instance in the drawing (same geometry, any rotation/scale), highlights them and converts the whole set into references of a new or existing block definition. In 2026 the search also detects text variations so labels can become attributes (TEXTTOATTRIBUTE) and the command is renamed BSEARCH, with BCONVERT kept as an alias.",
+      "usage": "BCONVERT (2025) / BSEARCH (2026)\nSelect objects: <the geometry of one instance>\n(Convert dialog: New block name or existing block; Include existing block instances; Convert text to attributes; Base point)\nHighlight colours: BLOCKINCLUDECOLOR (will convert), BLOCKEXCLUDECOLOR (excluded), BLOCKTARGETCOLOR (selected instance)\n-BCONVERT / -BSEARCH: command-line versions",
+      "parameters": [
+        {"name": "New block / Existing block", "description": "Create a definition from the selected instance or replace all found instances with an existing block."},
+        {"name": "BCONVERTINCLUDEEXISTINGBLOCKS / BSEARCHINCLUDEEXISTINGBLOCKS", "description": "Whether block references that match are also selected for conversion by default (2025.1 / 2026)."},
+        {"name": "TEXTTOATTRIBUTE", "description": "2026: when text is part of the selection, differing text values become attribute values instead of blocking the match."},
+        {"name": "BCONVERTLAYER", "description": "2026.1: 1 moves converted objects to layer 0 inside the new block definition so the reference layer controls display."}
+      ],
+      "example": "BCONVERT\n(select the lines and circle of one bolt symbol)\n(in the dialog type block name BOLT_M12, tick Include existing blocks, OK)\n-> 'Converted 37 instances into block BOLT_M12'",
+      "notes": "Matching is exact geometry (scale and rotation tolerant); slightly different instances are not found - use BDETECT for fuzzy, AI-based detection. Not available in AutoCAD LT in 2025; check the LT release notes for 2026.",
+      "docs": "https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-8D87AF53-BD0C-4E01-A015-42E92E6AA715"
+    },
+    {
+      "name": "BDETECT",
+      "kind": "command",
+      "description": "Smart Blocks: Detect and Convert (tech preview as DETECT in 2025, BDETECT and fully released in 2026.1.1). Sends the drawing geometry to the Autodesk AI service, which returns sets of similar objects that could be blocks; the Detect palette lets you review each set, choose the primary instance that will become the definition, remove outliers and convert the set. Designed for cleaning up imported or legacy drawings with many exploded symbols.",
+      "usage": "BDETECT (2026) / DETECT (2025)  - opens the Detect palette and starts detection\nDETECTREVIEWNEXT / DETECTREVIEWPREV - step through detected sets\nDETECTPRIMARY - pick the instance used as the block definition\nDETECTREMOVE - drop instances from the set\nDETECTCONVERT - open the Convert dialog for the current set\nDETECTCLOSE - end the review",
+      "parameters": [
+        {"name": "Set", "description": "A group of detected similar objects; the primary instance is outlined in blue."},
+        {"name": "Convert dialog", "description": "Same options as BCONVERT: block name, base point, include existing blocks, layer 0 (BCONVERTLAYER)."},
+        {"name": "BLOCKSDATACOLLECTION", "description": "Detection requires sending geometry to the cloud service; consent is handled through BLOCKSDATAOPTION."}
+      ],
+      "example": "BDETECT\n(wait for 'Detection complete: 6 sets found')\nDETECTREVIEWNEXT\nDETECTPRIMARY (click the cleanest instance)\nDETECTREMOVE (click a false match)\nDETECTCONVERT -> name VALVE_GATE, OK\nDETECTCLOSE",
+      "notes": "Requires an internet connection and an Autodesk sign-in. Detection tolerates small geometric variations, unlike BCONVERT/BSEARCH which needs exact matches. Large drawings can take minutes; progress is shown in the palette (2026.1 improved the progress display).",
+      "docs": "https://help.autodesk.com/view/ACD/2026/ENU/?guid=GUID-7D3E7065-AD01-4720-B5DF-95971BAEFA9A"
+    },
+    {
+      "name": "BLOCKREPLACE",
+      "kind": "command",
+      "description": "Express Tool that replaces every reference of one block definition with another block, by name, optionally purging the unreferenced original. Unlike BREPLACE it has no AI suggestions and no selection step - it is a global, name-driven swap, which makes it ideal for scripted library migrations.",
+      "usage": "BLOCKREPLACE\n(dialog: select block to replace, then block to replace it with)\nPurge unreferenced items when finished? <Y>\n\nCommand-line form: -BLOCKREPLACE is not provided; drive the dialog or use BREPLACE / (vla-put-Name) in LISP",
+      "parameters": [
+        {"name": "Block to replace", "description": "Existing definition whose references are all swapped."},
+        {"name": "Replacement block", "description": "Any other definition in the drawing; insert it once first if it comes from a file."},
+        {"name": "Purge", "description": "Remove the old definition after replacement."}
+      ],
+      "example": "-INSERT DOOR_NEW 0,0 1 1 0   (Esc after the definition is loaded, or erase the reference)\nBLOCKREPLACE\n(select DOOR_OLD, then DOOR_NEW, Yes to purge)",
+      "notes": "Insertion point, scale and rotation are kept; attribute values are not transferred (the new block's default attributes are used) - use BREPLACE if attributes matter. Express Tools are not included in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/ACD/2024/ENU/?guid=GUID-C2E32C55-28E4-4FC5-BCCA-F141D5AAA614"
+    },
+    {
+      "name": "BLOCKTOXREF",
+      "kind": "command",
+      "description": "Express Tool that replaces all references of a block with an external reference to a DWG file, keeping each insertion's position, scale and rotation. It is the quickest route from a drawing where a title block or site plan was inserted as a block to one where it is a live xref that follows the master file.",
+      "usage": "BLOCKTOXREF\n(dialog: select the block to replace, then browse to the DWG to attach)\nPurge unreferenced items when finished? <Y>",
+      "parameters": [
+        {"name": "Block name", "description": "Definition whose references are converted."},
+        {"name": "Xref file", "description": "DWG to attach; the xref name defaults to the file name."},
+        {"name": "Purge", "description": "Remove the original block definition afterwards."}
+      ],
+      "example": "BLOCKTOXREF\n(select SITE_PLAN, choose C:\\proj\\SITE_PLAN.dwg, Yes)\nXREF (verify SITE_PLAN is listed as an attached reference)",
+      "notes": "The reverse operation is XBIND / -XREF Bind with the Insert option. Attribute values in the old block are lost because xrefs cannot carry attributes.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "BCOUNT",
+      "kind": "command",
+      "description": "Express Tool that counts the references of every block definition in a selection or the whole drawing and prints a block-name/count table on the text screen. It was the standard quantity take-off tool before the COUNT palette (2022); it is still handy in scripts because the report goes to the command line, where LOGFILEON can capture it.",
+      "usage": "BCOUNT\nPress Enter to select all or...\nSelect objects: <selection or Enter>",
+      "parameters": [
+        {"name": "selection", "description": "Only the selected references are counted; Enter counts the entire drawing (model and paper space)."}
+      ],
+      "example": "LOGFILEON\nBCOUNT\n\nLOGFILEOFF\n; the log file now holds lines like: CHAIR ............ 24",
+      "notes": "Nested blocks are not counted separately and dynamic blocks are reported by their definition name, not visibility state. COUNT and COUNTTABLE provide the interactive, table-producing equivalent.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "ATTOUT",
+      "kind": "command",
+      "description": "Express Tool that exports the attribute values of selected block references to a tab-delimited text file, one row per reference with the handle and block name in the first columns and one column per attribute tag. Edit the file in Excel and read it back with ATTIN, which matches rows by handle and updates the values in place - the simplest round-trip for bulk attribute editing without DATAEXTRACTION.",
+      "usage": "ATTOUT\n(Select output file dialog: *.txt)\nSelect objects: <block references> Enter\n\nATTIN\n(Select input file dialog: the edited *.txt)",
+      "parameters": [
+        {"name": "HANDLE column", "description": "Identifies the reference; do not edit it or ATTIN will skip the row."},
+        {"name": "BLOCKNAME column", "description": "Block name; rows for different blocks have different tag columns, cells shown as <> where the tag does not apply."},
+        {"name": "tag columns", "description": "One per attribute tag across all selected blocks; edit the values freely."}
+      ],
+      "example": "ATTOUT -> C:\\proj\\titles.txt, select all A1_TITLE blocks\n(open in Excel, fill the CHECKED_BY column, save as tab-delimited text)\nATTIN -> C:\\proj\\titles.txt\n'12 blocks updated'",
+      "notes": "Handles change if the objects are copied to another drawing, so run ATTOUT/ATTIN in the same file. Multiline attribute values lose their line breaks in the text file. Not in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "GATTE",
+      "kind": "command",
+      "description": "Express Tool that globally sets one attribute tag to a new value on every reference of a block, or on a selected subset. Faster than -ATTEDIT for the common case 'set REV to C on every title block' because it asks for the block, the tag and the value and nothing else.",
+      "usage": "GATTE\nSelect block or attribute [Block name/Attribute tag]: <pick> | B name | A tag\nEnter new text: <value>\nNumber of inserts in drawing = n  Process all of them? [Yes/No] <Y>:",
+      "parameters": [
+        {"name": "Block name / Attribute tag", "description": "Typed alternatives to picking; the tag must exist in that block."},
+        {"name": "Process all", "description": "No lets you select which references to update."}
+      ],
+      "example": "GATTE\nB\nA1_TITLE\nREV\nC\nY\n\n; LISP\n(command \"_.GATTE\" \"_B\" \"A1_TITLE\" \"REV\" \"C\" \"_Y\")",
+      "notes": "Only one tag per run; the value replaces the whole string (no substring mode as in -ATTEDIT). Not in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "BSCALE",
+      "kind": "command",
+      "description": "Express Tool that rescales selected block references about their own insertion points, either to absolute X/Y/Z scale factors or relative to the current ones. Useful when symbols were inserted at the wrong scale across a drawing and SCALE (which uses a single base point) would move them.",
+      "usage": "BSCALE\nSelect objects: <block references>\nEnter an option [Absolute/Relative] <Absolute>:\nEnter X scale factor: <n>\nEnter Y scale factor <n>:\nEnter Z scale factor <n>:",
+      "parameters": [
+        {"name": "Absolute", "description": "Set the scale factors to the given values."},
+        {"name": "Relative", "description": "Multiply the existing scale factors by the given values."}
+      ],
+      "example": "BSCALE\n(select all NORTH_ARROW references)\nA\n2\n2\n2",
+      "notes": "Non-uniform scale on dynamic blocks or annotative blocks can give unexpected results. PSBSCALE does the paper-space-relative version for blocks in viewports.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "BEXTEND",
+      "kind": "command",
+      "description": "Express Tool: extend objects to boundary edges that are inside block references or xrefs, which the ordinary EXTEND cannot use. Pick the block as the boundary, then the objects to extend. BTRIM is the matching trim command that uses block geometry as cutting edges.",
+      "usage": "BEXTEND\nSelect a block for extending edge: <pick block>\nSelect object to extend or shift-select to trim or [Project/Edge/Undo]: <pick>\n\nBTRIM\nSelect a block for cutting edge: <pick block>\nSelect object to trim or shift-select to extend or [Project/Edge/Undo]: <pick>",
+      "parameters": [
+        {"name": "Project / Edge / Undo", "description": "Same as EXTEND/TRIM: projection mode, implied edge extension, undo last."}
+      ],
+      "example": "BEXTEND\n(pick the wall xref)\n(click each pipe end that should meet the wall face)",
+      "notes": "Since 2021 the core TRIM/EXTEND (Quick mode) can also use block and xref geometry as boundaries, so BTRIM/BEXTEND are mostly needed in Standard mode. Not in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "XLIST",
+      "kind": "command",
+      "description": "Express Tool that reports the object type, block name, layer, colour and linetype of a single nested object inside a block reference or xref, without exploding or opening it. LIST only reports the block reference as a whole; XLIST answers 'which layer is that nested line on and in which nested block' in one pick.",
+      "usage": "XLIST\nSelect nested xref or block object to list: <pick>",
+      "parameters": [],
+      "example": "XLIST\n(click a wall line inside the architectural xref)\n-> Xref/Block Nested Object List: Object: LINE, Block name: A-WALL-PLAN, Layer: A-WALL, Color: BYLAYER, Linetype: BYLAYER",
+      "notes": "Also works on objects nested several levels deep. The core alternative for programs is (nentsel) in AutoLISP, which returns the nested entity and its container chain. Not in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "NCOPY",
+      "kind": "command",
+      "description": "Copies objects that are nested inside a block reference, xref or DGN underlay into the current drawing space as ordinary objects, without exploding or binding the container. Originally an Express Tool, it has been a core command since AutoCAD 2012 (and is in LT). Typical use: pull a wall outline out of an architect's xref to trim your own geometry against it.",
+      "usage": "NCOPY\nSelect nested objects to copy or [Settings]: <pick nested objects> Enter\nSpecify base point or [Displacement/mOde] <Displacement>: <point>\nSpecify second point or [Array] <use first point as displacement>:",
+      "parameters": [
+        {"name": "Settings", "description": "Insert (copied objects take the layer/properties of the nested object, layer created if missing) or Bind (xref layer names are prefixed as with XBIND, e.g. SITE$0$WALL)."},
+        {"name": "mOde", "description": "Single or Multiple copies, as in COPY."},
+        {"name": "Array", "description": "Linear array of copies along the displacement."}
+      ],
+      "example": "NCOPY\n(pick the property boundary polyline inside the survey xref)\n\n0,0\n0,0\n(the polyline now exists in the host drawing on the same layer)",
+      "notes": "Copied objects are no longer linked to the xref; reload changes will not propagate. Attributes inside blocks are copied as text values, not as attribute objects.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BURST",
+      "kind": "command",
+      "description": "Express Tool that explodes block references while converting their attribute values into plain text objects (instead of reverting them to attribute definition tags as EXPLODE does) and placing the components on the block reference's layer where the definition used layer 0. It is the right way to flatten attributed title blocks or symbols for export to systems that do not understand attributes.",
+      "usage": "BURST\nSelect objects: <block references> Enter",
+      "parameters": [],
+      "example": "BURST\n(select the A1_TITLE reference)\n-> the geometry is exploded and PROJECT/SHEET values become TEXT objects at the same positions",
+      "notes": "Invisible attributes are discarded, not converted. Nested blocks are exploded one level only. BURST is also in the combined Express Tools entry of the automation chunk; it is listed here for block-workflow completeness. Not in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "BLOCK?",
+      "kind": "command",
+      "description": "Express Tool that lists the objects contained in a block definition (type, layer, colour, linetype for each entity) at the command line, without opening the Block Editor. Handy for auditing library blocks for objects on the wrong layer or for stray attributes.",
+      "usage": "BLOCK?\nEnter block name or [?]: <name>",
+      "parameters": [
+        {"name": "?", "description": "List block names first."}
+      ],
+      "example": "BLOCK?\nVALVE_DN50\n-> LINE  Layer: 0  Color: BYBLOCK ... ATTDEF  Tag: SIZE ...",
+      "notes": "Read-only. For programmatic auditing, iterate the block table record with vlax-for over (vla-Item (vla-get-Blocks doc) \"VALVE_DN50\").",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-CC626232-DC3A-45E1-B3C8-DF3F79186DE2"
+    },
+    {
+      "name": "BLOCKREDEFINEMODE",
+      "kind": "system-variable",
+      "description": "Controls what happens when a block with the same name as an existing definition is inserted from a file through INSERT or the Blocks palette (2020+): whether a Block - Redefine Block dialog appears, whether the drawing definition is silently kept or replaced. Set it in batch scripts so no dialog blocks the run.",
+      "usage": "BLOCKREDEFINEMODE = 0 | 1 | 2\n0 = no dialog; the existing definition is kept (file not read)\n1 = dialog asks Redefine / Do not redefine (default)\n2 = no dialog; the block is redefined from the file",
+      "parameters": [
+        {"name": "0", "description": "Keep existing definition."},
+        {"name": "1", "description": "Prompt (interactive default)."},
+        {"name": "2", "description": "Redefine from file without asking."}
+      ],
+      "example": "BLOCKREDEFINEMODE\n2\n-INSERT\nC:/lib/A1_TITLE.dwg\n(Esc)\nATTSYNC N A1_TITLE",
+      "notes": "Saved in the registry (user setting), not in the drawing. The classic name=path form of -INSERT always redefines regardless of this variable.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "BLOCKCREATEMODE",
+      "kind": "system-variable",
+      "description": "Sets what happens to the selected source objects after BLOCK or -BLOCK creates a definition (2022+): retain them, convert them to a block reference or delete them. WBLOCKCREATEMODE is the identical setting for WBLOCK/-WBLOCK. They replace the Retain/Convert/Delete radio buttons for scripted use.",
+      "usage": "BLOCKCREATEMODE = 0 (retain) | 1 (convert to block) | 2 (delete)\nWBLOCKCREATEMODE = 0 | 1 | 2 with the same meanings",
+      "parameters": [
+        {"name": "0 Retain", "description": "Source objects stay as loose geometry."},
+        {"name": "1 Convert", "description": "Source objects are replaced by one reference of the new block (the usual interactive default)."},
+        {"name": "2 Delete", "description": "Source objects are removed (legacy -BLOCK behaviour; OOPS recovers them)."}
+      ],
+      "example": "; make the command-line BLOCK behave like the dialog's Convert option\nBLOCKCREATEMODE 1\n-BLOCK LEGEND_BOX 0,0 (select) ",
+      "notes": "Stored in the registry. In the BLOCK dialog the radio buttons still override it per run.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/"
+    },
+    {
+      "name": "AUTOPLACEMENT",
+      "kind": "system-variable",
+      "description": "Smart Blocks: Placement (2024+). When on, inserting a block shows placement suggestions - snap-like glyphs at positions where the same block was previously placed relative to nearby geometry (for example a chair against a desk edge) - learned from the current drawing. PLACEMENTSWITCH is the companion that records whether suggestions are shown by default in the Blocks palette.",
+      "usage": "AUTOPLACEMENT = 0 (off) | 1 (on, default)\nPLACEMENTSWITCH = 0 | 1  (default state of the palette's placement toggle)",
+      "parameters": [
+        {"name": "0", "description": "Insert behaves classically."},
+        {"name": "1", "description": "Placement suggestions and automatic alignment/rotation appear while dragging a block."}
+      ],
+      "example": "AUTOPLACEMENT 1\nBLOCKSPALETTE\n(drag CHAIR near a desk edge; the block snaps and rotates to the suggested position)",
+      "notes": "Suggestions are computed from existing insertions in the same drawing, so a fresh drawing offers none. Turn it off in scripts (AUTOPLACEMENT 0) to keep -INSERT prompts deterministic.",
+      "docs": "https://help.autodesk.com/view/ACD/2024/ENU/?guid=GUID-60D2011A-FB12-4B45-B2FC-0A6E4159D294"
+    },
+    {
+      "name": "vla-GetDynamicBlockProperties",
+      "kind": "function",
+      "description": "ActiveX method on a block reference (Visual LISP vla-GetDynamicBlockProperties, COM AcadBlockReference.GetDynamicBlockProperties) returning an array of AcadDynamicBlockReferenceProperty objects, one per exposed custom property of a dynamic block - Linear distances, Rotation angles, Visibility state, Lookup and Flip values. Each property has PropertyName, Value, AllowedValues, ReadOnly, Description, UnitsType and Show; setting Value changes the reference just as dragging the grip would.",
+      "usage": "(vla-GetDynamicBlockProperties blkref)  -> variant array of property objects\n(vla-get-PropertyName prop) (vla-get-Value prop) (vla-put-Value prop new)\n(vla-get-IsDynamicBlock blkref) -> :vlax-true / :vlax-false\n(vla-get-EffectiveName blkref)  -> definition name even when the reference uses an anonymous *U name\n(vla-ResetBlock blkref)         -> reset to the definition's default values",
+      "parameters": [
+        {"name": "PropertyName", "description": "The parameter label as shown in Properties (e.g. \"Distance1\", \"Visibility1\", \"Angle1\")."},
+        {"name": "Value", "description": "A variant: double for distances/angles (radians), string for visibility/lookup, boolean-like integer for flips. Must be one of AllowedValues when a value set is defined."},
+        {"name": "AllowedValues", "description": "Safearray of permitted values (empty when unrestricted)."},
+        {"name": "EffectiveName", "description": "Use instead of Name to find references of dynamic blocks, because grip-edited references are stored under anonymous block names (*U12)."}
+      ],
+      "example": "(vl-load-com)\n(defun c:SETWIDTH ( / e o w)\n  (setq e (car (entsel \"\\nSelect dynamic block: \"))\n        o (vlax-ename->vla-object e))\n  (if (= :vlax-true (vla-get-IsDynamicBlock o))\n    (foreach p (vlax-invoke o 'GetDynamicBlockProperties)\n      (if (= \"Width\" (vla-get-PropertyName p))\n        (vla-put-Value p 1200.0))))\n  (princ))\n\n// C#: DynamicBlockReferencePropertyCollection props = bref.DynamicBlockReferencePropertyCollection;",
+      "notes": "In .NET the equivalent is BlockReference.DynamicBlockReferencePropertyCollection and BlockReference.DynamicBlockTableRecord. Values are in drawing units and radians. Setting a property on a reference of a block-table (BTABLE) block that must match a row silently rejects values not in a row.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "BLOCK / INSERT DXF structure (BLOCKS section, INSERT and ATTRIB entities)",
+      "kind": "reference",
+      "description": "How blocks are stored in DXF and therefore what entget/entmake and external parsers see. The BLOCKS section holds each definition as BLOCK (2 name, 10/20/30 base point, 70 flags) followed by its entities and ENDBLK. A reference is an INSERT entity (2 block name, 10/20/30 insertion point, 41/42/43 scales, 50 rotation, 66 attributes-follow flag, 70/71 column/row counts, 44/45 spacing) followed, when 66 is 1, by ATTRIB entities (1 value, 2 tag, 70 flags, 280 lock, 10/11 positions) and a SEQEND. Dynamic block references use anonymous *U block names with the definition name kept in the AcDbBlockRepBTag xdata/extension dictionary.",
+      "usage": "BLOCKS section:\n  0 BLOCK / 8 layer / 2 name / 70 flags (1 anonymous, 2 has attributes, 4 xref, 16 overlaid xref, 64 referenced) / 10 20 30 base / 3 name / 1 xref path\n  ... entities ...\n  0 ENDBLK\nENTITIES section:\n  0 INSERT / 8 layer / 66 1 / 2 name / 10 20 30 / 41 42 43 / 50 / 70 71 44 45\n  0 ATTRIB / 8 / 10 20 30 / 40 height / 1 value / 2 tag / 70 flags (1 invisible, 2 constant, 4 verify, 8 preset) / 280 lock position\n  0 SEQEND",
+      "parameters": [
+        {"name": "group 2 on INSERT", "description": "Block name; anonymous dynamic references show *U<n> - resolve via the AcDbBlockRepBTag or vla-get-EffectiveName."},
+        {"name": "group 66", "description": "1 when ATTRIB entities follow the INSERT; walk them with entnext until SEQEND."},
+        {"name": "ATTDEF vs ATTRIB", "description": "ATTDEF lives in the block definition (has group 3 prompt); ATTRIB is the per-reference value."}
+      ],
+      "example": "; AutoLISP: read every attribute value of a picked block\n(defun c:ATTS ( / e d)\n  (setq e (car (entsel)))\n  (while (and (setq e (entnext e)) (= \"ATTRIB\" (cdr (assoc 0 (setq d (entget e))))))\n    (princ (strcat \"\\n\" (cdr (assoc 2 d)) \" = \" (cdr (assoc 1 d)))))\n  (princ))\n\n; entmake a block reference\n(entmake '((0 . \"INSERT\") (2 . \"BOLT_M12\") (10 100.0 50.0 0.0) (41 . 1.0) (42 . 1.0) (43 . 1.0) (50 . 0.0)))",
+      "notes": "entmake of an INSERT with attributes needs the INSERT with (66 . 1), each ATTRIB, then (entmake '((0 . \"SEQEND\"))). Block definitions are entmade as BLOCK, entities, ENDBLK. The DXF reference is published per release under Developer Documentation on help.autodesk.com.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    }
+  ]
+}

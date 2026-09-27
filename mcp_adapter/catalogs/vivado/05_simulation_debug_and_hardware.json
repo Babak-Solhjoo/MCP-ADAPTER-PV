@@ -1,0 +1,637 @@
+{
+  "category": "Simulation, Debug Cores & Hardware Manager",
+  "description": "Everything that exercises the design rather than building it: running XSim or a third-party simulator on RTL and gate-level netlists, inserting ILA debug cores into a synthesized netlist, and driving real silicon from the Hardware Manager. The simulation commands run inside the XSim Tcl interpreter or as standalone executables, while the debug-core and hw_* commands run in the Vivado Tcl console against an open design or a connected hardware server.",
+  "tools": [
+    {
+      "name": "launch_simulation",
+      "kind": "tcl-command",
+      "description": "Compile, elaborate and run a simulation from an open Vivado project in one command. The -mode switch selects which netlist is simulated: behavioral RTL, the post-synthesis netlist, or the post-implementation netlist, and -type chooses between a functional (unit-delay) and a timing (SDF back-annotated) run. It uses the simulator named by the project's target_simulator property, so the same command drives XSim, Questa, VCS, Xcelium or Riviera.",
+      "usage": "launch_simulation [-mode behavioral|post-synthesis|post-implementation] [-type functional|timing] [-simset <simset>] [-step compile|elaborate|simulate] [-scripts_only] [-noclean_dir] [-absolute_path]",
+      "parameters": [
+        {"name": "-mode", "description": "Which netlist to simulate: behavioral (RTL, the default), post-synthesis, or post-implementation."},
+        {"name": "-type", "description": "functional uses unit delays, timing back-annotates SDF delays. Only meaningful for post-synthesis and post-implementation."},
+        {"name": "-simset", "description": "Simulation fileset to run; defaults to the active simset (usually sim_1)."},
+        {"name": "-step", "description": "Run only one step of the flow: compile, elaborate or simulate."},
+        {"name": "-scripts_only", "description": "Write the compile/elaborate/simulate scripts into the simulation directory without running them, so they can be inspected or run outside Vivado."},
+        {"name": "-noclean_dir", "description": "Keep the contents of the simulation run directory instead of wiping it first."}
+      ],
+      "example": "open_project ./proj/top.xpr\nset_property top tb_uart [get_filesets sim_1]\nset_property -name {xsim.simulate.runtime} -value {500us} -objects [get_filesets sim_1]\n\n# Behavioral (RTL) simulation\nlaunch_simulation\n\n# Gate-level timing simulation of the implemented netlist\nopen_run impl_1\nlaunch_simulation -mode post-implementation -type timing\n\n# Only generate the scripts, run them later outside Vivado\nlaunch_simulation -scripts_only",
+      "notes": "Project mode only; in non-project mode drive xvlog/xvhdl/xelab/xsim directly. Post-synthesis and post-implementation modes need the corresponding run opened first with open_run or synth_design/implementation already in memory. Run files land in <project>.sim/<simset>/<mode>/<type>/xsim. close_sim must be called before a second launch_simulation in the same session.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/launch_simulation"
+    },
+    {
+      "name": "xvlog",
+      "kind": "command",
+      "description": "Standalone XSim parser for Verilog and SystemVerilog source, the first step of the three-step command-line simulation flow (xvlog/xvhdl, then xelab, then xsim). It only analyses source into a library; nothing is elaborated or run. Use it in Makefiles and CI where a Vivado project would only get in the way.",
+      "usage": "xvlog [-sv] [-work <library>] [-i <include_dir>] [-d <macro>[=<value>]] [-L <library>] [-f <command_file>] [-prj <project_file>] [-log <file>] <source_files>",
+      "parameters": [
+        {"name": "-sv", "description": "Treat the sources as SystemVerilog. Without it the files are parsed as Verilog-2001 and SystemVerilog constructs are errors."},
+        {"name": "-work", "description": "Library the parsed units are written into; defaults to xil_defaultlib."},
+        {"name": "-i", "description": "Directory added to the `include search path; repeat the switch for several directories."},
+        {"name": "-d", "description": "Define a macro, e.g. -d SIM_SPEEDUP or -d WIDTH=16."},
+        {"name": "-f", "description": "Read further options and file names from a command file (a .f list)."},
+        {"name": "-L", "description": "Search a precompiled library for modules referenced but not compiled here, e.g. -L unisims_ver."}
+      ],
+      "example": "# Analyse design and testbench into the default work library\nxvlog -sv ./rtl/uart_tx.sv ./rtl/uart_rx.sv ./tb/tb_uart.sv\n\n# Include path, a define and a file list\nxvlog -sv -i ./rtl/include -d SIM_SPEEDUP=1 -f ./sim/sources.f\n\n# Plain Verilog into a named library\nxvlog -work mylib ./rtl/legacy/uart_legacy.v\n\nxelab -debug typical -s tb_sim tb_uart\nxsim tb_sim -R",
+      "notes": "Messages go to xvlog.log and xvlog.pb in the current directory. xvlog never elaborates, so missing modules are only reported by xelab. For mixed-language designs run xvhdl as well and let xelab link the libraries together.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation"
+    },
+    {
+      "name": "xvhdl",
+      "kind": "command",
+      "description": "Standalone XSim analyser for VHDL source, the VHDL counterpart of xvlog. It compiles design units into a library in the order the files are given, so packages and entities must be listed before the units that use them. Use -2008 for VHDL-2008 features, which are not enabled by default.",
+      "usage": "xvhdl [-2008] [-93_mode] [-work <library>] [-f <command_file>] [-prj <project_file>] [-log <file>] <source_files>",
+      "parameters": [
+        {"name": "-2008", "description": "Parse the files as VHDL-2008 instead of the default VHDL-93/2002 subset."},
+        {"name": "-93_mode", "description": "Force strict VHDL-93 rules, useful for catching non-portable code."},
+        {"name": "-work", "description": "Target library for the compiled design units; defaults to xil_defaultlib."},
+        {"name": "-f", "description": "Read options and file names from a command file, which keeps the compile order in one place."},
+        {"name": "-log", "description": "Write messages to a named log file instead of xvhdl.log."}
+      ],
+      "example": "# Compile order matters: packages first\nxvhdl -2008 ./rtl/pkg_types.vhd ./rtl/fifo.vhd ./rtl/uart_top.vhd\n\n# Same thing driven from a file list\nxvhdl -2008 -work mylib -f ./sim/vhdl_sources.f\n\n# Mixed language: analyse both, then elaborate once\nxvlog -sv ./tb/tb_top.sv\nxelab -debug typical -s tb_sim -L mylib tb_top",
+      "notes": "Unlike Verilog, VHDL has no automatic unit lookup, so a wrong file order is the most common failure. Vivado IP that delivers VHDL simulation models usually needs -2008. Library mapping is recorded in xsim.ini in the working directory.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation"
+    },
+    {
+      "name": "xelab",
+      "kind": "command",
+      "description": "Elaborate one or more analysed top-level units into a simulation snapshot that xsim can load. This is where parameters and generics are resolved, libraries are linked, the timescale is fixed and debug visibility is decided. The -debug level chosen here determines whether signals can later be logged, forced or read from the Tcl console, so it cannot be changed at run time.",
+      "usage": "xelab [-debug typical|all|wave|line|readers|subprogram|none] [-s <snapshot>] [-L <library>] [-timescale <unit>/<precision>] [-generic_top \"<name>=<value>\"] [-mt <n>|auto|off] [-O 0|1|2|3] [-sv_lib <lib>] [-relax] [-log <file>] <top_units>",
+      "parameters": [
+        {"name": "-debug", "description": "Debug visibility. typical enables waveform logging and value access; all adds line and subprogram debug; none gives the fastest simulation with no visibility."},
+        {"name": "-s", "description": "Name of the snapshot xsim will load. Without it the snapshot is named after the top unit."},
+        {"name": "-L", "description": "Precompiled library to link against, e.g. -L unisims_ver, -L secureip, -L xpm."},
+        {"name": "-timescale", "description": "Default time unit and precision for units that do not declare one, e.g. 1ns/1ps."},
+        {"name": "-generic_top", "description": "Override a top-level VHDL generic or Verilog parameter, e.g. -generic_top \"BAUD_DIV=16\"."},
+        {"name": "-mt", "description": "Multi-threaded compilation: a job count, auto, or off."},
+        {"name": "-sv_lib", "description": "Shared object providing DPI-C imports, given without the lib prefix or extension."}
+      ],
+      "example": "# Minimum debug level for waveform capture\nxelab -debug typical -s tb_sim tb_uart\n\n# Override a generic and pin the timescale\nxelab -debug typical -s tb_sim -generic_top \"BAUD_DIV=16\" -timescale 1ns/1ps tb_uart\n\n# Netlist simulation with Xilinx primitives: glbl must be elaborated too\nxelab -debug typical -s tb_sim -L unisims_ver -L secureip tb_top glbl\n\n# DPI-C model linked in\nxelab -debug typical -s tb_sim -sv_lib dpi_model tb_top\n\nxsim tb_sim -R",
+      "notes": "Post-synthesis and post-implementation Verilog netlists instantiate Xilinx primitives whose GSR/GTS behaviour lives in glbl.v, so glbl must be listed as an extra top unit or reset never releases. -debug none can be several times faster for long regressions; use -debug typical only when waveforms are needed.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation"
+    },
+    {
+      "name": "xsim",
+      "kind": "command",
+      "description": "Load an elaborated snapshot and run it, either in batch or in the standalone XSim GUI. With -R it runs to completion and exits, which is the form used in regression scripts; with -tclbatch it executes a Tcl file so waves can be logged and the run can be stepped; with -gui it opens the waveform viewer. It is the third step of the xvlog/xvhdl -> xelab -> xsim flow.",
+      "usage": "xsim <snapshot> [-gui] [-R] [-tclbatch <file.tcl>] [-view <file.wcfg>] [-wdb <file.wdb>] [-testplusarg <arg>] [-log <file>]",
+      "parameters": [
+        {"name": "<snapshot>", "description": "Snapshot name produced by xelab -s, or a saved .wdb waveform database to reopen."},
+        {"name": "-R", "description": "Run the simulation to completion and exit; equivalent to a Tcl file containing 'run all; exit'."},
+        {"name": "-tclbatch", "description": "Tcl script executed after the snapshot is loaded; the usual place for log_wave, add_force and run commands."},
+        {"name": "-gui", "description": "Open the interactive XSim GUI with the waveform viewer and Tcl console."},
+        {"name": "-view", "description": "Waveform configuration (.wcfg) to restore in the GUI."},
+        {"name": "-wdb", "description": "Name of the waveform database written during the run."},
+        {"name": "-testplusarg", "description": "Pass a $test$plusargs / $value$plusargs argument to the testbench."}
+      ],
+      "example": "xvlog -sv ./rtl/uart.sv ./tb/tb_uart.sv\nxelab -debug typical -s tb_sim tb_uart\n\n# Batch: run to $finish and exit\nxsim tb_sim -R\n\n# Batch driven by run.tcl  (log_wave -recursive * ; run all ; exit)\nxsim tb_sim -tclbatch run.tcl -wdb tb_uart.wdb -log xsim.log\n\n# Interactive, restoring a saved waveform layout\nxsim tb_sim -gui -view tb_uart.wcfg\n\n# Plusarg into the testbench\nxsim tb_sim -R -testplusarg UART_BAUD=115200",
+      "notes": "Without -R or -tclbatch the simulator stops at the Tcl prompt and a CI job will appear to hang. Only signals logged with log_wave (or added with add_wave in the GUI) end up in the .wdb, and that requires xelab -debug typical or higher. A .wdb written by a batch run can be reopened later in the waveform viewer for offline analysis.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation"
+    },
+    {
+      "name": "run",
+      "kind": "tcl-command",
+      "description": "Advance simulation time in the XSim Tcl interpreter. 'run all' hands control to the testbench until it executes $finish or $stop, while 'run <time> <unit>' advances a fixed amount and returns to the prompt so values can be inspected or forces applied. It is the command every interactive debug session is built around.",
+      "usage": "run all\nrun <time> <unit>",
+      "parameters": [
+        {"name": "all", "description": "Run until the testbench finishes or a breakpoint stops it. Returns only when simulation ends."},
+        {"name": "<time> <unit>", "description": "Amount of simulation time to advance, e.g. 100 ns, 1 us, 25 ps."},
+        {"name": "current_time", "description": "Related command; reports the time the simulation has reached."}
+      ],
+      "example": "# Let the testbench control the run\nrun all\n\n# Step through a sequence, inspecting between steps\nrestart\nrun 100 ns\nputs \"t = [current_time]\"\nputs [get_value -radix hex /tb_uart/dut/state_reg]\n\nadd_force /tb_uart/rx 0 -cancel_after 8680ns\nrun 1 us",
+      "notes": "A testbench with no $finish makes 'run all' block forever, which in batch mode looks like a hung job; use a bounded 'run <time>' or add a watchdog to the testbench. In project flows the equivalent of 'run all' is set with the xsim.simulate.runtime property value {all}.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/run"
+    },
+    {
+      "name": "add_wave / log_wave",
+      "kind": "tcl-command",
+      "description": "add_wave puts HDL objects into the waveform window; log_wave records them into the waveform database so their history exists at all. In batch runs only logged objects end up in the .wdb, so a script that forgets log_wave produces an empty waveform. In the GUI add_wave implicitly logs the objects it adds.",
+      "usage": "add_wave [-recursive] [-into <group>] [-name <label>] [-radix <radix>] [-color <color>] <hdl_objects>\nlog_wave [-recursive] <hdl_objects>",
+      "parameters": [
+        {"name": "-recursive", "description": "Descend into sub-scopes of the given objects; 'log_wave -recursive *' logs the whole design below the current scope."},
+        {"name": "-into", "description": "Add the signals into a named group in the waveform window instead of at the top level."},
+        {"name": "-name", "description": "Label shown in the waveform window, instead of the HDL name."},
+        {"name": "-radix", "description": "Display radix: bin, oct, hex, dec, unsigned, ascii."},
+        {"name": "<hdl_objects>", "description": "Signal, port or scope paths, absolute (/tb/dut/sig) or relative to the current scope. get_objects returns them programmatically."}
+      ],
+      "example": "# Typical xsim -tclbatch script\nlog_wave -recursive *\n\nadd_wave /tb_uart/clk /tb_uart/rst_n\nadd_wave -radix hex -name tx_byte /tb_uart/dut/tx_data\nadd_wave -into uart_core /tb_uart/dut/state_reg\n\nrun all\nsave_wave_config ./tb_uart.wcfg\nexit",
+      "notes": "'log_wave -recursive *' on a large design produces a very large .wdb and slows the run; log only the scopes you need. Requires xelab -debug typical (or wave) or higher. save_wave_config writes the window layout to a .wcfg and open_wave_config restores it, which is how a debug view is kept across runs.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/add_wave"
+    },
+    {
+      "name": "add_force",
+      "kind": "tcl-command",
+      "description": "Drive a value onto an HDL object from the Tcl console, optionally as a repeating waveform and for a limited time. It is the quickest way to generate a clock or hold a reset without editing the testbench, and to inject a stimulus mid-run while debugging interactively. Forces override the HDL driver only while they are active.",
+      "usage": "add_force <hdl_object> {<value> [<time>]} [{<value> <time>} ...] [-radix <radix>] [-repeat_every <time>] [-cancel_after <time>]",
+      "parameters": [
+        {"name": "<hdl_object>", "description": "Signal or port to drive, absolute or relative to the current scope."},
+        {"name": "{<value> <time>}", "description": "Value/time pairs making up the forced waveform; the time is relative to when the force is applied."},
+        {"name": "-repeat_every", "description": "Repeat the value list with this period, which is how a free-running clock is generated."},
+        {"name": "-cancel_after", "description": "Automatically release the force after this amount of time."},
+        {"name": "-radix", "description": "Radix of the given values: bin, hex, dec, unsigned."}
+      ],
+      "example": "restart\n\n# Hold reset low for 100 ns\nadd_force /tb_top/rst_n 0 -cancel_after 100ns\n\n# Free-running 100 MHz clock with no clock generator in the testbench\nadd_force /tb_top/clk {0 0ns} {1 5ns} -repeat_every 10ns\n\n# Poke a configuration register in hex, then let the design drive it again\nadd_force -radix hex /tb_top/dut/cfg_reg AB -cancel_after 200ns\nrun 300 ns\nremove_forces -all",
+      "notes": "A force fights any HDL driver on the same object, so forcing a signal the design also drives gives results that depend on the release time; prefer forcing testbench-level signals. remove_forces cancels active forces. Unlike set_value, a force persists until it expires or is removed.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/add_force"
+    },
+    {
+      "name": "current_scope / get_value / set_value",
+      "kind": "tcl-command",
+      "description": "Navigate the simulation hierarchy and read or deposit signal values from Tcl. current_scope moves into a design instance so later commands can use short relative names, get_value returns the current value of an object in a chosen radix, and set_value deposits a value that the design's own driver can subsequently overwrite. Together they make self-checking Tcl-driven simulations possible.",
+      "usage": "current_scope [<scope_path>]\nget_value [-radix <radix>] <hdl_object>\nset_value [-radix <radix>] <hdl_object> <value>",
+      "parameters": [
+        {"name": "<scope_path>", "description": "Hierarchical path of the scope to move into, e.g. /tb_uart/dut. Called with no argument it returns the current scope."},
+        {"name": "-radix", "description": "Radix used to interpret or print the value: bin, oct, hex, dec, unsigned, ascii."},
+        {"name": "<hdl_object>", "description": "Signal, variable or port path; relative names are resolved against the current scope."},
+        {"name": "<value>", "description": "Value to deposit, sized to the object and expressed in the chosen radix."}
+      ],
+      "example": "current_scope /tb_uart/dut\nreport_scopes\nreport_objects\n\n# Read a counter relative to the current scope\nputs [get_value -radix unsigned bit_cnt]\n\n# Deposit a state value and continue\nset_value -radix bin state_reg 0011\nrun 100 ns\n\n# Self-check from Tcl\nif {[get_value -radix hex /tb_uart/dut/tx_data] ne \"5a\"} {\n  error \"tx_data mismatch\"\n}",
+      "notes": "Both commands need xelab -debug typical or higher; with -debug none the objects are not visible. set_value only deposits (the next driver event wins) whereas add_force holds the value. report_scopes, report_objects and report_values list what is visible at the current scope, which is the fastest way to find the right path.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_value"
+    },
+    {
+      "name": "restart",
+      "kind": "tcl-command",
+      "description": "Rewind the loaded simulation to time zero without re-elaborating, so another stimulus sequence can be run against the same snapshot in seconds. It is the core of interactive debugging: run, observe, restart, force something different, run again. The waveform window and its configuration survive the restart.",
+      "usage": "restart",
+      "parameters": [
+        {"name": "(no arguments)", "description": "Resets simulation time to 0 and reinitialises the design from the loaded snapshot."},
+        {"name": "close_sim", "description": "Related command; closes the current simulation and frees the snapshot."},
+        {"name": "current_sim", "description": "Related command; returns the current simulation object, or empty if none is running."}
+      ],
+      "example": "# Sweep a mode input without re-elaborating\nforeach mode {0 1 2 3} {\n  restart\n  add_force /tb_top/mode $mode -radix unsigned\n  run 50 us\n  puts \"mode $mode -> [get_value -radix hex /tb_top/result]\"\n}\n\n# Finish and release the snapshot before starting another simulation\nif {[current_sim] ne \"\"} { close_sim -force }",
+      "notes": "Re-apply any add_force after a restart; they do not survive the rewind. In project flows close_sim (add -force to skip the prompt) must be called before another launch_simulation can start, otherwise the second run fails with a simulation-already-open error.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/restart"
+    },
+    {
+      "name": "set_property -name {xsim.simulate.runtime}",
+      "kind": "tcl-command",
+      "description": "Simulation fileset properties control everything launch_simulation does, using the pattern <simulator>.<step>.<option>. The runtime property is the one people meet first: its default of 1000ns is why so many project simulations appear to stop just after reset. The same pattern configures debug level, signal logging, extra compiler switches and a custom Tcl file, and the prefix changes to questa., xcelium., vcs. or riviera. for other simulators.",
+      "usage": "set_property -name {<simulator>.<step>.<option>} -value {<value>} -objects [get_filesets <simset>]",
+      "parameters": [
+        {"name": "xsim.simulate.runtime", "description": "How long to run, e.g. {500us}. The value {all} runs until the testbench calls $finish."},
+        {"name": "xsim.simulate.log_all_signals", "description": "true logs every signal into the waveform database, equivalent to log_wave -recursive *."},
+        {"name": "xsim.simulate.custom_tcl", "description": "Path to a Tcl file sourced by xsim after the snapshot loads; the place for add_force and add_wave commands."},
+        {"name": "xsim.elaborate.debug_level", "description": "Debug visibility passed to xelab, typically {typical} or {all}."},
+        {"name": "xsim.compile.xvlog.more_options", "description": "Extra switches appended to the xvlog command line, e.g. {-d SIM_SPEEDUP}."},
+        {"name": "xsim.elaborate.xelab.more_options", "description": "Extra switches appended to xelab, e.g. {-generic_top \"BAUD_DIV=16\"}."}
+      ],
+      "example": "set_property top tb_uart [get_filesets sim_1]\nset_property top_lib xil_defaultlib [get_filesets sim_1]\n\nset_property -name {xsim.simulate.runtime} -value {500us} -objects [get_filesets sim_1]\nset_property -name {xsim.simulate.log_all_signals} -value {true} -objects [get_filesets sim_1]\nset_property -name {xsim.elaborate.debug_level} -value {typical} -objects [get_filesets sim_1]\nset_property -name {xsim.compile.xvlog.more_options} -value {-d SIM_SPEEDUP} -objects [get_filesets sim_1]\n\nlaunch_simulation\n\n# See every property the simset supports\nreport_property [get_filesets sim_1]",
+      "notes": "The braces matter: the property names contain dots, so the -name/-value/-objects form is required rather than the short set_property form. create_fileset -simset sim_2 adds a second simulation set with its own top and sources, run with launch_simulation -simset sim_2, which is how several testbenches live in one project.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation"
+    },
+    {
+      "name": "compile_simlib",
+      "kind": "tcl-command",
+      "description": "Compile the Xilinx simulation libraries (unisim, simprim, unimacro, secureip, XPM) for a third-party simulator, so designs using Xilinx primitives and IP can be simulated outside XSim. It is a one-off step per simulator and per Vivado release, producing a directory of compiled libraries plus a library mapping file the simulator reads. XSim needs none of this because its libraries ship precompiled.",
+      "usage": "compile_simlib -simulator <questa|modelsim|xcelium|vcs|riviera|activehdl> [-simulator_exec_path <path>] [-family <all|<arch>>] [-language <all|verilog|vhdl>] [-library <all|unisim|simprim|...>] -dir <output_dir> [-force] [-no_ip_compile]",
+      "parameters": [
+        {"name": "-simulator", "description": "Target simulator; also decides the format of the generated library mapping file."},
+        {"name": "-simulator_exec_path", "description": "Directory holding the simulator executables, needed when they are not on PATH."},
+        {"name": "-family", "description": "Device architecture to compile for, or all."},
+        {"name": "-language", "description": "verilog, vhdl or all."},
+        {"name": "-library", "description": "Which library to compile (unisim, simprim, unimacro, secureip) or all."},
+        {"name": "-dir", "description": "Output directory for the compiled libraries and the mapping file."},
+        {"name": "-force", "description": "Overwrite an existing compiled library directory."}
+      ],
+      "example": "compile_simlib -simulator questa -simulator_exec_path {/tools/questasim/bin} \\\n  -family all -language all -library all -dir ./questa_lib -force\n\n# Point the project at the simulator and the compiled libraries\nset_property target_simulator Questa [current_project]\nset_property compxlib.questa_compiled_library_dir {./questa_lib} [current_project]\n\nlaunch_simulation",
+      "notes": "target_simulator accepts XSim, ModelSim, Questa, VCS, Xcelium, Riviera and ActiveHDL; launch_simulation then drives that tool instead of XSim. Recompile the libraries after any Vivado or simulator version change, otherwise elaboration fails with mismatched-library errors. The run can take tens of minutes for -library all.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/compile_simlib"
+    },
+    {
+      "name": "export_simulation",
+      "kind": "tcl-command",
+      "description": "Generate standalone simulation scripts for a design or an individual IP, so the simulation can be run from a shell, a Makefile or a CI job without opening Vivado. The scripts contain the full compile, elaborate and simulate command sequence with the correct library mapping for the chosen simulator. It is the supported way to hand a design over to a verification environment that does not use Vivado projects.",
+      "usage": "export_simulation -directory <dir> -simulator <xsim|questa|modelsim|vcs|xcelium|riviera|activehdl|all> [-of_objects <objects>] [-lib_map_path <path>] [-script_name <name>] [-use_ip_compiled_libs] [-absolute_path] [-force]",
+      "parameters": [
+        {"name": "-directory", "description": "Output directory; one subdirectory is created per simulator."},
+        {"name": "-simulator", "description": "Simulator the scripts are written for, or all to write them for every supported simulator."},
+        {"name": "-of_objects", "description": "Restrict the export to specific objects, typically an IP .xci file or a simulation fileset."},
+        {"name": "-lib_map_path", "description": "Path to the libraries produced by compile_simlib, so the generated scripts find the precompiled Xilinx libraries."},
+        {"name": "-use_ip_compiled_libs", "description": "Reference the precompiled IP static library instead of recompiling IP sources in every run."},
+        {"name": "-force", "description": "Overwrite existing scripts in the output directory."}
+      ],
+      "example": "# Scripts for the whole simulation fileset\nexport_simulation -directory ./sim_scripts -simulator questa \\\n  -lib_map_path ./questa_lib -use_ip_compiled_libs -force\n\n# Scripts for a single IP\nexport_simulation -directory ./sim_scripts -simulator xsim \\\n  -of_objects [get_files ./ip/fifo_gen/fifo_gen.xci] -force\n\n# Then, outside Vivado:\n#   cd ./sim_scripts/questa\n#   ./tb_uart.sh",
+      "notes": "Run export_ip_user_files first when the design contains IP, so the static IP sources the scripts reference exist on disk. Combine with compile_simlib and -lib_map_path or the generated scripts will try to compile the Xilinx libraries on every run. launch_simulation -scripts_only is the simpler alternative when the scripts only need to run in place.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/export_simulation"
+    },
+    {
+      "name": "create_debug_core",
+      "kind": "tcl-command",
+      "description": "Insert an Integrated Logic Analyzer core into the synthesized netlist, the first command of the netlist-insertion debug flow. The core samples nets into block RAM inside the device and streams the capture back over JTAG to the Hardware Manager. Because it is added to the netlist rather than the RTL, the design source does not change, but the commands must be replayed on every synthesis run, which is why they are normally stored in an XDC.",
+      "usage": "create_debug_core <core_name> ila\nset_property <PROPERTY> <value> [get_debug_cores <core_name>]",
+      "parameters": [
+        {"name": "<core_name>", "description": "Instance name of the new core, conventionally u_ila_0, u_ila_1 and so on."},
+        {"name": "ila", "description": "Core type. The ILA core is the one used by the netlist-insertion flow; VIO cores are instantiated from the IP catalog instead."},
+        {"name": "[get_debug_cores ...]", "description": "Query that returns existing debug core objects, used by every subsequent set_property and connect_debug_port."},
+        {"name": "delete_debug_core", "description": "Related command; removes a core and all its port connections."}
+      ],
+      "example": "open_run synth_1\n\ncreate_debug_core u_ila_0 ila\nset_property C_DATA_DEPTH 4096 [get_debug_cores u_ila_0]\nset_property C_TRIGIN_EN false [get_debug_cores u_ila_0]\n\n# Every ILA needs its clock connected before anything else\nconnect_debug_port u_ila_0/clk [get_nets clk_100]\n\nimplement_debug_core\nwrite_debug_probes -force ./top.ltx",
+      "notes": "Works on an open synthesized design; save the resulting commands into the constraints file (the Set Up Debug wizard does this automatically) so they survive the next synthesis. All nets on one core must run in the clock domain connected to its clk port; use one core per clock domain.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_debug_core"
+    },
+    {
+      "name": "create_debug_port",
+      "kind": "tcl-command",
+      "description": "Add a port to an existing debug core: another probe input, or the trigger in/out ports used to cascade cores. A freshly created ILA already has clk and probe0, so this is how probes 1..N are created. The width of each probe port is set separately with the port_width property and must match the number of nets connected to it.",
+      "usage": "create_debug_port <core_name> <port_type>\nset_property port_width <n> [get_debug_ports <core_name>/<port_name>]",
+      "parameters": [
+        {"name": "<port_type>", "description": "clk, probe, trig_in or trig_out."},
+        {"name": "port_width", "description": "Number of bits on the port; must equal the number of nets given to connect_debug_port."},
+        {"name": "<core_name>/<port_name>", "description": "Port object name, e.g. u_ila_0/probe1. Probe ports are numbered from 0 in creation order."},
+        {"name": "trig_in / trig_out", "description": "Cross-trigger ports, only usable when C_TRIGIN_EN / C_TRIGOUT_EN are true on the core."}
+      ],
+      "example": "create_debug_core u_ila_0 ila\nconnect_debug_port u_ila_0/clk [get_nets clk_100]\n\n# probe0 exists already; give it a width and connect a bus\nset addr_nets [lsort -dictionary [get_nets {u_dut/addr[*]}]]\nset_property port_width [llength $addr_nets] [get_debug_ports u_ila_0/probe0]\nconnect_debug_port u_ila_0/probe0 $addr_nets\n\n# Add a second probe for a 4-bit state vector\ncreate_debug_port u_ila_0 probe\nset_property port_width 4 [get_debug_ports u_ila_0/probe1]\nconnect_debug_port u_ila_0/probe1 [get_nets {u_dut/state[0] u_dut/state[1] u_dut/state[2] u_dut/state[3]}]",
+      "notes": "A width mismatch between port_width and the connected net list is the most common error in this flow. Probe count and widths determine how much block RAM the core uses, together with C_DATA_DEPTH. Each probe can carry its own trigger comparator at run time.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_debug_port"
+    },
+    {
+      "name": "connect_debug_port",
+      "kind": "tcl-command",
+      "description": "Attach nets from the synthesized netlist to a debug core port: the clock net to the clk port, and the signals to be observed to the probe ports. Nets must still exist in the netlist, which is why the signals of interest are usually marked with MARK_DEBUG or DONT_TOUCH first. Bus bits must be given in the right order, so sorting the get_nets result is standard practice.",
+      "usage": "connect_debug_port <core_name>/<port_name> <nets>",
+      "parameters": [
+        {"name": "<core_name>/<port_name>", "description": "Target port, e.g. u_ila_0/clk or u_ila_0/probe2."},
+        {"name": "<nets>", "description": "List of net objects from get_nets; length must equal the port's port_width."},
+        {"name": "get_nets -hierarchical -filter {MARK_DEBUG}", "description": "Usual way to collect the nets that were flagged for debug across the hierarchy."},
+        {"name": "disconnect_debug_port", "description": "Related command; detaches nets from a port, used when rewiring probes in the ECO flow."}
+      ],
+      "example": "open_run synth_1\nset dbg_nets [get_nets -hierarchical -filter {MARK_DEBUG}]\nputs \"Nets marked for debug: [llength $dbg_nets]\"\n\ncreate_debug_core u_ila_0 ila\nset_property C_DATA_DEPTH 4096 [get_debug_cores u_ila_0]\nconnect_debug_port u_ila_0/clk [get_nets clk_100]\n\nset probe_nets [lsort -dictionary [get_nets {u_dut/counter[*]}]]\nset_property port_width [llength $probe_nets] [get_debug_ports u_ila_0/probe0]\nconnect_debug_port u_ila_0/probe0 $probe_nets\n\nimplement_debug_core",
+      "notes": "Sort bus nets with lsort -dictionary or bit 10 will end up next to bit 1 and the waveform will be scrambled. Connecting nets from a different clock domain than the core's clk gives meaningless captures; put those on a second core. Probe names shown in the Hardware Manager come from these nets via the .ltx file.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/connect_debug_port"
+    },
+    {
+      "name": "set_property C_DATA_DEPTH",
+      "kind": "tcl-command",
+      "description": "Configure an inserted ILA core through its properties: how many samples it stores, whether advanced triggering and capture qualification are available, and how much pipelining is added on the probe inputs. Capture depth multiplied by total probe width is block RAM taken away from the design, so this is the main size/visibility trade-off in hardware debug. Properties must be set before implement_debug_core.",
+      "usage": "set_property <PROPERTY> <value> [get_debug_cores <core_name>]",
+      "parameters": [
+        {"name": "C_DATA_DEPTH", "description": "Number of samples stored per capture window, a power of two (1024, 2048, 4096, ... 131072). Costs block RAM proportional to depth x total probe width."},
+        {"name": "C_ADV_TRIGGER", "description": "true enables the advanced trigger state machine, needed for multi-state triggers in the Hardware Manager."},
+        {"name": "C_EN_STRG_QUAL", "description": "true enables capture (storage) qualification, so only samples matching a condition are stored."},
+        {"name": "C_TRIGIN_EN / C_TRIGOUT_EN", "description": "Enable the cross-trigger input/output ports so several cores can trigger each other."},
+        {"name": "C_INPUT_PIPE_STAGES", "description": "Pipeline registers inserted on the probe inputs (0-6) to help the core meet timing; delays the captured data by that many cycles."},
+        {"name": "ALL_PROBE_SAME_MU_CNT", "description": "Number of match units available per probe, which limits how many simultaneous comparisons a trigger can use."}
+      ],
+      "example": "create_debug_core u_ila_0 ila\nset_property C_DATA_DEPTH 8192 [get_debug_cores u_ila_0]\nset_property C_ADV_TRIGGER true [get_debug_cores u_ila_0]\nset_property C_EN_STRG_QUAL true [get_debug_cores u_ila_0]\nset_property C_INPUT_PIPE_STAGES 2 [get_debug_cores u_ila_0]\nset_property ALL_PROBE_SAME_MU_CNT 2 [get_debug_cores u_ila_0]\n\nreport_property [get_debug_cores u_ila_0]\nimplement_debug_core\nreport_utilization -file ./reports/util_with_ila.rpt",
+      "notes": "A deep ILA on a wide probe set can consume a large fraction of the device's block RAM and often becomes the critical path itself; check report_utilization and report_timing after inserting it. C_DATA_DEPTH is the maximum the core supports; the depth actually used per run is set at run time with CONTROL.DATA_DEPTH.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "set_property MARK_DEBUG",
+      "kind": "tcl-command",
+      "description": "Flag a net so synthesis keeps it and lists it as a debug candidate, which is the starting point of both the Set Up Debug wizard and the scripted debug-core flow. Without it, the signal you want to probe has usually been optimised away, renamed or absorbed into a LUT. It can be applied as an RTL attribute, which keeps the intent with the code, or from Tcl on the synthesized design.",
+      "usage": "set_property MARK_DEBUG TRUE [get_nets <nets>]\n(* mark_debug = \"true\" *) wire [7:0] state;   // RTL attribute form",
+      "parameters": [
+        {"name": "MARK_DEBUG", "description": "TRUE preserves the net through synthesis and adds it to the debug candidate list."},
+        {"name": "[get_nets ...]", "description": "Nets to mark; -hierarchical with a NAME filter reaches nets inside submodules."},
+        {"name": "get_nets -hierarchical -filter {MARK_DEBUG}", "description": "Lists every marked net, which is what the debug wizard and insertion scripts consume."}
+      ],
+      "example": "open_run synth_1\nset_property MARK_DEBUG TRUE [get_nets {u_dut/state_reg[*]}]\nset_property MARK_DEBUG TRUE [get_nets -hierarchical -filter {NAME =~ *axi_awvalid}]\n\n# Feed the marked nets straight into an ILA\ncreate_debug_core u_ila_0 ila\nconnect_debug_port u_ila_0/clk [get_nets clk_100]\nset nets [lsort -dictionary [get_nets -hierarchical -filter {MARK_DEBUG}]]\nset_property port_width [llength $nets] [get_debug_ports u_ila_0/probe0]\nconnect_debug_port u_ila_0/probe0 $nets\n\nimplement_debug_core\nwrite_debug_probes -force ./top.ltx",
+      "notes": "Marked nets block optimisation and can cost area and timing, so remove the attribute for production builds. Marking a net inside a module that synthesis flattens may still fail; add KEEP_HIERARCHY or DONT_TOUCH on the enclosing cell if the net disappears. The same property is covered from the constraints angle in the timing and constraints catalog.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/MARK_DEBUG"
+    },
+    {
+      "name": "implement_debug_core",
+      "kind": "tcl-command",
+      "description": "Build the inserted debug cores into the netlist: the core logic is created, the debug hub (dbg_hub) with its BSCAN primitive is instantiated and the probe connections are finalised. It must be run after the create/connect commands and before the checkpoint or bitstream is written, and again whenever probe connections change, including in an ECO. Nothing appears in the Hardware Manager if this step is skipped.",
+      "usage": "implement_debug_core [<debug_cores>]",
+      "parameters": [
+        {"name": "<debug_cores>", "description": "Cores to implement, from get_debug_cores. With no argument every debug core in the design is implemented."},
+        {"name": "C_CLK_INPUT_FREQ_HZ", "description": "dbg_hub property giving the frequency of the clock driving the hub, needed when the debug clock is fast."},
+        {"name": "C_ENABLE_CLK_DIVIDER", "description": "dbg_hub property; true divides the debug clock so the hub meets timing on high-frequency clocks."},
+        {"name": "C_USER_SCAN_CHAIN", "description": "dbg_hub property selecting the JTAG user scan chain (1-4), used when another core already occupies the default chain."}
+      ],
+      "example": "open_run synth_1\n# ... create_debug_core / create_debug_port / connect_debug_port ...\n\n# Tell the hub how fast its clock is before implementing\nset_property C_CLK_INPUT_FREQ_HZ 300000000 [get_debug_cores dbg_hub]\nset_property C_ENABLE_CLK_DIVIDER true [get_debug_cores dbg_hub]\n\nimplement_debug_core\nwrite_debug_probes -force ./top.ltx\nwrite_checkpoint -force ./top_synth_dbg.dcp\n\nlaunch_runs impl_1 -to_step write_bitstream\nwait_on_run impl_1",
+      "notes": "The classic 'the debug hub core was not detected' message in the Hardware Manager comes from the hub's clock being too fast or not free-running; C_CLK_INPUT_FREQ_HZ plus C_ENABLE_CLK_DIVIDER is the documented fix. A design that already uses all its BSCAN primitives cannot take a debug hub.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/implement_debug_core"
+    },
+    {
+      "name": "write_debug_probes",
+      "kind": "tcl-command",
+      "description": "Write the probes file (.ltx) that maps the debug core's physical probe ports back to the net names they observe. The Hardware Manager needs it to show meaningful signal names next to the captured waveform, and it must match the bitstream exactly. Project flows produce it automatically beside the bitstream; non-project and ECO flows have to call it explicitly.",
+      "usage": "write_debug_probes [-force] [-no_partial_ltxfile] <file.ltx>",
+      "parameters": [
+        {"name": "<file.ltx>", "description": "Output path for the probes file; conventionally next to the bitstream and with the same base name."},
+        {"name": "-force", "description": "Overwrite an existing file."},
+        {"name": "-no_partial_ltxfile", "description": "Do not write the extra partial probes file used by partial reconfiguration flows."}
+      ],
+      "example": "implement_debug_core\nroute_design\nwrite_bitstream -force ./top.bit\nwrite_debug_probes -force ./top.ltx\n\n# The Hardware Manager consumes both files\nset dev [lindex [get_hw_devices] 0]\nset_property PROGRAM.FILE {./top.bit} $dev\nset_property PROBES.FILE {./top.ltx} $dev\nprogram_hw_devices $dev\nrefresh_hw_device $dev",
+      "notes": "A stale .ltx shows probes with wrong or missing names, or none at all; always regenerate it together with the bitstream. Programming works without an .ltx, but the ILA then shows anonymous probe numbers only.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_debug_probes"
+    },
+    {
+      "name": "Set Up Debug wizard",
+      "kind": "tool",
+      "description": "GUI wizard that turns a list of debug-marked nets into a set of correctly configured ILA cores. It groups the nets by clock domain, warns about nets with no associated clock, lets you pick sample depth, capture control and advanced trigger, and writes the equivalent create_debug_core / create_debug_port / connect_debug_port commands into the active constraints file. It is the fastest way to get started and a good generator of scriptable Tcl.",
+      "usage": "GUI: Open Synthesized Design -> Tools -> Set Up Debug...\n(or right-click nets in the Netlist / Schematic window -> Mark Debug, then run the wizard)",
+      "parameters": [
+        {"name": "Nets to Debug page", "description": "The nets collected from MARK_DEBUG and manual selection; nets can be added or removed here."},
+        {"name": "Clock Domain column", "description": "Clock associated with each net. Nets showing no clock must be fixed, otherwise the capture is meaningless."},
+        {"name": "Sample of data depth", "description": "Capture depth per window, written into the XDC as C_DATA_DEPTH."},
+        {"name": "Capture control", "description": "Enables storage qualification (C_EN_STRG_QUAL) so only interesting samples are stored."},
+        {"name": "Advanced trigger", "description": "Enables the trigger state machine (C_ADV_TRIGGER) for multi-condition triggering."}
+      ],
+      "example": "1. Open Synthesized Design.\n2. Mark the signals of interest:\n     set_property MARK_DEBUG TRUE [get_nets {u_dut/state_reg[*]}]\n3. Tools -> Set Up Debug... -> Next.\n4. Check the Clock Domain column; nets from several domains are split onto separate ILA cores.\n5. Choose sample depth 4096 and tick Capture control if storage qualification is needed.\n6. Finish. The wizard writes into the active XDC:\n     create_debug_core u_ila_0 ila\n     set_property C_DATA_DEPTH 4096 [get_debug_cores u_ila_0]\n     connect_debug_port u_ila_0/clk [get_nets clk_100]\n     connect_debug_port u_ila_0/probe0 [get_nets {u_dut/state_reg[0] ...}]\n7. save_constraints, then re-run synthesis and implementation.",
+      "notes": "Because the generated commands live in a constraints file they are replayed on every synthesis run, and editing them by hand afterwards is normal practice. Running the wizard again on a design that already has cores adds to them rather than replacing them; delete the old block in the XDC first.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "Vivado Logic Analyzer",
+      "kind": "tool",
+      "description": "The run-time half of hardware debug: the ILA dashboard inside the Hardware Manager, with Waveform, Settings, Status, Trigger Setup and Capture Setup windows. It arms the ILA cores in the programmed device, waits for the trigger condition, uploads the captured samples over JTAG and displays them as a waveform with the probe names from the .ltx file. Every action in it echoes an equivalent Tcl command, which is how capture scripts are written.",
+      "usage": "GUI: Flow Navigator -> Open Hardware Manager -> connect and program the device -> ILA dashboard (hw_ila_1)",
+      "parameters": [
+        {"name": "Trigger Setup window", "description": "Per-probe compare operator and value; the Tcl equivalent is TRIGGER_COMPARE_VALUE on the hw_probe objects."},
+        {"name": "Capture Setup window", "description": "Storage qualification condition, equivalent to CAPTURE_COMPARE_VALUE plus CONTROL.CAPTURE_MODE."},
+        {"name": "Settings window", "description": "Trigger position, data depth, window count and trigger mode, i.e. the CONTROL.* properties of the hw_ila."},
+        {"name": "Status window", "description": "Core state (Idle, Waiting for Trigger, Full) and the captured sample count; matches the CORE_STATUS property."},
+        {"name": "Waveform window", "description": "Displays the uploaded capture; markers, radix changes and exports work as in the simulator's viewer."}
+      ],
+      "example": "# The GUI session above, written as Tcl\nopen_hw_manager\nconnect_hw_server -url localhost:3121\nopen_hw_target\nset dev [lindex [get_hw_devices] 0]\ncurrent_hw_device $dev\nset_property PROGRAM.FILE {./top.bit} $dev\nset_property PROBES.FILE {./top.ltx} $dev\nprogram_hw_devices $dev\nrefresh_hw_device $dev\n\nset ila [get_hw_ilas -of_objects $dev hw_ila_1]\nset_property CONTROL.TRIGGER_POSITION 512 $ila\nset_property TRIGGER_COMPARE_VALUE eq1'b1 [get_hw_probes {u_dut/error} -of_objects $ila]\nrun_hw_ila $ila\nwait_on_hw_ila $ila\ndisplay_hw_ila_data [upload_hw_ila_data $ila]",
+      "notes": "Probe names only appear when the .ltx matches the loaded bitstream. Trigger state machines (.tsm files) are available only on cores built with C_ADV_TRIGGER. Captures can be archived with write_hw_ila_data and reopened later with read_hw_ila_data, which is how failures are shared with colleagues.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "ECO flow",
+      "kind": "tool",
+      "description": "Engineering Change Order flow: make a small change to an already routed design and re-route only what changed, instead of running implementation again. In debug work its main use is repointing an existing ILA's probes at different nets, so a new capture can be made in minutes while the rest of the design keeps its placement, routing and timing results. It is driven from the ECO Navigator in the GUI or from Tcl on an open routed checkpoint.",
+      "usage": "GUI: Open Implemented Design (or open_checkpoint <routed>.dcp) -> Layout -> ECO -> ECO Navigator\nTcl: connect/disconnect debug ports -> implement_debug_core -> route_design -nets -> write_bitstream + write_debug_probes",
+      "parameters": [
+        {"name": "Replace Debug Probes", "description": "ECO Navigator command that rewires an existing ILA probe port onto different nets."},
+        {"name": "implement_debug_core", "description": "Rebuilds the debug core connections after the probes have been changed."},
+        {"name": "route_design -nets", "description": "Routes only the listed nets, leaving the rest of the routed design untouched."},
+        {"name": "write_debug_probes", "description": "Regenerates the .ltx so the Hardware Manager shows the new probe names."},
+        {"name": "report_route_status", "description": "Confirms there are no unrouted nets left after the ECO."}
+      ],
+      "example": "open_checkpoint ./top_routed.dcp\n\n# Rewire probe0 onto different nets (ECO Navigator -> Replace Debug Probes),\n# then rebuild and route only what changed\nimplement_debug_core [get_debug_cores u_ila_0]\nroute_design -nets [get_nets {u_dut/new_signal[*]}]\n\nreport_route_status\nreport_timing_summary -file ./reports/timing_after_eco.rpt\n\nwrite_debug_probes -force ./top_eco.ltx\nwrite_bitstream -force ./top_eco.bit\nwrite_checkpoint -force ./top_eco_routed.dcp",
+      "notes": "Only nets that still exist in the routed netlist can be probed, and the replacement must match the probe width, so mark generously with MARK_DEBUG in the original build. Always regenerate the .ltx with the bitstream; an ECO bitstream with the old probes file shows wrong signal names. Re-check timing on the touched nets before trusting the result.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "open_hw_manager",
+      "kind": "tcl-command",
+      "description": "Open the Hardware Manager, the part of Vivado that talks to real devices over JTAG. It is the first command of every hardware session and must be issued before any other hw_* command, in the GUI or in a headless `vivado -mode batch` script. Nothing is connected yet at this point: connect_hw_server and open_hw_target follow.",
+      "usage": "open_hw_manager\nclose_hw_manager",
+      "parameters": [
+        {"name": "(no arguments)", "description": "Opens the Hardware Manager in the current Vivado session; a project does not need to be open."},
+        {"name": "close_hw_manager", "description": "Closes it again and releases the server and target connections."},
+        {"name": "current_hw_target / current_hw_server", "description": "Related queries returning the target and server currently in use."}
+      ],
+      "example": "# Complete headless programming session\nopen_hw_manager\nconnect_hw_server -url localhost:3121\nopen_hw_target [lindex [get_hw_targets] 0]\n\nset dev [lindex [get_hw_devices] 0]\ncurrent_hw_device $dev\nrefresh_hw_device -update_hw_probes false $dev\nset_property PROGRAM.FILE {./top.bit} $dev\nprogram_hw_devices $dev\n\nclose_hw_target\ndisconnect_hw_server\nclose_hw_manager",
+      "notes": "Run scripts with `vivado -mode batch -source program.tcl` for unattended programming on a lab machine. Releases before 2019.2 used open_hw / close_hw, which still appear in older scripts. The whole hw_* command set is also available in the much smaller Vivado Lab Edition.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_hw_manager"
+    },
+    {
+      "name": "connect_hw_server",
+      "kind": "tcl-command",
+      "description": "Connect to a hardware server (hw_server) that owns the JTAG cables. The server may run on the same machine, which is what the default localhost:3121 means, or on a remote lab machine, which is how boards are shared and how CI programs hardware. After connecting, get_hw_targets lists the cables the server can see.",
+      "usage": "connect_hw_server [-url <host>:<port>] [-allow_non_jtag] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-url", "description": "Host and port of the hardware server; defaults to localhost:3121."},
+        {"name": "-allow_non_jtag", "description": "Permit the connection to be used for targets that are not JTAG based."},
+        {"name": "get_hw_servers / get_hw_targets", "description": "Related queries listing the connected servers and the cables each one sees."},
+        {"name": "disconnect_hw_server", "description": "Related command; drops the connection, optionally naming the server to disconnect."}
+      ],
+      "example": "open_hw_manager\n\n# Local cable\nconnect_hw_server -url localhost:3121\n\n# Or a board plugged into a remote lab machine\n# connect_hw_server -url labpc01:3121\n\nputs \"Servers: [get_hw_servers]\"\nforeach t [get_hw_targets] { puts \"Target: $t\" }\n\n# ... work ...\ndisconnect_hw_server",
+      "notes": "An empty get_hw_targets list almost always means the cable drivers are missing on the machine running hw_server (not the one running Vivado), the board is unpowered, or a firewall blocks port 3121. The Vivado GUI starts a local hw_server automatically, which can clash with a manually started one on the same port.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/connect_hw_server"
+    },
+    {
+      "name": "open_hw_target",
+      "kind": "tcl-command",
+      "description": "Open a JTAG cable (target) on the connected hardware server, which scans the chain and makes the devices on it available through get_hw_devices. With no argument it opens the only target found, which is what scripts on a single-board machine rely on. It can also attach to an Xilinx Virtual Cable over the network, or open the target in raw JTAG mode for low-level scan operations.",
+      "usage": "open_hw_target [-jtag_mode <on|off>] [-xvc_url <host>:<port>] [<hw_target>]",
+      "parameters": [
+        {"name": "<hw_target>", "description": "Target object from get_hw_targets. Omitted, the single available target is opened."},
+        {"name": "-xvc_url", "description": "Connect to an Xilinx Virtual Cable server instead of a physical cable."},
+        {"name": "-jtag_mode", "description": "on opens the target for raw JTAG access (scan_ir_hw_jtag / scan_dr_hw_jtag) rather than for programming and debug."},
+        {"name": "PARAM.FREQUENCY", "description": "Target property setting the JTAG clock in Hz; lower it for long cables or noisy boards."},
+        {"name": "close_hw_target", "description": "Related command; closes the target so another can be opened."}
+      ],
+      "example": "connect_hw_server -url localhost:3121\nforeach t [get_hw_targets] { puts $t }\n\n# Open the single attached cable\nopen_hw_target\n\n# Or name it explicitly and slow the JTAG clock to 6 MHz\n# open_hw_target [get_hw_targets */xilinx_tcf/Digilent/210299A1B2C3]\nset_property PARAM.FREQUENCY 6000000 [current_hw_target]\n\nputs \"Devices in chain: [get_hw_devices]\"\n\nclose_hw_target",
+      "notes": "Only one target per server can be open at a time; close_hw_target before switching boards. Unreliable programming or ILA uploads over a long or unshielded cable are usually fixed by reducing PARAM.FREQUENCY. A multi-device chain returns several objects from get_hw_devices in chain order.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_hw_target"
+    },
+    {
+      "name": "current_hw_device / refresh_hw_device",
+      "kind": "tcl-command",
+      "description": "current_hw_device selects which device in the JTAG chain the other hw_* commands act on by default; refresh_hw_device re-reads that device's status from hardware and rescans its debug hub for ILA and VIO cores. Refreshing is mandatory after programming, and forgetting it is the usual reason get_hw_ilas comes back empty. Use -update_hw_probes false for the refresh that happens before a probes file is available.",
+      "usage": "current_hw_device [<hw_device>]\nrefresh_hw_device [-update_hw_probes <true|false>] [-disable_done_check] [-force_poll] [<hw_device>]",
+      "parameters": [
+        {"name": "<hw_device>", "description": "Device object from get_hw_devices; the first element is the first device in the chain."},
+        {"name": "-update_hw_probes", "description": "false skips reading probe information, which is what you want before PROBES.FILE has been set."},
+        {"name": "-disable_done_check", "description": "Do not check the DONE pin, used when the device is programmed indirectly or intentionally left unconfigured."},
+        {"name": "-force_poll", "description": "Force a fresh poll of the device status instead of using cached information."}
+      ],
+      "example": "set dev [lindex [get_hw_devices] 0]\ncurrent_hw_device $dev\nputs \"Part: [get_property PART $dev]\"\n\n# Before programming: no probes yet\nrefresh_hw_device -update_hw_probes false $dev\n\nset_property PROGRAM.FILE {./top.bit} $dev\nset_property PROBES.FILE  {./top.ltx} $dev\nprogram_hw_devices $dev\n\n# After programming: read the debug hub and the probes\nrefresh_hw_device $dev\nget_hw_ilas -of_objects $dev",
+      "notes": "In a multi-device chain every command that takes a device should be given one explicitly rather than relying on the current device. 'No debug cores found' after a refresh means the debug hub was not detected: check the hub clock settings (C_CLK_INPUT_FREQ_HZ) and that the bitstream really contains the ILA.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/current_hw_device"
+    },
+    {
+      "name": "set_property PROGRAM.FILE / PROBES.FILE",
+      "kind": "tcl-command",
+      "description": "Tell the Hardware Manager which configuration image to load into a device and which probes file describes its debug cores. PROGRAM.FILE takes the .bit (or .pdi / .bin for Versal and Zynq flows) and is read by program_hw_devices; PROBES.FILE takes the .ltx written by write_debug_probes and gives the ILA probes their real names. Both are plain properties on the hw_device object, so they can be set from a script before programming.",
+      "usage": "set_property PROGRAM.FILE {<path>.bit} [get_hw_devices <device>]\nset_property PROBES.FILE {<path>.ltx} [get_hw_devices <device>]\nset_property FULL_PROBES.FILE {<path>.ltx} [get_hw_devices <device>]",
+      "parameters": [
+        {"name": "PROGRAM.FILE", "description": "Path to the configuration file: .bit for 7 series/UltraScale, .pdi for Versal, .bin where a raw image is used."},
+        {"name": "PROBES.FILE", "description": "Path to the .ltx probes file matching that bitstream; without it ILA probes appear unnamed."},
+        {"name": "FULL_PROBES.FILE", "description": "Complete probes file used when partial .ltx files come from a partial reconfiguration or IP-level flow."},
+        {"name": "[get_hw_devices ...]", "description": "Device the properties are attached to; use the object returned by current_hw_device in single-device chains."}
+      ],
+      "example": "set dev [lindex [get_hw_devices] 0]\ncurrent_hw_device $dev\n\nset_property PROGRAM.FILE {C:/work/top/top.bit} $dev\nset_property PROBES.FILE  {C:/work/top/top.ltx} $dev\n\nprogram_hw_devices $dev\nrefresh_hw_device $dev\n\n# Versal uses the same property with a PDI\n# set_property PROGRAM.FILE {./design_1_wrapper.pdi} $dev",
+      "notes": "Relative paths resolve against Vivado's current working directory, not the project directory, which is a frequent source of file-not-found errors in batch scripts. The probes file must come from the same build as the bitstream; a mismatched .ltx produces wrong or missing probe names rather than an error.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "program_hw_devices",
+      "kind": "tcl-command",
+      "description": "Download the configuration file named by PROGRAM.FILE into the device over JTAG. This is volatile configuration: the design runs immediately but is lost on power cycle, which is exactly what you want during development. It is also the command that loads the indirect programming bitstream when writing a configuration flash.",
+      "usage": "program_hw_devices [<hw_devices>]",
+      "parameters": [
+        {"name": "<hw_devices>", "description": "Devices to program, from get_hw_devices; defaults to the current device."},
+        {"name": "PROGRAM.FILE", "description": "Prerequisite property holding the path of the bitstream or PDI to download."},
+        {"name": "-verbose / -quiet", "description": "Increase or suppress messaging, useful when scripting unattended programming."}
+      ],
+      "example": "set dev [lindex [get_hw_devices] 0]\ncurrent_hw_device $dev\nset_property PROGRAM.FILE {./top.bit} $dev\nset_property PROBES.FILE  {./top.ltx} $dev\n\nprogram_hw_devices $dev\nrefresh_hw_device $dev\n\n# Confirm the ILA cores came up\nputs [get_hw_ilas -of_objects $dev]",
+      "notes": "A DONE-pin error after programming normally means the bitstream is for a different part, the board is not properly powered, or the configuration voltage settings are wrong. For non-volatile programming use create_hw_cfgmem / program_hw_cfgmem. write_hw_svf records an equivalent SVF file for production programmers that do not run Vivado.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/program_hw_devices"
+    },
+    {
+      "name": "get_hw_ilas / get_hw_probes",
+      "kind": "tcl-command",
+      "description": "Query the debug cores and probes present in a programmed device. get_hw_ilas returns the ILA core objects the debug hub reported, named hw_ila_1, hw_ila_2 and so on, and get_hw_probes returns the probe objects on a core, named after the nets recorded in the .ltx file. Every trigger and capture setting is a property on one of these objects, so both queries are used constantly in capture scripts.",
+      "usage": "get_hw_ilas [-of_objects <hw_device>] [-filter <expression>] [<patterns>]\nget_hw_probes [-of_objects <hw_ila>] [-filter <expression>] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Restrict the query to one device (for ILAs) or one ILA core (for probes)."},
+        {"name": "<patterns>", "description": "Name pattern, e.g. hw_ila_1 for a core or u_dut/state for a probe; wildcards are allowed."},
+        {"name": "-filter", "description": "Property filter expression, the same syntax as elsewhere in Vivado, e.g. {NAME =~ *axi*}."},
+        {"name": "get_hw_ila_data / current_hw_ila_data", "description": "Related queries returning captured data objects rather than cores."},
+        {"name": "get_hw_vios / get_hw_vio_probes", "description": "Equivalent queries for Virtual I/O cores."}
+      ],
+      "example": "set dev [current_hw_device]\nrefresh_hw_device $dev\n\nset ila [get_hw_ilas -of_objects $dev hw_ila_1]\nputs \"Depth : [get_property CONTROL.DATA_DEPTH $ila]\"\nputs \"Status: [get_property CORE_STATUS $ila]\"\n\n# List every probe the .ltx gave names to\nforeach p [get_hw_probes -of_objects $ila] { puts $p }\n\n# Probe objects are what trigger properties are set on\nset_property TRIGGER_COMPARE_VALUE eq1'b1 [get_hw_probes {u_dut/start} -of_objects $ila]",
+      "notes": "Both queries return nothing until refresh_hw_device has read the debug hub, and probe names are only meaningful once PROBES.FILE points at the matching .ltx. Always pass -of_objects in a multi-device or multi-core setup, otherwise the wrong core's probes may be returned.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_hw_ilas"
+    },
+    {
+      "name": "set_property TRIGGER_COMPARE_VALUE",
+      "kind": "tcl-command",
+      "description": "Set the trigger condition on an ILA probe. The whole comparison is one string with no spaces: an operator followed by a sized, radixed value, such as eq1'b1 or eq32'h40000000. Combined across probes by the core's CONTROL.TRIGGER_CONDITION, this is how you tell the ILA which cycle to capture around, and it is the run-time counterpart of the Trigger Setup window in the GUI.",
+      "usage": "set_property TRIGGER_COMPARE_VALUE <operator><sized_value> [get_hw_probes <probe> -of_objects <hw_ila>]",
+      "parameters": [
+        {"name": "<operator>", "description": "eq (equal), neq, lt, gt, lte, gte. Edge operators for single-bit probes are also available from the trigger setup."},
+        {"name": "<sized_value>", "description": "Value with explicit size and radix matching the probe width: 1'b1, 8'hFF, 32'h40000000. X digits are treated as don't care."},
+        {"name": "CAPTURE_COMPARE_VALUE", "description": "Same syntax, but for storage qualification: only samples matching it are stored (needs C_EN_STRG_QUAL and CONTROL.CAPTURE_MODE BASIC)."},
+        {"name": "CONTROL.TRIGGER_CONDITION", "description": "ILA core property combining the per-probe comparisons: AND, OR, NAND, NOR."},
+        {"name": "CONTROL.TRIGGER_MODE", "description": "BASIC_ONLY uses these compare values; the advanced modes use a trigger state machine instead."}
+      ],
+      "example": "set ila [get_hw_ilas -of_objects [current_hw_device] hw_ila_1]\n\n# Trigger when start is high AND addr equals 0x40000000\nset_property CONTROL.TRIGGER_MODE BASIC_ONLY $ila\nset_property CONTROL.TRIGGER_CONDITION AND $ila\nset_property TRIGGER_COMPARE_VALUE eq1'b1 [get_hw_probes {u_dut/start} -of_objects $ila]\nset_property TRIGGER_COMPARE_VALUE eq32'h40000000 [get_hw_probes {u_dut/addr} -of_objects $ila]\n\n# Only store samples while the bus is valid\nset_property CONTROL.CAPTURE_MODE BASIC $ila\nset_property CAPTURE_COMPARE_VALUE eq1'b1 [get_hw_probes {u_dut/valid} -of_objects $ila]\n\nrun_hw_ila $ila\nwait_on_hw_ila $ila\ndisplay_hw_ila_data [upload_hw_ila_data $ila]",
+      "notes": "The size in the value must match the probe width exactly or the property is rejected. The number of simultaneous comparisons per probe is limited by the match units the core was built with (ALL_PROBE_SAME_MU_CNT). Trigger state machines, loaded on cores built with C_ADV_TRIGGER, replace these per-probe comparisons entirely.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "set_property CONTROL.TRIGGER_POSITION",
+      "kind": "tcl-command",
+      "description": "Decide where the trigger sample sits inside the capture window, which determines how much history before the event is kept. Position 0 captures only what happens after the trigger; a position in the middle of the window shows the cause as well as the effect, which is usually what you want when chasing a fault. It belongs to the family of CONTROL.* run-time properties that configure an ILA core without rebuilding it.",
+      "usage": "set_property CONTROL.TRIGGER_POSITION <sample_number> [get_hw_ilas <hw_ila>]",
+      "parameters": [
+        {"name": "CONTROL.TRIGGER_POSITION", "description": "Sample index of the trigger within the window, from 0 to DATA_DEPTH-1."},
+        {"name": "CONTROL.DATA_DEPTH", "description": "Samples captured per window at run time; cannot exceed the C_DATA_DEPTH the core was built with."},
+        {"name": "CONTROL.WINDOW_COUNT", "description": "Number of capture windows the buffer is split into; window depth becomes DATA_DEPTH divided by this count."},
+        {"name": "CONTROL.CAPTURE_MODE", "description": "ALWAYS stores every sample; BASIC stores only samples matching CAPTURE_COMPARE_VALUE."},
+        {"name": "CORE_STATUS", "description": "Read-only property reporting Idle, Waiting for Trigger, Pre/Post-Trigger or Full."}
+      ],
+      "example": "set ila [get_hw_ilas -of_objects [current_hw_device] hw_ila_1]\n\n# 1024-sample window with the trigger in the middle\nset_property CONTROL.DATA_DEPTH 1024 $ila\nset_property CONTROL.TRIGGER_POSITION 512 $ila\nset_property CONTROL.WINDOW_COUNT 1 $ila\nset_property CONTROL.CAPTURE_MODE ALWAYS $ila\n\nrun_hw_ila $ila\nwait_on_hw_ila -timeout 1 $ila\nputs [get_property CORE_STATUS $ila]\ndisplay_hw_ila_data [upload_hw_ila_data $ila]",
+      "notes": "A trigger position larger than the current DATA_DEPTH is rejected, so set the depth first. Several windows (WINDOW_COUNT > 1) let one arm capture several separate trigger events, at the cost of a shorter window each. These properties change per run; the maximum depth is fixed at core build time by C_DATA_DEPTH.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "run_hw_ila / wait_on_hw_ila",
+      "kind": "tcl-command",
+      "description": "run_hw_ila arms an ILA core so it starts looking for its trigger condition, and returns immediately. wait_on_hw_ila blocks until that core has finished capturing, which is what makes a scripted capture deterministic: without it the script would upload whatever happened to be in the buffer. With -trigger_now the core captures at once, ignoring the trigger setup, which is the quickest way to see what a design is doing right now.",
+      "usage": "run_hw_ila [-trigger_now] [<hw_ila>]\nwait_on_hw_ila [-timeout <minutes>] [<hw_ila>]",
+      "parameters": [
+        {"name": "<hw_ila>", "description": "ILA core object from get_hw_ilas; defaults to the current core."},
+        {"name": "-trigger_now", "description": "Trigger immediately instead of waiting for the configured condition."},
+        {"name": "-timeout", "description": "Maximum time to wait, in minutes. The command returns when it expires rather than blocking forever."},
+        {"name": "CORE_STATUS", "description": "Property to poll or check afterwards: Idle, Waiting for Trigger, Pre-Trigger, Post-Trigger, Full."},
+        {"name": "reset_hw_ila", "description": "Related command; disarms a core that is still waiting for a trigger."}
+      ],
+      "example": "set ila [get_hw_ilas -of_objects [current_hw_device] hw_ila_1]\nset_property TRIGGER_COMPARE_VALUE eq1'b1 [get_hw_probes {u_dut/error} -of_objects $ila]\n\nrun_hw_ila $ila\nwait_on_hw_ila -timeout 1 $ila\n\nif {[get_property CORE_STATUS $ila] ne \"Full\"} {\n  puts \"No trigger within the timeout; capturing whatever is there\"\n  run_hw_ila -trigger_now $ila\n  wait_on_hw_ila $ila\n}\n\ndisplay_hw_ila_data [upload_hw_ila_data $ila]",
+      "notes": "A capture script without wait_on_hw_ila silently uploads stale or partial data. The timeout is in minutes, not seconds, and expiry is not an error, so check CORE_STATUS afterwards. reset_hw_ila clears a core stuck waiting for a trigger that never comes.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/run_hw_ila"
+    },
+    {
+      "name": "upload_hw_ila_data",
+      "kind": "tcl-command",
+      "description": "Read the captured samples out of an ILA's buffer over JTAG and turn them into a data object that can be displayed, written to disk or inspected from Tcl. It is the step between waiting for the trigger and looking at the waveform. Each upload creates a new hw_ila_data object, so several captures can be kept side by side in one session.",
+      "usage": "upload_hw_ila_data [<hw_ila>]",
+      "parameters": [
+        {"name": "<hw_ila>", "description": "ILA core to read from, from get_hw_ilas; defaults to the current core."},
+        {"name": "(return value)", "description": "An hw_ila_data object named hw_ila_data_1, hw_ila_data_2, ... to pass to display_hw_ila_data or write_hw_ila_data."},
+        {"name": "current_hw_ila_data", "description": "Related query returning the most recently uploaded data object."},
+        {"name": "read_hw_ila_data", "description": "Related command; loads an archived .ila file back into a data object for offline viewing."}
+      ],
+      "example": "run_hw_ila $ila\nwait_on_hw_ila -timeout 2 $ila\n\nset data [upload_hw_ila_data $ila]\ndisplay_hw_ila_data $data\nwrite_hw_ila_data -force ./captures/run_01.ila $data\n\n# Capture a series of runs into separate files\nfor {set i 0} {$i < 5} {incr i} {\n  run_hw_ila $ila\n  wait_on_hw_ila -timeout 1 $ila\n  write_hw_ila_data -csv_file -force ./captures/run_$i.csv [upload_hw_ila_data $ila]\n}",
+      "notes": "Uploading before the core reports Full gives a partial window. Upload time grows with depth and probe width and with a slow JTAG clock, so very deep captures can take noticeable time over a long cable. The data object keeps the probe names from the .ltx, which is why archived .ila files remain readable later.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/upload_hw_ila_data"
+    },
+    {
+      "name": "display_hw_ila_data / write_hw_ila_data",
+      "kind": "tcl-command",
+      "description": "display_hw_ila_data opens an uploaded capture in the Vivado waveform viewer, with the probe names taken from the .ltx file. write_hw_ila_data saves the same capture to disk: as a native .ila archive that can be reopened with read_hw_ila_data, or exported as CSV or VCD for analysis in other tools. Together they are how a hardware capture leaves the Hardware Manager.",
+      "usage": "display_hw_ila_data [<hw_ila_data>]\nwrite_hw_ila_data [-csv_file] [-vcd_file] [-force] <file> [<hw_ila_data>]",
+      "parameters": [
+        {"name": "<hw_ila_data>", "description": "Data object from upload_hw_ila_data; defaults to the most recent capture."},
+        {"name": "-csv_file", "description": "Export as comma-separated values, one row per sample, for scripts and spreadsheets."},
+        {"name": "-vcd_file", "description": "Export as VCD so the capture can be opened in a waveform viewer outside Vivado."},
+        {"name": "-force", "description": "Overwrite an existing output file."},
+        {"name": "<file>", "description": "Output path. Without -csv_file or -vcd_file a native .ila archive is written."}
+      ],
+      "example": "set data [upload_hw_ila_data $ila]\n\n# Look at it in the GUI\ndisplay_hw_ila_data $data\n\n# Archive natively, and export for other tools\nwrite_hw_ila_data -force            ./captures/fail_01.ila $data\nwrite_hw_ila_data -csv_file -force  ./captures/fail_01.csv $data\nwrite_hw_ila_data -vcd_file -force  ./captures/fail_01.vcd $data\n\n# Offline, on another machine\n# open_hw_manager\n# display_hw_ila_data [read_hw_ila_data ./captures/fail_01.ila]",
+      "notes": "display_hw_ila_data needs the GUI; in a batch script use write_hw_ila_data instead. The .ila archive keeps probe names and sample metadata and is the right format for sharing a failure with someone else, while CSV and VCD are one-way exports.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_hw_ila_data"
+    },
+    {
+      "name": "create_hw_cfgmem / program_hw_cfgmem",
+      "kind": "tcl-command",
+      "description": "Program a configuration flash indirectly through the FPGA, so the board boots the design by itself after a power cycle. create_hw_cfgmem associates a flash part with the device and creates a cfgmem object whose PROGRAM.* properties control erase, blank check, program and verify; program_hw_cfgmem then performs the operation. The image itself comes from write_cfgmem, and the FPGA must first be loaded with the indirect programming bitstream that bridges JTAG to the flash pins.",
+      "usage": "create_hw_cfgmem -hw_device <device> [lindex [get_cfgmem_parts {<part>}] 0]\nset_property PROGRAM.<OPTION> <value> [get_property PROGRAM.HW_CFGMEM <device>]\nprogram_hw_cfgmem [-hw_cfgmem <cfgmem>]",
+      "parameters": [
+        {"name": "-hw_device", "description": "Device the flash is attached to; get_cfgmem_parts lists the supported flash parts."},
+        {"name": "PROGRAM.FILES", "description": "The .mcs or .bin image to write, produced by write_cfgmem."},
+        {"name": "PROGRAM.ERASE / PROGRAM.BLANK_CHECK", "description": "1 or 0: erase the flash first, and optionally verify it is blank before programming."},
+        {"name": "PROGRAM.CFG_PROGRAM / PROGRAM.VERIFY", "description": "1 or 0: perform the program operation, and read the flash back to verify it."},
+        {"name": "PROGRAM.HW_CFGMEM_BITFILE", "description": "Device property holding the indirect programming bitstream that must be loaded before the flash can be written."},
+        {"name": "boot_hw_device", "description": "Related command; restarts configuration so the device loads the design it just wrote to flash."}
+      ],
+      "example": "set dev [lindex [get_hw_devices] 0]\ncurrent_hw_device $dev\n\n# Build the flash image from the bitstream\nwrite_cfgmem -format mcs -interface SPIx4 -size 64 \\\n  -loadbit \"up 0x0 ./top.bit\" -force ./top.mcs\n\ncreate_hw_cfgmem -hw_device $dev [lindex [get_cfgmem_parts {mt25ql256-spi-x1_x2_x4}] 0]\nset mem [get_property PROGRAM.HW_CFGMEM $dev]\nset_property PROGRAM.FILES {./top.mcs} $mem\nset_property PROGRAM.BLANK_CHECK 0 $mem\nset_property PROGRAM.ERASE 1 $mem\nset_property PROGRAM.CFG_PROGRAM 1 $mem\nset_property PROGRAM.VERIFY 1 $mem\n\n# Load the indirect programming bitstream, then write the flash\ncreate_hw_bitstream -hw_device $dev [get_property PROGRAM.HW_CFGMEM_BITFILE $dev]\nprogram_hw_devices $dev\nprogram_hw_cfgmem -hw_cfgmem $mem\n\n# Reconfigure from flash without a power cycle\nboot_hw_device $dev",
+      "notes": "The flash part name must match the device on the board; get_cfgmem_parts with a pattern is the way to find it. The SPI bus width and configuration rate in write_cfgmem must agree with the BITSTREAM.CONFIG.SPI_BUSWIDTH and CONFIGRATE properties used for the bitstream, or the board will not boot. Erase plus verify of a large flash takes minutes; delete_hw_cfgmem removes the association afterwards.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_hw_cfgmem"
+    },
+    {
+      "name": "create_hw_axi_txn / run_hw_axi",
+      "kind": "tcl-command",
+      "description": "Issue AXI reads and writes into a running design from the Vivado Tcl console, through a JTAG to AXI Master IP instantiated in the design. create_hw_axi_txn defines a transaction object with an address, direction and data, run_hw_axi executes it over JTAG, and the result is read back from the transaction's DATA property. It turns the Hardware Manager into a register-level debugger for memory-mapped IP without needing a processor or software.",
+      "usage": "create_hw_axi_txn <name> <hw_axi> -type READ|WRITE -address <hex> [-data {<hex>}] [-len <beats>] [-force]\nrun_hw_axi <hw_axi_txns>",
+      "parameters": [
+        {"name": "<hw_axi>", "description": "JTAG to AXI Master core object from get_hw_axis, typically hw_axi_1."},
+        {"name": "-type", "description": "READ or WRITE."},
+        {"name": "-address", "description": "Byte address as a hex string without a 0x prefix, e.g. 40000000."},
+        {"name": "-data", "description": "Data for a write, as hex words; a burst takes a list of words."},
+        {"name": "-len", "description": "Number of beats in a burst transaction."},
+        {"name": "-force", "description": "Redefine a transaction of the same name instead of erroring."}
+      ],
+      "example": "# The JTAG to AXI Master appears after refresh_hw_device\nset axi [get_hw_axis hw_axi_1]\nreset_hw_axi $axi\n\n# Write a control register\ncreate_hw_axi_txn wr_ctrl $axi -type WRITE -address 40000000 -data {0000000D} -force\nrun_hw_axi [get_hw_axi_txns wr_ctrl]\n\n# Read a status register back\ncreate_hw_axi_txn rd_stat $axi -type READ -address 40000004 -force\nrun_hw_axi [get_hw_axi_txns rd_stat]\nputs \"status = [get_property DATA [get_hw_axi_txns rd_stat]]\"\n\n# Four-beat burst read\ncreate_hw_axi_txn rd_burst $axi -type READ -address 40000000 -len 4 -force\nrun_hw_axi [get_hw_axi_txns rd_burst]\nreport_hw_axi_txn [get_hw_axi_txns rd_burst]",
+      "notes": "Requires a JTAG to AXI Master IP in the design, clocked and reset correctly, and its clock must be running or transactions hang. Addresses and data are hex strings without 0x. reset_hw_axi clears a core left in a bad state by an aborted transaction, and report_hw_axi_txn prints the transaction with its returned data.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_hw_axi_txn"
+    },
+    {
+      "name": "get_hw_sysmons / refresh_hw_sysmon",
+      "kind": "tcl-command",
+      "description": "Read the on-chip System Monitor (XADC on 7 series, SYSMON on UltraScale and Versal) to get die temperature and supply voltages from a running device. get_hw_sysmons returns the monitor objects on a device and refresh_hw_sysmon updates their measurements, which are then read as ordinary properties. It is the scripted equivalent of the System Monitor dashboard in the Hardware Manager and is the standard way to log thermals during a stress test.",
+      "usage": "get_hw_sysmons [-of_objects <hw_device>]\nrefresh_hw_sysmon [<hw_sysmons>]\nget_property <PROPERTY> <hw_sysmon>",
+      "parameters": [
+        {"name": "-of_objects", "description": "Restrict the query to the system monitors on one device."},
+        {"name": "TEMPERATURE", "description": "Die temperature in degrees Celsius."},
+        {"name": "VCCINT / VCCAUX / VCCBRAM", "description": "Measured core, auxiliary and block RAM supply voltages."},
+        {"name": "refresh_hw_sysmon", "description": "Re-reads the measurements; values are snapshots, so this must be called before every read."},
+        {"name": "get_hw_sysmon_reg", "description": "Related command; reads raw System Monitor registers, for alarms and threshold settings."}
+      ],
+      "example": "set sysmon [lindex [get_hw_sysmons -of_objects [current_hw_device]] 0]\nrefresh_hw_sysmon $sysmon\n\nputs [format \"Die temp : %.2f C\"  [get_property TEMPERATURE $sysmon]]\nputs [format \"VCCINT   : %.3f V\"  [get_property VCCINT $sysmon]]\nputs [format \"VCCAUX   : %.3f V\"  [get_property VCCAUX $sysmon]]\nputs [format \"VCCBRAM  : %.3f V\"  [get_property VCCBRAM $sysmon]]\n\n# Log the temperature once a second during a stress run\nfor {set i 0} {$i < 60} {incr i} {\n  refresh_hw_sysmon $sysmon\n  puts \"[clock seconds] [get_property TEMPERATURE $sysmon]\"\n  after 1000\n}",
+      "notes": "The System Monitor primitive must be present in the design (instantiated, or enabled through the device's default configuration) or no monitors are returned. Values are cached, so a loop that forgets refresh_hw_sysmon prints the same number forever. Alarm thresholds and the averaging mode live in the raw registers reached with get_hw_sysmon_reg.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_hw_sysmons"
+    },
+    {
+      "name": "hw_server",
+      "kind": "command",
+      "description": "Standalone executable that owns the JTAG cables and exposes them over TCP so Vivado, Vitis or a remote CI machine can reach a board. Vivado starts a local instance automatically when the Hardware Manager opens, but running it explicitly is how boards in a lab are shared, how programming is done from a machine without Vivado installed, and how a CI runner reaches hardware. Vivado connects to it with connect_hw_server -url <host>:<port>.",
+      "usage": "<Vivado_install>/bin/hw_server [-d] [-s tcp::<port>] [-e \"<expert command>\"]",
+      "parameters": [
+        {"name": "-s", "description": "Listening socket, e.g. tcp::3121, which is the default port Vivado expects."},
+        {"name": "-d", "description": "Run detached as a daemon instead of staying in the foreground."},
+        {"name": "-e", "description": "Pass an expert configuration command to the server at start-up, for example to filter which JTAG ports it offers."},
+        {"name": "(client side)", "description": "connect_hw_server -url <host>:<port> in Vivado, then open_hw_target to use a cable the server sees."}
+      ],
+      "example": "# On the lab machine with the cable attached\n/opt/Xilinx/Vivado/2024.2/bin/hw_server -s tcp::3121\n\n# As a background daemon on an alternative port\nhw_server -d -s tcp::3122\n\n# From Vivado anywhere on the network\n#   open_hw_manager\n#   connect_hw_server -url labpc01:3122\n#   open_hw_target\n#   program_hw_devices [lindex [get_hw_devices] 0]",
+      "notes": "Cable drivers must be installed on the machine running hw_server, not on the machine running Vivado. A manually started server on port 3121 collides with the one the Vivado GUI launches for itself; use a different port or let Vivado manage it. The same binary ships with Vitis and with the standalone Vivado Lab Edition / Hardware Server installer, so lab machines do not need a full Vivado install.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "Vivado Serial I/O Analyzer",
+      "kind": "tool",
+      "description": "Hardware Manager environment for bringing up and characterising gigabit transceiver links, driven by an IBERT core in the design. It creates links between transmitters and receivers, sets PRBS patterns and equalisation settings, reports bit error rates, and runs 1D bathtub and 2D eye scans that show the margin of the received eye. Everything it does is available as hw_sio_* Tcl commands, so link characterisation can be scripted and regressed.",
+      "usage": "GUI: program an IBERT design -> Hardware Manager -> Links / Link Groups and Scans windows\nTcl: get_hw_sio_gts / get_hw_sio_txs / get_hw_sio_rxs -> create_hw_sio_link -> create_hw_sio_scan -> run_hw_sio_scan -> wait_on_hw_sio_scan -> display_hw_sio_scan / write_hw_sio_scan",
+      "parameters": [
+        {"name": "get_hw_sio_gts / get_hw_sio_txs / get_hw_sio_rxs", "description": "Query the transceiver, transmitter and receiver objects the IBERT core exposes."},
+        {"name": "create_hw_sio_link", "description": "Pair a TX with an RX so bit errors and link status can be tracked; create_hw_sio_linkgroup groups several links."},
+        {"name": "TX_PATTERN / RX_PATTERN", "description": "Link properties selecting the test pattern, e.g. {PRBS 7-bit}; both ends must match for error counting to be meaningful."},
+        {"name": "create_hw_sio_scan", "description": "Create a margin scan on a receiver; scan types include 1d_bathtub and 2d_full_eye."},
+        {"name": "commit_hw_sio / refresh_hw_sio", "description": "Property changes only reach the hardware after commit_hw_sio; refresh_hw_sio reads the current values back."}
+      ],
+      "example": "# After programming an IBERT design and refresh_hw_device\nset tx [lindex [get_hw_sio_txs] 0]\nset rx [lindex [get_hw_sio_rxs] 0]\nset link [create_hw_sio_link -description {TX0->RX0} $tx $rx]\n\nset_property TX_PATTERN {PRBS 7-bit} $link\nset_property RX_PATTERN {PRBS 7-bit} $link\ncommit_hw_sio $link\n\n# 2D eye scan of the receiver\nset scan [create_hw_sio_scan -description {eye_rx0} 2d_full_eye $rx]\nrun_hw_sio_scan $scan\nwait_on_hw_sio_scan $scan\ndisplay_hw_sio_scan $scan\nwrite_hw_sio_scan -force ./scans/eye_rx0.csv $scan",
+      "notes": "Requires an IBERT core in the design (the IBERT Serial I/O Analyzer IP, or the transceiver wizard's IBERT option). Properties set from Tcl do not take effect until commit_hw_sio, which is the most common reason a change appears to do nothing. A 2D full eye scan on a high line rate can take several minutes per receiver.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    }
+  ]
+}

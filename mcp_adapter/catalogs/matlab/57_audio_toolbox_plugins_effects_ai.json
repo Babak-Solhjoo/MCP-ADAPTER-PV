@@ -1,0 +1,558 @@
+{
+  "category": "Audio Toolbox II > Audio Plugins, Equalizers & Dynamics, Augmentation, AI Models, Features & Measurements",
+  "description": "Audio Toolbox functions beyond basic audio I/O and MFCC/mel features: authoring, validating, generating and hosting VST/AU audio plugins, parametric/graphic equalizers and filter banks, dynamic range processors and effects, pitch/time modification, data augmentation, pretrained audio networks and speech services, spectral descriptors, and loudness/SPL/impulse-response measurements.",
+  "tools": [
+    {
+      "name": "audioPlugin",
+      "kind": "function",
+      "description": "Base class for authoring audio plugins in MATLAB. Subclass it, declare tunable properties and a constant PluginInterface, and implement process (and optionally reset) to create an effect that runs in MATLAB, Audio Test Bench, and as a generated VST/AU plugin.",
+      "usage": "classdef myPlugin < audioPlugin\n    properties ... end\n    properties (Constant) PluginInterface = audioPluginInterface(...) end\n    methods\n        function out = process(plugin, in) ... end\n        function reset(plugin) ... end\n    end\nend",
+      "parameters": [
+        {"name": "process(plugin, in)", "description": "Processes a frame of audio (samples-by-channels) and returns output of the same size."},
+        {"name": "getSampleRate / setLatencyInSamples", "description": "Query host sample rate and report latency."}
+      ],
+      "example": "classdef simpleGain < audioPlugin\n    properties\n        Gain = 1;\n    end\n    properties (Constant)\n        PluginInterface = audioPluginInterface( ...\n            audioPluginParameter(\"Gain\", Mapping={\"lin\", 0, 3}, Label=\"x\"));\n    end\n    methods\n        function out = process(plugin, in)\n            out = plugin.Gain * in;\n        end\n    end\nend",
+      "notes": "Use audioPluginSource for generators (no audio input). Keep process code generation compatible (no dynamic memory growth) so generateAudioPlugin succeeds.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audioplugin-class.html"
+    },
+    {
+      "name": "audioPluginInterface",
+      "kind": "function",
+      "description": "Specifies the user-facing interface of an audio plugin: its parameters, name, vendor, channel counts, unique ID and UI layout. Assigned to the constant PluginInterface property of an audioPlugin subclass.",
+      "usage": "PluginInterface = audioPluginInterface(param1, ..., paramN)\nPluginInterface = audioPluginInterface(___, Name=Value)",
+      "parameters": [
+        {"name": "param1...paramN", "description": "audioPluginParameter objects."},
+        {"name": "PluginName / VendorName / VendorVersion / UniqueId", "description": "Identity reported to DAWs."},
+        {"name": "InputChannels / OutputChannels", "description": "Channel configuration (default 2 in, 2 out)."},
+        {"name": "BackgroundColor / BackgroundImage / GridLayout", "description": "Custom UI appearance (audioPluginGridLayout)."}
+      ],
+      "example": "PluginInterface = audioPluginInterface( ...\n    audioPluginParameter(\"Drive\", Mapping={\"lin\", 1, 10}), ...\n    audioPluginParameter(\"Mix\", Mapping={\"lin\", 0, 1}), ...\n    PluginName=\"MyDistortion\", VendorName=\"Lab\", UniqueId=\"mDst\");",
+      "notes": "UniqueId must be a 4-character string for VST. InputChannels/OutputChannels can list several supported configurations.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audioplugininterface.html"
+    },
+    {
+      "name": "audioPluginParameter",
+      "kind": "function",
+      "description": "Defines one plugin parameter linked to a public property: display name, units label, value mapping (linear, logarithmic, power, integer, enumerations), and UI control style and layout.",
+      "usage": "parameter = audioPluginParameter(propertyName)\nparameter = audioPluginParameter(propertyName, Name=Value)",
+      "parameters": [
+        {"name": "Mapping", "description": "E.g. {\"lin\", min, max}, {\"log\", min, max}, {\"pow\", exponent, min, max}, {\"int\", min, max}, {\"enum\", \"A\", \"B\"}."},
+        {"name": "DisplayName / Label / DisplayNameLocation", "description": "Text shown in the UI and units."},
+        {"name": "Style / Layout", "description": "\"rotaryknob\", \"hslider\", \"vslider\", \"checkbox\", \"dropdown\", \"vtoggle\", ...; grid position [row col]."}
+      ],
+      "example": "p = audioPluginParameter(\"CutoffHz\", DisplayName=\"Cutoff\", Label=\"Hz\", ...\n    Mapping={\"log\", 20, 20000}, Style=\"rotaryknob\", Layout=[1 1]);",
+      "notes": "Use normalizeAudioPluginParameter to convert property values to the 0-1 normalized range hosts use.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiopluginparameter.html"
+    },
+    {
+      "name": "validateAudioPlugin",
+      "kind": "function",
+      "description": "Tests an audio plugin class for correctness and code-generation readiness: it generates and runs a test bench that exercises parameters, frame sizes and sample rates, then builds and runs a MEX version.",
+      "usage": "validateAudioPlugin pluginClass\nvalidateAudioPlugin options pluginClass",
+      "parameters": [
+        {"name": "pluginClass", "description": "Name of the audioPlugin subclass."},
+        {"name": "-nomex / -nocode / -keeptestbench", "description": "Skip MEX, skip code generation checks, or keep the generated test bench."}
+      ],
+      "example": "validateAudioPlugin simpleGain\nvalidateAudioPlugin -keeptestbench simpleGain",
+      "notes": "Run before generateAudioPlugin to catch errors early.",
+      "docs": "https://www.mathworks.com/help/audio/ref/validateaudioplugin.html"
+    },
+    {
+      "name": "generateAudioPlugin",
+      "kind": "function",
+      "description": "Generates a compiled audio plugin (VST 2, VST 3, AU on macOS) or a standalone executable or JUCE project from a MATLAB audioPlugin class, for use in digital audio workstations.",
+      "usage": "generateAudioPlugin pluginClass\ngenerateAudioPlugin options pluginClass",
+      "parameters": [
+        {"name": "-vst / -vst3 / -au", "description": "Plugin format(s) to build."},
+        {"name": "-exe", "description": "Generate a standalone application."},
+        {"name": "-juceproject", "description": "Generate a JUCE C++ project instead of a binary (requires MATLAB Coder)."},
+        {"name": "-outdir / -output", "description": "Output folder and file name."}
+      ],
+      "example": "generateAudioPlugin -vst3 -outdir plugins simpleGain",
+      "notes": "Requires a supported C++ compiler. Validate first with validateAudioPlugin. audioPluginConfig controls code generation options (e.g. deep learning libraries).",
+      "docs": "https://www.mathworks.com/help/audio/ref/generateaudioplugin.html"
+    },
+    {
+      "name": "loadAudioPlugin",
+      "kind": "function",
+      "description": "Loads an external VST, VST 3 or AU plugin binary into MATLAB as an object, so you can process audio through it, inspect and set its parameters, and test it with Audio Test Bench.",
+      "usage": "hostedPlugin = loadAudioPlugin(pluginPath)",
+      "parameters": [
+        {"name": "pluginPath", "description": "Path to the .dll/.vst3/.component plugin file."}
+      ],
+      "example": "p = loadAudioPlugin(\"C:/VST3/MyReverb.vst3\");\ndispParameter(p)\nsetParameter(p, 1, 0.7);\nsetSampleRate(p, 48000);\ny = process(p, x);",
+      "notes": "Hosted plugins are externalAudioPlugin objects; plugin parameters are set in normalized [0,1] units via setParameter.",
+      "docs": "https://www.mathworks.com/help/audio/ref/loadaudioplugin.html"
+    },
+    {
+      "name": "audioTestBench",
+      "kind": "tool",
+      "description": "Opens Audio Test Bench, an app for streaming audio from files or devices through an audio plugin or System object, tuning parameters live, visualizing signals with scopes and analyzers, and writing output.",
+      "usage": "audioTestBench\naudioTestBench(pluginOrSystemObject)\naudioTestBench(pluginClassName)",
+      "parameters": [
+        {"name": "pluginOrSystemObject", "description": "audioPlugin instance, hosted plugin or audio System object (e.g. compressor)."}
+      ],
+      "example": "audioTestBench(compressor)\naudioTestBench simpleGain",
+      "notes": "Can also generate a test bench script. Use -sample to open a sample test.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiotestbench-app.html"
+    },
+    {
+      "name": "designParamEQ",
+      "kind": "function",
+      "description": "Designs parametric equalizer filters (peaking bands with given order, gain, normalized center frequency and bandwidth) and returns second-order-section numerator and denominator coefficients.",
+      "usage": "[B, A] = designParamEQ(N, gain, centerFreq, bandwidth)\n[B, A] = designParamEQ(___, mode)\n[B, A] = designParamEQ(___, Orientation=orientation)",
+      "parameters": [
+        {"name": "N", "description": "Filter order per band (even)."},
+        {"name": "gain", "description": "Peak gain in dB per band."},
+        {"name": "centerFreq / bandwidth", "description": "Normalized center frequency and bandwidth (fraction of Nyquist)."},
+        {"name": "Orientation", "description": "\"column\" (default) or \"row\" SOS orientation."}
+      ],
+      "example": "fs = 48e3;\n[B, A] = designParamEQ(2, 6, 1000/(fs/2), 300/(fs/2), Orientation=\"row\");\nsos = [B, A];\ny = sosfilt(sos, x);",
+      "notes": "multibandParametricEQ wraps multiple bands as a streaming System object; designShelvingEQ and designVarSlopeFilter design shelving and variable-slope filters.",
+      "docs": "https://www.mathworks.com/help/audio/ref/designparameq.html"
+    },
+    {
+      "name": "multibandParametricEQ",
+      "kind": "function",
+      "description": "System object implementing a multiband parametric equalizer with per-band frequency, Q factor and peak gain, plus optional low/high shelving and high/low-pass sections, for streaming audio.",
+      "usage": "mPEQ = multibandParametricEQ(Name=Value)\naudioOut = mPEQ(audioIn)",
+      "parameters": [
+        {"name": "NumEQBands / Frequencies / QualityFactors / PeakGains", "description": "Band definitions."},
+        {"name": "HasLowShelfFilter / HasHighShelfFilter / HasHighpassFilter / HasLowpassFilter", "description": "Additional filter sections."},
+        {"name": "SampleRate", "description": "Input sample rate (default 44100)."}
+      ],
+      "example": "eq = multibandParametricEQ(NumEQBands=3, Frequencies=[200 1000 5000], ...\n    QualityFactors=[1 2 1], PeakGains=[-3 4 2], SampleRate=48000);\ny = eq(x);\nvisualize(eq)",
+      "notes": "Tunable in Audio Test Bench; graphicEQ provides ISO-standard graphic equalization.",
+      "docs": "https://www.mathworks.com/help/audio/ref/multibandparametriceq-system-object.html"
+    },
+    {
+      "name": "graphicEQ",
+      "kind": "function",
+      "description": "System object implementing a standards-based (ANSI S1.11) graphic equalizer with octave, 2/3-octave or 1/3-octave bands in cascade or parallel structure.",
+      "usage": "geq = graphicEQ(Name=Value)\naudioOut = geq(audioIn)",
+      "parameters": [
+        {"name": "Bandwidth", "description": "\"1 octave\", \"2/3 octave\" or \"1/3 octave\"."},
+        {"name": "Structure", "description": "\"Cascade\" (default) or \"Parallel\"."},
+        {"name": "Gains / EQOrder / SampleRate", "description": "Band gains (dB), filter order and sample rate."}
+      ],
+      "example": "geq = graphicEQ(Bandwidth=\"1 octave\", SampleRate=48000);\ngeq.Gains = [0 2 4 2 0 -2 -3 0 1 2];\ny = geq(x);",
+      "notes": "Use getBandedgeFrequencies and getCenterFrequencies to inspect bands.",
+      "docs": "https://www.mathworks.com/help/audio/ref/graphiceq-system-object.html"
+    },
+    {
+      "name": "crossoverFilter",
+      "kind": "function",
+      "description": "System object that splits an audio signal into two to five frequency bands with Linkwitz-Riley-style crossovers of configurable slopes, e.g. for multiband compression or loudspeaker driver feeds.",
+      "usage": "crossFilt = crossoverFilter(Name=Value)\n[band1, ..., bandN] = crossFilt(audioIn)",
+      "parameters": [
+        {"name": "NumCrossovers", "description": "Number of crossovers (1-4)."},
+        {"name": "CrossoverFrequencies / CrossoverSlopes", "description": "Frequencies (Hz) and slopes (dB/octave, multiples of 6)."},
+        {"name": "SampleRate", "description": "Input sample rate."}
+      ],
+      "example": "cf = crossoverFilter(NumCrossovers=2, CrossoverFrequencies=[250 3000], ...\n    CrossoverSlopes=[24 24], SampleRate=48000);\n[low, mid, high] = cf(x);",
+      "notes": "Summing the bands reconstructs an allpass version of the input.",
+      "docs": "https://www.mathworks.com/help/audio/ref/crossoverfilter-system-object.html"
+    },
+    {
+      "name": "octaveFilterBank",
+      "kind": "function",
+      "description": "System object implementing an ANSI S1.11-compliant octave or fractional-octave filter bank, splitting audio into many bands for acoustic analysis or feature extraction.",
+      "usage": "octFiltBank = octaveFilterBank(bandwidth, fs, Name=Value)\naudioOut = octFiltBank(audioIn)",
+      "parameters": [
+        {"name": "bandwidth", "description": "\"1 octave\", \"2/3 octave\", \"1/2 octave\", \"1/3 octave\", \"1/6 octave\", ... \"1/48 octave\"."},
+        {"name": "FrequencyRange / FilterOrder / OctaveRatioBase", "description": "Band range, order and base-10/base-2 spacing."}
+      ],
+      "example": "ofb = octaveFilterBank(\"1/3 octave\", 48000, FrequencyRange=[100 8000]);\ny = ofb(x);                          % samples-by-bands\nfc = getCenterFrequencies(ofb);",
+      "notes": "octaveFilter is the single-band version; octaveSpectrumEstimator computes octave spectra directly.",
+      "docs": "https://www.mathworks.com/help/audio/ref/octavefilterbank-system-object.html"
+    },
+    {
+      "name": "gammatoneFilterBank",
+      "kind": "function",
+      "description": "System object implementing a gammatone filter bank on the ERB scale, modeling cochlear frequency analysis; used for auditory spectrograms and gtcc-style features.",
+      "usage": "gammaFiltBank = gammatoneFilterBank(Name=Value)\naudioOut = gammaFiltBank(audioIn)",
+      "parameters": [
+        {"name": "FrequencyRange / NumFilters", "description": "Covered range and number of filters."},
+        {"name": "SampleRate", "description": "Sample rate."}
+      ],
+      "example": "gfb = gammatoneFilterBank(FrequencyRange=[50 8000], NumFilters=32, SampleRate=16000);\ny = gfb(x);\nfc = getCenterFrequencies(gfb);",
+      "notes": "designAuditoryFilterBank returns mel/Bark/ERB filter weights for frequency-domain use.",
+      "docs": "https://www.mathworks.com/help/audio/ref/gammatonefilterbank-system-object.html"
+    },
+    {
+      "name": "weightingFilter",
+      "kind": "function",
+      "description": "System object applying standard A-, C- or K-frequency weighting (IEC 61672, ITU-R BS.1770) to audio, as used in sound level and loudness measurements.",
+      "usage": "weightFilt = weightingFilter(method, fs)\naudioOut = weightFilt(audioIn)",
+      "parameters": [
+        {"name": "method", "description": "\"A-weighting\" (default), \"C-weighting\" or \"K-weighting\"."},
+        {"name": "fs", "description": "Sample rate."}
+      ],
+      "example": "aw = weightingFilter(\"A-weighting\", 48000);\nyA = aw(x);\nvisualize(aw)",
+      "notes": "splMeter and loudnessMeter apply weighting internally.",
+      "docs": "https://www.mathworks.com/help/audio/ref/weightingfilter-system-object.html"
+    },
+    {
+      "name": "compressor",
+      "kind": "function",
+      "description": "System object implementing a dynamic range compressor with threshold, ratio, knee width, attack/release times and make-up gain, returning the processed audio and the applied gain.",
+      "usage": "dRC = compressor(Name=Value)\n[audioOut, gain] = dRC(audioIn)",
+      "parameters": [
+        {"name": "Threshold / Ratio / KneeWidth", "description": "Threshold (dB), compression ratio and soft-knee width (dB)."},
+        {"name": "AttackTime / ReleaseTime", "description": "Envelope time constants (s)."},
+        {"name": "MakeUpGainMode / MakeUpGain", "description": "\"Auto\" or \"Property\" make-up gain."},
+        {"name": "SampleRate / EnableSidechain", "description": "Sample rate and external key input."}
+      ],
+      "example": "dRC = compressor(Threshold=-20, Ratio=4, KneeWidth=6, AttackTime=0.01, ...\n    ReleaseTime=0.2, SampleRate=fs);\n[y, g] = dRC(x);\nvisualize(dRC)",
+      "notes": "limiter, expander and noiseGate share the same interface. Combine with crossoverFilter for multiband compression.",
+      "docs": "https://www.mathworks.com/help/audio/ref/compressor-system-object.html"
+    },
+    {
+      "name": "limiter",
+      "kind": "function",
+      "description": "System object implementing a dynamic range limiter that prevents the signal level from exceeding a threshold, with attack, release and knee controls.",
+      "usage": "dRL = limiter(Name=Value)\n[audioOut, gain] = dRL(audioIn)",
+      "parameters": [
+        {"name": "Threshold / KneeWidth", "description": "Limit level (dB) and knee width."},
+        {"name": "AttackTime / ReleaseTime / MakeUpGainMode", "description": "Dynamics and make-up gain."}
+      ],
+      "example": "lim = limiter(Threshold=-1, AttackTime=0, ReleaseTime=0.05, SampleRate=fs);\ny = lim(x);",
+      "notes": "Use a small lookahead delay externally for true-peak limiting.",
+      "docs": "https://www.mathworks.com/help/audio/ref/limiter-system-object.html"
+    },
+    {
+      "name": "expander",
+      "kind": "function",
+      "description": "System object implementing a downward expander that attenuates signals below a threshold by a ratio, with hold time, used to reduce low-level noise more gently than a gate.",
+      "usage": "dRE = expander(Name=Value)\n[audioOut, gain] = dRE(audioIn)",
+      "parameters": [
+        {"name": "Threshold / Ratio / KneeWidth", "description": "Expansion parameters."},
+        {"name": "AttackTime / ReleaseTime / HoldTime", "description": "Timing controls (s)."}
+      ],
+      "example": "ex = expander(Threshold=-45, Ratio=3, HoldTime=0.05, SampleRate=fs);\ny = ex(x);",
+      "notes": "noiseGate is the extreme case with full attenuation below threshold.",
+      "docs": "https://www.mathworks.com/help/audio/ref/expander-system-object.html"
+    },
+    {
+      "name": "noiseGate",
+      "kind": "function",
+      "description": "System object implementing a noise gate that mutes audio whose level falls below a threshold, with attack, release and hold times to avoid chattering.",
+      "usage": "dRG = noiseGate(Name=Value)\n[audioOut, gain] = dRG(audioIn)",
+      "parameters": [
+        {"name": "Threshold", "description": "Gate threshold (dB)."},
+        {"name": "AttackTime / ReleaseTime / HoldTime", "description": "Timing (s)."}
+      ],
+      "example": "gate = noiseGate(Threshold=-30, AttackTime=0.005, ReleaseTime=0.05, HoldTime=0.02, SampleRate=fs);\ny = gate(x);",
+      "notes": "Supports sidechain keying (EnableSidechain).",
+      "docs": "https://www.mathworks.com/help/audio/ref/noisegate-system-object.html"
+    },
+    {
+      "name": "reverberator",
+      "kind": "function",
+      "description": "System object adding artificial reverberation (Dattorro plate-style algorithm) with pre-delay, diffusion, decay, damping and wet/dry mix controls.",
+      "usage": "reverb = reverberator(Name=Value)\naudioOut = reverb(audioIn)",
+      "parameters": [
+        {"name": "PreDelay / Diffusion / DecayFactor", "description": "Pre-delay (s), diffusion and decay (0-1)."},
+        {"name": "HighCutFrequency / HighFrequencyDamping", "description": "Tone controls."},
+        {"name": "WetDryMix / SampleRate", "description": "Mix ratio and sample rate."}
+      ],
+      "example": "rv = reverberator(PreDelay=0.02, DecayFactor=0.6, WetDryMix=0.3, SampleRate=fs);\ny = rv(x);\nsound(y, fs)",
+      "notes": "Output is stereo. For measured room acoustics convolve with an impulse response instead.",
+      "docs": "https://www.mathworks.com/help/audio/ref/reverberator-system-object.html"
+    },
+    {
+      "name": "shiftPitch",
+      "kind": "function",
+      "description": "Shifts the pitch of an audio signal by a number of semitones without changing its duration, using a phase vocoder with optional phase locking and formant preservation.",
+      "usage": "audioOut = shiftPitch(audioIn, nsemitones)\naudioOut = shiftPitch(___, Name=Value)",
+      "parameters": [
+        {"name": "nsemitones", "description": "Shift in semitones (positive up)."},
+        {"name": "Window / OverlapLength", "description": "STFT analysis window and overlap."},
+        {"name": "LockPhase / PreserveFormants / CepstralOrder", "description": "Quality options."}
+      ],
+      "example": "[x, fs] = audioread(\"Counting-16-44p1-mono-15secs.wav\");\ny = shiftPitch(x, 3, PreserveFormants=true);\nsound(y, fs)",
+      "notes": "stretchAudio changes duration without changing pitch; both are used in audioDataAugmenter.",
+      "docs": "https://www.mathworks.com/help/audio/ref/shiftpitch.html"
+    },
+    {
+      "name": "stretchAudio",
+      "kind": "function",
+      "description": "Time-stretches audio by a speedup factor without changing pitch, using WSOLA or a phase vocoder.",
+      "usage": "audioOut = stretchAudio(audioIn, alpha)\naudioOut = stretchAudio(___, Name=Value)",
+      "parameters": [
+        {"name": "alpha", "description": "Speedup factor (>1 shorter/faster, <1 longer/slower)."},
+        {"name": "Method", "description": "\"wsola\" or \"vocoder\"."},
+        {"name": "Window / OverlapLength / LockPhase", "description": "Analysis settings."}
+      ],
+      "example": "y = stretchAudio(x, 1.25, Method=\"wsola\");\nsound(y, fs)",
+      "notes": "audioTimeScaler provides streaming time scaling.",
+      "docs": "https://www.mathworks.com/help/audio/ref/stretchaudio.html"
+    },
+    {
+      "name": "audioresample",
+      "kind": "function",
+      "description": "Converts the sample rate of audio signals with a high-quality polyphase design suited to audio, specifying input and output rates directly (including non-integer ratios such as 44.1 kHz to 48 kHz).",
+      "usage": "y = audioresample(x, InputRate=fsIn, OutputRate=fsOut)\ny = audioresample(___, Name=Value)",
+      "parameters": [
+        {"name": "InputRate / OutputRate", "description": "Sample rates in Hz."},
+        {"name": "Bandwidth / StopbandAttenuation", "description": "Filter design options."}
+      ],
+      "example": "[x, fs] = audioread(\"speech_dft.wav\");\ny = audioresample(x, InputRate=fs, OutputRate=16000);",
+      "notes": "designAudioResampler returns a reusable resampler design; Signal Processing resample is the general-purpose alternative.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audioresample.html"
+    },
+    {
+      "name": "audioDataAugmenter",
+      "kind": "function",
+      "description": "Creates a randomized augmentation pipeline for audio datasets (time stretch, pitch shift, volume control, additive noise, time shift and custom methods) to enlarge training data for machine and deep learning.",
+      "usage": "aug = audioDataAugmenter(Name=Value)\ndata = augment(aug, audioIn, fs)",
+      "parameters": [
+        {"name": "AugmentationMode", "description": "\"sequential\" (default) or \"independent\"."},
+        {"name": "NumAugmentations", "description": "Number of augmented outputs per input."},
+        {"name": "TimeStretchProbability / SpeedupFactorRange", "description": "Time stretch settings."},
+        {"name": "PitchShiftProbability / SemitoneShiftRange", "description": "Pitch shift settings."},
+        {"name": "AddNoiseProbability / SNRRange / VolumeControlProbability / TimeShiftProbability", "description": "Other augmentations."}
+      ],
+      "example": "aug = audioDataAugmenter(NumAugmentations=4, TimeStretchProbability=0.5, ...\n    PitchShiftProbability=0.5, SemitoneShiftRange=[-2 2], AddNoiseProbability=0.8, SNRRange=[5 20]);\ndata = augment(aug, x, fs);\ndata.Audio{1}",
+      "notes": "addAugmentationMethod registers custom augmentations. Apply in a transformed audioDatastore for on-the-fly augmentation.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiodataaugmenter.html"
+    },
+    {
+      "name": "detectSpeech",
+      "kind": "function",
+      "description": "Detects the boundaries of speech regions in an audio signal using an energy and spectral-spread thresholding algorithm, returning start/end sample indices; plots the result when called without outputs.",
+      "usage": "idx = detectSpeech(audioIn, fs)\n[idx, thresholds] = detectSpeech(audioIn, fs, Name=Value)\ndetectSpeech(___)",
+      "parameters": [
+        {"name": "Window / OverlapLength", "description": "Analysis frame settings."},
+        {"name": "MergeDistance", "description": "Merge regions closer than this many samples."},
+        {"name": "Thresholds", "description": "Precomputed thresholds for consistent detection across files."}
+      ],
+      "example": "[x, fs] = audioread(\"Counting-16-44p1-mono-15secs.wav\");\nidx = detectSpeech(x, fs);\nsegments = arrayfun(@(k) x(idx(k,1):idx(k,2)), 1:size(idx,1), UniformOutput=false);",
+      "notes": "detectspeechnn uses a pretrained neural network (VAD) for better robustness in noise; voiceActivityDetector works frame by frame.",
+      "docs": "https://www.mathworks.com/help/audio/ref/detectspeech.html"
+    },
+    {
+      "name": "classifySound",
+      "kind": "function",
+      "description": "Classifies sounds in an audio signal with the pretrained YAMNet network over the AudioSet ontology, returning detected sound classes, their time regions and a results table.",
+      "usage": "sounds = classifySound(audioIn, fs)\n[sounds, timestamps, resultsTable] = classifySound(audioIn, fs, Name=Value)",
+      "parameters": [
+        {"name": "SpecificityLevel", "description": "\"high\" (default), \"low\" or \"none\" ontology specificity."},
+        {"name": "MinimumSoundSeparation / MinimumSoundDuration", "description": "Region merging and filtering."}
+      ],
+      "example": "[x, fs] = audioread(\"multipleSounds-16-16-mono-18secs.wav\");\n[sounds, ts] = classifySound(x, fs)",
+      "notes": "Requires the YAMNet pretrained model (Deep Learning Toolbox and a one-time download). yamnetGraph explores the ontology.",
+      "docs": "https://www.mathworks.com/help/audio/ref/classifysound.html"
+    },
+    {
+      "name": "audioPretrainedNetwork",
+      "kind": "function",
+      "description": "Loads a pretrained audio neural network such as YAMNet (sound classification), VGGish or OpenL3 (embeddings), CREPE (pitch) or the VAD network, returning a dlnetwork ready for inference or transfer learning.",
+      "usage": "[net, classNames] = audioPretrainedNetwork(name)",
+      "parameters": [
+        {"name": "name", "description": "E.g. \"yamnet\", \"vggish\", \"openl3\", \"crepe\", \"vadnet\"."}
+      ],
+      "example": "[net, classNames] = audioPretrainedNetwork(\"yamnet\");\nfeats = yamnetPreprocess(x, fs);\nscores = predict(net, feats);\n[~, k] = max(mean(scores, 1));\nclassNames(k)",
+      "notes": "Introduced R2024a, replacing individual loader functions. Use the matching *Preprocess functions (yamnetPreprocess, vggishPreprocess, openl3Preprocess, crepePreprocess).",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiopretrainednetwork.html"
+    },
+    {
+      "name": "vggishEmbeddings",
+      "kind": "function",
+      "description": "Extracts 128-dimensional VGGish feature embeddings from audio, providing compact learned features for classification, clustering or similarity tasks with small datasets.",
+      "usage": "embeddings = vggishEmbeddings(audioIn, fs)\nembeddings = vggishEmbeddings(___, Name=Value)",
+      "parameters": [
+        {"name": "OverlapPercentage", "description": "Overlap between ~0.96 s analysis frames (default 50)."},
+        {"name": "ApplyPCA", "description": "Apply the PCA postprocessing used by the original model."}
+      ],
+      "example": "emb = vggishEmbeddings(x, fs);\nfeatureVector = mean(emb, 1);",
+      "notes": "openl3Embeddings provides larger (512/6144-D) embeddings; speakerEmbeddings targets speaker identity.",
+      "docs": "https://www.mathworks.com/help/audio/ref/vggishembeddings.html"
+    },
+    {
+      "name": "speech2text",
+      "kind": "function",
+      "description": "Transcribes speech in an audio signal to text using a pretrained model (e.g. wav2vec 2.0, Emformer) or a third-party cloud speech service configured through speechClient.",
+      "usage": "transcript = speech2text(audioIn, fs)\ntranscript = speech2text(audioIn, fs, Client=client)\n[transcript, rawOutput] = speech2text(___)",
+      "parameters": [
+        {"name": "Client", "description": "speechClient object selecting the model or service (e.g. speechClient(\"wav2vec2.0\"), speechClient(\"Google\"))."},
+        {"name": "Segmentation", "description": "Output granularity (e.g. \"word\" or \"sentence\") where supported."}
+      ],
+      "example": "[x, fs] = audioread(\"speech_dft.wav\");\nclient = speechClient(\"wav2vec2.0\");\ntxt = speech2text(x, fs, Client=client)",
+      "notes": "Pretrained models need their support package; cloud services need credentials and send audio off the machine. text2speech performs the inverse.",
+      "docs": "https://www.mathworks.com/help/audio/ref/speech2text.html"
+    },
+    {
+      "name": "text2speech",
+      "kind": "function",
+      "description": "Synthesizes speech audio from text using a supported pretrained model or third-party speech service selected with speechClient.",
+      "usage": "[speech, fs] = text2speech(text)\n[speech, fs] = text2speech(text, Client=client)",
+      "parameters": [
+        {"name": "text", "description": "String to synthesize."},
+        {"name": "Client", "description": "speechClient object for the model/service and its options."}
+      ],
+      "example": "[y, fs] = text2speech(\"Signal acquired and processed.\");\nsound(y, fs)",
+      "notes": "Cloud clients require account setup; check which built-in model is available in your release.",
+      "docs": "https://www.mathworks.com/help/audio/ref/text2speech.html"
+    },
+    {
+      "name": "ivectorSystem",
+      "kind": "function",
+      "description": "Creates an i-vector system for speaker recognition, verification or diarization and other audio classification tasks; it trains a universal background model and total variability space, then enrolls, verifies and identifies labels.",
+      "usage": "ivs = ivectorSystem(Name=Value)\ntrainExtractor(ivs, data)\ntrainClassifier(ivs, data, labels)\nenroll(ivs, data, label)\n[tf, score] = verify(ivs, x, label)",
+      "parameters": [
+        {"name": "SampleRate / InputType", "description": "Sample rate and \"audio\" or \"features\" input."},
+        {"name": "DetectSpeech", "description": "Apply speech detection before feature extraction."},
+        {"name": "FeatureExtractor", "description": "audioFeatureExtractor for custom features."}
+      ],
+      "example": "ivs = ivectorSystem(SampleRate=16000);\ntrainExtractor(ivs, adsTrain, UBMNumComponents=64, TVSRank=32);\ntrainClassifier(ivs, adsTrain, adsTrain.Labels);\nenroll(ivs, adsEnroll, adsEnroll.Labels);\nidentify(ivs, testAudio)",
+      "notes": "speakerRecognition provides a pretrained speaker recognition system.",
+      "docs": "https://www.mathworks.com/help/audio/ref/ivectorsystem.html"
+    },
+    {
+      "name": "gtcc",
+      "kind": "function",
+      "description": "Extracts gammatone cepstral coefficients (GTCC), log energy, delta and delta-delta per frame; an auditory-model alternative to MFCC that is often more robust in noise.",
+      "usage": "coeffs = gtcc(audioIn, fs)\n[coeffs, delta, deltaDelta, loc] = gtcc(___, Name=Value)",
+      "parameters": [
+        {"name": "Window / OverlapLength", "description": "Frame settings."},
+        {"name": "NumCoeffs / FrequencyRange / FilterDomain", "description": "Coefficient count (default 13), band range and filtering domain."},
+        {"name": "LogEnergy", "description": "\"Append\" (default), \"Replace\" or \"Ignore\"."}
+      ],
+      "example": "[c, d, dd] = gtcc(x, fs, NumCoeffs=20);\nfeatures = [c d dd];",
+      "notes": "audioFeatureExtractor can compute gtcc alongside other features while sharing intermediate results.",
+      "docs": "https://www.mathworks.com/help/audio/ref/gtcc.html"
+    },
+    {
+      "name": "spectralCentroid",
+      "kind": "function",
+      "description": "Computes the spectral centroid (brightness) of audio per frame from a signal or a precomputed spectrogram. Part of a family of spectral shape descriptors used for timbre and classification features.",
+      "usage": "centroid = spectralCentroid(x, f)\ncentroid = spectralCentroid(x, fs, Name=Value)",
+      "parameters": [
+        {"name": "x", "description": "Audio signal (with fs) or spectrogram (with frequency vector f)."},
+        {"name": "Window / OverlapLength / Range / SpectrumType", "description": "Frame settings, frequency range and \"power\" or \"magnitude\" spectrum."}
+      ],
+      "example": "c = spectralCentroid(x, fs, Window=hann(1024, \"periodic\"), OverlapLength=512);\nplot(c)",
+      "notes": "Related: spectralFlux, spectralRolloffPoint, spectralSpread, spectralSlope, spectralDecrease (Audio Toolbox) and spectralCrest/Flatness/Entropy/Kurtosis/Skewness (Signal Processing Toolbox).",
+      "docs": "https://www.mathworks.com/help/audio/ref/spectralcentroid.html"
+    },
+    {
+      "name": "spectralFlux",
+      "kind": "function",
+      "description": "Computes spectral flux, the frame-to-frame change of the spectrum, which peaks at note onsets and transients; useful for onset detection and rhythm features.",
+      "usage": "flux = spectralFlux(x, f)\nflux = spectralFlux(x, fs, Name=Value)",
+      "parameters": [
+        {"name": "NormType", "description": "Norm used for the difference (default 2)."},
+        {"name": "Window / OverlapLength / Range", "description": "Analysis settings."}
+      ],
+      "example": "flux = spectralFlux(x, fs);\n[~, onsets] = findpeaks(flux, MinPeakHeight=mean(flux) + 2*std(flux));",
+      "notes": "Works on audio or on precomputed spectrograms (then pass the frequency vector).",
+      "docs": "https://www.mathworks.com/help/audio/ref/spectralflux.html"
+    },
+    {
+      "name": "harmonicRatio",
+      "kind": "function",
+      "description": "Computes the harmonic ratio per frame, the proportion of energy in harmonic (periodic) components, distinguishing voiced speech and tonal music from noise.",
+      "usage": "hr = harmonicRatio(audioIn, fs)\nhr = harmonicRatio(___, Name=Value)",
+      "parameters": [
+        {"name": "Window / OverlapLength", "description": "Frame settings."}
+      ],
+      "example": "hr = harmonicRatio(x, fs);\nvoiced = hr > 0.8;",
+      "notes": "Available as a feature in audioFeatureExtractor.",
+      "docs": "https://www.mathworks.com/help/audio/ref/harmonicratio.html"
+    },
+    {
+      "name": "audioDelta",
+      "kind": "function",
+      "description": "Computes delta (time-derivative) features using the standard regression formula over a window of frames; applying it twice gives delta-delta features.",
+      "usage": "delta = audioDelta(x)\ndelta = audioDelta(x, deltaWindowLength)",
+      "parameters": [
+        {"name": "x", "description": "Feature matrix (frames-by-features)."},
+        {"name": "deltaWindowLength", "description": "Odd window length (default 9)."}
+      ],
+      "example": "c = mfcc(x, fs);\nd = audioDelta(c);\ndd = audioDelta(d);",
+      "notes": "Mirrors the delta computation of mfcc/gtcc so custom features stay consistent.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiodelta.html"
+    },
+    {
+      "name": "integratedLoudness",
+      "kind": "function",
+      "description": "Measures integrated loudness (LUFS) and loudness range (LU) of an audio signal according to ITU-R BS.1770 / EBU R 128, for broadcast and streaming loudness normalization.",
+      "usage": "loudness = integratedLoudness(audioIn, fs)\n[loudness, loudnessRange] = integratedLoudness(audioIn, fs, channelWeights)",
+      "parameters": [
+        {"name": "audioIn", "description": "Samples-by-channels signal (up to 5 channels)."},
+        {"name": "channelWeights", "description": "Per-channel weights (default [1 1 1 1.41 1.41] pattern for 5.1 surrounds)."}
+      ],
+      "example": "[x, fs] = audioread(\"RockDrums-48-stereo-11secs.mp3\");\n[L, LRA] = integratedLoudness(x, fs)\ngain = 10^((-23 - L)/20);    % normalize to -23 LUFS\ny = gain * x;",
+      "notes": "loudnessMeter provides momentary/short-term loudness for streaming; acousticLoudness computes psychoacoustic (sone) loudness.",
+      "docs": "https://www.mathworks.com/help/audio/ref/integratedloudness.html"
+    },
+    {
+      "name": "loudnessMeter",
+      "kind": "function",
+      "description": "System object implementing a standard-compliant (ITU-R BS.1770-4, EBU R 128) loudness meter that returns momentary, short-term and integrated loudness, loudness range and true-peak values for streaming audio.",
+      "usage": "loudMtr = loudnessMeter(Name=Value)\n[momentary, shortTerm, integrated, range, peak] = loudMtr(audioIn)",
+      "parameters": [
+        {"name": "ChannelWeights / UseRelativeScale / TargetLoudness", "description": "Measurement configuration."},
+        {"name": "SampleRate", "description": "Sample rate."}
+      ],
+      "example": "lm = loudnessMeter(SampleRate=fs);\n[m, s, i, lra, tp] = lm(x);\nvisualize(lm)",
+      "notes": "Call reset between independent programs.",
+      "docs": "https://www.mathworks.com/help/audio/ref/loudnessmeter-system-object.html"
+    },
+    {
+      "name": "splMeter",
+      "kind": "function",
+      "description": "System object measuring sound pressure level with time weighting (fast, slow, impulse) and frequency weighting (A, C, Z), returning instantaneous, equivalent (Leq), peak and maximum levels from calibrated microphone signals.",
+      "usage": "SPL = splMeter(Name=Value)\n[LT, Leq, Lpeak, Lmax] = SPL(audioIn)",
+      "parameters": [
+        {"name": "TimeWeighting", "description": "\"Fast\" (default), \"Slow\" or \"Impulse\"."},
+        {"name": "FrequencyWeighting", "description": "\"A-weighting\" (default), \"C-weighting\" or \"Z-weighting\"."},
+        {"name": "CalibrationFactor / PressureReference / SampleRate", "description": "Calibration to pascals, reference pressure and rate."}
+      ],
+      "example": "cal = calibrateMicrophone(calTone, fs, 94);   % 94 dB SPL calibrator\nspl = splMeter(CalibrationFactor=cal, SampleRate=fs);\n[LT, Leq] = spl(measurement);",
+      "notes": "calibrateMicrophone computes the calibration factor from a known reference tone.",
+      "docs": "https://www.mathworks.com/help/audio/ref/splmeter-system-object.html"
+    },
+    {
+      "name": "impzest",
+      "kind": "function",
+      "description": "Estimates the impulse response of an audio system (room, loudspeaker, device) from an excitation signal and its recorded response, typically using exponential sweeps (sweeptone) or maximum length sequences (mls).",
+      "usage": "ir = impzest(excitation, recording)\nir = impzest(___, Name=Value)",
+      "parameters": [
+        {"name": "excitation", "description": "Excitation signal from sweeptone or mls."},
+        {"name": "recording", "description": "Recorded system response (same sample rate)."},
+        {"name": "WarmupRuns / ExcitationLevel", "description": "Options matching how the excitation was played."}
+      ],
+      "example": "fs = 48000;\nexc = sweeptone(3, 1, fs);\nh = [1 zeros(1,99) 0.5 zeros(1,199) 0.25]';    % simulated system\nrec = filter(h, 1, exc);                       % or record with audioPlayerRecorder\nir = impzest(exc, rec);\nplot((0:numel(ir)-1)/fs, ir)",
+      "notes": "sweeptone(sweepDuration, silenceDuration, fs) generates exponential sweeps; the Impulse Response Measurer app automates acquisition.",
+      "docs": "https://www.mathworks.com/help/audio/ref/impzest.html"
+    },
+    {
+      "name": "acousticLoudness",
+      "kind": "function",
+      "description": "Computes perceived loudness (sone), specific loudness per critical band and percentile loudness from calibrated sound pressure signals according to ISO 532-1 (Zwicker) or ISO 532-2 (Moore-Glasberg).",
+      "usage": "loudness = acousticLoudness(audioIn, fs)\n[loudness, specificLoudness, perc] = acousticLoudness(___, Name=Value)\nacousticLoudness(___)",
+      "parameters": [
+        {"name": "Method", "description": "\"ISO 532-1\" (default) or \"ISO 532-2\"."},
+        {"name": "SoundField", "description": "\"free\" (default) or \"diffuse\"."},
+        {"name": "TimeVarying", "description": "Compute time-varying loudness (ISO 532-1)."}
+      ],
+      "example": "p = calibratedSignalPa;              % pressure in pascals\n[N, Nspec] = acousticLoudness(p, fs, TimeVarying=true);",
+      "notes": "Related psychoacoustic metrics: acousticSharpness, acousticRoughness, acousticFluctuation.",
+      "docs": "https://www.mathworks.com/help/audio/ref/acousticloudness.html"
+    },
+    {
+      "name": "sofaread",
+      "kind": "function",
+      "description": "Reads a SOFA (Spatially Oriented Format for Acoustics) file, such as head-related transfer function (HRTF) or room impulse response sets, into a convention-specific MATLAB object.",
+      "usage": "s = sofaread(filename)",
+      "parameters": [
+        {"name": "filename", "description": "Path to a .sofa file."}
+      ],
+      "example": "s = sofaread(\"ReferenceHRTF.sofa\");\nsize(s.Numerator)          % measurements-by-receivers-by-samples (FIR conventions)\nhrtf = interpolateHRTF(s.Numerator, s.SourcePosition(:,1:2), [30 0]);",
+      "notes": "sofawrite writes SOFA files; interpolateHRTF interpolates HRTFs for arbitrary directions for binaural rendering.",
+      "docs": "https://www.mathworks.com/help/audio/ref/sofaread.html"
+    }
+  ]
+}

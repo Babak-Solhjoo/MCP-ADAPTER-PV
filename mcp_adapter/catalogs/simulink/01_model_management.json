@@ -1,0 +1,565 @@
+{
+  "category": "Model management & programmatic API",
+  "description": "The MATLAB-side commands that create, open, save and close Simulink models, edit their contents block by block and line by line, read and write every parameter, and launch simulations. Together these functions let a script build and run a complete model with no GUI interaction, which is how Simulink is driven from CI jobs, test harnesses and external automation.",
+  "tools": [
+    {
+      "name": "new_system",
+      "kind": "function",
+      "description": "Creates a new, empty Simulink model, library or subsystem file in memory and returns its numeric handle. Nothing is written to disk and no window opens until you call save_system or open_system, which makes it the normal first step in a script that builds a model from scratch. You can also seed the new system from a model template or from an existing file instead of the default template.",
+      "usage": "h = new_system(name)\nh = new_system(name, 'Model'|'Library'|'Subsystem')\nh = new_system(name, 'FromTemplate', template)\nh = new_system(name, 'FromFile', file)\nh = new_system(name, ___, 'ErrorIfShadowed')",
+      "parameters": [
+        {
+          "name": "name",
+          "description": "Name of the system to create. Must be a valid MATLAB identifier; it becomes the model name and the file base name."
+        },
+        {
+          "name": "'Model' | 'Library' | 'Subsystem'",
+          "description": "Kind of system to create. 'Model' is the default; 'Library' creates a block library; 'Subsystem' creates a subsystem file (.slx) for referencing."
+        },
+        {
+          "name": "'FromTemplate'",
+          "description": "Name of an .sltx model template to base the new system on, instead of the default template."
+        },
+        {
+          "name": "'FromFile'",
+          "description": "Path to an existing model or template file whose contents seed the new system."
+        },
+        {
+          "name": "'ErrorIfShadowed'",
+          "description": "Raise an error if the name would be shadowed by another model, variable, file or MATLAB function on the path, instead of creating it silently."
+        }
+      ],
+      "example": "mdl = 'autoBuilt';\nif bdIsLoaded(mdl), bdclose(mdl); end\nnew_system(mdl, 'Model', 'ErrorIfShadowed');\nsave_system(mdl, fullfile(tempdir, mdl));",
+      "notes": "The new model exists only in memory, so an unsaved model is lost when MATLAB exits or bdclose is called. Use bdIsLoaded to test whether a name is already in memory before creating it, otherwise new_system errors on a duplicate name.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/new_system.html"
+    },
+    {
+      "name": "load_system",
+      "kind": "function",
+      "description": "Loads a model, library or subsystem file into memory without opening an editor window. This is the right way to touch a model from a headless or batch session because it avoids the cost and the display dependency of drawing the diagram. Everything get_param, set_param, find_system and sim need is available once the model is loaded.",
+      "usage": "load_system(sys)\nh = load_system(sys)",
+      "parameters": [
+        {
+          "name": "sys",
+          "description": "Model name, file name, full path, or a cell/string array of several of them. The .slx or .mdl extension may be omitted when the file is on the MATLAB path."
+        }
+      ],
+      "example": "load_system('vdp');\nstopTime = get_param('vdp', 'StopTime')\nblks = find_system('vdp', 'BlockType', 'Integrator');\nclose_system('vdp', 0);",
+      "notes": "Loading is idempotent: calling load_system on an already-loaded model is harmless. Use bdIsLoaded(name) to test load state, and open_system when you actually want the window. Libraries referenced by a model load automatically when needed, but add_block requires the source library to be loaded first.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/load_system.html"
+    },
+    {
+      "name": "open_system",
+      "kind": "function",
+      "description": "Loads a model if it is not already in memory and opens it in the Simulink Editor, or opens a subsystem, a block's parameter dialog, a scope window or a mask dialog. Use it when a human needs to see the result of a script, or when you want the model window for interactive debugging. In a headless batch run prefer load_system, because open_system needs a display.",
+      "usage": "open_system(obj)\nopen_system(obj, 'window'|'tab'|'reuse'|'new')\nopen_system(blk, 'parameter'|'mask'|'force')",
+      "parameters": [
+        {
+          "name": "obj",
+          "description": "Model name, block path, subsystem path or handle to open."
+        },
+        {
+          "name": "'tab' | 'window' | 'reuse' | 'new'",
+          "description": "Where to display a subsystem: in a new tab of the current editor, a separate window, reusing the current one, or a new editor."
+        },
+        {
+          "name": "'parameter'",
+          "description": "Open the block's parameter dialog box rather than the block itself."
+        },
+        {
+          "name": "'mask'",
+          "description": "Open the mask dialog of a masked block; 'force' looks under the mask instead."
+        }
+      ],
+      "example": "open_system('vdp');\nopen_system('vdp/Mu', 'parameter');\nset_param('vdp', 'Open', 'off');   % close the window, keep it loaded",
+      "notes": "set_param(mdl,'Open','off') closes the window while leaving the model loaded, which close_system does not do. open_system on a Scope block opens the scope display.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/open_system.html"
+    },
+    {
+      "name": "save_system",
+      "kind": "function",
+      "description": "Writes a loaded model, library or subsystem back to disk, optionally under a new name or in an older release's file format. Call it after any scripted edit that must persist, because add_block, set_param and add_line only change the in-memory copy. It returns the full path of the file it wrote, which is convenient when saving to a temporary directory.",
+      "usage": "filename = save_system(sys)\nfilename = save_system(sys, newsys)\nfilename = save_system(sys, newsys, Name, Value)",
+      "parameters": [
+        {
+          "name": "sys",
+          "description": "Name or handle of the loaded system to save. Defaults to the current top-level model."
+        },
+        {
+          "name": "newsys",
+          "description": "New file name or full path (with .slx or .mdl) to save a copy under; the model keeps the new name."
+        },
+        {
+          "name": "ExportToVersion",
+          "description": "Release tag such as 'R2022A_SLX' to export a model readable by an earlier release (roughly the last seven years of releases)."
+        },
+        {
+          "name": "OverwriteIfChangedOnDisk",
+          "description": "true to overwrite a file that changed on disk since it was loaded, instead of erroring."
+        },
+        {
+          "name": "SaveDirtyReferencedModels",
+          "description": "true to also save referenced models that have unsaved changes."
+        },
+        {
+          "name": "BreakUserLinks / BreakAllLinks",
+          "description": "true to replace links to user libraries (or to all libraries) with plain copies of the blocks before saving."
+        }
+      ],
+      "example": "load_system('vdp');\nset_param('vdp', 'StopTime', '40');\nf = save_system('vdp', fullfile(tempdir,'vdp_copy.slx'), 'OverwriteIfChangedOnDisk', true)",
+      "notes": "get_param(mdl,'Dirty') reports whether there are unsaved changes; set_param(mdl,'Dirty','off') discards the dirty flag so close_system will not prompt. BreakAllLinks is destructive and cannot be undone on the saved copy.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/save_system.html"
+    },
+    {
+      "name": "close_system",
+      "kind": "function",
+      "description": "Closes a model window and unloads the model from memory, or closes a block's dialog box. The optional save flag controls whether unsaved changes are written first, which matters in scripts because a dirty model otherwise triggers an interactive prompt. Use it at the end of every scripted operation so repeated runs start from a clean state.",
+      "usage": "close_system(sys)\nclose_system(sys, saveflag)\nclose_system(sys, newname)\nclose_system(sys, Name, Value)",
+      "parameters": [
+        {
+          "name": "sys",
+          "description": "Model, subsystem or block whose window or dialog to close. Defaults to the current system."
+        },
+        {
+          "name": "saveflag",
+          "description": "0 closes without saving and discards changes; 1 saves the model before closing."
+        },
+        {
+          "name": "newname",
+          "description": "File name to save the model under before closing."
+        },
+        {
+          "name": "closeReferencedModels",
+          "description": "false to leave referenced models loaded when closing the top model (default true)."
+        },
+        {
+          "name": "ErrorIfShadowed",
+          "description": "true to error if the new name would be shadowed by another file, model or variable."
+        }
+      ],
+      "example": "load_system('vdp');\nset_param('vdp/Mu', 'Gain', '2');\nclose_system('vdp', 0);   % discard the edit and unload",
+      "notes": "Calling close_system inside a block or menu callback to close the root model raises an error. To hide the window but keep the model loaded, use set_param(mdl,'Open','off'). bdclose is the blunter alternative that always discards changes.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/close_system.html"
+    },
+    {
+      "name": "bdclose",
+      "kind": "function",
+      "description": "Unconditionally closes and unloads block diagrams, discarding any unsaved changes without prompting. bdclose('all') clears every loaded model and library from memory in one call, which is the standard cleanup step at the start or end of an automated build or test so that stale in-memory copies cannot affect the run. Unlike close_system it never asks about or saves changes.",
+      "usage": "bdclose\nbdclose(sys)\nbdclose('all')",
+      "parameters": [
+        {
+          "name": "sys",
+          "description": "Name or handle of a loaded block diagram, or a cell array of them. With no argument, closes the current system."
+        },
+        {
+          "name": "'all'",
+          "description": "Close and unload every block diagram currently in memory, including libraries."
+        }
+      ],
+      "example": "bdclose('all');\nnew_system('rig');\nload_system('rig');\nbdclose('rig');",
+      "notes": "Because bdclose discards edits silently, never point it at a model a user is working on. Pair it with bdIsLoaded when you only want to close a diagram that is actually loaded.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/bdclose.html"
+    },
+    {
+      "name": "find_system",
+      "kind": "function",
+      "description": "Searches loaded models for blocks, lines, ports, annotations and other objects whose parameters match the criteria you give. It is the workhorse for model introspection: finding every block of a given BlockType, every block whose name matches a regular expression, or every object carrying a particular parameter value. By default it returns a cell array of full path names, restricted to blocks.",
+      "usage": "objs = find_system\nobjs = find_system(model)\nobjs = find_system(model, Name, Value, ..., Param, Value)",
+      "parameters": [
+        {
+          "name": "model",
+          "description": "Model name, handle, or cell array of them to search. With no argument, searches all loaded systems."
+        },
+        {
+          "name": "SearchDepth",
+          "description": "How many hierarchy levels to descend: '0' the model itself, '1' its top level, and so on. Unlimited by default."
+        },
+        {
+          "name": "LookUnderMasks",
+          "description": "'none', 'graphical', 'functional' or 'all' — whether blocks inside masked subsystems are included."
+        },
+        {
+          "name": "FollowLinks",
+          "description": "'on' to search inside blocks that are links into a library."
+        },
+        {
+          "name": "RegExp",
+          "description": "'on' to treat the search parameter values as regular expressions rather than literal text."
+        },
+        {
+          "name": "FindAll",
+          "description": "'on' to include lines, ports and annotations and return handles instead of path names."
+        },
+        {
+          "name": "MatchFilter",
+          "description": "Function handle applied to each candidate, e.g. @Simulink.match.activeVariants or @Simulink.match.allVariants, to filter variant blocks."
+        }
+      ],
+      "example": "load_system('vdp');\ngains = find_system('vdp', 'BlockType', 'Gain')\nsines = find_system('vdp', 'RegExp', 'on', 'Name', '^Scope')\nlines = find_system('vdp', 'FindAll', 'on', 'Type', 'line');",
+      "notes": "Only loaded models are searched, so call load_system first. Searching with LookUnderMasks='all' and FollowLinks='on' can be slow on large models. Simulink.findBlocks is a newer, block-only alternative that returns handles and accepts a Simulink.FindOptions object.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/find_system.html"
+    },
+    {
+      "name": "get_param",
+      "kind": "function",
+      "description": "Reads any parameter or property of a model, block, line, port or configuration set, given its path name or handle. The same call covers configuration parameters such as StopTime and Solver, block dialog parameters such as Gain or Amplitude, and read-only compiled properties such as CompiledPortDataTypes. Passing 'ObjectParameters' or 'DialogParameters' as the name enumerates everything a given object supports, which is how you discover exact parameter spellings.",
+      "usage": "value = get_param(object, parameter)\nvalues = get_param(objects, parameter)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "Path name, handle, or cell/string array of models, blocks, lines or ports to query."
+        },
+        {
+          "name": "parameter",
+          "description": "Parameter name such as 'StopTime', 'Gain', 'BlockType', 'Handle', 'Position'; or 'ObjectParameters' / 'DialogParameters' to list all available names."
+        }
+      ],
+      "example": "load_system('vdp');\nget_param('vdp', 'Solver')\nget_param('vdp/Mu', 'Gain')\nnames = fieldnames(get_param('vdp/Mu', 'DialogParameters'))",
+      "notes": "Values come back as character vectors for dialog parameters even when they represent numbers, so use str2double when you need arithmetic. Compiled parameters (anything prefixed Compiled) are only valid while the model is in a compiled state, e.g. after model([],[],[],'compile').",
+      "docs": "https://www.mathworks.com/help/simulink/slref/get_param.html"
+    },
+    {
+      "name": "set_param",
+      "kind": "function",
+      "description": "Writes model configuration parameters, block dialog parameters and object properties. This single function covers solver and stop-time settings, every block's dialog fields, block position and name, and editor state such as 'Open' or 'Dirty'. Values are given as character vectors, including numeric ones, and may be MATLAB expressions that Simulink evaluates in the model or base workspace.",
+      "usage": "set_param(object, parameter1, value1, ..., parameterN, valueN)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "Path name or handle of the model, block, line or port to modify."
+        },
+        {
+          "name": "parameter/value",
+          "description": "Alternating parameter names and values. Numeric values are given as character vectors, e.g. 'Gain','2*pi'."
+        },
+        {
+          "name": "'Position'",
+          "description": "Block geometry as the character/numeric vector [left top right bottom] in canvas pixels."
+        },
+        {
+          "name": "'SimulationCommand'",
+          "description": "Model-level pseudo-parameter accepting 'start', 'stop', 'pause', 'continue' or 'update' to drive a running simulation."
+        }
+      ],
+      "example": "load_system('vdp');\nset_param('vdp', 'StopTime', '40', 'Solver', 'ode45');\nset_param('vdp/Mu', 'Gain', '1.5');\nset_param('vdp/Mu', 'Position', [150 100 180 130]);",
+      "notes": "set_param dirties the model, so a later close_system without a save flag will prompt. To try parameter values without touching the saved model, use a Simulink.SimulationInput object with setBlockParameter and setModelParameter instead.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/set_param.html"
+    },
+    {
+      "name": "add_block",
+      "kind": "function",
+      "description": "Copies a block from a library, another model or the built-in block set into a destination model or subsystem, and returns the new block's handle. Block dialog parameters can be set in the same call as name-value arguments, so a block can be created fully configured in one statement. This is the core building primitive for scripts that assemble models.",
+      "usage": "h = add_block(source, dest)\nh = add_block(source, dest, Name, Value)",
+      "parameters": [
+        {
+          "name": "source",
+          "description": "Library path of the block to copy, e.g. 'simulink/Sources/Sine Wave', a path into another model, or a built-in type such as 'built-in/Gain'."
+        },
+        {
+          "name": "dest",
+          "description": "Full path of the new block, e.g. 'myModel/My Sine'."
+        },
+        {
+          "name": "MakeNameUnique",
+          "description": "'on' to append a number when the destination name already exists instead of erroring."
+        },
+        {
+          "name": "CopyOption",
+          "description": "'nolink' to break the library link on the copy, or 'duplicate' to duplicate an existing port block."
+        },
+        {
+          "name": "Position",
+          "description": "[left top right bottom] placement of the new block, to stop copies stacking on top of each other."
+        },
+        {
+          "name": "<block parameters>",
+          "description": "Any dialog parameter of the block being added, e.g. Gain='5' or Amplitude='2'."
+        }
+      ],
+      "example": "mdl = 'demoBuild';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/Sine Wave', [mdl '/Src'], 'Amplitude', '2', 'Position', [50 50 80 80]);\nadd_block('simulink/Sinks/Scope', [mdl '/Sink'], 'Position', [200 50 230 80]);\nadd_line(mdl, 'Src/1', 'Sink/1');",
+      "notes": "The source library must be loaded or on the path; load_system('simulink') first if a library block is not found. Copying with CopyOption='nolink' is what you want when the model must not depend on a user library.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/add_block.html"
+    },
+    {
+      "name": "delete_block",
+      "kind": "function",
+      "description": "Removes one or more blocks from a loaded system, given their path names or handles. Lines attached to a deleted block are left dangling, so a script that rewires a model normally deletes the connecting lines first. Accepts a cell array or a vector of handles to remove many blocks in one call.",
+      "usage": "delete_block(blockArg)",
+      "parameters": [
+        {
+          "name": "blockArg",
+          "description": "Full block path, block handle, or a cell array / string array / handle vector of blocks to delete."
+        }
+      ],
+      "example": "load_system('f14');\nh = getSimulinkBlockHandle('f14/Controller/Pitch Rate Lead Filter');\ndelete_line('f14/Controller', 'Pitch Rate Lead Filter/1', 'Gain3/1');\ndelete_block(h);",
+      "notes": "The system must be loaded. Deleting a block that is a library link deletes only the local copy. Combine with find_system to strip every block of a given type, for example removing all Scope blocks before a headless run.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/delete_block.html"
+    },
+    {
+      "name": "replace_block",
+      "kind": "function",
+      "description": "Swaps every block in a system that matches a search criterion for a different block, preserving the existing connections where port counts allow. Typical uses are exchanging Scope blocks for To Workspace blocks before a batch run, or substituting a fixed-point variant of a block across a whole model. Add 'noprompt' to suppress the interactive confirmation dialog so the call works in a script.",
+      "usage": "replaced = replace_block(sys, current, new)\nreplaced = replace_block(sys, Name, Value, ..., new)\nreplaced = replace_block(___, 'noprompt')",
+      "parameters": [
+        {
+          "name": "sys",
+          "description": "Model or subsystem to search."
+        },
+        {
+          "name": "current",
+          "description": "BlockType or block name of the blocks to replace, e.g. 'Gain'."
+        },
+        {
+          "name": "Name,Value",
+          "description": "find_system-style search criteria selecting the blocks to replace, e.g. 'Gain','2'."
+        },
+        {
+          "name": "new",
+          "description": "Library path of the replacement block, e.g. 'simulink/Sinks/To Workspace', or a built-in type."
+        },
+        {
+          "name": "'noprompt'",
+          "description": "Replace without showing the confirmation dialog — required for unattended scripts."
+        }
+      ],
+      "example": "load_system('vdp'); load_system('simulink');\nreplaced = replace_block('vdp', 'BlockType', 'Scope', 'simulink/Sinks/To Workspace', 'noprompt')",
+      "notes": "Save the model first: the replacement is not undoable from a script. The replacement library must be loaded. The return value lists the blocks found, whether or not the replacement was confirmed.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/replace_block.html"
+    },
+    {
+      "name": "add_line",
+      "kind": "function",
+      "description": "Draws a signal line between an output port and an input port of two blocks in the same system, or along an explicit list of canvas points. Port endpoints can be given as 'BlockName/PortNumber' strings or as port handles from get_param(blk,'PortHandles'), the latter being more robust when block names contain slashes or newlines. The autorouting option lets Simulink pick a path around existing blocks.",
+      "usage": "h = add_line(sys, out, in)\nh = add_line(sys, points)\nh = add_line(___, 'autorouting', 'on'|'off'|'smart')",
+      "parameters": [
+        {
+          "name": "sys",
+          "description": "Model or subsystem that contains both endpoints."
+        },
+        {
+          "name": "out",
+          "description": "Source port as 'BlockName/1' or an output port handle."
+        },
+        {
+          "name": "in",
+          "description": "Destination port as 'BlockName/2' or an input port handle."
+        },
+        {
+          "name": "points",
+          "description": "N-by-2 matrix of [x y] canvas coordinates defining the line; endpoints snap to nearby ports."
+        },
+        {
+          "name": "'autorouting'",
+          "description": "'off' draws a direct line (default), 'on' routes around blocks, 'smart' additionally avoids overlapping other lines and labels."
+        }
+      ],
+      "example": "mdl = 'wiring';\nnew_system(mdl); load_system(mdl);\nadd_block('simulink/Sources/Step', [mdl '/Step'], 'Position', [40 40 70 70]);\nadd_block('simulink/Sinks/Scope', [mdl '/Scope'], 'Position', [200 40 230 70]);\nph1 = get_param([mdl '/Step'], 'PortHandles');\nph2 = get_param([mdl '/Scope'], 'PortHandles');\nadd_line(mdl, ph1.Outport(1), ph2.Inport(1), 'autorouting', 'smart');",
+      "notes": "As of R2024b add_line is documented as not recommended; Simulink.connectBlocks is the newer function, which can connect blocks across hierarchy levels and pick ports automatically. add_line still works and remains the most widely used form in existing scripts.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/add_line.html"
+    },
+    {
+      "name": "delete_line",
+      "kind": "function",
+      "description": "Removes a signal line from a system, identified by its two endpoints, by a point lying on it, or by its line handle. Use it before deleting or re-wiring a block so the diagram is never left with dangling connections. Deleting a line that has branches deletes only the selected segment.",
+      "usage": "delete_line(sys, out, in)\ndelete_line(sys, point)\ndelete_line(lineHandle)",
+      "parameters": [
+        {
+          "name": "sys",
+          "description": "Model or subsystem containing the line."
+        },
+        {
+          "name": "out",
+          "description": "Source port as 'BlockName/1' or an output port handle."
+        },
+        {
+          "name": "in",
+          "description": "Destination port as 'BlockName/1' or an input port handle."
+        },
+        {
+          "name": "point",
+          "description": "1-by-2 [x y] coordinate lying on the line to delete."
+        },
+        {
+          "name": "lineHandle",
+          "description": "Handle of the line, from add_line or from get_param(blk,'LineHandles')."
+        }
+      ],
+      "example": "load_system('vdp');\nlh = get_param('vdp/Mu', 'LineHandles');\ndelete_line(lh.Inport(1));\nclose_system('vdp', 0);",
+      "notes": "Trying to delete a line that does not exist raises an error, so guard with get_param(blk,'LineHandles') and check for handles equal to -1. Deleting a line does not delete the blocks it joined.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/delete_line.html"
+    },
+    {
+      "name": "gcs",
+      "kind": "function",
+      "description": "Returns the path name of the current system — the model or subsystem that most recently had focus or was acted on. It is the standard way for a block callback, a mask initialization script or an interactive helper function to refer to 'the model I am in' without hard-coding a name. Pair it with gcb to build paths to blocks in the current diagram.",
+      "usage": "sys = gcs",
+      "parameters": [],
+      "example": "load_system('vdp'); open_system('vdp');\nsys = gcs\nadd_block('simulink/Sources/Constant', [sys '/K'], 'Value', '3');",
+      "notes": "Related current-object functions: gcb returns the path of the current block, gcbh its numeric handle, gcbp the path as a Simulink.BlockPath object, and bdroot returns the top-level model that contains the current system. All of these depend on editor state, so avoid them in unattended scripts and pass explicit names instead.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/gcs.html"
+    },
+    {
+      "name": "getSimulinkBlockHandle",
+      "kind": "function",
+      "description": "Converts a block path name into its numeric handle, optionally loading the containing model or library first. Handles are considerably faster than path names for repeated get_param and set_param calls and are immune to later renaming of the block. Unlike get_param it returns -1 instead of erroring when the block does not exist, which makes it the clean way to test for a block's presence.",
+      "usage": "handle = getSimulinkBlockHandle(path)\nhandle = getSimulinkBlockHandle(path, true)",
+      "parameters": [
+        {
+          "name": "path",
+          "description": "Full block path such as 'f14/Pilot', or a cell/string array of paths."
+        },
+        {
+          "name": "true",
+          "description": "Second argument: load the model or library containing the block if it is not already loaded, without erroring if it cannot be found."
+        }
+      ],
+      "example": "h = getSimulinkBlockHandle('f14/Pilot', true);\nif h ~= -1\n    get_param(h, 'WaveForm')\n    set_param(h, 'WaveForm', 'sine');\nend",
+      "notes": "Handles are only valid while the model stays loaded; they become invalid after bdclose. Simulink.findBlocks returns handles for every block matching a search, and Simulink.BlockPath handles blocks inside referenced model hierarchies.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/getsimulinkblockhandle.html"
+    },
+    {
+      "name": "Simulink.SimulationOutput",
+      "kind": "script-object",
+      "description": "The object returned by sim, parsim and batchsim holding everything one simulation produced: logged signals, time and output vectors, saved states, the final operating point, any error message and the run's metadata. Access a member either as a property (out.logsout) or with the get method, and call who to list what the run actually saved. Use it as the single entry point for post-processing, because every logging option in the Data Import/Export pane deposits its result here rather than in the base workspace.",
+      "usage": "out = sim(mdl)\nout = sim(simIn)\nnames = out.who\nds = out.get('logsout')\nmd = out.getSimulationMetadata\nmsg = out.ErrorMessage",
+      "parameters": [
+        {
+          "name": "logsout",
+          "description": "Simulink.SimulationData.Dataset of all signals logged through signal logging; default name set by the SignalLoggingName configuration parameter."
+        },
+        {
+          "name": "tout / yout",
+          "description": "Time vector and root-level Outport data, present when SaveTime and SaveOutput are on. yout is a Dataset unless SaveFormat is set to 'Array' or 'Structure'."
+        },
+        {
+          "name": "xout",
+          "description": "Logged continuous and discrete states, written when SaveState is enabled."
+        },
+        {
+          "name": "SimulationMetadata",
+          "description": "Struct with ModelInfo, TimingInfo, ExecutionInfo and UserString: solver used, wall-clock timings, stop event and any diagnostics."
+        },
+        {
+          "name": "ErrorMessage",
+          "description": "Error text when a run in a parsim or batchsim array failed. It is empty on success, so the array can be scanned for failures instead of aborting the sweep."
+        },
+        {
+          "name": "who",
+          "description": "Method listing the names of every variable stored in the object, which is the quickest way to see what a run actually logged."
+        }
+      ],
+      "example": "out = sim('vdp', 'StopTime', '20');\ndisp(out.who);\nds = out.logsout;\nsig = ds.get('x1').Values;\nplot(sig.Time, sig.Data);\nmd = out.getSimulationMetadata;\nfprintf('solver %s, %.2f s wall clock\\n', ...\n    md.ModelInfo.SolverName, md.TimingInfo.ExecutionElapsedWallTime);",
+      "notes": "When 'ReturnWorkspaceOutputs' is off, sim writes tout/yout straight into the base workspace instead of returning this object; leave it on (the default for the single-output form) so results stay bundled. With parsim the result is an array of SimulationOutput objects in the same order as the SimulationInput array, and a failed run still yields an object whose ErrorMessage is set. Signals inside logsout are Simulink.SimulationData.Signal wrappers around timeseries objects.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationoutput.html"
+    },
+    {
+      "name": "Simulink.SimulationInput",
+      "kind": "script-object",
+      "description": "An object that collects every override for one simulation run — variable values, block parameters, model configuration parameters, initial state and external inputs — without modifying the saved model. Build an array of these objects to describe a parameter sweep, then pass the array to sim, parsim or batchsim. This is the recommended alternative to set_param for parameter studies because the model file stays clean and the runs are reproducible and parallelizable.",
+      "usage": "simIn = Simulink.SimulationInput(modelName)\nsimIn = simIn.setVariable(name, value)\nsimIn = simIn.setBlockParameter(blkPath, param, value)\nsimIn = simIn.setModelParameter(param, value)\nsimIn = simIn.setExternalInput(data)\nsimIn = simIn.setInitialState(op)\nsimIn = simIn.setPreSimFcn(fh)",
+      "parameters": [
+        {
+          "name": "setVariable",
+          "description": "Override a workspace variable for this run, e.g. setVariable('K', 2.5) or with 'Workspace' set to the model workspace."
+        },
+        {
+          "name": "setBlockParameter",
+          "description": "Override one or more dialog parameters of a block, e.g. setBlockParameter('mdl/Gain','Gain','3')."
+        },
+        {
+          "name": "setModelParameter",
+          "description": "Override configuration parameters such as 'StopTime', 'Solver', 'SimulationMode', 'FixedStep'."
+        },
+        {
+          "name": "setExternalInput",
+          "description": "Supply root Inport data as a Dataset, timeseries, timetable or [time, data] matrix."
+        },
+        {
+          "name": "setInitialState",
+          "description": "Start the run from a Simulink.op.ModelOperatingPoint captured from a previous simulation."
+        },
+        {
+          "name": "setPreSimFcn / setPostSimFcn",
+          "description": "Function handles run on the worker immediately before and after each simulation."
+        }
+      ],
+      "example": "mdl = 'vdp'; load_system(mdl);\nmuVals = [0.5 1 2];\nfor k = numel(muVals):-1:1\n    simIn(k) = Simulink.SimulationInput(mdl);\n    simIn(k) = simIn(k).setBlockParameter([mdl '/Mu'], 'Gain', num2str(muVals(k)));\n    simIn(k) = simIn(k).setModelParameter('StopTime', '20');\nend\nout = sim(simIn);",
+      "notes": "The setter methods return a new object, so you must assign the result back (simIn = simIn.setVariable(...)). Use simIn.validate to check the overrides before a long run, and simIn.applyToModel only when you deliberately want the changes written to the loaded model.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationinput.html"
+    },
+    {
+      "name": "sim",
+      "kind": "function",
+      "description": "Runs a simulation of a Simulink model and returns a Simulink.SimulationOutput object holding all logged data plus metadata such as timing, the solver used and any diagnostics. It accepts either a model name with optional configuration overrides, or a Simulink.SimulationInput object describing the whole run. Overrides passed to sim apply only to that run and never dirty the saved model.",
+      "usage": "simOut = sim(mdl)\nsimOut = sim(mdl, Name, Value)\nsimOut = sim(simIn)\nsimOut = sim(mdl, configSet)",
+      "parameters": [
+        {
+          "name": "mdl",
+          "description": "Model name or handle to simulate. The model is loaded automatically if it is not in memory."
+        },
+        {
+          "name": "simIn",
+          "description": "A Simulink.SimulationInput object, or an array of them for consecutive runs."
+        },
+        {
+          "name": "StopTime / StartTime",
+          "description": "Simulation time bounds for this run, given as character vectors."
+        },
+        {
+          "name": "SimulationMode",
+          "description": "'normal', 'accelerator' or 'rapid-accelerator'."
+        },
+        {
+          "name": "UseFastRestart",
+          "description": "'on' keeps the model compiled between successive sim calls, which removes recompilation time in a sweep."
+        },
+        {
+          "name": "CaptureErrors",
+          "description": "'on' stores errors in the SimulationOutput metadata instead of throwing, so a sweep continues after one bad run."
+        }
+      ],
+      "example": "out = sim('vdp', 'StopTime', '30', 'CaptureErrors', 'on');\nt = out.tout;\ny = out.yout;\ndisp(out.SimulationMetadata.TimingInfo)",
+      "notes": "The return value is a Simulink.SimulationOutput; logged signals arrive in out.logsout as a Simulink.SimulationData.Dataset, root Outport data in out.yout and the time vector in out.tout. For many runs use parsim (parallel pool, Parallel Computing Toolbox) or batchsim (offloaded to a cluster) with the same SimulationInput array.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/sim.html"
+    },
+    {
+      "name": "parsim",
+      "kind": "function",
+      "description": "Runs an array of Simulink.SimulationInput objects in parallel across a parallel pool, returning an array of Simulink.SimulationOutput objects in the same order as the inputs. It handles transferring the model and its dependencies to the workers, and can show a progress bar or the interactive Simulation Manager. Use it for parameter sweeps, Monte Carlo studies and regression suites where each run is independent.",
+      "usage": "simOut = parsim(in)\nsimOut = parsim(in, Name, Value)",
+      "parameters": [
+        {
+          "name": "in",
+          "description": "Array of Simulink.SimulationInput objects, one per run."
+        },
+        {
+          "name": "ShowProgress",
+          "description": "'on' prints a progress bar as runs complete."
+        },
+        {
+          "name": "ShowSimulationManager",
+          "description": "'on' opens the Simulation Manager for interactive monitoring of the sweep."
+        },
+        {
+          "name": "UseFastRestart",
+          "description": "'on' keeps each worker's model compiled between its runs."
+        },
+        {
+          "name": "TransferBaseWorkspaceVariables",
+          "description": "'on' copies base workspace variables the model needs to the workers."
+        },
+        {
+          "name": "SetupFcn / CleanupFcn",
+          "description": "Function handles run once on each worker before the first and after the last simulation."
+        },
+        {
+          "name": "StopOnError",
+          "description": "'on' aborts the remaining runs after the first failure; 'off' (default) records the error in the output metadata."
+        }
+      ],
+      "example": "mdl = 'vdp'; load_system(mdl);\nmu = linspace(0.5, 3, 12);\nfor k = numel(mu):-1:1\n    in(k) = Simulink.SimulationInput(mdl);\n    in(k) = in(k).setBlockParameter([mdl '/Mu'], 'Gain', num2str(mu(k)));\nend\nout = parsim(in, 'ShowProgress', 'on', 'TransferBaseWorkspaceVariables', 'on');",
+      "notes": "Requires Parallel Computing Toolbox to actually run in parallel; without it parsim falls back to running the array serially. batchsim is the sibling function that offloads the same SimulationInput array to a cluster or the cloud and returns a job object you can poll later.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/parsim.html"
+    }
+  ]
+}

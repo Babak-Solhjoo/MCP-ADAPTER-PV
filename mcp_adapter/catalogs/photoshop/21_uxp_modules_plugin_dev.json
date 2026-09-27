@@ -1,0 +1,213 @@
+{
+  "category": "UXP API II - action, core, imaging and uxp modules; plugin manifest, UI and tooling",
+  "description": "The non-DOM parts of UXP development for Photoshop: the action module (batchPlay variants, notifications, references), the core module (executeAsModal context, menu commands, colour conversion, layer tree, environment), the imaging module (pixel, selection and mask transfer), the uxp module (file system, shell, host), plugin manifest and entrypoints, Spectrum UXP widgets, dialogs, networking, the UXP Developer Tool, the Alchemist recorder and starter templates.",
+  "tools": [
+    {
+      "name": "UXP: batchPlay descriptor anatomy (_obj, _target, _ref, _enum, _unit, _id)",
+      "kind": "reference",
+      "description": "batchPlay commands are plain JSON translations of Action Manager descriptors: `_obj` names the event (e.g. 'gaussianBlur', 'make', 'set', 'select', 'delete', 'get'), `_target` is an array of references (`{_ref: 'layer', _enum: 'ordinal', _value: 'targetEnum'}`, `{_ref: 'layer', _id: 12}`, `{_ref: 'layer', _name: 'hero'}`, `{_ref: 'layer', _index: 3}`, `{_ref: 'document', _id: docId}`, `{_property: 'bounds'}`), values are typed as `{_unit: 'pixelsUnit', _value: 10}`, `{_enum: 'blendMode', _value: 'multiply'}`, `{_class: 'RGBColor'}`, nested `{_obj: ..., ...}` objects and plain arrays for lists; `_options: { dialogOptions: 'dontDisplay' | 'display' | 'silent' }` controls dialogs per command.",
+      "usage": "await action.batchPlay([{ _obj: \"set\", _target: [{ _ref: \"layer\", _enum: \"ordinal\", _value: \"targetEnum\" }], to: { _obj: \"layer\", opacity: { _unit: \"percentUnit\", _value: 50 } }, _options: { dialogOptions: \"dontDisplay\" } }], {});",
+      "parameters": [],
+      "example": "const { action, core } = require(\"photoshop\");\n// read layer bounds without the DOM\nconst [r] = await action.batchPlay([{\n  _obj: \"get\",\n  _target: [{ _property: \"bounds\" }, { _ref: \"layer\", _enum: \"ordinal\", _value: \"targetEnum\" }, { _ref: \"document\", _enum: \"ordinal\", _value: \"targetEnum\" }]\n}], { synchronousExecution: false });\nconsole.log(r.bounds);\n// add an adjustment layer\nawait core.executeAsModal(() => action.batchPlay([{\n  _obj: \"make\", _target: [{ _ref: \"adjustmentLayer\" }],\n  using: { _obj: \"adjustmentLayer\", type: { _obj: \"curves\", presetKind: { _enum: \"presetKindType\", _value: \"presetKindDefault\" } } }\n}], {}), { commandName: \"Add Curves\" });",
+      "notes": "Record real descriptors with the Alchemist plugin rather than guessing keys. 'get' commands can run outside executeAsModal; anything that changes state cannot.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/batchplay/"
+    },
+    {
+      "name": "UXP: action.batchPlaySync(), validateReference(), getIDFromString() and recordAction()",
+      "kind": "api",
+      "description": "Companions of batchPlay: `batchPlaySync(commands, options)` (23.1+) runs synchronously and returns the result array directly (handy in getters and event handlers, but blocks the UI); `validateReference(ref | ref[])` (23.1+) checks whether an ActionReference to a layer/document/channel/path/history state/action still exists; `getIDFromString(str)` (24.0+) returns the numeric type ID for a string (the equivalent of stringIDToTypeID, needed for legacy IDs); `recordAction(options, info)` (25.0+) lets a plugin insert a replayable step into the Actions panel while the user is recording.",
+      "usage": "const res = action.batchPlaySync([{ _obj: \"get\", _target: [{ _ref: \"application\" }] }], {});\nconst ok = action.validateReference({ _ref: \"layer\", _id: 12 });\nconst id = action.getIDFromString(\"gaussianBlur\");\nawait action.recordAction({ name: \"My Plugin: Vignette\", methodName: \"vignette\" }, { amount: 40 });",
+      "parameters": [],
+      "example": "const { action } = require(\"photoshop\");\n// synchronous read of the active tool without awaiting\nconst [app] = action.batchPlaySync([{ _obj: \"get\", _target: [{ _property: \"tool\" }, { _ref: \"application\", _enum: \"ordinal\", _value: \"targetEnum\" }] }], {});\nconsole.log(app.tool._enum, app.tool._value);",
+      "notes": "For recordAction the plugin must export the named method through `entrypoints.setup({ commands: { vignette: (info) => ... } })` so playback can call it.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/photoshopaction/"
+    },
+    {
+      "name": "UXP: action.addNotificationListener() and removeNotificationListener()",
+      "kind": "api",
+      "description": "Subscribe a plugin to Photoshop events by Action Manager event name: `addNotificationListener(['select', 'set', 'make', 'delete', 'open', 'close', 'save', 'historyStateChanged', 'toolModalStateChanged', ...], (event, descriptor) => {})`. The callback receives the event string and the descriptor JSON of what happened, which is how panels keep their UI in sync with layer selection, document switches and edits. `removeNotificationListener(events, callback)` unsubscribes.",
+      "usage": "const { action } = require(\"photoshop\");\nconst onEvent = (event, desc) => console.log(event, desc);\naction.addNotificationListener([\"select\", \"open\", \"close\"], onEvent);\n// later\naction.removeNotificationListener([\"select\", \"open\", \"close\"], onEvent);",
+      "parameters": [
+        {"name": "Common events", "description": "select, set, make, delete, move, duplicate, open, close, save, newDocument, historyStateChanged, toolModalStateChanged, layersFiltered, invokeCommand, modalStateChanged, nonModalStateChanged, applyStyle."}
+      ],
+      "example": "const { app, action } = require(\"photoshop\");\nfunction refresh() {\n  const doc = app.activeDocument;\n  document.getElementById(\"layerName\").textContent = doc ? doc.activeLayers.map(l => l.name).join(\", \") : \"(no document)\";\n}\naction.addNotificationListener([\"select\", \"open\", \"close\", \"historyStateChanged\"], refresh);\nrefresh();",
+      "notes": "Listeners fire on the main thread after the event completes; avoid heavy work or state changes inside them (queue an executeAsModal instead). Events are not delivered while a modal dialog is up.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/photoshopaction/"
+    },
+    {
+      "name": "UXP: executeAsModal ExecutionContext (progress, cancellation, history, timeouts)",
+      "kind": "api",
+      "description": "The function passed to `core.executeAsModal(fn, options)` receives an ExecutionContext with `isCancelled`, `onCancel` (callback registration), `reportProgress({ value: 0..1, commandName })` to drive the progress bar, and `hostControl.suspendHistory({documentID, name})` / `resumeHistory(id)`. Options: `commandName` (shown in the progress dialog and History), `interactive: true` (allows user interaction inside the modal scope), `descriptor` with `historyStateInfo` and `timeOut` (default 5 s before the progress UI appears).",
+      "usage": "await core.executeAsModal(async (ctx, descriptor) => {\n  for (let i = 0; i < files.length; i++) {\n    if (ctx.isCancelled) break;\n    ctx.reportProgress({ value: i / files.length, commandName: `Processing ${files[i].name}` });\n    await processFile(files[i]);\n  }\n}, { commandName: \"Batch process\", interactive: false, descriptor: { timeOut: 2000 } });",
+      "parameters": [],
+      "example": "const { core } = require(\"photoshop\");\nlet cancelled = false;\nawait core.executeAsModal(async (ctx) => {\n  ctx.onCancel(() => { cancelled = true; });\n  const h = await ctx.hostControl.suspendHistory({ documentID: require(\"photoshop\").app.activeDocument.id, name: \"Plugin batch\" });\n  try {\n    for (let i = 0; i < 100 && !cancelled; i++) {\n      ctx.reportProgress({ value: i / 100 });\n      await step(i);\n    }\n  } finally { await ctx.hostControl.resumeHistory(h); }\n}, { commandName: \"Long job\" });",
+      "notes": "Nested executeAsModal calls from the same plugin are allowed; a second plugin trying to enter the modal scope gets 'modal in use' unless it passes `modalBehavior: 'wait'` in batchPlay options. Do not await UI dialogs inside the modal scope without `interactive: true`.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/executeasmodal/"
+    },
+    {
+      "name": "UXP: core.performMenuCommand(), getMenuCommandState() and getMenuCommandTitle()",
+      "kind": "api",
+      "description": "Run any Photoshop menu item by its numeric command ID (`performMenuCommand({ commandID })`), check whether it is currently enabled (`getMenuCommandState({ commandID })` returns boolean) and fetch its localised label (`getMenuCommandTitle({ commandID | menuID })`). Command IDs are the same integers used by ExtendScript's runMenuItem and are listed in Adobe's menu-command reference (developer.adobe.com > Photoshop UXP > 'Menu command IDs'); they reach items with no Action Manager equivalent.",
+      "usage": "const ok = await core.performMenuCommand({ commandID });\nconst enabled = await core.getMenuCommandState({ commandID });\nconst title = await core.getMenuCommandTitle({ commandID });   // look up commandID in Adobe's menu command ID table",
+      "parameters": [],
+      "example": "const { core } = require(\"photoshop\");\nasync function runIfEnabled(id) {\n  if (await core.getMenuCommandState({ commandID: id })) return core.performMenuCommand({ commandID: id });\n  console.warn(\"disabled:\", await core.getMenuCommandTitle({ commandID: id }));\n  return false;\n}",
+      "notes": "Command IDs are stable across versions for existing items. Menu commands that change the document still require executeAsModal.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/photoshopcore/"
+    },
+    {
+      "name": "UXP: core.convertColor(), getLayerTree(), getActiveTool(), getGPUInfo(), createTemporaryDocument() and other core utilities",
+      "kind": "api",
+      "description": "Helper functions on `require('photoshop').core`: `convertColor(sourceColor, targetModel)` converts colour descriptors between RGB, Lab, HSB, Grayscale and CMYK (with the document's profiles); `getLayerTree({documentID})` / `getLayerGroupContents()` return plain-JSON layer hierarchies quickly; `getActiveTool()`; `getCPUInfo()`, `getGPUInfo()`, `getDisplayConfiguration()`; `createTemporaryDocument()` / `deleteTemporaryDocument()` for scratch work; `redrawDocument()`; `translateUIString()`; `calculateDialogSize()` / `convertGlobalToLocal()`; `setUserIdleTime()` / `getUserIdleTime()`; `isModal()`; `getPluginInfo()` (diagnostics).",
+      "usage": "const lab = core.convertColor({ _obj: \"RGBColor\", red: 200, grain: 30, blue: 30 }, \"lab\");\nconst tree = await core.getLayerTree({ documentID: doc.id });\nconst gpu = await core.getGPUInfo();",
+      "parameters": [],
+      "example": "const { core, app } = require(\"photoshop\");\nconst info = await core.getGPUInfo();\nconsole.log(\"GPU:\", info);\nconst tree = await core.getLayerTree({ documentID: app.activeDocument.id });\nconsole.log(JSON.stringify(tree, null, 1).slice(0, 500));",
+      "notes": "Colour descriptors use Action Manager key names (`red`, `grain` (green), `blue`; `luminance`, `a`, `b`; `hue`, `saturation`, `brightness`).",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/photoshopcore/"
+    },
+    {
+      "name": "UXP: imaging.getPixels() and PhotoshopImageData",
+      "kind": "api",
+      "description": "Reads pixel data from a layer or the composite into a PhotoshopImageData object: options `documentID`, `layerID` (omit for the flattened composite), `sourceBounds` {left, top, right, bottom}, `targetSize` {width, height} to downsample, `componentSize` 8|16|32, `colorSpace` ('RGB', 'Grayscale', 'Lab'), `colorProfile`, `applyAlpha` (matte RGBA to RGB on white). The result's `imageData.getData({chunky: true})` returns a Uint8Array/Uint16Array/Float32Array; call `dispose()` when done. This is the fast path for ML inference, histograms and custom filters in JavaScript/WASM.",
+      "usage": "const { imaging } = require(\"photoshop\");\nconst { imageData, sourceBounds } = await imaging.getPixels({ documentID: doc.id, layerID: layer.id, targetSize: { width: 512 }, componentSize: 8 });\nconst bytes = await imageData.getData();   // RGBA chunky\nimageData.dispose();",
+      "parameters": [
+        {"name": "layerID", "description": "Source layer; omitted = composite of the document."},
+        {"name": "sourceBounds / targetSize", "description": "Region to read and optional output size (aspect preserved when only width is given)."},
+        {"name": "componentSize / colorSpace / colorProfile", "description": "Bit depth and colour conversion of the returned data."}
+      ],
+      "example": "const { app, imaging } = require(\"photoshop\");\nconst doc = app.activeDocument;\nconst res = await imaging.getPixels({ documentID: doc.id, targetSize: { width: 256 }, componentSize: 8, colorSpace: \"RGB\" });\nconst data = await res.imageData.getData({ chunky: true });\nconst { width, height, components } = res.imageData;\nlet sum = 0; for (let i = 0; i < width * height * components; i += components) sum += 0.299*data[i] + 0.587*data[i+1] + 0.114*data[i+2];\nconsole.log(\"mean luma\", (sum / (width * height)).toFixed(1));\nres.imageData.dispose();",
+      "notes": "Requires Photoshop 23.x+ with `apiVersion: 2` in the manifest (`\"host\": {\"data\": {\"apiVersion\": 2}}`). Reading large layers at full size is memory-heavy; use targetSize for previews.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/imaging/"
+    },
+    {
+      "name": "UXP: imaging.putPixels() and createImageDataFromBuffer()",
+      "kind": "api",
+      "description": "Writes pixels into a pixel layer: `createImageDataFromBuffer(typedArray, { width, height, components, colorSpace, colorProfile?, chunky: true, fullRange? })` wraps raw bytes (RGB/RGBA/Grayscale/Lab, 8/16/32-bit) as PhotoshopImageData, then `putPixels({ documentID, layerID, imageData, targetBounds?, replace: true|false, commandName })` inserts it, replacing or compositing over the existing pixels. Must run inside executeAsModal; the target layer must exist and be a normal pixel layer.",
+      "usage": "const img = await imaging.createImageDataFromBuffer(rgba, { width, height, components: 4, colorSpace: \"RGB\", chunky: true });\nawait imaging.putPixels({ documentID: doc.id, layerID: layer.id, imageData: img, targetBounds: { left: 0, top: 0 }, replace: true, commandName: \"Put pixels\" });\nimg.dispose();",
+      "parameters": [],
+      "example": "const { app, core, imaging, constants } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument;\n  const w = 256, h = 256, buf = new Uint8Array(w * h * 4);\n  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const i = (y*w + x)*4; buf[i] = x; buf[i+1] = y; buf[i+2] = 128; buf[i+3] = 255; }\n  const layer = await doc.createLayer(constants.LayerKind.NORMAL, { name: \"gradient\" });\n  const img = await imaging.createImageDataFromBuffer(buf, { width: w, height: h, components: 4, colorSpace: \"RGB\", chunky: true });\n  await imaging.putPixels({ documentID: doc.id, layerID: layer.id, imageData: img, replace: true, commandName: \"Generate gradient\" });\n  img.dispose();\n}, { commandName: \"Put pixels demo\" });",
+      "notes": "Buffer length must equal width*height*components exactly. 16-bit data is 0-32768 unless `fullRange: true`. Group, text and smart-object layers are rejected.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/imaging/"
+    },
+    {
+      "name": "UXP: imaging.getSelection(), putSelection(), getLayerMask() and putLayerMask()",
+      "kind": "api",
+      "description": "Transfer selections and masks as grayscale PhotoshopImageData: `getSelection({documentID, sourceBounds?, targetSize?})` returns the active selection like a Quick Mask, `putSelection({documentID, imageData, replace?, targetBounds?, commandName})` sets one from pixels; `getLayerMask({documentID, layerID, kind: 'user'|'vector'})` reads a mask and `putLayerMask({documentID, layerID, imageData, replace?, targetBounds?})` writes the pixel ('user') mask - the standard way to bring an ML segmentation result into Photoshop.",
+      "usage": "const sel = await imaging.getSelection({ documentID: doc.id });\nconst maskImg = await imaging.createImageDataFromBuffer(gray, { width, height, components: 1, colorSpace: \"Grayscale\", chunky: true });\nawait imaging.putLayerMask({ documentID: doc.id, layerID: layer.id, imageData: maskImg, replace: true, commandName: \"Apply mask\" });",
+      "parameters": [],
+      "example": "const { app, core, imaging } = require(\"photoshop\");\nawait core.executeAsModal(async () => {\n  const doc = app.activeDocument, layer = doc.activeLayers[0];\n  const w = doc.width, h = doc.height;\n  const gray = new Uint8Array(w * h);\n  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) gray[y*w + x] = x < w/2 ? 255 : 0;   // reveal left half\n  const img = await imaging.createImageDataFromBuffer(gray, { width: w, height: h, components: 1, colorSpace: \"Grayscale\", chunky: true });\n  await imaging.putLayerMask({ documentID: doc.id, layerID: layer.id, imageData: img, replace: true, commandName: \"Half mask\" });\n  img.dispose();\n}, { commandName: \"Mask demo\" });",
+      "notes": "putLayerMask creates the mask if the layer has none. Vector masks are read-only through this API. Selections returned are 8-bit unless componentSize is set.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/imaging/"
+    },
+    {
+      "name": "UXP: imaging.encodeImageData()",
+      "kind": "api",
+      "description": "Encodes a PhotoshopImageData (RGB colour space) to JPEG bytes or a base64 string so a panel can show a live thumbnail in an <img> element, upload a preview to a web service or cache it. Combine with getPixels + targetSize for cheap previews of layers or the composite.",
+      "usage": "const jpeg = await imaging.encodeImageData({ imageData, base64: true });\ndocument.getElementById(\"preview\").src = \"data:image/jpeg;base64,\" + jpeg;",
+      "parameters": [
+        {"name": "imageData", "description": "PhotoshopImageData in RGB (convert with getPixels colorSpace: 'RGB')."},
+        {"name": "base64", "description": "true returns a string; false returns an array of bytes."}
+      ],
+      "example": "const { app, imaging } = require(\"photoshop\");\nasync function thumbnail(size = 200) {\n  const res = await imaging.getPixels({ documentID: app.activeDocument.id, targetSize: { width: size }, componentSize: 8, colorSpace: \"RGB\", applyAlpha: true });\n  const b64 = await imaging.encodeImageData({ imageData: res.imageData, base64: true });\n  res.imageData.dispose();\n  return \"data:image/jpeg;base64,\" + b64;\n}",
+      "notes": "Alpha is dropped (use applyAlpha in getPixels to matte on white first). Only JPEG output is supported.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/media/imaging/"
+    },
+    {
+      "name": "UXP: uxp.storage.localFileSystem (file pickers, tokens, data folders)",
+      "kind": "api",
+      "description": "Sandboxed file access for plugins and .psjs scripts: `getFileForOpening({types, allowMultiple})`, `getFileForSaving(name, {types})`, `getFolder()` show pickers and return Entry objects; `getDataFolder()`, `getTemporaryFolder()`, `getPluginFolder()` give plugin-private locations; entries support `read({format: formats.utf8 | formats.binary})`, `write(data, {format, append})`, `createFile`, `createFolder`, `getEntries()`, `delete()`, `moveTo`, `copyTo`, `nativePath`; `createSessionToken(entry)` / `createPersistentToken(entry)` and `getEntryForPersistentToken(token)` let you reopen a user-chosen folder later or pass a path to batchPlay (`{_path: token}`).",
+      "usage": "const fs = require(\"uxp\").storage.localFileSystem;\nconst formats = require(\"uxp\").storage.formats;\nconst folder = await fs.getFolder();\nconst token = await fs.createPersistentToken(folder);   // store in localStorage\nconst file = await folder.createFile(\"log.txt\", { overwrite: true });\nawait file.write(\"hello\", { format: formats.utf8 });",
+      "parameters": [
+        {"name": "manifest requiredPermissions.localFileSystem", "description": "'request' (pickers only, default), 'plugin' (plugin folder), 'fullAccess' (any path, Photoshop 23.3+ with user consent)."}
+      ],
+      "example": "const uxp = require(\"uxp\");\nconst fs = uxp.storage.localFileSystem, formats = uxp.storage.formats;\nconst file = await fs.getFileForOpening({ types: [\"json\"] });\nif (file) {\n  const cfg = JSON.parse(await file.read({ format: formats.utf8 }));\n  console.log(cfg);\n}\n// use a picked file with batchPlay 'open'\nconst token = await fs.createSessionToken(file);\nawait require(\"photoshop\").core.executeAsModal(() => require(\"photoshop\").action.batchPlay([{ _obj: \"open\", null: { _path: token, _kind: \"local\" } }], {}), { commandName: \"Open\" });",
+      "notes": "Paths are not strings: convert with tokens for batchPlay or use `entry.nativePath` for display only. `fullAccess` shows a permission prompt on first use.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/uxp-api/reference-js/Modules/uxp/Persistent%20File%20Storage/FileSystemProvider/"
+    },
+    {
+      "name": "UXP: uxp.shell, uxp.host, os and networking (fetch, WebSocket)",
+      "kind": "api",
+      "description": "`require('uxp').shell.openExternal(url)` opens a URL in the default browser (and `openPath` a file/folder; both need `launchProcess` permissions in manifest v5); `require('uxp').host` gives `{ name: 'Photoshop', version: '26.0.0', uiLocale }`; `require('os')` exposes `platform()`, `release()`, `arch()`, `homedir()`; standard `fetch`, `XMLHttpRequest` and `WebSocket` are available for HTTP/WS calls to domains listed under `requiredPermissions.network.domains` (or 'all'). `localStorage`/`sessionStorage` and `crypto` are also provided.",
+      "usage": "const { shell, host } = require(\"uxp\");\nawait shell.openExternal(\"https://example.com/docs\");\nconsole.log(host.name, host.version);\nconst r = await fetch(\"https://api.example.com/v1/jobs\", { method: \"POST\", headers: { \"Content-Type\": \"application/json\" }, body: JSON.stringify({ id: 1 }) });",
+      "parameters": [
+        {"name": "manifest requiredPermissions.network.domains", "description": "Array of allowed origins (or 'all'); requests to others are blocked."},
+        {"name": "manifest requiredPermissions.launchProcess", "description": "{ schemes: ['https'], extensions: ['.pdf'] } for openExternal/openPath."}
+      ],
+      "example": "const { host } = require(\"uxp\");\nconst [major, minor] = host.version.split(\".\").map(Number);\nif (major < 25) throw new Error(\"Needs Photoshop 25+ for the Selection API\");\nconst res = await fetch(\"https://httpbin.org/get\");\nconsole.log((await res.json()).origin);",
+      "notes": "No Node.js APIs (fs, child_process) exist in UXP; use uxp.storage and shell instead. WebView (`<webview>`) needs `requiredPermissions.webview` and is UXP 6+/Photoshop 23.4+.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/uxp-api/"
+    },
+    {
+      "name": "UXP: manifest.json (v5) and requiredPermissions",
+      "kind": "reference",
+      "description": "Every UXP plugin declares itself in manifest.json: `manifestVersion: 5`, `id`, `name`, `version` (semver), `main` (HTML or JS entry), `host: { app: 'PS', minVersion: '23.3.0', data: { apiVersion: 2 } }`, `entrypoints` (panels with id/label/minimumSize/maximumSize/preferredDockedSize/preferredFloatingSize/icons, and commands with id/label), `icons` (dark/light themes at 1x/2x), `requiredPermissions` (localFileSystem, network.domains, clipboard, webview, launchProcess, ipc, enableUserInfo, allowCodeGenerationFromStrings), optional `featureFlags` and `strings` for localisation.",
+      "usage": "{\n  \"manifestVersion\": 5, \"id\": \"com.example.exporter\", \"name\": \"Exporter\", \"version\": \"1.0.0\", \"main\": \"index.html\",\n  \"host\": { \"app\": \"PS\", \"minVersion\": \"24.0.0\", \"data\": { \"apiVersion\": 2 } },\n  \"entrypoints\": [ { \"type\": \"panel\", \"id\": \"main\", \"label\": { \"default\": \"Exporter\" }, \"minimumSize\": { \"width\": 230, \"height\": 200 } },\n                   { \"type\": \"command\", \"id\": \"quickExport\", \"label\": { \"default\": \"Quick Export\" } } ],\n  \"requiredPermissions\": { \"localFileSystem\": \"request\", \"network\": { \"domains\": [\"https://api.example.com\"] }, \"clipboard\": \"readAndWrite\" },\n  \"icons\": [ { \"width\": 23, \"height\": 23, \"path\": \"icons/dark.png\", \"scale\": [1, 2], \"theme\": [\"darkest\", \"dark\", \"medium\"] } ]\n}",
+      "parameters": [
+        {"name": "host.data.apiVersion", "description": "2 enables executeAsModal, imaging and the current DOM; 1 is the legacy (Photoshop 22) behaviour."},
+        {"name": "entrypoints[].type", "description": "'panel' (dockable UI) or 'command' (Plugins menu item)."}
+      ],
+      "example": "Panels appear under Plugins > <plugin name>; commands under the same submenu. Bump `version` before packaging to .ccx; `id` must match the Developer Distribution listing.",
+      "notes": "Changing the manifest requires reloading the plugin in UDT. `minVersion` gates installation from the Marketplace.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/guides/uxp_guide/uxp-misc/manifest-v5/"
+    },
+    {
+      "name": "UXP: entrypoints.setup() (panel and command lifecycle)",
+      "kind": "api",
+      "description": "`require('uxp').entrypoints.setup({ plugin: { create, destroy }, panels: { <id>: { create(rootNode), show, hide, destroy, invokeMenu(id), menuItems: [...] } }, commands: { <id>: () => {} } })` wires manifest entrypoints to code: panel hooks receive the panel's root DOM node and lifecycle events, `menuItems` defines the panel flyout menu, and each command function runs when its Plugins-menu item is chosen (or when an action recorded with recordAction plays back).",
+      "usage": "const { entrypoints } = require(\"uxp\");\nentrypoints.setup({\n  panels: {\n    main: {\n      create(root) { root.appendChild(buildUI()); },\n      show() {}, hide() {},\n      menuItems: [{ id: \"reload\", label: \"Reload\" }],\n      invokeMenu(id) { if (id === \"reload\") location.reload(); }\n    }\n  },\n  commands: { quickExport: async () => { await exportActive(); } }\n});",
+      "parameters": [],
+      "example": "const { entrypoints } = require(\"uxp\");\nconst { app, core } = require(\"photoshop\");\nentrypoints.setup({\n  commands: {\n    stampVisible: () => core.executeAsModal(() => require(\"photoshop\").action.batchPlay([{ _obj: \"mergeVisible\", duplicate: true }], {}), { commandName: \"Stamp Visible\" })\n  }\n});",
+      "notes": "Call setup once at plugin load (top of main.js). Without it a single-panel plugin still works but gets no lifecycle hooks or flyout menu.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/uxp-api/reference-js/Modules/uxp/EntryPoints/EntryPoints/"
+    },
+    {
+      "name": "UXP: Spectrum UXP widgets (sp-button, sp-textfield, sp-slider, sp-picker...)",
+      "kind": "library",
+      "description": "UXP ships built-in Spectrum-styled HTML elements that match Photoshop's theme automatically: sp-button (variants cta, primary, secondary, warning; quiet), sp-action-button, sp-checkbox, sp-radio/sp-radio-group, sp-textfield, sp-textarea, sp-slider, sp-picker/sp-menu/sp-menu-item (dropdowns), sp-dropdown (legacy), sp-progressbar, sp-link, sp-divider, sp-heading, sp-body, sp-detail, sp-label and sp-icon (with built-in icon names); tooltips use the plain `title` attribute. Styling uses CSS with limited flexbox; themes are exposed via `--uxp-host-background-color` and similar variables.",
+      "usage": "<sp-heading size=\"S\">Export</sp-heading>\n<sp-textfield id=\"w\" placeholder=\"Width\"></sp-textfield>\n<sp-slider id=\"q\" min=\"1\" max=\"100\" value=\"80\"><sp-label slot=\"label\">Quality</sp-label></sp-slider>\n<sp-picker id=\"fmt\"><sp-menu slot=\"options\"><sp-menu-item selected>JPEG</sp-menu-item><sp-menu-item>PNG</sp-menu-item></sp-menu></sp-picker>\n<sp-button variant=\"cta\" id=\"go\">Export</sp-button>",
+      "parameters": [],
+      "example": "document.getElementById(\"go\").addEventListener(\"click\", async () => {\n  const q = Number(document.getElementById(\"q\").value);\n  const fmt = document.getElementById(\"fmt\").selectedIndex === 0 ? \"jpg\" : \"png\";\n  await exportActive({ quality: q, format: fmt });\n});",
+      "notes": "For React use the Spectrum Web Components wrappers (@swc-uxp-wrappers) or plain HTML; standard <input type=\"range\"> also works but is unstyled. Events: sp-slider/sp-textfield fire 'input' and 'change'; sp-picker fires 'change' with `selectedIndex`.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/uxp-api/reference-spectrum/"
+    },
+    {
+      "name": "UXP: dialogs (HTML <dialog>, showModal) and alerts",
+      "kind": "api",
+      "description": "Modal plugin UI uses the standard HTML `<dialog>` element: build it in the DOM (or a <form method=\"dialog\">), call `dialog.showModal()` (returns a promise resolving with the close value: 'ok', 'cancel' or a custom string), close with `dialog.close(value)`. For simple messages `core.showAlert({message})` or `app.showAlert()` suffice. Dialogs run outside executeAsModal; collect input first, then enter the modal scope to apply it.",
+      "usage": "const dlg = document.createElement(\"dialog\");\ndlg.innerHTML = `<form method=\"dialog\"><sp-heading>Width</sp-heading><sp-textfield id=\"w\" value=\"1920\"></sp-textfield><footer><sp-button id=\"cancel\" variant=\"secondary\">Cancel</sp-button><sp-button id=\"ok\" variant=\"cta\">OK</sp-button></footer></form>`;\ndocument.body.appendChild(dlg);\ndlg.querySelector(\"#ok\").onclick = () => dlg.close(dlg.querySelector(\"#w\").value);\ndlg.querySelector(\"#cancel\").onclick = () => dlg.close(\"cancel\");\nconst result = await dlg.showModal();",
+      "parameters": [],
+      "example": "async function askWidth() {\n  const result = await dlg.showModal();   // see usage\n  dlg.remove();\n  return result === \"cancel\" ? null : Number(result);\n}\nconst w = await askWidth();\nif (w) await require(\"photoshop\").core.executeAsModal(() => require(\"photoshop\").app.activeDocument.resizeImage(w), { commandName: \"Resize\" });",
+      "notes": "Only one dialog may be open at a time; `showModal` rejects if another modal is up. Size the dialog with CSS width/height on the form; `core.calculateDialogSize` helps for dynamic content.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/uxp-api/reference-js/Global%20Members/HTML%20Elements/HTMLDialogElement/"
+    },
+    {
+      "name": "UXP Developer Tool (UDT) and the uxp CLI",
+      "kind": "library",
+      "description": "The desktop app (installed from Creative Cloud Desktop > All apps > UXP Developer Tools) that side-loads plugins during development: Add Plugin (pick manifest.json), Load into the running Photoshop, Watch for hot reload on file save, Debug (Chrome DevTools: console, DOM, network, breakpoints), Options > Package to build a .ccx, and Plugin Logs. The `@adobe/uxp-devtools-cli` npm package exposes the same operations (`uxp devtools enable`, `uxp plugin load`, `uxp plugin reload`, `uxp plugin debug`) for CI and editor integration.",
+      "usage": "Creative Cloud Desktop > UXP Developer Tools > Add Plugin > select manifest.json > Load > Watch > Debug   |   npm i -g @adobe/uxp-devtools-cli; uxp devtools enable; uxp plugin load --manifest ./manifest.json",
+      "parameters": [],
+      "example": "1. Create a folder with manifest.json, index.html and main.js (or copy a starter from the uxp-photoshop-plugin-samples repository).\n2. In UDT click Add Plugin, choose manifest.json, then Load; the panel appears under Plugins in Photoshop.\n3. Click Debug to open DevTools; console.log output from the plugin appears there.\n4. Enable Watch so edits reload automatically; Package when ready to distribute.",
+      "notes": "UDT must be enabled ('Developer Mode') in Creative Cloud Desktop preferences on some versions. Photoshop must be running with the plugin's host.minVersion satisfied; mismatches show 'incompatible host'.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/guides/devtool/"
+    },
+    {
+      "name": "Alchemist (batchPlay recorder plugin)",
+      "kind": "library",
+      "description": "A free open-source UXP panel (by Jaroslav Bereza, on Adobe Exchange and GitHub) that records every Photoshop event as ready-to-paste batchPlay JSON, inspects any document/layer/application property via 'get' descriptors and lets you replay or edit descriptors - the UXP successor of ScriptingListener. Indispensable for discovering the keys of commands that have no DOM method (Smart Sharpen, Camera Raw Filter, Content-Aware Fill, Select Subject, layer styles).",
+      "usage": "Plugins > Alchemist > Listener tab > start recording > perform the action in Photoshop > copy the generated batchPlay code   |   Inspector tab > select Document/Layer/Application > browse properties",
+      "parameters": [],
+      "example": "1. Open Alchemist, click Record, apply Filter > Sharpen > Smart Sharpen in Photoshop.\n2. Copy the descriptor `{ _obj: \"smartSharpen\", amount: {...}, radius: {...}, noiseReduction: {...}, blur: {...}, ... }`.\n3. Paste it into `action.batchPlay([...], {})` inside executeAsModal and parameterise the values.",
+      "notes": "Install from Adobe Exchange ('Alchemist') or build from github.com/jardicc/alchemist. Recorded descriptors may include transient keys (e.g. `_isCommand`) that can be dropped.",
+      "docs": "https://github.com/jardicc/alchemist"
+    },
+    {
+      "name": "UXP plugin samples, starters and typings",
+      "kind": "library",
+      "description": "Adobe's github.com/AdobeDocs/uxp-photoshop-plugin-samples repository holds runnable starters (vanilla JS panel, React (JS/TS) panel with webpack, Vue, command-only, imaging, batchPlay, WebView, hybrid C++ plugins), and the 'ps-types'/'photoshop' TypeScript definitions (@types via `types-for-adobe` or Adobe's `photoshop` npm types) give autocomplete for the DOM. Use them as the base for new plugins instead of starting from scratch.",
+      "usage": "git clone https://github.com/AdobeDocs/uxp-photoshop-plugin-samples; cd ui-react-starter; npm install; npm run watch; then load dist/manifest.json in UDT",
+      "parameters": [],
+      "example": "1. Clone the samples repo and copy 'ui-react-starter' to a new folder.\n2. Edit manifest.json id/name, run `npm run build`.\n3. Load `dist/` in UDT, click Debug, and start editing src/panels/Demos.jsx.",
+      "notes": "React must be bundled with webpack/vite targeting ES2019 (no top-level ESM imports in the final bundle unless using UXP's module support). Hybrid plugins (C++ via UXP) are Photoshop 24.4+.",
+      "docs": "https://github.com/AdobeDocs/uxp-photoshop-plugin-samples"
+    }
+  ]
+}

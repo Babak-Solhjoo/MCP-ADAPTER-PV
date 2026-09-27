@@ -1,0 +1,538 @@
+{
+  "category": "Analysis Setups, Frequency Sweeps, Solvers & HPC",
+  "description": "Defining what HFSS solves and how: adaptive analysis setups per solution type, the three frequency-sweep technologies and their range forms, solver and basis-order choices, Optimetrics studies, and the HPC, distributed and scheduler options that make large jobs finish.",
+  "tools": [
+    {
+      "name": "Insert Analysis Setup (Driven)",
+      "kind": "study",
+      "description": "Create the adaptive frequency-domain solution setup that every Driven Modal and Driven Terminal design needs. The setup names the adaptive solution frequency, the convergence criteria and the solver options; frequency sweeps are then added underneath it. Nothing solves until at least one setup exists.",
+      "usage": "Right-click Analysis in the project tree > Add Solution Setup > Advanced\nScript: oModule = oDesign.GetModule(\"AnalysisSetup\"); oModule.InsertSetup(\"HfssDriven\", [\"NAME:Setup1\", \"Frequency:=\", \"10GHz\", \"MaxDeltaS:=\", 0.02, \"MaximumPasses:=\", 12, \"MinimumPasses:=\", 1, \"MinimumConvergedPasses:=\", 1, \"PercentRefinement:=\", 30, \"BasisOrder:=\", 1])\nPyAEDT: setup = hfss.create_setup(\"Setup1\"); setup.props[...] = ...; setup.update()",
+      "parameters": [
+        {"name": "Frequency", "description": "Adaptive solution frequency at which the mesh is refined. Choose the highest frequency of interest, or the centre of a narrow band."},
+        {"name": "MaxDeltaS", "description": "Convergence target: the largest permitted change in any S-parameter magnitude between consecutive passes."},
+        {"name": "MaximumPasses / MinimumPasses", "description": "Upper and lower limits on adaptive refinement passes."},
+        {"name": "MinimumConvergedPasses", "description": "How many consecutive passes must meet MaxDeltaS before the solve stops."},
+        {"name": "PercentRefinement", "description": "Fraction of elements refined per pass; 30% is the default, lower converges more smoothly."},
+        {"name": "BasisOrder", "description": "Order of the vector basis functions: 0 (zero/lowest), 1 (first, default), 2 (second) or -1 for mixed order."},
+        {"name": "SaveFields / SaveRadFieldsOnly", "description": "Whether the full field solution or only radiated-field data is stored at the adaptive frequency."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\")\nsetup.props[\"Frequency\"] = \"10GHz\"\nsetup.props[\"MaxDeltaS\"] = 0.01\nsetup.props[\"MaximumPasses\"] = 20\nsetup.props[\"MinimumConvergedPasses\"] = 2\nsetup.props[\"BasisOrder\"] = 1\nsetup.update()\nhfss.analyze_setup(\"Setup1\")\nprint(hfss.setups[0].name)",
+      "notes": "Mesh refinement happens at the adaptive frequency only, so a mesh adapted at 1 GHz will be far too coarse at 20 GHz. For wide bands use a multi-frequency or broadband adaptive setup instead of a single point."
+    },
+    {
+      "name": "Solution Frequency: Single, Multi-Frequency and Broadband",
+      "kind": "study",
+      "description": "Choose how the adaptive mesh is refined across the band. Single point adapts at one frequency; Multi-Frequency adapts at several chosen points and merges the meshes; Broadband adapts over a range so the mesh is acceptable everywhere in it. Multi-frequency is the usual choice for wideband devices where one adapted mesh would be wrong at the band edges.",
+      "usage": "Analysis setup > General tab > Solution Frequency: Single | Multi-Frequencies | Broadband\nScript: the InsertSetup array carries \"SolveType:=\", \"Single\" | \"MultiFrequency\" | \"Broadband\" plus \"MultipleAdaptiveFreqsSetup\" or \"RangeStart\"/\"RangeEnd\"",
+      "parameters": [
+        {"name": "Single", "description": "One adaptive frequency; cheapest, correct for narrowband devices."},
+        {"name": "Multi-Frequencies", "description": "A list of adaptive frequencies, each with its own Delta S target. The resulting meshes are merged into one."},
+        {"name": "Broadband", "description": "A start and stop frequency over which the adaptive process must converge."},
+        {"name": "Per-frequency Delta S", "description": "In multi-frequency mode each point can carry its own convergence target, so a critical band edge can be tightened."},
+        {"name": "Cost", "description": "Multi-frequency and broadband adaptation multiply the adaptive cost roughly by the number of points, but usually save far more in sweep accuracy."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\")\nsetup.props[\"SolveType\"] = \"MultiFrequency\"\nsetup.props[\"MultipleAdaptiveFreqsSetup\"] = {\"1GHz\": [0.02], \"5GHz\": [0.02], \"10GHz\": [0.02]}\nsetup.props[\"MaximumPasses\"] = 15\nsetup.update()\nhfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\", start_frequency=1,\n                               stop_frequency=10, num_of_freq_points=901,\n                               sweep_type=\"Interpolating\")\nhfss.analyze()",
+      "notes": "A common failure mode is adapting at the band centre and then sweeping two octaves: the mesh is too coarse at the top and the interpolating sweep struggles to fit. If a sweep will not converge, add adaptive frequencies before adding sweep points."
+    },
+    {
+      "name": "Order of Basis Functions",
+      "kind": "study",
+      "description": "Sets the polynomial order of the vector basis functions on each tetrahedron: zero, first (the default), second, or mixed order where HFSS assigns the order element by element. Higher order gives more accuracy per element but more unknowns per element, so second order suits smooth electrically large problems while first order suits geometrically detailed ones.",
+      "usage": "Analysis setup > Options tab > Order of Basis Functions: Zero Order | First Order | Second Order | Mixed Order\nScript: \"BasisOrder:=\", 0 | 1 | 2 | -1 in the setup array\nPyAEDT: setup.props[\"BasisOrder\"] = 2; setup.update()",
+      "parameters": [
+        {"name": "Zero Order", "description": "Lowest order; very cheap per element but needs a very fine mesh. Occasionally useful for huge coarse models."},
+        {"name": "First Order", "description": "The default and the best general trade-off."},
+        {"name": "Second Order", "description": "More unknowns per element but far fewer elements needed; good for smooth, electrically large, low-detail structures."},
+        {"name": "Mixed Order", "description": "HFSS chooses the order per element from the local field behaviour and element size, which often gives the best accuracy per unknown."},
+        {"name": "Interaction with curvilinear elements", "description": "Second order pairs naturally with curved elements on curved geometry."}
+      ],
+      "example": "setup = hfss.get_setup(\"Setup1\")\nsetup.props[\"BasisOrder\"] = 2\nsetup.update()\nhfss.mesh.assign_curvilinear_elements(assignment=[\"Lens\"], enable=True)\nhfss.analyze_setup(\"Setup1\")",
+      "notes": "Switching to second order on a model that is already finely meshed can exhaust memory. Coarsen the mesh when raising the order, which is the whole point of doing so."
+    },
+    {
+      "name": "Eigenmode Setup",
+      "kind": "study",
+      "description": "The analysis setup for an Eigenmode design: instead of a driving frequency it asks for a minimum frequency to search above and how many resonant modes to find, converging on the change in resonant frequency between passes. It returns eigenfrequencies and, when loss is present, unloaded Q factors.",
+      "usage": "Right-click Analysis > Add Solution Setup (in an Eigenmode design)\nScript: oModule.InsertSetup(\"HfssEigen\", [\"NAME:Setup1\", \"MinimumFrequency:=\", \"2GHz\", \"NumModes:=\", 4, \"MaxDeltaFreq:=\", 1, \"ConvergeOnRealFreq:=\", True, \"MaximumPasses:=\", 12, \"BasisOrder:=\", 1])\nPyAEDT: setup = hfss.create_setup(\"Setup1\") in an Eigenmode design, then set the props below",
+      "parameters": [
+        {"name": "MinimumFrequency", "description": "Lower bound of the search; the solver returns NumModes resonances above it."},
+        {"name": "NumModes", "description": "How many modes to compute, up to 20."},
+        {"name": "MaxDeltaFreq", "description": "Convergence criterion as a percentage change in resonant frequency between adaptive passes."},
+        {"name": "ConvergeOnRealFreq", "description": "Converge on the real part of the eigenfrequency rather than the complex value, which is the usual choice for lossy cavities."},
+        {"name": "MaximumPasses", "description": "Limit on adaptive refinement passes."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Eigenmode\", version=\"2025.1\", non_graphical=True)\nsetup = hfss.create_setup(\"Setup1\")\nsetup.props[\"MinimumFrequency\"] = \"2GHz\"\nsetup.props[\"NumModes\"] = 4\nsetup.props[\"MaxDeltaFreq\"] = 0.5\nsetup.props[\"MaximumPasses\"] = 15\nsetup.update()\nhfss.analyze()",
+      "notes": "A completely lossless model returns infinite Q, so add finite conductivity or a lossy dielectric when Q is the answer you want. If the returned frequencies look wrong, check that the minimum frequency is below the mode of interest but above any spurious static solution."
+    },
+    {
+      "name": "Transient Setup",
+      "kind": "study",
+      "description": "The setup for a time-domain (TDS) design, defining the stop time, the time step and how field data is saved, along with the adaptive meshing controls used at the equivalent frequency. Transient runs produce waveforms directly and derive broadband S-parameters by transform, so one run covers the whole band.",
+      "usage": "Right-click Analysis > Add Solution Setup (in a Transient design)\nScript: oModule.InsertSetup(\"HfssTransient\", [\"NAME:Setup1\", \"Stop:=\", \"5ns\", \"TimeStep:=\", \"1ps\", ...])\nPyAEDT: setup = hfss.create_setup(\"Setup1\"); setup.props[\"Stop\"] = \"5ns\"; setup.update()",
+      "parameters": [
+        {"name": "Stop", "description": "Total simulated duration. It must be long enough for all reflections of interest to die away, or the transform shows truncation ripple."},
+        {"name": "TimeStep", "description": "Solver time step; smaller resolves higher frequencies and costs proportionally more."},
+        {"name": "Input signal", "description": "Set on the excitation: Gaussian pulse, differentiated Gaussian, step, sinusoid or an imported waveform, with its own bandwidth."},
+        {"name": "Save fields", "description": "Whether and how often field snapshots are stored for animation; this dominates disk usage."},
+        {"name": "Adaptive settings", "description": "Transient still refines a mesh; the criteria are expressed in the transient setup rather than per frequency."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Transient\", version=\"2025.1\", non_graphical=True)\nsetup = hfss.create_setup(\"Setup1\")\nsetup.props[\"Stop\"] = \"10ns\"\nsetup.update()\nhfss.analyze()\nhfss.post.create_report(\"O(1,1,1)\", domain=\"Time\")",
+      "notes": "Too short a stop time truncates the response and shows up as ringing in the transformed S-parameters. Time-domain runs are usually slower than a frequency sweep for narrowband devices; use them when a waveform or a TDR trace is what you actually need."
+    },
+    {
+      "name": "SBR+ Setup",
+      "kind": "study",
+      "description": "The asymptotic analysis setup used by SBR+ designs, where accuracy is controlled by ray density and the number of bounces rather than by a mesh. Dedicated variants exist for monostatic and bistatic radar cross-section and for automotive radar scene analysis with Doppler processing.",
+      "usage": "Right-click Analysis > Add Solution Setup (in an SBR+ design)\nOptions: Ray Density Per Wavelength, Max Number of Bounces, PTD / UTD / creeping-wave corrections, and the RCS or Doppler setup variants",
+      "parameters": [
+        {"name": "Ray Density Per Wavelength", "description": "Primary accuracy control; increase it until the result stops changing, exactly as you would refine a mesh."},
+        {"name": "Max Number of Bounces", "description": "How many reflections a ray follows. Cavities and corner reflectors need more."},
+        {"name": "PTD / UTD / Creeping Wave", "description": "Physical theory of diffraction, uniform theory of diffraction and creeping-wave corrections that fill in what pure ray tracing misses at edges and in shadows."},
+        {"name": "RCS setup", "description": "Monostatic or bistatic radar cross-section sweeps over incidence and observation angles."},
+        {"name": "Doppler setup", "description": "Automotive radar scene analysis producing range-Doppler maps from moving-target scenes."}
+      ],
+      "example": "sbr = Hfss(solution_type=\"SBR+\", version=\"2025.1\", non_graphical=True)\nsbr.modeler.import_3d_cad(r\"C:\\work\\platform.step\")\nsetup = sbr.create_setup(\"SBRSetup\")\nsetup.props[\"RayDensityPerWavelength\"] = 4\nsetup.props[\"MaxNumberOfBounces\"] = 5\nsetup.update()\nsbr.analyze()",
+      "notes": "Ray density is the SBR+ equivalent of mesh convergence: run at two densities and compare. SBR+ has no adaptive process to tell you it has converged, so that comparison is the only check available."
+    },
+    {
+      "name": "Discrete Frequency Sweep",
+      "kind": "study",
+      "description": "Solve the full field problem independently at every frequency point in the sweep. It is the most accurate sweep type and the only one that can save full fields at every point, but the cost is linear in the number of points. Use it for a handful of frequencies, for field animation across frequency, or as the reference against which a faster sweep is validated.",
+      "usage": "Right-click a setup > Add Frequency Sweep... > Sweep Type: Discrete\nScript: oModule.InsertFrequencySweep(\"Setup1\", [\"NAME:Sweep1\", \"IsEnabled:=\", True, \"Type:=\", \"Discrete\", \"RangeType:=\", \"LinearCount\", \"RangeStart:=\", \"8GHz\", \"RangeEnd:=\", \"12GHz\", \"RangeCount:=\", 9, \"SaveFields:=\", True])\nPyAEDT: hfss.create_linear_count_sweep(..., sweep_type=\"Discrete\", save_fields=True)",
+      "parameters": [
+        {"name": "Type", "description": "Discrete - a full solve per point."},
+        {"name": "SaveFields", "description": "Discrete is the only sweep type that can store the complete field solution at each point, which is what field animation across frequency needs."},
+        {"name": "RangeType", "description": "LinearStep, LinearCount, LogScale or SinglePoints."},
+        {"name": "Cost", "description": "Runtime is the per-point solve time times the number of points; there is no interpolation saving."}
+      ],
+      "example": "hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                               start_frequency=8, stop_frequency=12,\n                               num_of_freq_points=9,\n                               sweep_type=\"Discrete\",\n                               save_fields=True, name=\"Discrete9\")\nhfss.analyze()\nhfss.post.create_fieldplot_surface(assignment=[\"Patch\"], quantity=\"Mag_E\")",
+      "notes": "Saving fields at many discrete points fills disk very quickly - a few hundred megabytes per point is normal for a large model. Save fields only at the points you will actually plot."
+    },
+    {
+      "name": "Fast Sweep (Model Order Reduction)",
+      "kind": "study",
+      "description": "Solve at a single centre frequency and use a model-order-reduction (adaptive Lanczos-Pade) expansion to generate the whole band from that one solution. It is extremely fast and captures sharp resonances well, making it the natural choice for filters and highly resonant structures over a moderate bandwidth.",
+      "usage": "Right-click a setup > Add Frequency Sweep... > Sweep Type: Fast\nScript: \"Type:=\", \"Fast\" in the InsertFrequencySweep array\nPyAEDT: hfss.create_linear_count_sweep(..., sweep_type=\"Fast\")",
+      "parameters": [
+        {"name": "Centre frequency", "description": "The single frequency at which the full solve is performed; the expansion is most accurate near it."},
+        {"name": "Bandwidth", "description": "Accuracy degrades away from the centre; a fractional bandwidth beyond roughly an octave is usually too much."},
+        {"name": "SaveFields", "description": "Fields can be recovered across the band from the reduced model, unlike an interpolating sweep."},
+        {"name": "Memory", "description": "Fast sweeps hold the reduced model in memory and can need substantially more RAM than a discrete point."}
+      ],
+      "example": "hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                               start_frequency=9.5, stop_frequency=10.5,\n                               num_of_freq_points=1001,\n                               sweep_type=\"Fast\", name=\"FastBand\")\nhfss.analyze()\nhfss.post.create_report(\"dB(S(1,1))\")",
+      "notes": "Fast sweeps excel where interpolating sweeps struggle: many closely spaced resonances over a narrow band. Over very wide bands the expansion loses accuracy at the edges, so compare against a few discrete points before trusting it."
+    },
+    {
+      "name": "Interpolating Sweep",
+      "kind": "study",
+      "description": "Solve at an adaptively chosen set of frequencies and fit a rational function through them, adding points where the fit is poor until an error tolerance is met. It is the default choice for wide bands because it produces a dense trace from a modest number of real solves, and it parallelises well across distributed machines.",
+      "usage": "Right-click a setup > Add Frequency Sweep... > Sweep Type: Interpolating\nScript: \"Type:=\", \"Interpolating\", \"InterpTolerance:=\", 0.5, \"InterpMaxSolns:=\", 250, \"InterpMinSolns:=\", 0, \"InterpMinSubranges:=\", 1\nPyAEDT: hfss.create_linear_count_sweep(..., sweep_type=\"Interpolating\", interpolation_tolerance=0.5, interpolation_max_solutions=250)",
+      "parameters": [
+        {"name": "InterpTolerance", "description": "Error tolerance in percent that the rational fit must achieve; 0.5% is the usual default."},
+        {"name": "InterpMaxSolns", "description": "Maximum number of real solve points allowed before the sweep gives up."},
+        {"name": "InterpMinSolns / InterpMinSubranges", "description": "Force a minimum number of solutions or subranges, useful when a resonance sits between the automatically chosen points."},
+        {"name": "SaveFields", "description": "Interpolating sweeps do not store fields at the interpolated points; add a discrete sweep or a single-point sweep where fields are needed."},
+        {"name": "Distributed solve", "description": "The independent solve points distribute across machines very effectively, which is the main reason to prefer this sweep on a cluster."}
+      ],
+      "example": "hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                               start_frequency=1, stop_frequency=20,\n                               num_of_freq_points=1901,\n                               sweep_type=\"Interpolating\",\n                               interpolation_tolerance=0.5,\n                               interpolation_max_solutions=250,\n                               name=\"Broadband\")\nhfss.analyze()",
+      "notes": "If the sweep hits InterpMaxSolns without converging, the mesh is usually the problem - adapt at more frequencies rather than raising the solution limit. Sharp high-Q resonances are the classic case where a Fast sweep beats an interpolating one."
+    },
+    {
+      "name": "Sweep range: LinearStep",
+      "kind": "study",
+      "description": "Define the sweep by a start frequency, a stop frequency and a fixed frequency increment. It is the form to use when the point spacing matters - matching a measurement grid, guaranteeing resolution across a narrow resonance, or producing a Touchstone file with a specific step.",
+      "usage": "Frequency sweep dialog > Distribution: Linear Step\nScript: \"RangeType:=\", \"LinearStep\", \"RangeStart:=\", \"1GHz\", \"RangeEnd:=\", \"10GHz\", \"RangeStep:=\", \"10MHz\"\nPyAEDT: hfss.create_linear_step_sweep(setup=..., unit=\"GHz\", start_frequency=1, stop_frequency=10, step_size=0.01, sweep_type=\"Interpolating\")",
+      "parameters": [
+        {"name": "RangeStart / RangeEnd", "description": "Band limits with units."},
+        {"name": "RangeStep", "description": "Fixed increment between points; the number of points follows from the band width."},
+        {"name": "Point count consequence", "description": "A 1 MHz step over 20 GHz is 20001 points - fine for an interpolating sweep, ruinous for a discrete one."}
+      ],
+      "example": "hfss.create_linear_step_sweep(setup=\"Setup1\", unit=\"GHz\",\n                              start_frequency=1, stop_frequency=10,\n                              step_size=0.01, sweep_type=\"Interpolating\",\n                              name=\"Step10MHz\")\nhfss.analyze()\nhfss.export_touchstone(output_file=r\"C:\\work\\device.s2p\")",
+      "notes": "For an interpolating sweep the point count only affects the density of the fitted output, not the number of real solves, so a fine step is cheap. For a discrete sweep it is the whole cost."
+    },
+    {
+      "name": "Sweep range: LinearCount",
+      "kind": "study",
+      "description": "Define the sweep by a start frequency, a stop frequency and a total number of points, with the spacing computed for you. It is the most common form because it expresses the intent directly - 401 points across the band - and avoids arithmetic errors when the band changes.",
+      "usage": "Frequency sweep dialog > Distribution: Linear Count\nScript: \"RangeType:=\", \"LinearCount\", \"RangeStart:=\", \"8GHz\", \"RangeEnd:=\", \"12GHz\", \"RangeCount:=\", 401\nPyAEDT: hfss.create_linear_count_sweep(setup=..., units=\"GHz\", start_frequency=8, stop_frequency=12, num_of_freq_points=401, sweep_type=\"Interpolating\")",
+      "parameters": [
+        {"name": "RangeStart / RangeEnd", "description": "Band limits with units."},
+        {"name": "RangeCount", "description": "Total number of points including both endpoints."},
+        {"name": "sweep_type", "description": "Discrete, Fast or Interpolating - the range form is independent of the sweep technology."},
+        {"name": "save_fields", "description": "Only meaningful for discrete sweeps."}
+      ],
+      "example": "sweep = hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                                       start_frequency=8, stop_frequency=12,\n                                       num_of_freq_points=401,\n                                       sweep_type=\"Interpolating\",\n                                       name=\"XBand\")\nhfss.analyze()\nprint([s.name for s in hfss.setups[0].sweeps])",
+      "notes": "An odd count puts a point exactly at the band centre, which is convenient when reading a centre-frequency value out of the trace. Several sweeps can hang off one setup and are solved independently."
+    },
+    {
+      "name": "Sweep range: LogScale",
+      "kind": "study",
+      "description": "Distribute the sweep points logarithmically between the start and stop frequencies, so the low decades get as many points as the high ones. It is the right form for anything spanning decades - EMC emissions, broadband antennas, cable and shielding measurements - where a linear grid would waste almost all its points at the top.",
+      "usage": "Frequency sweep dialog > Distribution: Log Scale\nScript: \"RangeType:=\", \"LogScale\", \"RangeStart:=\", \"10MHz\", \"RangeEnd:=\", \"10GHz\", \"RangeSamples:=\", 50\nPyAEDT: create the sweep and set sweep.props[\"RangeType\"] = \"LogScale\"",
+      "parameters": [
+        {"name": "RangeStart / RangeEnd", "description": "Band limits; the start must be greater than zero."},
+        {"name": "RangeSamples", "description": "Number of samples per decade (the exact meaning is per-decade sampling rather than a total count)."},
+        {"name": "Use with interpolating sweeps", "description": "A log distribution combined with an interpolating sweep is the efficient way to cover three or more decades."}
+      ],
+      "example": "sweep = hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                                       start_frequency=0.01, stop_frequency=10,\n                                       num_of_freq_points=201,\n                                       sweep_type=\"Interpolating\", name=\"Decades\")\nsweep.props[\"RangeType\"] = \"LogScale\"\nsweep.props[\"RangeSamples\"] = 50\nsweep.update()\nhfss.analyze()",
+      "notes": "A very wide log sweep usually needs multi-frequency adaptation, because one mesh cannot be right at 10 MHz and 10 GHz. Consider splitting it into two setups with different adaptive frequencies."
+    },
+    {
+      "name": "Sweep range: SinglePoints",
+      "kind": "study",
+      "description": "Solve at one specific frequency, optionally saving the full field solution there. It is the standard way to get fields for plotting and far-field patterns at a design frequency without paying to store fields across a whole band, and several single-point sweeps can be attached to one setup.",
+      "usage": "Frequency sweep dialog > Distribution: Single Points\nScript: \"RangeType:=\", \"SinglePoints\", \"RangeStart:=\", \"2.45GHz\", \"RangeEnd:=\", \"2.45GHz\", \"SaveSingleField:=\", True, \"SaveFields:=\", True\nPyAEDT: hfss.create_single_point_sweep(setup=..., unit=\"GHz\", freq=2.45, save_single_field=True, name=...)",
+      "parameters": [
+        {"name": "Frequency", "description": "The single frequency to solve at."},
+        {"name": "SaveSingleField / save_single_field", "description": "Store the complete field solution at that point so field plots and far fields can be produced."},
+        {"name": "Multiple points", "description": "A list of frequencies can be given, each solved independently, which behaves like a small discrete sweep."}
+      ],
+      "example": "hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\", start_frequency=2,\n                               stop_frequency=3, num_of_freq_points=401,\n                               sweep_type=\"Interpolating\", name=\"Band\")\nhfss.create_single_point_sweep(setup=\"Setup1\", unit=\"GHz\", freq=2.45,\n                               save_single_field=True, name=\"Fields245\")\nhfss.analyze()\nhfss.post.create_fieldplot_surface(assignment=[\"Patch\"], quantity=\"Mag_E\")",
+      "notes": "This is the idiomatic pairing: one interpolating sweep for the S-parameter trace and one single-point sweep with fields saved for the plots. It keeps the results directory small."
+    },
+    {
+      "name": "Save Fields options",
+      "kind": "study",
+      "description": "Control which parts of the solution are written to disk: the full 3D field solution, radiated-field data only, or nothing beyond the network parameters. Field data is by far the largest consumer of disk space in an HFSS project, so these switches decide whether a results folder is a few megabytes or a few hundred gigabytes.",
+      "usage": "Analysis setup > General tab: Save Fields, Save Rad Fields Only\nFrequency sweep dialog: Save Fields (discrete and single-point sweeps only)\nScript: \"SaveFields:=\", True, \"SaveRadFieldsOnly:=\", False in the setup and sweep arrays",
+      "parameters": [
+        {"name": "SaveFields", "description": "Store the complete 3D field solution, needed for field overlays, the Fields Calculator and SAR."},
+        {"name": "SaveRadFieldsOnly", "description": "Store only the data needed for far-field computation, which is a tiny fraction of the full field and enough for patterns and antenna parameters."},
+        {"name": "Sweep-level control", "description": "Interpolating and Fast sweeps have limited or no per-point field storage; use a discrete or single-point sweep where fields are needed."},
+        {"name": "Adaptive pass fields", "description": "Fields from the final adaptive pass at the solution frequency are stored by default."}
+      ],
+      "example": "setup = hfss.get_setup(\"Setup1\")\nsetup.props[\"SaveFields\"] = False\nsetup.props[\"SaveRadFieldsOnly\"] = True\nsetup.update()\n\n# Full fields only at the one frequency we will plot\nhfss.create_single_point_sweep(setup=\"Setup1\", unit=\"GHz\", freq=2.45,\n                               save_single_field=True, name=\"Fields245\")",
+      "notes": "Turning SaveFields off after a solve does not delete data already written; clear it with HFSS > Results > Clean Up Solutions or by deleting the .aedtresults folder. SaveRadFieldsOnly is the right default for antenna work."
+    },
+    {
+      "name": "Direct solver",
+      "kind": "tool",
+      "description": "Factorise the finite-element matrix directly, giving a robust solution independent of conditioning at the cost of large memory use that grows quickly with problem size. It is the default for moderate problems and the fallback when an iterative solve stalls, which happens with very lossy or strongly inhomogeneous models.",
+      "usage": "Analysis setup > Options / Solver tab > Solver Type: Direct\nScript: \"UseIterativeSolver:=\", False (or \"SolverType:=\", \"Direct\" depending on release)\nPyAEDT: setup.props[\"SolverType\"] = \"Direct\"; setup.update()",
+      "parameters": [
+        {"name": "Memory", "description": "Direct factorisation memory scales far faster than linearly with unknown count and is the usual reason a large model will not fit."},
+        {"name": "Robustness", "description": "Insensitive to matrix conditioning, so it converges where iterative methods fail."},
+        {"name": "Multiple right-hand sides", "description": "Once factorised, additional excitations are very cheap, which favours direct solving for many-port structures."},
+        {"name": "Out-of-core", "description": "HFSS can spill the factorisation to disk when RAM is short, at a heavy speed penalty."}
+      ],
+      "example": "setup = hfss.get_setup(\"Setup1\")\nsetup.props[\"SolverType\"] = \"Direct\"\nsetup.update()\nhfss.analyze_setup(\"Setup1\")\n# Check peak memory in HFSS > Results > Solution Data > Profile",
+      "notes": "For a structure with many ports the direct solver is often faster overall despite its memory cost, because each extra excitation is nearly free after factorisation. Read the Profile tab to see the actual memory high-water mark."
+    },
+    {
+      "name": "Iterative solver",
+      "kind": "tool",
+      "description": "Solve the matrix system iteratively with a preconditioner, using far less memory than direct factorisation and scaling better to very large problems. It is the right choice for electrically large, well-conditioned models, but it can converge slowly or stall on highly lossy, highly resonant or badly scaled meshes.",
+      "usage": "Analysis setup > Options / Solver tab > Solver Type: Iterative, with a relative residual target\nScript: \"UseIterativeSolver:=\", True, \"RelativeResidual:=\", 0.0001\nPyAEDT: setup.props[\"SolverType\"] = \"Iterative\"; setup.update()",
+      "parameters": [
+        {"name": "RelativeResidual", "description": "Convergence target for the linear solve; 1e-4 is a typical default, tighter costs more iterations."},
+        {"name": "Memory", "description": "Much lower than direct, which is what makes very large models feasible."},
+        {"name": "Per-excitation cost", "description": "Each right-hand side is a fresh iterative solve, so many ports erode the advantage over a direct factorisation."},
+        {"name": "Failure mode", "description": "Stalling iterations usually mean poor conditioning from a badly shaped mesh or extreme material contrast; fix the mesh or switch to direct."}
+      ],
+      "example": "setup = hfss.get_setup(\"Setup1\")\nsetup.props[\"SolverType\"] = \"Iterative\"\nsetup.props[\"RelativeResidual\"] = 1e-4\nsetup.update()\nhfss.analyze_setup(\"Setup1\")",
+      "notes": "If iterations climb without the residual falling, stop and look at mesh quality rather than loosening the tolerance - a loose residual silently degrades the S-parameters."
+    },
+    {
+      "name": "Domain Decomposition Method (DDM)",
+      "kind": "tool",
+      "description": "Split the problem into subdomains that are solved on separate machines or cores and coupled iteratively at their interfaces, so a model far too large for one machine's memory becomes solvable. It is the core HPC technology for electrically large full-wave problems such as large arrays, aircraft-scale structures and big packages.",
+      "usage": "Tools > Options > HPC and Analysis Options, or the Analysis Configuration dialog: enable Domain Decomposition and set the number of domains/tasks\nOften combined with -Distributed and -machinelist on the command line",
+      "parameters": [
+        {"name": "Number of domains", "description": "How many subdomains the mesh is partitioned into; usually matched to the number of machines or tasks available."},
+        {"name": "Cores per domain", "description": "Shared-memory parallelism within each subdomain."},
+        {"name": "Interface iterations", "description": "DDM couples the subdomains iteratively; poorly placed interfaces through high-field regions slow convergence."},
+        {"name": "Spectral decomposition", "description": "The companion technique that distributes frequency points rather than spatial domains, and composes with DDM."},
+        {"name": "Licensing", "description": "DDM requires HPC licences in proportion to the cores and tasks used."}
+      ],
+      "example": "# Typically configured in the HPC dialog, then run headless:\n# ansysedt -ng -distributed -machinelist list=\"host1:8,host2:8,host3:8\" \\\n#          -batchoptions \"'HFSS/HPCLicenseType'='pool' 'HFSS/NumCoresPerDistributedTask'=8\" \\\n#          -BatchSolve project.aedt",
+      "notes": "Domain interfaces should fall in low-field regions; cutting through a resonant cavity or a tightly coupled array makes the interface iteration converge poorly. Check the Profile tab for time spent in interface iterations versus subdomain solves."
+    },
+    {
+      "name": "Spectral Decomposition (distributed frequency points)",
+      "kind": "tool",
+      "description": "Distribute the independent frequency points of a sweep across machines or tasks, so a wideband sweep finishes in roughly the time of a single point given enough hardware. Because the points are genuinely independent this scales almost linearly and is the single most effective HPC option for interpolating and discrete sweeps.",
+      "usage": "Tools > Options > HPC and Analysis Options > Distributed: enable Frequency (spectral) decomposition and set the number of tasks\nCommand line: -distributed -machinelist list=\"host1:8,host2:8\"",
+      "parameters": [
+        {"name": "Number of tasks", "description": "How many frequency points are solved simultaneously; each task gets its own memory footprint of the full problem."},
+        {"name": "Cores per task", "description": "Shared-memory parallelism inside each frequency solve."},
+        {"name": "Memory implication", "description": "Every simultaneous task holds a complete solve in memory, so N tasks need roughly N times the RAM of one point."},
+        {"name": "Interaction with adaptive pass", "description": "The adaptive meshing phase is sequential; only the sweep distributes, so a long adaptive phase limits the overall speedup."}
+      ],
+      "example": "# Solve a 20 GHz interpolating sweep across three machines\n# ansysedt -ng -monitor -distributed \\\n#   -machinelist list=\"node01:16,node02:16,node03:16\" \\\n#   -batchoptions \"'HFSS/NumCoresPerDistributedTask'=4\" \\\n#   -BatchSolve \"HFSSDesign1:Nominal:Setup1\" project.aedt",
+      "notes": "Distributing frequency points multiplies memory, not divides it; running out of RAM across tasks is the common failure. Use DDM instead when a single frequency point is what will not fit."
+    },
+    {
+      "name": "Hybrid FEM-IE solver",
+      "kind": "tool",
+      "description": "Couple a finite-element region to a method-of-moments integral-equation region in a single self-consistent solve, so a detailed antenna can sit in FEM while a large conducting platform is handled by IE. It removes the need to mesh the air volume around the platform, which is what makes installed-antenna problems tractable at full-wave accuracy.",
+      "usage": "Assign an IE Hybrid Region to the conducting bodies (HFSS > Boundaries > Assign > Hybrid Region > IE Region), then solve normally.\nThe FE-BI boundary is the related termination that couples the FEM region directly to free space.",
+      "parameters": [
+        {"name": "IE region bodies", "description": "Closed conducting bodies handled by the integral-equation solver."},
+        {"name": "FEM region", "description": "The remainder of the model, including dielectrics and fine detail, solved with finite elements."},
+        {"name": "Coupling", "description": "The two regions exchange currents and fields self-consistently, so mutual coupling between antenna and platform is captured."},
+        {"name": "Cost profile", "description": "IE adds a dense matrix block; the trade is fewer unknowns overall against denser linear algebra, accelerated by ACA/MLFMM style methods."}
+      ],
+      "example": "hfss.modeler.import_3d_cad(r\"C:\\work\\airframe.step\")\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignHybridRegion([\"NAME:AirframeIE\", \"Objects:=\", [\"Airframe\"], \"Type:=\", \"IE\"])\nhfss.create_setup(\"Setup1\")\nhfss.analyze()",
+      "notes": "IE regions must be closed conductors; dielectric platforms are not candidates. When the platform is many tens of wavelengths across, SBR+ rather than IE is usually the practical choice."
+    },
+    {
+      "name": "Physical Optics (PO) region",
+      "kind": "tool",
+      "description": "Treat selected large smooth conducting surfaces with a physical-optics approximation instead of a full-wave or integral-equation method, computing induced currents directly from the incident field. It is much cheaper than IE and is appropriate for reflectors, large flat panels and ground planes that are many wavelengths across and not strongly resonant.",
+      "usage": "HFSS menu > Boundaries > Assign > Hybrid Region > PO Region (in a hybrid or SBR+ design)\nScript: oModule.AssignHybridRegion([\"NAME:PO1\", \"Objects:=\", [\"Reflector\"], \"Type:=\", \"PO\"])",
+      "parameters": [
+        {"name": "Objects", "description": "Large smooth conducting bodies assigned to the PO solver."},
+        {"name": "Accuracy limits", "description": "PO ignores multiple scattering and edge diffraction unless PTD corrections are enabled, and is poor near resonance or for small features."},
+        {"name": "PTD correction", "description": "Physical theory of diffraction terms added at edges to recover the diffracted field PO alone misses."},
+        {"name": "Combination", "description": "PO regions coexist with FEM, IE and SBR+ regions in one model."}
+      ],
+      "example": "oModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignHybridRegion([\"NAME:DishPO\", \"Objects:=\", [\"Reflector\"], \"Type:=\", \"PO\"])\nhfss.create_setup(\"Setup1\")\nhfss.analyze()\nhfss.insert_infinite_sphere(name=\"3D\")",
+      "notes": "A reflector dish fed by a horn is the classic PO application: model the horn in FEM, the dish in PO. Do not use PO on anything comparable with a wavelength or on cavities."
+    },
+    {
+      "name": "Component Array (finite antenna array)",
+      "kind": "tool",
+      "description": "Build a finite array from a single solved unit cell or 3D component and let HFSS apply array theory with edge-effect corrections, instead of meshing every element. It makes arrays of hundreds or thousands of elements practical and supports per-element amplitude and phase weighting for beam steering and taper studies.",
+      "usage": "HFSS menu > Arrays > Create Array... (from a 3D component), or build a Component Array from a unit-cell design\nDefine rows, columns, lattice vectors, active/passive element map and per-element excitation weights",
+      "parameters": [
+        {"name": "Rows / Columns", "description": "Array size and the lattice vectors that place the elements."},
+        {"name": "Element map", "description": "Which lattice positions hold active elements, passive (terminated) elements or nothing, allowing thinned and shaped arrays."},
+        {"name": "Amplitude and phase weights", "description": "Per-element excitation, used for beam steering and amplitude tapers such as Taylor or Chebyshev."},
+        {"name": "Edge effects", "description": "Elements at the array edge see a different environment; the component-array method accounts for this better than plain pattern multiplication."},
+        {"name": "Post-processing", "description": "Array factor, element patterns, active element patterns and scan performance are available from the far-field reports."}
+      ],
+      "example": "# Element solved once as a 3D component, then arrayed\n# HFSS > Arrays > Create Array: 8 x 8, lattice 0.5*lambda, uniform amplitude\nhfss.insert_infinite_sphere(name=\"3D\")\nhfss.analyze()\ndata = hfss.post.get_solution_data(expressions=\"GainTotal\",\n                                   report_category=\"Far Fields\", context=\"3D\")",
+      "notes": "For a truly infinite array, use a unit cell with Primary/Secondary boundaries and Floquet ports instead; component arrays are for finite arrays where edge effects matter. Element weighting is applied in post-processing, so a taper can be changed without re-solving."
+    },
+    {
+      "name": "Optimetrics: Parametric sweep",
+      "kind": "study",
+      "description": "Sweep one or more design variables over specified ranges and solve each variation, producing families of curves and the data on which tuning decisions are made. It is the workhorse Optimetrics study: vary a patch length, a gap, a substrate thickness and see the effect across frequency in one run.",
+      "usage": "Optimetrics > Add > Parametric...   (define variables, ranges and the output calculations)\nScript: oModule = oDesign.GetModule(\"Optimetrics\"); oModule.InsertSetup(\"OptiParametric\", [...])\nPyAEDT: param = hfss.parametrics.add(variable, start_point, end_point, step, variation_type=\"LinearStep\")",
+      "parameters": [
+        {"name": "variable / start_point / end_point / step", "description": "The variable to sweep and its range. variation_type may be LinearStep, LinearCount, LogScale, SingleValue or DecadeCount."},
+        {"name": "Multiple variables", "description": "Adding a second variable produces the full cross product of variations unless a sweep definition restricts it."},
+        {"name": "add_calculation", "description": "Attach an output quantity (a report expression plus a range such as a frequency) so the sweep table carries results, not just solved variations."},
+        {"name": "Save fields / Copy geometrically equivalent meshes", "description": "Options that trade disk and runtime; mesh reuse across variations can be a large saving when only a material changes."},
+        {"name": "Distributed variations", "description": "Independent variations distribute across machines very effectively."}
+      ],
+      "example": "hfss[\"patch_l\"] = \"29mm\"\nparam = hfss.parametrics.add(\"patch_l\", start_point=\"27mm\", end_point=\"31mm\",\n                             step=\"0.5mm\", variation_type=\"LinearStep\")\nparam.add_variation(\"sub_h\", start_point=\"1.0mm\", end_point=\"2.0mm\", step=\"0.5mm\")\nparam.add_calculation(calculation=\"dB(S(1,1))\", ranges={\"Freq\": \"2.45GHz\"})\nhfss.analyze_setup(param.name)\nhfss.post.create_report(\"dB(S(1,1))\", families={\"patch_l\": [\"All\"]})",
+      "notes": "The cross product grows fast: three variables with ten values each is a thousand solves. Sweep one variable at a time first to find which ones matter, then run a focused two-variable study."
+    },
+    {
+      "name": "Optimetrics: Optimization",
+      "kind": "study",
+      "description": "Search the design space automatically for variable values that meet a cost function built from report expressions, such as minimising return loss in a band while keeping gain above a threshold. Several optimisers are offered, from gradient-based Quasi Newton to global Genetic Algorithm, and the choice matters more than the goal definition.",
+      "usage": "Optimetrics > Add > Optimization...   (choose optimiser, define variables with min/max/step, define goals)\nScript: oModule.InsertSetup(\"OptiOptimization\", [...])\nPyAEDT: opt = hfss.optimizations.add(calculation, ranges, optimization_type=\"Optimization\", ...)",
+      "parameters": [
+        {"name": "Optimizer", "description": "Quasi Newton, Pattern Search, Sequential Non-linear Programming (SNLP), Sequential Mixed Integer NLP, Genetic Algorithm, or a MATLAB-linked optimiser."},
+        {"name": "Variables with min / max / step", "description": "The search space. Bounds that are too wide make the search wander; too narrow and the optimum is excluded."},
+        {"name": "Goals", "description": "Report expressions with a condition (<=, >=, ==), a target value, a weight and the range (frequency or angle) over which they apply."},
+        {"name": "Cost function", "description": "The weighted combination of goal violations that the optimiser minimises."},
+        {"name": "Max iterations", "description": "Budget of solves. Each iteration is a full HFSS solve, so this is the real cost control."}
+      ],
+      "example": "hfss[\"patch_l\"] = \"29mm\"\nhfss[\"feed_x\"]  = \"6mm\"\nopt = hfss.optimizations.add(calculation=\"dB(S(1,1))\",\n                             ranges={\"Freq\": \"2.45GHz\"},\n                             optimization_type=\"Optimization\")\nopt.props[\"Goals\"][0][\"Condition\"] = \"<=\"\nopt.props[\"Goals\"][0][\"GoalValue\"] = \"-20\"\nopt.update()\nhfss.analyze_setup(opt.name)\nprint(hfss.variable_manager.variables[\"patch_l\"].evaluated_value)",
+      "notes": "Gradient optimisers find a local optimum quickly and get stuck; genetic algorithms explore globally but need many more solves. Run a parametric sweep first to find a good starting point, then a gradient optimiser from there."
+    },
+    {
+      "name": "Optimetrics: Sensitivity",
+      "kind": "study",
+      "description": "Compute how sensitive chosen output quantities are to small changes in each design variable, by perturbing them around a nominal point. It tells you which dimensions actually matter before you spend solves optimising them, and which tolerances a manufacturing drawing needs to control.",
+      "usage": "Optimetrics > Add > Sensitivity...   (choose variables, perturbation sizes and output calculations)\nScript: oModule.InsertSetup(\"OptiSensitivity\", [...])\nPyAEDT: hfss.optimizations.add(..., optimization_type=\"Sensitivity\")",
+      "parameters": [
+        {"name": "Variables and nominal values", "description": "The design point around which sensitivity is evaluated."},
+        {"name": "Perturbation / initial displacement", "description": "Step size used to estimate the derivative; too small is numerically noisy, too large is no longer local."},
+        {"name": "Output calculations", "description": "The report expressions whose sensitivity is reported, with their ranges."},
+        {"name": "Max iterations", "description": "Budget of solves; sensitivity needs roughly two solves per variable plus the nominal."}
+      ],
+      "example": "sens = hfss.optimizations.add(calculation=\"dB(S(1,1))\",\n                              ranges={\"Freq\": \"2.45GHz\"},\n                              optimization_type=\"Sensitivity\")\nhfss.analyze_setup(sens.name)\n# Read the sensitivity table from Optimetrics > Results",
+      "notes": "Sensitivity is local: a variable that looks unimportant at the nominal point can dominate elsewhere. Combine it with a Statistical study when the question is really about manufacturing yield."
+    },
+    {
+      "name": "Optimetrics: Statistical",
+      "kind": "study",
+      "description": "Assign statistical distributions to design variables - normal, uniform, triangular - and run a Monte Carlo style set of variations to see how the output distribution behaves. It answers the yield question directly: given these manufacturing tolerances, what fraction of parts will meet the specification.",
+      "usage": "Optimetrics > Add > Statistical...   (assign a distribution and parameters to each variable, choose the number of trials)\nScript: oModule.InsertSetup(\"OptiStatistical\", [...])\nPyAEDT: hfss.optimizations.add(..., optimization_type=\"Statistical\")",
+      "parameters": [
+        {"name": "Distribution", "description": "Normal (mean and standard deviation), Uniform (min and max), Triangular, or a discrete set."},
+        {"name": "Number of trials", "description": "How many random variations are solved; statistical confidence improves slowly, as the square root of the count."},
+        {"name": "Output calculations", "description": "The quantities whose distribution is collected."},
+        {"name": "Results", "description": "Histograms, mean, standard deviation and yield against a specification limit."}
+      ],
+      "example": "stat = hfss.optimizations.add(calculation=\"dB(S(1,1))\",\n                              ranges={\"Freq\": \"2.45GHz\"},\n                              optimization_type=\"Statistical\")\nhfss.analyze_setup(stat.name)\n# Inspect the histogram under Optimetrics > Results > Statistical",
+      "notes": "Meaningful yield numbers need hundreds of trials, which is expensive at full-wave cost. Run a sensitivity study first and put distributions only on the variables that matter, or build a response surface in optiSLang and sample that instead."
+    },
+    {
+      "name": "Optimetrics: Tuning",
+      "kind": "study",
+      "description": "Interactively drag a slider for a design variable and watch the result update, letting you feel how the design responds before committing to an automatic search. Tuning solves each position on demand, so it is best used on fast designs or after a parametric sweep has cached the nearby variations.",
+      "usage": "Optimetrics > Add > Tuning...   (choose variables and their ranges, then use the Tuning sliders)\nScript: oModule.InsertSetup(\"OptiTuning\", [...])",
+      "parameters": [
+        {"name": "Variables and ranges", "description": "The dimensions exposed as sliders and the limits of their travel."},
+        {"name": "Step", "description": "Slider granularity; each step is a solve unless the variation is already cached."},
+        {"name": "Linked reports", "description": "Open the report you care about before tuning so it updates as the slider moves."}
+      ],
+      "example": "# Mostly an interactive workflow:\n# 1. Optimetrics > Add > Tuning, expose patch_l over 27-31 mm\n# 2. Open a dB(S(1,1)) report\n# 3. Drag the slider and watch the resonance move\n# Equivalent scripted exploration:\nhfss.parametrics.add(\"patch_l\", start_point=\"27mm\", end_point=\"31mm\",\n                     step=\"0.25mm\", variation_type=\"LinearStep\")",
+      "notes": "Tuning on a model that takes an hour per solve is not tuning, it is waiting. Use it on fast 2D-like or coarse models, or after a parametric sweep has populated the variation cache."
+    },
+    {
+      "name": "optiSLang and DesignXplorer integration",
+      "kind": "tool",
+      "description": "Drive HFSS from Ansys optiSLang or Workbench DesignXplorer for design-space exploration beyond what Optimetrics offers: sensitivity screening with metamodels, robust design optimisation, reliability analysis and multi-physics workflows that couple HFSS with thermal or structural solvers. The AEDT project is exposed as a parametric system with inputs and outputs.",
+      "usage": "Workbench: insert an HFSS (Electronics Desktop) system, expose design variables as parameters, then add a Direct Optimization, Response Surface or optiSLang system\noptiSLang: use the AEDT integration node to point at the .aedt project and its parameters",
+      "parameters": [
+        {"name": "Exposed parameters", "description": "Design and project variables marked as Workbench parameters become the optimiser's inputs; report expressions become outputs."},
+        {"name": "Metamodel of Optimal Prognosis", "description": "optiSLang's response surface approach, which replaces most full solves with a fitted model and drastically reduces solve count."},
+        {"name": "Robust design / reliability", "description": "Tolerance and uncertainty studies that go beyond Optimetrics' statistical analysis."},
+        {"name": "Multiphysics coupling", "description": "Chain HFSS losses into Icepak or Mechanical within the same parametric study."}
+      ],
+      "example": "# The AEDT side is just parameterisation; expose variables and outputs:\nhfss[\"patch_l\"] = \"29mm\"\nhfss[\"feed_x\"]  = \"6mm\"\nhfss.create_setup(\"Setup1\")\nhfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\", start_frequency=2,\n                               stop_frequency=3, num_of_freq_points=201,\n                               sweep_type=\"Interpolating\")\nhfss.save_project()\n# Then point Workbench/optiSLang at the saved .aedt project",
+      "notes": "Metamodel-based exploration typically needs an order of magnitude fewer full-wave solves than direct optimisation for the same insight. The catch is that the metamodel must be validated against real solves before its optimum is trusted."
+    },
+    {
+      "name": "HPC and Analysis Options (Analysis Configuration)",
+      "kind": "tool",
+      "description": "The central dialog where solve resources are configured: how many cores a task may use, the RAM limit, whether GPU acceleration is enabled, how many tasks run in parallel, and which machines participate. Named configurations can be saved and switched between, so a laptop profile and a cluster profile coexist in one installation.",
+      "usage": "Tools menu > Options > HPC and Analysis Options...\nEdit or add an Analysis Configuration: Machines, Cores, Tasks, RAM Limit, GPU, Auto settings\nCommand line override: -batchoptions \"'HFSS/NumCoresPerDistributedTask'=8 ...\"",
+      "parameters": [
+        {"name": "Num Cores", "description": "Shared-memory cores available to a single solve task."},
+        {"name": "Num Tasks", "description": "How many independent tasks (frequency points, variations, domains) run simultaneously."},
+        {"name": "RAM Limit", "description": "Percentage of machine memory HFSS may use before it spills to disk."},
+        {"name": "GPU acceleration", "description": "Enable supported GPU acceleration for the solvers that can use it."},
+        {"name": "Machines list", "description": "For distributed configurations, the hosts and the cores available on each."},
+        {"name": "Auto HPC", "description": "Let AEDT choose the split between cores and tasks from the job and the available licences."}
+      ],
+      "example": "# Override for one run without changing saved preferences:\n# ansysedt -ng -BatchSolve \\\n#   -batchoptions \"'HFSS/NumCoresPerDistributedTask'=8 'HFSS/RAMLimitPercent'=90\" \\\n#   project.aedt\n\n# Or set cores from PyAEDT when launching the desktop\nfrom ansys.aedt.core import Hfss\nhfss = Hfss(version=\"2025.1\", non_graphical=True)\nhfss.analyze(cores=8, tasks=1)",
+      "notes": "Cores and tasks both consume HPC licences, and an over-ambitious configuration fails at launch with a licence error rather than falling back. Check the Profile tab afterwards to see whether the extra cores actually reduced solve time - many phases do not scale past a handful."
+    },
+    {
+      "name": "Distributed solve and machine list",
+      "kind": "tool",
+      "description": "Spread a job across several machines, distributing frequency points, parametric variations or domain-decomposition subdomains. On the command line the participating hosts and their core counts are given with -machinelist, and -distributed turns the mode on; in the GUI the same information lives in a distributed Analysis Configuration.",
+      "usage": "ansysedt -ng -distributed -machinelist list=\"host1:8,host2:8,host3:8\" -auto -BatchSolve project.aedt\nGUI: Tools > Options > HPC and Analysis Options > Distributed configuration",
+      "parameters": [
+        {"name": "-distributed", "description": "Enable distributed solving for the run."},
+        {"name": "-machinelist list=\"host:cores,...\"", "description": "Hosts participating and the cores available on each; a num= form gives a total count when a scheduler supplies the hosts."},
+        {"name": "-auto", "description": "Let AEDT decide how to split the available resources between tasks and cores."},
+        {"name": "What distributes", "description": "Frequency points of a sweep, Optimetrics variations, and DDM subdomains. The adaptive meshing phase largely does not."},
+        {"name": "Shared file system", "description": "All hosts must see the project path; a shared network location is the usual arrangement."}
+      ],
+      "example": "#!/bin/bash\nANSYSEM=/opt/ansys_inc/v251/AnsysEM\n$ANSYSEM/ansysedt -ng -monitor -distributed \\\n  -machinelist list=\"node01:16,node02:16\" -auto \\\n  -batchoptions \"'HFSS/NumCoresPerDistributedTask'=8\" \\\n  -BatchSolve \"HFSSDesign1:Nominal:Setup1\" /shared/work/filter.aedt",
+      "notes": "Each simultaneous task holds its own copy of the problem in memory, so distributing frequency points multiplies RAM requirements. Watch the -monitor output to confirm tasks are actually landing on the remote hosts."
+    },
+    {
+      "name": "GPU acceleration",
+      "kind": "tool",
+      "description": "Offload parts of the solve to a supported NVIDIA GPU, which can substantially speed up the transient solver, SBR+ ray tracing and some matrix operations. It is enabled per analysis configuration and requires both compatible hardware and the appropriate HPC licensing.",
+      "usage": "Tools > Options > HPC and Analysis Options > enable GPU acceleration in the Analysis Configuration\nCommand line: -batchoptions with the GPU-related registry keys for the release",
+      "parameters": [
+        {"name": "Supported solvers", "description": "Benefit varies sharply by solver: SBR+ and transient gain the most, frequency-domain FEM the least."},
+        {"name": "Hardware requirements", "description": "A supported NVIDIA card with sufficient device memory; consumer cards may work but are not qualified."},
+        {"name": "Licensing", "description": "GPU acceleration consumes HPC licences in the same pool as CPU cores."},
+        {"name": "Fallback", "description": "If the GPU cannot be used the solve normally continues on CPU, with a note in the message log."}
+      ],
+      "example": "# Enable in the Analysis Configuration, then verify in the profile:\nhfss.analyze()\nhfss.export_profile(setup=\"Setup1\", output_file=r\"C:\\work\\profile.txt\")\n# Look for GPU entries in the profile to confirm it was actually used",
+      "notes": "Always confirm from the Profile tab that the GPU was used; a silent CPU fallback is common when the driver or card is unsupported. For frequency-domain FEM the gain is often small, so do not size a machine around it."
+    },
+    {
+      "name": "Remote Simulation Manager (RSM)",
+      "kind": "tool",
+      "description": "An Ansys service that lets a workstation dispatch solves to one or more remote solve machines without a full job scheduler. The GUI stays local and responsive while the compute happens elsewhere, and several users can share a solve server. It is the lightweight middle ground between local solving and a cluster queue.",
+      "usage": "Install and start the Ansys RSM service on the solve machines, then in AEDT:\nTools > Options > HPC and Analysis Options > add the remote machines to a distributed configuration\nor Analysis > Submit Job and choose the RSM cluster",
+      "parameters": [
+        {"name": "Solve machines", "description": "Hosts running the RSM service that accept jobs."},
+        {"name": "Shared project location", "description": "The project must be reachable from the solve machines, normally on a shared network path."},
+        {"name": "Credentials", "description": "RSM authenticates the submitting user to the remote machine."},
+        {"name": "Job monitoring", "description": "Progress is reported back to the local session's Job Management window."}
+      ],
+      "example": "# Configure RSM machines in the HPC dialog, then:\n# Analysis > Submit Job... > choose the RSM configuration > Submit\n# The local GUI stays free while the remote machine solves.",
+      "notes": "Version mismatches between the local AEDT and the remote RSM service are the usual cause of submission failures. For genuinely shared cluster resources a proper scheduler (SLURM, LSF, PBS) is more appropriate than RSM."
+    },
+    {
+      "name": "Job scheduler submission (LSF / PBS / SLURM / Windows HPC)",
+      "kind": "tool",
+      "description": "Queue an AEDT solve on a cluster through its batch scheduler, either from the Submit Job dialog inside AEDT or by writing a submission script that calls ansysedt with the batch flags. The scheduler allocates nodes and cores, and AEDT reads the allocation to configure its distributed solve.",
+      "usage": "GUI: Analysis > Submit Job... > choose scheduler (LSF, PBS Pro, SLURM, UGE, Windows HPC), resources and project\nScript: a scheduler job script that runs `ansysedt -ng -distributed -machinelist num=$NTASKS -BatchSolve project.aedt`",
+      "parameters": [
+        {"name": "Nodes / tasks / cores", "description": "Scheduler resource request, which should match the AEDT task and core configuration."},
+        {"name": "-machinelist num=N", "description": "Tell AEDT how many processes are available when the scheduler supplies the host list through environment variables."},
+        {"name": "Wall time and memory", "description": "Scheduler limits; a solve killed at the wall clock loses everything not already written."},
+        {"name": "Shared filesystem", "description": "The project and results directories must be visible from every allocated node."},
+        {"name": "-monitor", "description": "Write solver progress to stdout so it lands in the scheduler's log file."}
+      ],
+      "example": "#!/bin/bash\n#SBATCH --job-name=hfss_array\n#SBATCH --nodes=4\n#SBATCH --ntasks-per-node=8\n#SBATCH --time=12:00:00\n#SBATCH --mem-per-cpu=8G\n\nANSYSEM=/opt/ansys_inc/v251/AnsysEM\n$ANSYSEM/ansysedt -ng -monitor -distributed \\\n  -machinelist num=$SLURM_NTASKS \\\n  -batchoptions \"'HFSS/NumCoresPerDistributedTask'=8\" \\\n  -BatchSolve \"HFSSDesign1:Nominal:Setup1\" $PWD/array.aedt",
+      "notes": "On Linux always invoke the ansysedt wrapper script in the AnsysEM directory rather than the raw executable, because the wrapper sets up the environment the solvers need. Request memory per task, not per node, since each distributed task holds its own copy of the problem."
+    },
+    {
+      "name": "Ansys Cloud solve",
+      "kind": "tool",
+      "description": "Submit an AEDT job to Ansys' hosted cloud compute directly from the interface, choosing a hardware configuration and letting the project and results transfer automatically. It is a way to reach large core counts and memory for a single job without owning a cluster.",
+      "usage": "Analysis menu > Submit to Ansys Cloud... (requires an Ansys Cloud subscription and sign-in)\nChoose the hardware profile, cores and job name; the project uploads, solves and the results download when finished.",
+      "parameters": [
+        {"name": "Hardware configuration", "description": "Instance type and core count offered by the service."},
+        {"name": "Job name and monitoring", "description": "Jobs are tracked in the Ansys Cloud portal and in the local Job Management window."},
+        {"name": "Data transfer", "description": "The project uploads and the results directory downloads; large field data makes both slow."},
+        {"name": "Licensing", "description": "Cloud solving consumes Ansys licences and cloud credits according to the subscription."}
+      ],
+      "example": "# Interactive workflow:\n# 1. Analysis > Submit to Ansys Cloud...\n# 2. Sign in, pick a hardware configuration and core count\n# 3. Submit; monitor in Job Management\n# 4. Results download automatically when the job completes",
+      "notes": "Turn off full field saving before submitting unless you need it, because the results download dominates the turnaround time on large models. Availability and the exact dialog vary by release and subscription."
+    },
+    {
+      "name": "Analyze / Analyze All",
+      "kind": "tool",
+      "description": "Start the solve. Analyze runs one named setup, Analyze All runs every enabled setup and sweep in the design, and the equivalent scripted calls are the entry point of any headless run. Everything else in the setup chain is preparation for this one action.",
+      "usage": "Right-click a setup > Analyze   |   Project menu > Analyze All\nScript: oDesign.Analyze(\"Setup1\")  /  oDesign.AnalyzeAll()\nPyAEDT: hfss.analyze_setup(\"Setup1\")  /  hfss.analyze(cores=..., tasks=...)\nCLI: ansysedt -ng -BatchSolve project.aedt",
+      "parameters": [
+        {"name": "Setup name", "description": "Which setup to run; Analyze All runs every enabled setup and its sweeps."},
+        {"name": "cores / tasks", "description": "PyAEDT can override the HPC configuration for this run."},
+        {"name": "Enabled flag", "description": "Setups and sweeps have an IsEnabled property, so parts of the analysis can be skipped without deleting them."},
+        {"name": "Blocking behaviour", "description": "The scripted calls block until the solve finishes, which is what makes a batch script sequential."}
+      ],
+      "example": "ok, msgs = hfss.validate_full_design()\nif not ok:\n    raise RuntimeError(\"\\n\".join(msgs))\nhfss.analyze_setup(\"Setup1\", cores=8)\nhfss.save_project()\ndata = hfss.post.get_solution_data(\"dB(S(1,1))\")\nprint(min(data.data_db20()))",
+      "notes": "Always validate before analysing in a script; a failed validation wastes the whole queue slot. In headless runs the solve messages go to the project log and, with -monitor, to stdout."
+    },
+    {
+      "name": "Solve status, Progress window and Message Manager",
+      "kind": "tool",
+      "description": "The live view of a running solve: the Progress window shows the current adaptive pass and sweep point, and the Message Manager collects informational, warning and error messages from the mesher and solvers. In headless runs the same content goes to the project log file and, with -monitor, to the console.",
+      "usage": "View menu > Progress   and   View menu > Message Manager\nScript: oDesktop.AddMessage(project, design, severity, message) to write your own entries; oDesktop.ClearMessages(...) to clear\nHeadless: ansysedt -ng -monitor ... writes progress to stdout",
+      "parameters": [
+        {"name": "Progress window", "description": "Current pass, elapsed time, memory use and which sweep point is being solved."},
+        {"name": "Message severity", "description": "0 informational, 1 warning, 2 error (and 3 fatal) when writing messages from a script."},
+        {"name": "AddMessage", "description": "Lets a script annotate the log with its own checkpoints, which is invaluable in long batch runs."},
+        {"name": "Project log", "description": "The persistent record of a solve, written beside the project regardless of whether the GUI was open."}
+      ],
+      "example": "hfss.odesktop.AddMessage(hfss.project_name, hfss.design_name, 0,\n                         \"Starting parametric sweep of patch_l\")\nhfss.analyze_setup(\"Setup1\")\nhfss.odesktop.AddMessage(hfss.project_name, hfss.design_name, 0, \"Sweep complete\")\nhfss.logger.info(\"PyAEDT logger also writes to the AEDT message window\")",
+      "notes": "Warnings about port size, unassigned boundaries and mesh quality appear here and are routinely ignored - they are usually the explanation when results look wrong. In batch runs, grep the project log for 'Warning' and 'Error' before trusting the output."
+    },
+    {
+      "name": "Solution Data: Profile, Convergence and Mesh Statistics",
+      "kind": "tool",
+      "description": "The diagnostic window for a completed solve. The Profile tab breaks the run down by phase with time and peak memory, Convergence shows Delta S and element count per adaptive pass, Mesh Statistics gives the element distribution per object, and Matrix Data shows the S/Y/Z results themselves. It is where you find out why a solve was slow or why an answer is not converged.",
+      "usage": "HFSS menu > Results > Solution Data...   (tabs: Matrix Data, Profile, Convergence, Mesh Statistics)\nScript: oDesign.ExportConvergence(...), oDesign.ExportProfile(...), oDesign.ExportMeshStats(...)\nPyAEDT: hfss.export_convergence(setup), hfss.export_profile(setup), hfss.export_mesh_stats(setup)",
+      "parameters": [
+        {"name": "Profile", "description": "Per-phase elapsed time and peak memory: meshing, matrix assembly, factorisation, each adaptive pass, each sweep point."},
+        {"name": "Convergence", "description": "Delta S and tetrahedron count per pass; the curve should fall smoothly and flatten."},
+        {"name": "Mesh Statistics", "description": "Element counts and edge lengths per object, showing where the mesh went."},
+        {"name": "Matrix Data", "description": "The solved S, Y and Z matrices at a chosen frequency, with port impedances."}
+      ],
+      "example": "hfss.analyze()\nhfss.export_convergence(setup=\"Setup1\", output_file=r\"C:\\work\\conv.txt\")\nhfss.export_profile(setup=\"Setup1\", output_file=r\"C:\\work\\profile.txt\")\nhfss.export_mesh_stats(setup=\"Setup1\", output_file=r\"C:\\work\\mesh.txt\")\n\n# Native calls\nhfss.odesign.ExportConvergence(\"Setup1\", \"\", r\"C:\\work\\conv_native.txt\")",
+      "notes": "A convergence curve that plateaus above the Delta S target, or a solve that stopped at the pass limit, means the result is not converged no matter how plausible the trace looks. Check Profile peak memory before scaling a model up - it is the number that decides whether the next size fits."
+    },
+    {
+      "name": "Design Settings (lossy dielectrics, material temperature, Solve Inside)",
+      "kind": "tool",
+      "description": "Per-design switches that change how the solver interprets the model: whether dielectric loss is computed, whether material properties are evaluated at a design temperature, the default Solve Inside behaviour, the port impedance multiplier used with symmetry, and validation strictness. They are easy to overlook and can quietly change every result in the design.",
+      "usage": "HFSS menu > Design Settings...   (tabs vary by release: Validations, Lossy Dielectrics, Material Override, Defaults, DC Extrapolation)\nScript: oDesign.SetDesignSettings([\"NAME:Design Settings Data\", \"Calculate Lossy Dielectrics:=\", True, \"Port Impedance Multiplier:=\", 1, ...])",
+      "parameters": [
+        {"name": "Calculate Lossy Dielectrics", "description": "Whether dielectric loss tangent is included in the solve. Turning it off silently produces a lossless answer."},
+        {"name": "Material Override / Solve Inside default", "description": "Global default for whether fields are computed inside objects, overriding the per-material setting."},
+        {"name": "Port Impedance Multiplier", "description": "Correction applied when a port is bisected by a symmetry plane; 0.5 or 2 depending on the symmetry type."},
+        {"name": "Design temperature", "description": "Evaluate temperature-dependent material properties at a stated temperature, optionally linked from an Icepak solution."},
+        {"name": "Validation settings", "description": "How strictly the design is checked before solving, including whether warnings block the run."}
+      ],
+      "example": "hfss.odesign.SetDesignSettings(\n    [\"NAME:Design Settings Data\",\n     \"Calculate Lossy Dielectrics:=\", True,\n     \"Port Impedance Multiplier:=\", 1.0])\n\n# PyAEDT helper for the symmetry case\n# (set the multiplier to 0.5 when a port is cut by an E-symmetry plane)",
+      "notes": "The port impedance multiplier is the most consequential setting here: forget it after applying symmetry and every S-parameter is wrong by a factor of two. Material Override is the fast way to make every conductor stop solving inside, but it also affects dielectrics, so use it deliberately."
+    }
+  ]
+}

@@ -1,0 +1,358 @@
+{
+  "category": "Hardware Manager Advanced: ILA/VIO Control, Flash, JTAG/XVC, IBERT & Programming Files",
+  "description": "The rest of the in-system toolkit: full ILA capture/trigger control properties and data handling, VIO and System Monitor access, configuration-memory (flash) programming details, device boot/readback/verify and SVF generation, remote and virtual-cable (XVC) targets, JTAG-to-AXI transactions, IBERT/Serial I/O Analyzer eye scans, debug-core insertion parameters (trigger-in/out, advanced triggers, capture qualification), and the programming file formats (.bit/.bin/.rbt/.msk/.mcs/.prm/.svf/.pdi/.ltx).",
+  "tools": [
+    {
+      "name": "set_property CONTROL.DATA_DEPTH / CONTROL.TRIGGER_MODE / CONTROL.CAPTURE_MODE / CONTROL.WINDOW_COUNT (hw_ila capture setup)",
+      "kind": "system-variable",
+      "description": "Run-time capture configuration of an ILA core in the Hardware Manager, set on the hw_ila object before run_hw_ila: CONTROL.DATA_DEPTH (samples per window, up to the C_DATA_DEPTH the core was built with), CONTROL.WINDOW_COUNT (number of capture windows, DATA_DEPTH x WINDOW_COUNT <= core depth), CONTROL.TRIGGER_POSITION (sample index within the window where the trigger sits), CONTROL.TRIGGER_MODE (BASIC_ONLY, ADVANCED_ONLY, TRIG_IN_ONLY, BASIC_OR_TRIG_IN, ADVANCED_OR_TRIG_IN), CONTROL.CAPTURE_MODE (ALWAYS or BASIC: store only samples matching the capture condition), CONTROL.TRIGGER_CONDITION and CONTROL.CAPTURE_CONDITION (AND/OR of the probe compare values), and CONTROL.TRIG_OUT_MODE (DISABLED, TRIGGER_ONLY, TRIG_IN_ONLY, TRIGGER_OR_TRIG_IN) for cross-triggering.",
+      "usage": "set_property CONTROL.DATA_DEPTH 1024 [get_hw_ilas hw_ila_1]\nset_property CONTROL.WINDOW_COUNT 4 [get_hw_ilas hw_ila_1]\nset_property CONTROL.TRIGGER_POSITION 256 [get_hw_ilas hw_ila_1]\nset_property CONTROL.TRIGGER_MODE BASIC_ONLY [get_hw_ilas hw_ila_1]\nset_property CONTROL.TRIGGER_CONDITION AND [get_hw_ilas hw_ila_1]\nset_property CONTROL.CAPTURE_MODE BASIC [get_hw_ilas hw_ila_1]\nset_property CONTROL.CAPTURE_CONDITION OR [get_hw_ilas hw_ila_1]\nset_property CONTROL.TRIG_OUT_MODE TRIGGER_ONLY [get_hw_ilas hw_ila_1]",
+      "parameters": [
+        {"name": "CONTROL.DATA_DEPTH", "description": "Samples per window: power of two up to the synthesized C_DATA_DEPTH."},
+        {"name": "CONTROL.WINDOW_COUNT", "description": "Windows per run; each window re-arms the trigger."},
+        {"name": "CONTROL.TRIGGER_POSITION", "description": "0 = trigger at the first sample (only post-trigger data); DATA_DEPTH-1 = only pre-trigger data."},
+        {"name": "CONTROL.TRIGGER_MODE", "description": "Basic (compare values), advanced (state-machine trigger from a .tsm file: CONTROL.TRIGGER_STATE_MACHINE_FILE), or trigger-in based."},
+        {"name": "CONTROL.CAPTURE_MODE / CAPTURE_CONDITION", "description": "ALWAYS stores every sample; BASIC stores samples satisfying the capture compare values combined with AND/OR (requires C_EN_STRG_QUAL)."}
+      ],
+      "example": "set ila [get_hw_ilas -of_objects [current_hw_device] -filter {CELL_NAME =~ \"u_ila_axi\"}]\nset_property CONTROL.DATA_DEPTH 4096 $ila\nset_property CONTROL.TRIGGER_POSITION 1024 $ila\nset_property TRIGGER_COMPARE_VALUE eq1'b1 [get_hw_probes s_axi_awvalid -of_objects $ila]\nset_property CAPTURE_COMPARE_VALUE eq1'b1 [get_hw_probes s_axi_wvalid -of_objects $ila]\nset_property CONTROL.CAPTURE_MODE BASIC $ila\nrun_hw_ila $ila\nwait_on_hw_ila $ila\ndisplay_hw_ila_data [upload_hw_ila_data $ila]",
+      "notes": "Properties are only accepted if the core was built with the feature (C_ADV_TRIGGER for ADVANCED, C_EN_STRG_QUAL for BASIC capture, C_TRIGIN_EN/C_TRIGOUT_EN for TRIG_IN/TRIG_OUT). The GUI's Settings tab of the ILA dashboard sets exactly these properties; reset_hw_ila returns the core to defaults.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Using-Tcl-Commands-to-Take-an-ILA-Measurement"
+    },
+    {
+      "name": "set_property CAPTURE_COMPARE_VALUE / TRIGGER_COMPARE_VALUE syntax (hw_probe compare values)",
+      "kind": "system-variable",
+      "description": "The compare-value language used on hw_probe objects: <operator><width>'<radix><value> where the operator is eq, neq, lt, gt, lte, gte (numeric compares need C_PROBE_MUX/comparator type set at insertion) and for single bits the transition operators R (rising), F (falling), B (both edges) and N (no transition); radix b/h/o/u/d (unsigned/signed decimal with C_PROBEn_TYPE), X for don't care bits (e.g. eq8'hXX_1X), and multiple probes combine according to CONTROL.TRIGGER_CONDITION. CAPTURE_COMPARE_VALUE uses the same syntax for capture qualification. DISPLAY_RADIX sets the waveform radix per probe.",
+      "usage": "set_property TRIGGER_COMPARE_VALUE eq1'bR [get_hw_probes start -of_objects $ila]      ;# rising edge\nset_property TRIGGER_COMPARE_VALUE eq32'hDEAD_BEEF [get_hw_probes data -of_objects $ila]\nset_property TRIGGER_COMPARE_VALUE gt16'u1000 [get_hw_probes count -of_objects $ila]   ;# numeric (needs comparator support)\nset_property TRIGGER_COMPARE_VALUE eq4'b1XX0 [get_hw_probes state -of_objects $ila]    ;# don't-cares\nset_property CAPTURE_COMPARE_VALUE eq1'b1 [get_hw_probes valid -of_objects $ila]\nset_property DISPLAY_RADIX HEX [get_hw_probes data -of_objects $ila]",
+      "parameters": [
+        {"name": "eq / neq / lt / gt / lte / gte", "description": "Comparison operators; the ordering ones need probes inserted with a comparator type other than 'equal' (Set Up Debug > Probe type) and C_PROBEn_MU_CNT."},
+        {"name": "R / F / B / N", "description": "Edge operators for 1-bit probes."},
+        {"name": "X", "description": "Don't-care digit in binary/hex/octal values."},
+        {"name": "DISPLAY_RADIX", "description": "BINARY, HEX, OCTAL, UNSIGNED, SIGNED: per-probe display radix in the waveform."}
+      ],
+      "example": "# Trigger when a write to address 0x4000_0000 occurs with a specific data value\nset_property CONTROL.TRIGGER_CONDITION AND $ila\nset_property TRIGGER_COMPARE_VALUE eq32'h4000_0000 [get_hw_probes s_axi_awaddr -of_objects $ila]\nset_property TRIGGER_COMPARE_VALUE eq1'b1        [get_hw_probes s_axi_awvalid -of_objects $ila]\nrun_hw_ila $ila",
+      "notes": "Underscores in values are ignored. Enumerated display: add_hw_probe_enum / remove_hw_probe_enum attach names to values for state machines. Probe widths in the .ltx must match the design programmed; a stale .ltx gives 'probe width mismatch' errors.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Trigger-Compare-Value-Syntax"
+    },
+    {
+      "name": "read_hw_ila_data / current_hw_ila_data / write_hw_ila_data -csv_file / -vcd_file",
+      "kind": "tcl-command",
+      "description": "Handling captured ILA data outside the live session: write_hw_ila_data stores an upload (from upload_hw_ila_data) as a native .ila file, or with -csv_file / -vcd_file exports the samples to CSV or VCD for spreadsheets and third-party viewers; read_hw_ila_data reloads a .ila file into a hw_ila_data object that display_hw_ila_data shows in the waveform viewer without any hardware attached; current_hw_ila_data / get_hw_ila_datas manage the data objects in memory.",
+      "usage": "write_hw_ila_data [-csv_file <f.csv>] [-vcd_file <f.vcd>] [-legacy_csv_file <f>] [-force] [-quiet] <file.ila> <hw_ila_data>\nread_hw_ila_data [-quiet] <file.ila>\ndisplay_hw_ila_data [-wcfg <file.wcfg>] [-reset] [-quiet] [<hw_ila_data>]\ncurrent_hw_ila_data [<hw_ila_data>]\nget_hw_ila_datas [-of_objects <hw_ilas>] [-filter <expr>] [<patterns>]",
+      "parameters": [
+        {"name": "-csv_file / -vcd_file", "description": "Also export the capture as CSV (one row per sample, columns per probe) or VCD."},
+        {"name": "-wcfg (display)", "description": "Waveform configuration to apply (probe order, radix, groups)."},
+        {"name": "-force", "description": "Overwrite existing files."}
+      ],
+      "example": "set data [upload_hw_ila_data $ila]\nwrite_hw_ila_data -force -csv_file ./capture_[clock seconds].csv ./capture.ila $data\n# offline analysis on another machine (vivado_lab is enough)\nset d [read_hw_ila_data ./capture.ila]\ndisplay_hw_ila_data -wcfg ./ila_axi.wcfg $d",
+      "notes": "The .ila file includes probe names and widths so it is self-contained. VCD export uses the ILA sample clock as time base (one time unit per sample). Very deep captures (megasamples with wide probes) take a while to upload over JTAG; consider a smaller DATA_DEPTH for iterative debug.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_hw_ila_data"
+    },
+    {
+      "name": "get_hw_vios / set_property OUTPUT_VALUE / commit_hw_vio / refresh_hw_vio / reset_hw_vio_outputs",
+      "kind": "tcl-command",
+      "description": "Virtual Input/Output core control: get_hw_vios returns the VIO cores on the device, the input probes are read with refresh_hw_vio (updating INPUT_VALUE, with activity indicators for changing signals), and outputs are set by writing OUTPUT_VALUE on the output probes followed by commit_hw_vio, which pushes all pending values to hardware at once; reset_hw_vio_outputs restores the initial values from the core parameters and reset_hw_vio_activity clears the activity counters. Used for run-time control (resets, enables, test modes) and status readout without any processor.",
+      "usage": "get_hw_vios [-of_objects <hw_devices>] [-regexp] [-filter <expr>] [-quiet] [<patterns>]\nrefresh_hw_vio [-update_output_values] [-quiet] <hw_vios>\nset_property OUTPUT_VALUE <value> [get_hw_probes <probe> -of_objects <hw_vio>]\ncommit_hw_vio [-quiet] <hw_vios_or_probes>\nreset_hw_vio_outputs [-quiet] <hw_vios>\nreset_hw_vio_activity [-quiet] <hw_vios>\nget_property INPUT_VALUE [get_hw_probes <probe> -of_objects <hw_vio>]",
+      "parameters": [
+        {"name": "OUTPUT_VALUE", "description": "Value for an output probe, entered in the probe's DISPLAY_RADIX (e.g. 1 or 0 for a 1-bit probe, A5 for an 8-bit hex-radix probe)."},
+        {"name": "INPUT_VALUE / INPUT_VALUE_ACTIVITY", "description": "Read-back value and activity (U/D/B/N) of input probes after refresh_hw_vio."},
+        {"name": "-update_output_values", "description": "Read the current output-probe values from hardware instead of assuming the last committed."}
+      ],
+      "example": "set vio [get_hw_vios -of_objects [current_hw_device] -filter {CELL_NAME =~ \"u_vio\"}]\nset_property OUTPUT_VALUE 1 [get_hw_probes soft_rst -of_objects $vio]\ncommit_hw_vio $vio\nafter 100\nset_property OUTPUT_VALUE 0 [get_hw_probes soft_rst -of_objects $vio]\ncommit_hw_vio $vio\nrefresh_hw_vio $vio\nputs \"link_up = [get_property INPUT_VALUE [get_hw_probes link_up -of_objects $vio]]\"",
+      "notes": "VIO outputs are synchronous to the core's clock; a stopped clock means the write never takes effect (the GUI shows a warning). The VIO dashboard in the GUI is the interactive equivalent with LEDs, buttons and text fields per probe.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/commit_hw_vio"
+    },
+    {
+      "name": "get_hw_sysmons / refresh_hw_sysmon / get_property TEMPERATURE / set_hw_sysmon_reg",
+      "kind": "tcl-command",
+      "description": "Read the on-chip System Monitor (XADC/SYSMON) through JTAG without any design support: get_hw_sysmons returns the monitor object(s), refresh_hw_sysmon samples it and updates properties such as TEMPERATURE, VCCINT, VCCAUX, VCCBRAM, VCCO_DDR (family dependent), plus MIN/MAX statistics, and the register-level commands get_hw_sysmon_reg / set_hw_sysmon_reg access the DRP registers (e.g. to change the sequencer or alarm limits). The Hardware Manager dashboard plots the same values over time.",
+      "usage": "get_hw_sysmons [-of_objects <hw_devices>] [-regexp] [-filter <expr>] [-quiet] [<patterns>]\nrefresh_hw_sysmon [-regexp] [-properties <list>] [-quiet] <hw_sysmons>\nget_property TEMPERATURE <hw_sysmon>\nget_hw_sysmon_reg <hw_sysmon> <hex_address>\nset_hw_sysmon_reg <hw_sysmon> <hex_address> <hex_value>\ncommit_hw_sysmon <hw_sysmons>",
+      "parameters": [
+        {"name": "Properties", "description": "TEMPERATURE, TEMPERATURE_MIN/MAX, VCCINT, VCCAUX, VCCBRAM, VCCPINT/VCCPAUX/VCCO_DDR (Zynq), VUSER0..3 (UltraScale+), plus ALARM flags."},
+        {"name": "-properties", "description": "Refresh only the listed properties (faster polling)."},
+        {"name": "register addresses", "description": "0x00 temperature, 0x01 VCCINT, 0x02 VCCAUX, 0x40-0x42 configuration, 0x50+ alarm limits (see UG480/UG580)."}
+      ],
+      "example": "set sm [lindex [get_hw_sysmons -of_objects [current_hw_device]] 0]\nfor {set i 0} {$i < 10} {incr i} {\n  refresh_hw_sysmon -properties {TEMPERATURE VCCINT} $sm\n  puts [format \"%5.1f C  VCCINT %.3f V\" [get_property TEMPERATURE $sm] [get_property VCCINT $sm]]\n  after 1000\n}",
+      "notes": "Available even with no bitstream loaded (the monitor is always powered). Versal exposes SYSMON via the same commands with more supply rails; raw ADC codes convert with the family-specific formulas.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/refresh_hw_sysmon"
+    },
+    {
+      "name": "set_property PROGRAM.ADDRESS_RANGE / PROGRAM.FILES / PROGRAM.PRM_FILE / PROGRAM.ERASE / PROGRAM.CFG_PROGRAM / PROGRAM.VERIFY / PROGRAM.CHECKSUM / PROGRAM.BLANK_CHECK (hw_cfgmem)",
+      "kind": "system-variable",
+      "description": "The properties that drive configuration-memory programming on a hw_cfgmem object created with create_hw_cfgmem: PROGRAM.FILES lists the .mcs/.bin image(s) (two for dual-QSPI), PROGRAM.PRM_FILE the matching .prm map, PROGRAM.ADDRESS_RANGE selects use_file (only the image's range) or entire_device, and the boolean steps PROGRAM.ERASE, PROGRAM.CFG_PROGRAM, PROGRAM.VERIFY, PROGRAM.CHECKSUM and PROGRAM.BLANK_CHECK choose which operations program_hw_cfgmem performs; PROGRAM.HW_CFGMEM_TYPE/MEM_PART are set at creation. Before programming, the device must hold the flash-programming bitstream (create_hw_bitstream -hw_device ... [get_property PROGRAM.HW_CFGMEM_BITFILE ...]; program_hw_devices), which Vivado does automatically in the GUI flow.",
+      "usage": "set cfg [current_hw_cfgmem]\nset_property PROGRAM.ADDRESS_RANGE {use_file} $cfg\nset_property PROGRAM.FILES [list ./top.mcs] $cfg\nset_property PROGRAM.PRM_FILE ./top.prm $cfg\nset_property PROGRAM.UNUSED_PIN_TERMINATION {pull-none} $cfg\nset_property PROGRAM.BLANK_CHECK 0 $cfg\nset_property PROGRAM.ERASE 1 $cfg\nset_property PROGRAM.CFG_PROGRAM 1 $cfg\nset_property PROGRAM.VERIFY 1 $cfg\nset_property PROGRAM.CHECKSUM 0 $cfg\ncreate_hw_bitstream -hw_device [current_hw_device] [get_property PROGRAM.HW_CFGMEM_BITFILE [current_hw_device]]\nprogram_hw_devices [current_hw_device]\nprogram_hw_cfgmem -hw_cfgmem $cfg",
+      "parameters": [
+        {"name": "PROGRAM.FILES", "description": "Image file list; for -interface spix8 (dual QSPI) two files (_primary/_secondary)."},
+        {"name": "PROGRAM.ADDRESS_RANGE", "description": "use_file or entire_device (erase/verify scope)."},
+        {"name": "PROGRAM.ERASE / CFG_PROGRAM / VERIFY / CHECKSUM / BLANK_CHECK", "description": "Operation flags (1/0)."},
+        {"name": "PROGRAM.UNUSED_PIN_TERMINATION", "description": "pull-none / pull-up / pull-down for the flash-programming bitstream's unused pins (keep board-safe)."},
+        {"name": "PROGRAM.HW_CFGMEM_BITFILE (on hw_device)", "description": "Path of the internal indirect-programming bitstream for the selected flash."}
+      ],
+      "example": "# complete QSPI flow for a Kintex UltraScale board\nwrite_cfgmem -format mcs -size 128 -interface SPIx4 -loadbit {up 0x0 ./top.bit} -force ./top.mcs\nopen_hw_manager; connect_hw_server; open_hw_target\ncurrent_hw_device [lindex [get_hw_devices xcku040*] 0]\ncreate_hw_cfgmem -hw_device [current_hw_device] [lindex [get_cfgmem_parts {mt25qu01g-spi-x1_x2_x4}] 0]\nset_property PROGRAM.FILES [list ./top.mcs] [current_hw_cfgmem]\nset_property PROGRAM.PRM_FILE ./top.prm [current_hw_cfgmem]\nset_property PROGRAM.ADDRESS_RANGE use_file [current_hw_cfgmem]\nset_property PROGRAM.ERASE 1 [current_hw_cfgmem]; set_property PROGRAM.CFG_PROGRAM 1 [current_hw_cfgmem]; set_property PROGRAM.VERIFY 1 [current_hw_cfgmem]\ncreate_hw_bitstream -hw_device [current_hw_device] [get_property PROGRAM.HW_CFGMEM_BITFILE [current_hw_device]]\nprogram_hw_devices [current_hw_device]\nprogram_hw_cfgmem -hw_cfgmem [current_hw_cfgmem]\nboot_hw_device [current_hw_device]",
+      "notes": "get_cfgmem_parts lists supported flash devices (filter on the part name from the board schematic). After programming, boot_hw_device (or a board power cycle) makes the FPGA load from flash. delete_hw_cfgmem removes the object; readback_hw_cfgmem reads flash contents back to a file.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Programming-Configuration-Memory-Devices"
+    },
+    {
+      "name": "get_cfgmem_parts / delete_hw_cfgmem / readback_hw_cfgmem / current_hw_cfgmem",
+      "kind": "tcl-command",
+      "description": "Supporting commands for flash programming: get_cfgmem_parts lists the configuration-memory part definitions Vivado knows (vendor, density, interface: spi-x1_x2_x4, spi-x8 dual, bpi-x16, ...) used as the argument to create_hw_cfgmem; current_hw_cfgmem selects/returns the active object on the device; readback_hw_cfgmem reads the flash contents into an .mcs/.bin file for archiving or comparison; delete_hw_cfgmem removes the object (e.g. to switch to a different flash part).",
+      "usage": "get_cfgmem_parts [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]\ncurrent_hw_cfgmem [-hw_device <dev>] [<hw_cfgmem>]\nreadback_hw_cfgmem [-checksum] [-force] [-format mcs|bin] [-offset <addr>] [-datacount <n>] [-file <out>] [-quiet] [-hw_cfgmem <obj>]\ndelete_hw_cfgmem [-quiet] <hw_cfgmem>",
+      "parameters": [
+        {"name": "<patterns> for get_cfgmem_parts", "description": "e.g. {mt25qu256-spi-x1_x2_x4}, {s25fl512s-spi-x1_x2_x4}, {mt28gu01gaax1e-bpi-x16}; properties MEM_TYPE, MEM_DENSITY, MFR_NAME, DATA_WIDTH."},
+        {"name": "-offset / -datacount (readback)", "description": "Start address and byte count of the region to read."},
+        {"name": "-format", "description": "mcs or bin output."}
+      ],
+      "example": "get_cfgmem_parts -filter {MFR_NAME == Micron && MEM_TYPE == spi} \nreadback_hw_cfgmem -format bin -offset 0 -datacount 0x1000000 -file ./flash_dump.bin -force -hw_cfgmem [current_hw_cfgmem]\ndelete_hw_cfgmem [current_hw_cfgmem]",
+      "notes": "The flash part list is per device family; a part missing from the list often has a compatible entry (same command set/density). Readback is slow over JTAG (tens of minutes for large flashes).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_cfgmem_parts"
+    },
+    {
+      "name": "boot_hw_device / readback_hw_device / verify_hw_devices",
+      "kind": "tcl-command",
+      "description": "Device-level operations beyond program_hw_devices: boot_hw_device issues a JTAG JPROGRAM so the device reconfigures from its non-volatile source (flash, after program_hw_cfgmem) without a power cycle; readback_hw_device reads the configuration memory of a running device into a .rbd/.bin file (with -readback_file/-bin_file) and optionally captures register state (-capture), used for verification, SEU checks and SEM analysis; verify_hw_devices compares the device's configuration against the programmed .bit and its .msk mask file (write_bitstream -mask_file) to confirm the bitstream loaded correctly.",
+      "usage": "boot_hw_device [-disable_done_check] [-timeout <s>] [-quiet] <hw_device>\nreadback_hw_device [-force] [-capture] [-readback_file <f.rbd>] [-bin_file <f.bin>] [-quiet] <hw_device>\nverify_hw_devices [-key efuse|bbram] [-verbose] [-quiet] <hw_devices>   ;# requires PROGRAM.FILE and a matching .msk next to it",
+      "parameters": [
+        {"name": "-disable_done_check", "description": "Do not wait for DONE after boot (for designs with delayed DONE or Tandem PCIe)."},
+        {"name": "-capture", "description": "Assert GCAPTURE before readback so flip-flop states are included."},
+        {"name": "-readback_file / -bin_file", "description": "ASCII (.rbd) or binary output of the readback data."},
+        {"name": ".msk", "description": "Mask file identifying the bits that verify should compare (excludes BRAM contents, etc.)."}
+      ],
+      "example": "# after flashing: boot from QSPI and check DONE\nboot_hw_device [current_hw_device]\nputs [get_property REGISTER.IR.BIT5_DONE [current_hw_device]]\n# verify a programmed bitstream\nwrite_bitstream -force -mask_file ./top.bit   ;# generates top.msk beside top.bit\nset_property PROGRAM.FILE ./top.bit [current_hw_device]\nverify_hw_devices [current_hw_device]\n# readback for SEU comparison\nreadback_hw_device -readback_file ./top_rb.rbd -bin_file ./top_rb.bin [current_hw_device]",
+      "notes": "Readback and verify are blocked for encrypted bitstreams (unless keys allow readback) and on devices with readback disabled by BITSTREAM.READBACK.SECURITY. Boot times out if the flash image is invalid; use -timeout for large images.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/boot_hw_device"
+    },
+    {
+      "name": "write_hw_svf / execute_hw_svf",
+      "kind": "tcl-command",
+      "description": "Serial Vector Format generation: with a virtual SVF target open (create_hw_target, then open_hw_target as in the usage below), every JTAG operation performed (program_hw_devices, program_hw_cfgmem, boot, eFUSE) is recorded, and write_hw_svf writes it to an .svf file that any third-party JTAG tool or embedded controller can replay without Vivado; execute_hw_svf replays an .svf on a real target for validation. Used for production programming with non-AMD programmers and for boards where only a generic JTAG bridge is available.",
+      "usage": "open_hw_manager\nconnect_hw_server\ncreate_hw_target -copy [get_hw_targets */xilinx_tcf/Digilent/*] svf_target   ;# or create_hw_target svf_target with create_hw_device per chain member\nopen_hw_target [get_hw_targets */svf_target]\nset_property PROGRAM.FILE ./top.bit [current_hw_device]\nprogram_hw_devices [current_hw_device]\nwrite_hw_svf -force ./program_top.svf\nclose_hw_target\n# replay\nopen_hw_target [get_hw_targets */xilinx_tcf/Digilent/*]\nexecute_hw_svf ./program_top.svf",
+      "parameters": [
+        {"name": "create_hw_target -copy", "description": "Clone the JTAG chain of a real target into a virtual SVF target so device order/IR lengths are correct."},
+        {"name": "create_hw_device -idcode -irlength -mask -part", "description": "Describe chain members manually when no real target is available."},
+        {"name": "write_hw_svf -force", "description": "Overwrite an existing file; the SVF accumulates all operations since the target was opened."}
+      ],
+      "example": "# Manual chain description for an offline SVF\ncreate_hw_target my_svf\nopen_hw_target [get_hw_targets */my_svf]\ncreate_hw_device -idcode 03822093 -irlength 6 -mask ffffffff -part xc7z020\nset_property PROGRAM.FILE ./top.bit [current_hw_device]\nprogram_hw_devices [current_hw_device]\nwrite_hw_svf -force ./top.svf",
+      "notes": "SVF files for flash programming embed the flash-programming bitstream plus the whole image and can be very large; readback/verify results cannot be captured in SVF. The IDCODE for a part is in the device configuration user guide.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Serial-Vector-Format-SVF-Generation"
+    },
+    {
+      "name": "get_hw_targets / close_hw_target / disconnect_hw_server / refresh_hw_target / set_property PARAM.FREQUENCY (JTAG clock)",
+      "kind": "tcl-command",
+      "description": "Target and server lifecycle: get_hw_targets lists the JTAG cables/targets a hw_server exposes (Digilent, Platform Cable, SmartLynq, XVC), each with properties such as UID, TYPE and PARAM.FREQUENCY (the TCK rate, changeable before open_hw_target to slow down flaky chains or speed up uploads), refresh_hw_target rescans the chain, close_hw_target releases the cable, disconnect_hw_server drops the server connection and close_hw_manager ends the session. get_hw_servers / current_hw_server handle multiple servers.",
+      "usage": "get_hw_targets [-of_objects <hw_servers>] [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]\nset_property PARAM.FREQUENCY 15000000 [get_hw_targets */xilinx_tcf/Digilent/210308A1234]\nopen_hw_target [get_hw_targets */xilinx_tcf/Digilent/210308A1234]\nrefresh_hw_target [-quiet] [<hw_target>]\nclose_hw_target [-quiet] [<hw_target>]\ndisconnect_hw_server [-quiet] [<hw_server>]\nclose_hw_manager",
+      "parameters": [
+        {"name": "PARAM.FREQUENCY", "description": "JTAG TCK in Hz (e.g. 6000000, 15000000, 30000000 depending on cable)."},
+        {"name": "-filter on targets", "description": "e.g. {NAME =~ *Digilent*} or {UID == 210308A1234}."},
+        {"name": "current_hw_target", "description": "Select the open target when several are open."}
+      ],
+      "example": "open_hw_manager\nconnect_hw_server -url labpc:3121 -allow_non_jtag\nforeach t [get_hw_targets] { puts \"$t  [get_property TYPE $t] [get_property PARAM.FREQUENCY $t]\" }\nset t [get_hw_targets -filter {NAME =~ *SmartLynq*}]\nset_property PARAM.FREQUENCY 30000000 $t\nopen_hw_target $t\ncurrent_hw_device [get_hw_devices xcvu9p_0]\n# ...\nclose_hw_target\ndisconnect_hw_server\nclose_hw_manager",
+      "notes": "Long or noisy JTAG chains need lower TCK (start at 6 MHz). Device names are <part>_<index> in chain order; ARM DAP entries appear on Zynq. Tools > Auto Connect in the GUI performs open_hw_manager/connect/open_target on the first found cable.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_hw_targets"
+    },
+    {
+      "name": "Xilinx Virtual Cable (XVC): open_hw_target -xvc_url and hw_server -e 'set auto-open-servers xilinx-xvc'",
+      "kind": "tcl-command",
+      "description": "XVC is a TCP protocol (default port 2542) that lets any device implementing the xvcServer commands (getinfo/settck/shift) act as a JTAG cable: an embedded Linux board driving its own PL JTAG through the debug bridge IP, a Raspberry Pi bit-banging JTAG, a PCIe card exposing XVC over the Debug Bridge (xvc_pcie driver), or a network JTAG adapter. Vivado connects either directly from the Hardware Manager with open_hw_target -xvc_url host:port, or by telling hw_server to auto-open the XVC server so the target appears in the normal list. This enables remote debug of deployed systems without a physical cable.",
+      "usage": "open_hw_manager\nconnect_hw_server\nopen_hw_target -xvc_url 192.168.1.50:2542\n# or make hw_server discover it\nhw_server -e \"set auto-open-servers xilinx-xvc:192.168.1.50:2542\" -s tcp::3121\n# then connect_hw_server -url localhost:3121 and the XVC target is listed by get_hw_targets",
+      "parameters": [
+        {"name": "-xvc_url <host:port>", "description": "Address of the XVC server."},
+        {"name": "auto-open-servers xilinx-xvc:<host>:<port>", "description": "hw_server option to attach an XVC endpoint at start-up (comma-separated list for several)."},
+        {"name": "Debug Bridge IP (debug_bridge)", "description": "C_DEBUG_MODE options: JTAG to BSCAN, AXI to BSCAN (XVC over AXI/PCIe), BSCAN to DebugHub, ... used on the device side."}
+      ],
+      "example": "# PCIe accelerator card: Debug Bridge (AXI to BSCAN) + xvc_pcie Linux driver (github.com/Xilinx/XilinxVirtualCable), then\nopen_hw_target -xvc_url server42:10200\nset_property PROBES.FILE ./card.ltx [current_hw_device]\nrefresh_hw_device\n# ILA/VIO work as with a physical cable",
+      "notes": "Bitstream programming over XVC is supported only when the XVC endpoint reaches the device's real JTAG TAP; through an AXI-based debug bridge only debug cores (not configuration) are reachable. Throughput depends on the XVC implementation's shift buffer size.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Xilinx-Virtual-Cable-XVC"
+    },
+    {
+      "name": "report_hw_axi_txn / get_hw_axi_txns / delete_hw_axi_txn / reset_hw_axi / refresh_hw_axi",
+      "kind": "tcl-command",
+      "description": "Completing the JTAG-to-AXI Master flow: after create_hw_axi_txn defines a read or write burst and run_hw_axi executes it, report_hw_axi_txn prints the transaction's address, data and response (with -w for wide data formatting), get_hw_axi_txns lists the defined transactions and get_hw_axis the master cores, delete_hw_axi_txn removes definitions, reset_hw_axi resets the core's state machine after a hung transaction (e.g. an address with no slave) and refresh_hw_axi re-reads its status registers. This is the tool for peeking/poking AXI peripherals and memory from Tcl without software.",
+      "usage": "get_hw_axis [-of_objects <hw_devices>] [-filter <expr>] [<patterns>]\ncreate_hw_axi_txn [-address <hex>] [-data <hex>] [-size <bits>] [-len <beats>] [-type read|write] [-id <n>] [-burst incr|fixed|wrap] [-cache <n>] [-prot <n>] [-force] <name> <hw_axi>\nrun_hw_axi [-queue] [-quiet] <hw_axi_txns>\nreport_hw_axi_txn [-w <width>] [-t <type>] [-quiet] <hw_axi_txns>\nget_hw_axi_txns [-of_objects <hw_axis>] [-filter <expr>] [<patterns>]\ndelete_hw_axi_txn [-quiet] <hw_axi_txns>\nreset_hw_axi [-quiet] <hw_axis>\nrefresh_hw_axi [-quiet] <hw_axis>",
+      "parameters": [
+        {"name": "-len / -size / -burst", "description": "Beats, beat size in bits (32/64/...), and burst type; data list length must equal len x size/32 words."},
+        {"name": "-queue (run)", "description": "Queue several transactions and execute them back to back."},
+        {"name": "-w (report)", "description": "Words per line in the data dump."}
+      ],
+      "example": "set axi [get_hw_axis hw_axi_1]\ncreate_hw_axi_txn -force wr_ctrl $axi -type write -address 40000000 -len 1 -data 00000001\ncreate_hw_axi_txn -force rd_stat $axi -type read  -address 40000004 -len 1\nrun_hw_axi wr_ctrl\nrun_hw_axi rd_stat\nreport_hw_axi_txn rd_stat\nputs [get_property DATA [get_hw_axi_txns rd_stat]]\n# 16-beat burst read of DDR\ncreate_hw_axi_txn -force rd_ddr $axi -type read -address 80000000 -len 16 -size 32\nrun_hw_axi rd_ddr; report_hw_axi_txn -w 4 rd_ddr",
+      "notes": "Addresses are hexadecimal without 0x. The JTAG-to-AXI core's clock must be running and its reset released; a transaction to an unmapped address hangs until reset_hw_axi. The core supports AXI4 (full) and AXI4-Lite depending on its configuration.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_hw_axi_txn"
+    },
+    {
+      "name": "IBERT / Serial I/O Analyzer Tcl: get_hw_sio_gts, create_hw_sio_link, create_hw_sio_scan, run_hw_sio_scan, wait_on_hw_sio_scan, display_hw_sio_scan, write_hw_sio_scan",
+      "kind": "tcl-command",
+      "description": "Scripting the Serial I/O Analyzer on an IBERT core (IBERT UltraScale/UltraScale+/Versal, or the in-system IBERT integrated in the transceiver wizard): get_hw_sio_gts/get_hw_sio_txs/get_hw_sio_rxs/get_hw_sio_plls/get_hw_sio_commons enumerate the transceiver objects with their DRP-backed properties (line rate, loopback, TX pre/post-cursor, RX equaliser, PRBS pattern, error counters); create_hw_sio_link pairs a TX and RX into a link (or detect_hw_sio_links finds them automatically), set_property on the link sets pattern/loopback, create_hw_sio_scan defines a 1d_bathtub or 2d_full_eye scan on a link, run_hw_sio_scan / wait_on_hw_sio_scan execute it, display_hw_sio_scan shows the eye and write_hw_sio_scan saves it as CSV; create_hw_sio_sweep sweeps TX/RX settings across multiple scans. Used for link bring-up, margin qualification and production test.",
+      "usage": "get_hw_sio_gts [-of_objects <hw_sio_iberts|links>] [-filter <expr>] [<patterns>]\ncreate_hw_sio_link [-description <text>] [-quiet] <hw_sio_tx> <hw_sio_rx>\ndetect_hw_sio_links [-force] [-quiet]\nset_property TX_PATTERN {PRBS 31-bit} <hw_sio_link>; set_property RX_PATTERN {PRBS 31-bit} <hw_sio_link>; set_property LOOPBACK {Near-End PMA} <hw_sio_link>\ncreate_hw_sio_scan [-description <text>] [-quiet] 1d_bathtub|2d_full_eye <hw_sio_link|hw_sio_rx>\nset_property HORIZONTAL_INCREMENT 2 <scan>; set_property VERTICAL_INCREMENT 2 <scan>; set_property DWELL_BER 1e-8 <scan>\nrun_hw_sio_scan [-quiet] <hw_sio_scans>\nwait_on_hw_sio_scan [-timeout <min>] [-quiet] <hw_sio_scans>\ndisplay_hw_sio_scan [-quiet] <hw_sio_scans>\nwrite_hw_sio_scan [-force] [-quiet] <file.csv> <hw_sio_scan>\nread_hw_sio_scan <file.csv>\nremove_hw_sio_scan <scans>; remove_hw_sio_link <links>",
+      "parameters": [
+        {"name": "Link properties", "description": "TX_PATTERN/RX_PATTERN (PRBS 7/9/15/23/31-bit, Fast/Slow Clock), LOOPBACK (None, Near-End PCS/PMA, Far-End PCS/PMA), TXDIFFSWING, TX_PRE_CURSOR, TX_POST_CURSOR, RX_TERMINATION_VOLTAGE, RXLPMEN/DFE, RX_BER, RX_RECEIVED_BIT_COUNT, RX_BIT_ERROR_COUNT, LOGIC.ERRCNT_RESET (via set_property ... 1 + commit_hw_sio)."},
+        {"name": "Scan properties", "description": "HORIZONTAL_INCREMENT, VERTICAL_INCREMENT, HORIZONTAL_RANGE (-100% .. 100%), VERTICAL_RANGE (100%), DWELL_BER or DWELL_TIME, SCAN_TYPE, OPEN_AREA / OPEN_PERCENTAGE results."},
+        {"name": "Sweeps", "description": "create_hw_sio_sweep with SWEEP properties enumerating TX/RX parameter sets; run_hw_sio_sweep / write_hw_sio_sweep."}
+      ],
+      "example": "open_hw_manager; connect_hw_server; open_hw_target\ncurrent_hw_device [get_hw_devices xcku040_0]\nset_property PROGRAM.FILE ./ibert_example.bit [current_hw_device]\nprogram_hw_devices; refresh_hw_device\nset links [detect_hw_sio_links -force]\nforeach l $links { set_property TX_PATTERN {PRBS 31-bit} $l; set_property RX_PATTERN {PRBS 31-bit} $l }\ncommit_hw_sio $links\nset scan [create_hw_sio_scan -description \"lane0 eye\" 2d_full_eye [lindex $links 0]]\nset_property HORIZONTAL_INCREMENT 4 $scan; set_property VERTICAL_INCREMENT 4 $scan; set_property DWELL_BER 1e-7 $scan\nrun_hw_sio_scan $scan\nwait_on_hw_sio_scan -timeout 30 $scan\nputs \"open area: [get_property OPEN_AREA $scan]\"\nwrite_hw_sio_scan -force ./lane0_eye.csv $scan",
+      "notes": "Property changes on GT/link objects take effect after commit_hw_sio (the GUI does this on Apply); refresh_hw_sio re-reads counters. Eye scans require the RX equaliser in LPM or DFE mode matching the setup and are not supported on every 7 series transceiver type (see the UG908 device support table). IBERT designs are generated from the IP catalog (IBERT UltraScale) or the transceiver wizard's in-system IBERT option.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Serial-I/O-Analyzer"
+    },
+    {
+      "name": "set_property C_TRIGIN_EN / C_TRIGOUT_EN / C_ADV_TRIGGER / C_EN_STRG_QUAL / C_INPUT_PIPE_STAGES / C_NUM_OF_PROBES (debug core parameters)",
+      "kind": "system-variable",
+      "description": "Parameters of an ILA debug core in the netlist-insertion flow (set on the debug_core object between create_debug_core and implement_debug_core; the IP flow sets the same through the ILA customization GUI): C_DATA_DEPTH (1024-131072 samples), C_TRIGIN_EN / C_TRIGOUT_EN add trigger-in/out ports for cross-triggering between ILAs or with a processor (Zynq cross-trigger), C_ADV_TRIGGER enables the advanced trigger state machine (up to 16 states, counters, flags), C_EN_STRG_QUAL enables storage (capture) qualification, C_INPUT_PIPE_STAGES (0-6) adds pipelining on probe inputs for timing closure, C_NUM_OF_PROBES counts the probe ports, and per-probe C_PROBEn_TYPE (0 data+trigger, 1 data only, 2 trigger only) / C_PROBEn_MU_CNT (match units) control comparator resources; the trigger mode itself is a run-time property, not a build parameter. The debug hub (dbg_hub) has C_CLK_INPUT_FREQ_HZ, C_ENABLE_CLK_DIVIDER and C_USER_SCAN_CHAIN.",
+      "usage": "set core [create_debug_core u_ila_0 ila]\nset_property C_DATA_DEPTH 8192 $core\nset_property C_TRIGIN_EN true $core\nset_property C_TRIGOUT_EN true $core\nset_property C_ADV_TRIGGER true $core\nset_property C_EN_STRG_QUAL true $core\nset_property C_INPUT_PIPE_STAGES 2 $core\nset_property ALL_PROBE_SAME_MU true $core\nset_property ALL_PROBE_SAME_MU_CNT 2 $core\nset_property C_CLK_INPUT_FREQ_HZ 200000000 [get_debug_cores dbg_hub]\nset_property C_ENABLE_CLK_DIVIDER false [get_debug_cores dbg_hub]",
+      "parameters": [
+        {"name": "C_DATA_DEPTH", "description": "Samples per probe set; BRAM cost = depth x total probe width."},
+        {"name": "C_TRIGIN_EN / C_TRIGOUT_EN", "description": "Create trig_in/trig_in_ack and trig_out/trig_out_ack ports (connect with connect_debug_port ... trig_in etc.)."},
+        {"name": "C_ADV_TRIGGER", "description": "Advanced trigger state machine (.tsm scripts loaded via CONTROL.TRIGGER_STATE_MACHINE_FILE at run time)."},
+        {"name": "C_EN_STRG_QUAL", "description": "Capture qualification support (CONTROL.CAPTURE_MODE BASIC)."},
+        {"name": "C_INPUT_PIPE_STAGES", "description": "0-6 register stages on probes."},
+        {"name": "ALL_PROBE_SAME_MU / ALL_PROBE_SAME_MU_CNT / C_PROBEn_MU_CNT", "description": "Number of match units (comparators) per probe, 1-16; more allow multiple compare values per probe in advanced triggers."}
+      ],
+      "example": "# Cross trigger two ILAs: ILA A's trig_out into ILA B's trig_in\nconnect_debug_port u_ila_a/trig_out    [get_nets xtrig_a2b]\nconnect_debug_port u_ila_b/trig_in     [get_nets xtrig_a2b]\nconnect_debug_port u_ila_b/trig_in_ack [get_nets xtrig_a2b_ack]\nconnect_debug_port u_ila_a/trig_out_ack [get_nets xtrig_a2b_ack]\nimplement_debug_core\n# at run time\nset_property CONTROL.TRIG_OUT_MODE TRIGGER_ONLY [get_hw_ilas hw_ila_1]\nset_property CONTROL.TRIGGER_MODE TRIG_IN_ONLY  [get_hw_ilas hw_ila_2]",
+      "notes": "Parameters cannot be changed after implement_debug_core without re-running implementation. In block designs the same options are on the ILA/System ILA IP (Trigger In/Out Ports, Advanced Trigger, Capture Control, Input Pipe Stages). Zynq PS cross-trigger uses the CTI ports of the processing_system7/zynq_ultra_ps_e IP.",
+      "docs": "https://docs.amd.com/r/en-US/pg172-ila"
+    },
+    {
+      "name": "Advanced trigger state machine (.tsm) and CONTROL.TRIGGER_STATE_MACHINE_FILE",
+      "kind": "system-variable",
+      "description": "When an ILA was built with C_ADV_TRIGGER, the trigger can be a small state machine written in the Trigger State Machine language: up to 16 states with if/elseif/else conditions on probe compares ($counter, $flag objects; probe operators ==, !=, <, >, transitions R/F/B/N), actions goto, trigger, increment/reset counters, set/clear flags, and 4 counters with configurable widths. The file is loaded at run time with CONTROL.TRIGGER_STATE_MACHINE_FILE and TRIGGER_MODE ADVANCED_ONLY, making it possible to trigger on sequences (e.g. 'third write after a read timeout') that basic AND/OR compares cannot express.",
+      "usage": "set_property CONTROL.TRIGGER_MODE ADVANCED_ONLY [get_hw_ilas hw_ila_1]\nset_property CONTROL.TRIGGER_STATE_MACHINE_FILE ./seq_trigger.tsm [get_hw_ilas hw_ila_1]\nrun_hw_ila [get_hw_ilas hw_ila_1]",
+      "parameters": [
+        {"name": "state <name>: ... ;", "description": "State definitions; the first state is the initial one."},
+        {"name": "if (<cond>) then ... elseif ... else ... endif", "description": "Conditions on probes: (probe_name == 8'hA5), (probe_name == 1'bR), counters ($counter0 == 16'u10)."},
+        {"name": "goto <state> / trigger / increment_counter $counterN / reset_counter / set_flag $flagN / clear_flag", "description": "Actions."},
+        {"name": "Counters", "description": "$counter0..$counter3 with widths configured in the Trigger Setup window before running."}
+      ],
+      "example": "# seq_trigger.tsm: trigger on the 4th rising edge of 'req' that is not followed by 'ack' within the state\nstate wait_req:\n  if (req == 1'bR) then\n    increment_counter $counter0;\n    goto wait_ack;\n  endif\nstate wait_ack:\n  if (ack == 1'b1) then\n    goto wait_req;\n  elseif ($counter0 == 16'u4) then\n    trigger;\n  else\n    goto wait_ack;\n  endif",
+      "notes": "Syntax and limits (max states, counters, flags) are in UG908 'Trigger State Machine Language'. Basic mode compare values are ignored while the state machine is active. The GUI's Trigger Setup window has a .tsm editor with syntax checking.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Using-the-ILA-Advanced-Trigger-Feature"
+    },
+    {
+      "name": "Trigger at startup (apply_hw_ila_trigger + write_bitstream)",
+      "kind": "tcl-command",
+      "description": "Capturing events right after configuration (reset sequences, boot handshakes) is done by arming the ILA before programming: open the implemented design, configure the ILA's run-time trigger settings in the Hardware Manager on a previously programmed device with the same design, export those settings with 'Trigger at Startup' (which writes them into the design as ILA properties via the hw_ila -> debug core property transfer: apply_hw_ila_trigger, or the GUI's 'Set Trigger at Startup' in the ILA dashboard), regenerate the bitstream with write_bitstream, and the ILA is then armed as soon as the device configures; connecting the Hardware Manager afterwards and refreshing shows the captured data.",
+      "usage": "# 1. in hardware: set trigger conditions, positions, depth on hw_ila_1 as usual\n# 2. transfer them to the open implemented design (same design/netlist must be open in this Vivado session)\napply_hw_ila_trigger [get_hw_ilas hw_ila_1]\n# 3. regenerate\nwrite_bitstream -force ./top_trig_at_startup.bit\n# 4. program, connect, refresh_hw_device -> the captured data uploads",
+      "parameters": [
+        {"name": "apply_hw_ila_trigger", "description": "Copies the hw_ila run-time settings into the debug core's trigger-at-startup parameters of the open design (or a specified .ila/.tsm)."},
+        {"name": "GUI", "description": "The 'Set Trigger at Startup' action in the Hardware Manager ILA dashboard, available while the matching implemented design is open."}
+      ],
+      "example": "open_run impl_1\nopen_hw_manager; connect_hw_server; open_hw_target\nset_property PROGRAM.FILE ./top.bit [current_hw_device]; set_property PROBES.FILE ./top.ltx [current_hw_device]\nprogram_hw_devices; refresh_hw_device\nset ila [get_hw_ilas hw_ila_1]\nset_property TRIGGER_COMPARE_VALUE eq1'bR [get_hw_probes boot_done -of_objects $ila]\nset_property CONTROL.TRIGGER_POSITION 512 $ila\napply_hw_ila_trigger $ila\nwrite_bitstream -force ./top_tas.bit\nset_property PROGRAM.FILE ./top_tas.bit [current_hw_device]; program_hw_devices; refresh_hw_device\nupload_hw_ila_data $ila; display_hw_ila_data",
+      "notes": "Only the bitstream changes; no re-implementation. The armed ILA starts capturing at end of configuration, so the first samples reflect GSR release. Details and GUI steps are in UG908 'Trigger at Startup'.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Trigger-At-Startup"
+    },
+    {
+      "name": "Netlist insertion vs. HDL instantiation debug flows (ILA/System ILA/Debug Hub)",
+      "kind": "reference",
+      "description": "Two ways to add debug cores: (1) netlist insertion, where MARK_DEBUG nets in the synthesized design are connected to ILA cores created by the Set Up Debug wizard or create_debug_core/connect_debug_port Tcl, stored as debug constraints in the XDC (create_debug_core lines) and implemented by implement_debug_core; the debug hub is inserted automatically and the flow keeps RTL untouched; (2) HDL instantiation, where the ILA/VIO/System ILA IP from the catalog (or in a block design) is instantiated like any IP with explicit probe connections, which survives synthesis changes and lets a block design's System ILA monitor whole AXI interfaces with protocol-aware waveforms; in both cases write_debug_probes produces the .ltx and the hardware flow is identical. The debug hub (dbg_hub) connects all cores to BSCAN and must run at a clock that is free-running and constrained (C_CLK_INPUT_FREQ_HZ for JTAG timing).",
+      "usage": "# insertion flow (post-synthesis)\nopen_run synth_1\nset_property MARK_DEBUG true [get_nets -hier {u_ctrl/state[*] u_ctrl/start}]\ncreate_debug_core u_ila_0 ila\nset_property C_DATA_DEPTH 2048 [get_debug_cores u_ila_0]\nset_property port_width 1 [get_debug_ports u_ila_0/clk]\nconnect_debug_port u_ila_0/clk [get_nets clk_100]\ncreate_debug_port u_ila_0 probe\nset_property port_width 4 [get_debug_ports u_ila_0/probe0]\nconnect_debug_port u_ila_0/probe0 [get_nets {u_ctrl/state[0] u_ctrl/state[1] u_ctrl/state[2] u_ctrl/state[3]}]\nsave_constraints\nimplement_debug_core\n# instantiation flow: create_ip -name ila / system_ila in a BD, connect probes in RTL/BD",
+      "parameters": [
+        {"name": "MARK_DEBUG", "description": "Attribute (RTL or XDC) that preserves a net through synthesis for insertion; also shows the net in the Set Up Debug wizard."},
+        {"name": "Set Up Debug wizard", "description": "Flow Navigator > Synthesized Design > Set Up Debug: pick nets, clock domains, depth, trigger/capture options; writes the create_debug_core constraints."},
+        {"name": "System ILA (system_ila)", "description": "Block-design IP that probes AXI interfaces and nets with interface-aware display (transactions decoded in the waveform) and optional protocol checker."},
+        {"name": "write_debug_probes / PROBES.FILE", "description": ".ltx generation (automatic with write_bitstream) and loading in the Hardware Manager."}
+      ],
+      "example": "# Remove insertion-flow debug cores from a design\ndelete_debug_core [get_debug_cores -filter {NAME != dbg_hub}]\ndelete_debug_core [get_debug_cores dbg_hub]\nsave_constraints\n# or in block designs: delete the system_ila cell and 'Mark Debug' annotations",
+      "notes": "Insertion-flow debug constraints reference synthesized net names and break when the RTL changes; the XDC usually needs regeneration. Debug cores add BRAM and routing; remove them (or set the ILA's probes to fewer bits) before final timing sign-off, or keep them and re-verify timing. Versal adds ChipScoPy (Python) as an alternative client for ILA/VIO/IBERT/DDRMC over the hw_server.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Debugging-Logic-Designs-in-Hardware"
+    },
+    {
+      "name": "ChipScoPy (Python API for Versal debug)",
+      "kind": "api",
+      "description": "Open-source Python client library (pip install chipscopy; github.com/Xilinx/chipscopy) that connects to hw_server and cs_server (the ChipScope server that must run alongside hw_server for Versal) to program a PDI and drive the debug cores of Versal devices from Python: ILA (trigger setup, run, upload, waveform export), VIO, IBERT/eye scans, DDR memory controller calibration/margin status (DDRMC), NoC performance monitoring, System Monitor readings and PCIe link status. It complements the Tcl Hardware Manager, particularly for automated lab tests and Jupyter-based analysis.",
+      "usage": "from chipscopy import create_session, report_versions\nsession = create_session(hw_server_url=\"TCP:localhost:3121\", cs_server_url=\"TCP:localhost:3042\")\ndevice = session.devices.filter_by(family=\"versal\").get()\ndevice.program(\"design.pdi\")\ndevice.discover_and_setup_cores(ltx_file=\"design.ltx\")\nila = device.ila_cores.get(name=\"design_1_i/axi_ila\")\nila.set_probe_trigger_value(\"s_axi_awvalid\", \"eq\", 1)\nila.run_basic_trigger(window_count=1, window_size=1024, trigger_position=256)\nila.wait_till_done(max_wait_minutes=1)\nila.upload()\nwaveform = ila.waveform; waveform.export_waveform(\"csv\", \"capture.csv\")",
+      "parameters": [
+        {"name": "create_session(hw_server_url, cs_server_url)", "description": "Connect to the two servers (cs_server default port 3042)."},
+        {"name": "device.program(pdi) / device.discover_and_setup_cores(ltx_file=...)", "description": "Program and enumerate debug cores."},
+        {"name": "ila_cores / vio_cores / ibert_cores / ddr_cores / noc_core / sysmon_root / pcie_cores", "description": "Core collections with per-core APIs."},
+        {"name": "cs_server", "description": "Executable shipped with Vivado (Vivado Lab included) that ChipScoPy talks to; hw_server handles JTAG."}
+      ],
+      "example": "# Start the servers on the lab machine\n$ hw_server -s TCP::3121 &\n$ cs_server -s TCP::3042 &\n# Then run the Python script above; examples/ in the chipscopy repository cover ILA, VIO, IBERT, DDR, SysMon and NoC.",
+      "notes": "ChipScoPy versions track Vivado releases (e.g. chipscopy 2024.2 with Vivado 2024.2); mismatched versions fail on connect. It targets Versal only; 7 series/UltraScale debug remains Tcl/GUI (or XVC/third-party tools).",
+      "docs": "https://xilinx.github.io/chipscopy/"
+    },
+    {
+      "name": "vivado_lab (Vivado Lab Edition)",
+      "kind": "command",
+      "description": "A small standalone installation (no synthesis/implementation) that contains only the Hardware Manager, the Tcl shell, hw_server/cs_server and the programming tools, for lab and production machines: it programs devices and flash, runs ILA/VIO/IBERT/SysMon dashboards, opens .ila captures and executes the same hardware Tcl commands as full Vivado. Started as vivado_lab (GUI) or vivado_lab -mode tcl/batch -source script.tcl.",
+      "usage": "vivado_lab [-mode gui|tcl|batch] [-source <script.tcl>] [-log <f>] [-journal <f>] [-tclargs ...]",
+      "parameters": [
+        {"name": "-mode batch -source", "description": "Headless programming scripts on production stations."},
+        {"name": "Included tools", "description": "hw_server, cs_server and the Hardware Manager Tcl/GUI; program_flash, xsdb and bootgen ship with Vitis, not with Lab Edition."}
+      ],
+      "example": "vivado_lab -mode batch -source program_board.tcl -tclargs ./top.bit\n# program_board.tcl\nopen_hw_manager; connect_hw_server; open_hw_target\ncurrent_hw_device [lindex [get_hw_devices] 0]\nset_property PROGRAM.FILE [lindex $argv 0] [current_hw_device]\nprogram_hw_devices [current_hw_device]\nclose_hw_manager",
+      "notes": "Free, no license needed. Version should match the Vivado that built the .ltx/.bit for full debug-core compatibility (older Lab Editions cannot read newer .ltx formats).",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Vivado-Lab-Edition"
+    },
+    {
+      "name": ".bit / .bin / .rbt (bitstream formats)",
+      "kind": "format",
+      "description": "Configuration bitstream files from write_bitstream for 7 series, UltraScale and UltraScale+: .bit has a header (design name, part, date) followed by the configuration data and is what program_hw_devices and the Hardware Manager consume; .bin (write_bitstream -bin_file) is the raw data without header for flash images, PCAP/ICAP loading by software (Zynq fpga_manager, xdevcfg) and third-party loaders; .rbt (-raw_bitfile) is the ASCII '0'/'1' rendering for tools that need text. Compression (BITSTREAM.GENERAL.COMPRESS TRUE), encryption/authentication (BITSTREAM.ENCRYPTION.*), per-frame CRC and the config-interface settings (SPI bus width, CONFIGRATE) are baked into all three formats.",
+      "usage": "write_bitstream -force [-bin_file] [-raw_bitfile] [-mask_file] [-readback_file] [-logic_location_file] [-no_partial_bitfile] [-cell <rp_cell>] [-reference_bitfile <f>] <file.bit>",
+      "parameters": [
+        {"name": "-bin_file", "description": "Also write <name>.bin (headerless)."},
+        {"name": "-raw_bitfile", "description": "Also write <name>.rbt (ASCII)."},
+        {"name": "-mask_file", "description": "Write <name>.msk for verify_hw_devices."},
+        {"name": "-readback_file / -logic_location_file", "description": ".rbd expected readback and .ll frame/bit location map for readback tools."},
+        {"name": "-no_partial_bitfile / -cell", "description": "DFX: skip or select partial bitstreams."}
+      ],
+      "example": "set_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]\nset_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]\nset_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]\nwrite_bitstream -force -bin_file ./top.bit\n# Zynq Linux: byte order for fpga_manager is the .bin as written by Vivado 2016+ (earlier tools needed bootgen -process_bitstream bin)",
+      "notes": "The .bit header makes the file ~100 bytes larger than the .bin; a .bit in flash will not boot. Zynq-7000 requires the .bin (or bootgen-processed) bitstream for PCAP loading with correct byte order. Versal uses .pdi instead (write_device_image).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_bitstream"
+    },
+    {
+      "name": ".mcs / .prm / .bin (configuration memory images from write_cfgmem)",
+      "kind": "format",
+      "description": "Flash images produced by write_cfgmem: .mcs is Intel-HEX style (with extended addressing) and is the traditional format for the Hardware Manager and third-party programmers; .bin is the raw binary image of the flash (used by embedded update mechanisms and by program_hw_cfgmem on some parts); .prm is a small text map listing the address ranges occupied by each loaded file (bitstream(s), data) that the Hardware Manager uses for use_file programming and verification. Options set the flash size in MB (-size), the interface (spix1/spix2/spix4/spix8, bpix8/bpix16, smapx8/x16/x32), the load points (-loadbit 'up <addr> <bit>' and -loaddata 'up <addr> <file>'), checksum and dual-quad splitting (spix8 produces _primary/_secondary files).",
+      "usage": "write_cfgmem -format mcs|bin -size <MB> -interface spix1|spix2|spix4|spix8|bpix8|bpix16|smapx8|smapx16|smapx32|serialx1 [-loadbit {up <addr> <file.bit> [up <addr> <file2.bit>]}] [-loaddata {up <addr> <file.bin>}] [-checksum] [-disablebitswap] [-verbose] [-force] <output>",
+      "parameters": [
+        {"name": "-size", "description": "Flash size in megabytes (e.g. 16, 32, 64, 128, 256)."},
+        {"name": "-interface", "description": "Configuration interface and bus width matching the board and BITSTREAM.CONFIG.SPI_BUSWIDTH."},
+        {"name": "-loadbit / -loaddata", "description": "One or more bitstreams / arbitrary data files at flash offsets ('up' = ascending)."},
+        {"name": "-checksum", "description": "Print the image checksum for production records."},
+        {"name": "-disablebitswap", "description": "Keep bit order for interfaces that swap (e.g. some BPI/SelectMAP loaders)."}
+      ],
+      "example": "# Multiboot: golden image at 0, update image at 0x01000000, plus a data blob\nwrite_cfgmem -format mcs -size 32 -interface SPIx4 \\\n  -loadbit {up 0x00000000 ./golden.bit up 0x01000000 ./update.bit} \\\n  -loaddata {up 0x01F00000 ./calibration.bin} -checksum -force ./flash_image.mcs\n# dual QSPI (x8)\nwrite_cfgmem -format mcs -size 256 -interface SPIx8 -loadbit {up 0x0 ./top.bit} -force ./top.mcs   ;# writes top_primary.mcs / top_secondary.mcs",
+      "notes": "The bitstream's own BITSTREAM.CONFIG.NEXT_CONFIG_ADDR / CONFIGFALLBACK properties define the multiboot jump. -size must be at least the sum of loaded content; the Hardware Manager rejects images larger than the selected flash part.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_cfgmem"
+    },
+    {
+      "name": ".ltx (debug probes file)",
+      "kind": "format",
+      "description": "The probes file that describes every debug core in a bitstream (ILA, VIO, JTAG-to-AXI, IBERT, System ILA, debug bridge) with their hub addresses, the probe names, widths, types, enumerations and the interface metadata that lets System ILA decode AXI transactions. Written by write_debug_probes or automatically next to the .bit by write_bitstream, and loaded in the Hardware Manager with set_property PROBES.FILE (or FULL_PROBES.FILE for the complete list including partial-reconfiguration modules) followed by refresh_hw_device; Vivado auto-loads a .ltx that sits beside the PROGRAM.FILE with the same base name.",
+      "usage": "write_debug_probes [-no_partial_ltxfile] [-cell <rp_cell>] [-force] [-quiet] <file.ltx>\nset_property PROBES.FILE ./top.ltx [current_hw_device]\nset_property FULL_PROBES.FILE ./top_full.ltx [current_hw_device]   ;# DFX designs\nrefresh_hw_device [current_hw_device]",
+      "parameters": [
+        {"name": "PROBES.FILE", "description": "Probe file for the currently loaded configuration."},
+        {"name": "FULL_PROBES.FILE", "description": "Superset .ltx covering all reconfigurable modules; the active subset is selected per RM."},
+        {"name": "-cell / -no_partial_ltxfile", "description": "DFX: write per-RM or skip partial probe files."}
+      ],
+      "example": "# after implementation\nopen_run impl_1\nwrite_debug_probes -force ./debug/top.ltx\n# hardware\nset_property PROGRAM.FILE ./top.bit [current_hw_device]\nset_property PROBES.FILE  ./debug/top.ltx [current_hw_device]\nprogram_hw_devices; refresh_hw_device\nget_hw_ilas; get_hw_vios",
+      "notes": "A mismatched .ltx (from a different implementation) shows cores with wrong probe names or 'unable to find core' errors; always pair the .ltx with the exact .bit. The file is XML and can be inspected to see probe-to-net mappings.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_debug_probes"
+    },
+    {
+      "name": ".msk / .rbd / .ll / .svf / .pdi (readback, verify, vector and Versal image formats)",
+      "kind": "format",
+      "description": "Auxiliary programming files: .msk (write_bitstream -mask_file) marks which configuration bits are meaningful for verify_hw_devices (BRAM/LUTRAM contents masked out); .rbd (-readback_file) is the expected readback data and .ll (-logic_location_file) maps frame/bit positions to flip-flops and BRAM bits so readback (readback_hw_device) can be decoded (used for SEU injection, state capture, SEM classification with .ebd/.ebc essential-bit files); .svf (write_hw_svf) is the vendor-neutral JTAG vector file; .pdi (write_device_image) is the Versal Programmable Device Image, a bootgen-style container of PLM, boot header, PL CFI data, NoC/AIE configuration and optional ELFs, programmed with program_hw_devices exactly like a .bit or written to flash/SD as BOOT.BIN by bootgen.",
+      "usage": "write_bitstream -force -mask_file -readback_file -logic_location_file ./top.bit   ;# top.msk, top.rbd, top.ll\nset_property BITSTREAM.SEU.ESSENTIALBITS yes [current_design]     ;# also writes top.ebd/.ebc for SEM\nwrite_device_image -force ./top.pdi                                ;# Versal\nset_property PROGRAM.FILE ./top.pdi [current_hw_device]; program_hw_devices",
+      "parameters": [
+        {"name": ".msk", "description": "Same size as the .bit; 1 = bit is compared by verify."},
+        {"name": ".ll", "description": "Text: one line per element with frame address, bit offset, block type and net/cell name."},
+        {"name": ".ebd / .ebc", "description": "Essential bits data (ASCII) and count for SEM classification of upsets."},
+        {"name": ".pdi", "description": "Versal image; bootgen -arch versal builds boot images (BOOT.BIN) from it and the software components."}
+      ],
+      "example": "# Versal: bootable image with Linux components\nbootgen -arch versal -image boot.bif -o BOOT.BIN -w on\n# boot.bif\nall: { image { { type=bootimage, file=./top.pdi } } image { name=apu_ss, id=0x1c000000 { type=raw, load=0x1000, file=system.dtb } { core=a72-0, exception_level=el-3, trustzone, file=bl31.elf } { core=a72-0, exception_level=el-2, file=u-boot.elf } } }",
+      "notes": "Readback/logic-location workflows are described in UG908 'Readback' and XAPP1261; SEM in PG187/PG036 and Versal XilSEM docs. .pdi files are release-specific: the PLM in the PDI must match the Vivado/Vitis version's runtime expectations.",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging"
+    },
+    {
+      "name": "Program Device / Program Configuration Memory Device / Add Configuration Memory Device (Hardware Manager GUI)",
+      "kind": "menu",
+      "description": "The Hardware Manager's right-click and Flow Navigator actions: Open Target (Auto Connect / Open New Target wizard with local or remote server, selection of cable and JTAG frequency), Program Device (dialog for the .bit/.pdi and optional .ltx; programs and refreshes), Add Configuration Memory Device (pick the flash part with filters for manufacturer/density/width; asks to program immediately), Program Configuration Memory Device (image files, .prm, address range, erase/program/verify/checksum checkboxes), Boot from Configuration Memory Device, Readback Device, Verify Device, Program eFUSE Registers / Program BBR Key (security keys), Refresh Device, Export SVF file (when an SVF target is open), plus the per-core dashboards (ILA, VIO, IBERT, SysMon, JTAG-to-AXI) opened from the Hardware window tree.",
+      "usage": "Flow Navigator > Program and Debug > Open Hardware Manager > Open Target > Auto Connect; Hardware window: right-click device > Program Device... / Add Configuration Memory Device... / Program Configuration Memory Device... / Boot from Configuration Memory Device / Readback Device / Verify Device / Program eFUSE Registers... / Program BBR Key...",
+      "parameters": [
+        {"name": "Program Device dialog", "description": "Bitstream file, Debug probes file, Enable end of startup check, Program (echoes set_property PROGRAM.FILE/PROBES.FILE + program_hw_devices + refresh_hw_device)."},
+        {"name": "Add Configuration Memory Device dialog", "description": "Search by part name; sets create_hw_cfgmem with the chosen get_cfgmem_parts entry."},
+        {"name": "Hardware Device Properties", "description": "Shows REGISTER.* (IDCODE, STATUS, BOOTSTS, USR_ACCESS, EFUSE.*), PROGRAM.*, PROBES.FILE and the flash object."},
+        {"name": "Dashboard windows", "description": "Settings/Status/Trigger Setup/Capture Setup/Waveform for ILA; VIO Cores probes table; Serial I/O Links/Scans; SysMon plots."}
+      ],
+      "example": "1. Open Hardware Manager > Open Target > Auto Connect\n2. Right-click xc7z020_1 > Program Device > select top.bit and top.ltx > Program\n3. Right-click device > Add Configuration Memory Device > filter 'n25q128' > OK > 'Do you want to program the configuration memory device now?' Yes\n4. Configuration file top.mcs, PRM top.prm, Address Range Configuration File Only, Erase/Program/Verify > OK\n5. Right-click > Boot from Configuration Memory Device",
+      "notes": "Every dialog echoes its Tcl to the console, which is the quickest way to script a lab procedure. The Hardware window shows the JTAG chain; devices greyed out are not programmable from this session (e.g. Arm DAP entries).",
+      "docs": "https://docs.amd.com/r/en-US/ug908-vivado-programming-debugging/Programming-the-Device"
+    }
+  ]
+}

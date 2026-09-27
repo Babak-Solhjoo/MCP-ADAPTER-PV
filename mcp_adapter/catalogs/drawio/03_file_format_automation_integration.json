@@ -1,0 +1,390 @@
+{
+  "category": "File format, automation and integration",
+  "description": "The mxGraph XML file format element by element, every option of the draw.io Desktop command-line exporter, the embed-mode postMessage protocol, URL parameters and hash properties, the text-to-diagram importers (CSV, Mermaid, PlantUML), custom stencils, plugins, configuration and the host integrations.",
+  "tools": [
+    {
+      "name": "mxfile (root element)",
+      "kind": "format",
+      "description": "The outermost element of a .drawio file. It wraps one `<diagram>` per page and records which application wrote the file, when, and with which version. Everything else nests inside it, so a generator only has to emit an mxfile with the right children to produce a valid diagram.",
+      "usage": "<mxfile host=\"app.diagrams.net\" modified=\"2025-01-01T00:00:00.000Z\" agent=\"generator/1.0\" version=\"26.0.0\" type=\"device\"> ... </mxfile>",
+      "parameters": [
+        {"name": "host", "description": "The application that saved the file (app.diagrams.net, Electron, Confluence). Informational only."},
+        {"name": "modified / agent / version / etag", "description": "Timestamp, user agent, draw.io version and change token. All optional for a hand-written file."},
+        {"name": "type", "description": "Storage hint: device, google, onedrive, github, embed, browser."},
+        {"name": "compressed", "description": "`compressed=\"false\"` marks that the child diagrams hold plain XML rather than deflate+base64 text."}
+      ],
+      "example": "<mxfile host=\"app.diagrams.net\" compressed=\"false\">\n  <diagram name=\"Page-1\" id=\"p1\"> ... </diagram>\n</mxfile>",
+      "notes": "Every attribute of mxfile is optional. `<mxfile><diagram>...</diagram></mxfile>` opens perfectly."
+    },
+    {
+      "name": "diagram (page element)",
+      "kind": "format",
+      "description": "One page of the file. Its `name` is the page tab label and its `id` is the stable identifier that page links and the `page-id` URL parameter refer to. Its content is either an `<mxGraphModel>` element (uncompressed) or a text node holding the deflate-compressed, base64-encoded, URL-encoded model (compressed, the default).",
+      "usage": "<diagram id=\"unique-id\" name=\"Page-1\"> <mxGraphModel> ... </mxGraphModel> </diagram>",
+      "parameters": [
+        {"name": "id", "description": "Stable page identifier used by `page-id=` links and cross-page shape links."},
+        {"name": "name", "description": "The label shown on the page tab."}
+      ],
+      "example": "<diagram id=\"overview\" name=\"Overview\">\n  <mxGraphModel dx=\"800\" dy=\"600\" grid=\"1\" gridSize=\"10\" page=\"1\">\n    <root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/></root>\n  </mxGraphModel>\n</diagram>",
+      "notes": "Adding a second `<diagram>` element adds a second page - the simplest way to script a multi-page document."
+    },
+    {
+      "name": "mxGraphModel (page settings)",
+      "kind": "format",
+      "description": "Holds the canvas and page settings for one page and contains the `<root>` element with all the cells. Its attributes carry the scroll offsets, grid, page format, background, shadow and connection-arrow settings that the editor restores when the page is opened.",
+      "usage": "<mxGraphModel dx=\"1422\" dy=\"798\" grid=\"1\" gridSize=\"10\" guides=\"1\" tooltips=\"1\" connect=\"1\" arrows=\"1\" fold=\"1\" page=\"1\" pageScale=\"1\" pageWidth=\"850\" pageHeight=\"1100\" math=\"0\" shadow=\"0\"> <root> ... </root> </mxGraphModel>",
+      "parameters": [
+        {"name": "grid / gridSize", "description": "Whether the grid is shown and its spacing in points."},
+        {"name": "page / pageScale / pageWidth / pageHeight", "description": "Page view on/off, print scale, and the paper size in points (850 x 1100 is US Letter, 827 x 1169 is A4)."},
+        {"name": "background / backgroundImage", "description": "Page background colour and an optional background image descriptor."},
+        {"name": "math", "description": "1 enables MathJax typesetting of labels on this page."},
+        {"name": "dx / dy", "description": "Editor scroll position - purely cosmetic, safe to omit in generated files."}
+      ],
+      "example": "<mxGraphModel grid=\"1\" gridSize=\"10\" page=\"1\" pageWidth=\"1169\" pageHeight=\"827\" background=\"#ffffff\">\n  <root> ... </root>\n</mxGraphModel>"
+    },
+    {
+      "name": "mxCell (root, layers, vertices and edges)",
+      "kind": "format",
+      "description": "The single element type from which every diagram is built. Cell `id=\"0\"` is the model root and cell `id=\"1\"` (whose parent is 0) is the default layer; each further layer is another child of 0. Shapes carry `vertex=\"1\"`, connectors carry `edge=\"1\"` with `source` and `target` ids, and every cell names its container in `parent`. Appearance comes from `style`, the label from `value`.",
+      "usage": "<mxCell id=\"n1\" value=\"Label\" style=\"rounded=1;whiteSpace=wrap;html=1;\" vertex=\"1\" parent=\"1\"> <mxGeometry .../> </mxCell>\n<mxCell id=\"e1\" value=\"\" style=\"edgeStyle=orthogonalEdgeStyle;html=1;\" edge=\"1\" parent=\"1\" source=\"n1\" target=\"n2\"> <mxGeometry relative=\"1\" as=\"geometry\"/> </mxCell>",
+      "parameters": [
+        {"name": "id", "description": "Unique within the page. Referenced by edges' source/target and by child cells' parent."},
+        {"name": "value", "description": "The label. May contain HTML when the style has `html=1`; replaced by an `<object>` wrapper when the cell has custom data."},
+        {"name": "style", "description": "The semicolon-separated key=value style string."},
+        {"name": "vertex / edge", "description": "Exactly one of them is \"1\"; a cell with neither is a layer or the model root."},
+        {"name": "parent", "description": "Container id - a layer id for top-level cells, or a container/group id for children."},
+        {"name": "source / target", "description": "On edges: the ids of the connected cells. Either may be omitted for a dangling endpoint (whose point then lives in the geometry)."},
+        {"name": "connectable / visible / collapsed", "description": "Per-cell behaviour flags."}
+      ],
+      "example": "<root>\n  <mxCell id=\"0\" />\n  <mxCell id=\"1\" parent=\"0\" />\n  <mxCell id=\"layer2\" value=\"Annotations\" parent=\"0\" visible=\"1\" />\n  <mxCell id=\"a\" value=\"Start\" style=\"ellipse;whiteSpace=wrap;html=1;\" vertex=\"1\" parent=\"1\">\n    <mxGeometry x=\"40\" y=\"40\" width=\"120\" height=\"60\" as=\"geometry\" />\n  </mxCell>\n</root>"
+    },
+    {
+      "name": "mxGeometry, mxPoint and edge waypoints",
+      "kind": "format",
+      "description": "The child element that positions and sizes a cell, always written with `as=\"geometry\"`. For a vertex it holds absolute x, y, width and height relative to the parent. For an edge it is usually `relative=\"1\"` and optionally carries `sourcePoint`/`targetPoint` mxPoints for dangling ends and an `<Array as=\"points\">` of mxPoints for the waypoints. A relative geometry on a child vertex (an edge label) positions it along the parent edge.",
+      "usage": "<mxGeometry x=\"120\" y=\"80\" width=\"160\" height=\"60\" as=\"geometry\" />\n<mxGeometry relative=\"1\" as=\"geometry\">\n  <mxPoint x=\"200\" y=\"400\" as=\"sourcePoint\" />\n  <Array as=\"points\"><mxPoint x=\"320\" y=\"240\" /></Array>\n</mxGeometry>",
+      "parameters": [
+        {"name": "x / y / width / height", "description": "Position and size in the parent's coordinate system, in points."},
+        {"name": "relative", "description": "1 on edges, and on edge labels where x runs -1 (source) to 1 (target)."},
+        {"name": "Array as=\"points\"", "description": "Ordered waypoints the edge must pass through."},
+        {"name": "mxPoint as=\"offset\" / \"sourcePoint\" / \"targetPoint\"", "description": "Label offset, and fixed coordinates for unconnected edge ends."}
+      ],
+      "example": "<mxCell id=\"e1\" style=\"edgeStyle=orthogonalEdgeStyle;html=1;\" edge=\"1\" parent=\"1\" source=\"a\" target=\"b\">\n  <mxGeometry relative=\"1\" as=\"geometry\">\n    <Array as=\"points\">\n      <mxPoint x=\"300\" y=\"120\" />\n      <mxPoint x=\"300\" y=\"260\" />\n    </Array>\n  </mxGeometry>\n</mxCell>"
+    },
+    {
+      "name": "object / UserObject (custom data)",
+      "kind": "format",
+      "description": "When a cell carries custom metadata, draw.io replaces its `value` with an `<object>` wrapper (called UserObject in the API) whose attributes are the key/value pairs, and nests the `<mxCell>` inside it. The `label` attribute becomes the visible text, `tooltip`, `link`, `placeholders` and `tags` have special meaning, and every other attribute is free-form data available to placeholders and to any program reading the file.",
+      "usage": "<object id=\"srv1\" label=\"%hostname%\" hostname=\"web-01\" env=\"prod\" tooltip=\"Primary web server\" link=\"https://wiki/web-01\" tags=\"prod web\" placeholders=\"1\">\n  <mxCell style=\"rounded=1;whiteSpace=wrap;html=1;\" vertex=\"1\" parent=\"1\">\n    <mxGeometry x=\"80\" y=\"80\" width=\"160\" height=\"60\" as=\"geometry\" />\n  </mxCell>\n</object>",
+      "parameters": [
+        {"name": "label", "description": "The rendered label; with `placeholders=\"1\"` it can interpolate `%attribute%` values."},
+        {"name": "tooltip / link", "description": "Hover text and click-through URL (or `data:page/id,<pageId>` for a page jump)."},
+        {"name": "tags", "description": "Space-separated tag names used by the Tags panel and the `tags=` URL parameter."},
+        {"name": "Arbitrary attributes", "description": "Any other name/value pair, edited in the UI with Edit > Edit Data (Ctrl+M)."}
+      ],
+      "example": "Generate one object per row of an inventory table, then read the same attributes back out of the saved file to reconcile the diagram against the CMDB."
+    },
+    {
+      "name": "Compressed versus uncompressed XML",
+      "kind": "format",
+      "description": "By default each `<diagram>` stores its model as text: the mxGraphModel XML is URL-encoded, deflate-compressed (raw deflate, no zlib header) and base64-encoded. That keeps files small but makes them opaque in a diff. Turning compression off writes the mxGraphModel as ordinary child XML, which is what you want for anything kept in Git or generated by a script.",
+      "usage": "Editor: Extras > Compressed (untick), or File > Properties. CLI: `drawio -x -f xml -u -o plain.drawio compressed.drawio`. Configuration: `\"compressXml\": false`.",
+      "example": "Decoding a compressed page in Python:\nimport base64, zlib, urllib.parse\nraw = base64.b64decode(diagram_text)\nxml = urllib.parse.unquote(zlib.decompress(raw, -15).decode('utf-8'))\n\nEncoding again:\ndata = zlib.compressobj(9, zlib.DEFLATED, -15)\nout = data.compress(urllib.parse.quote(xml, safe='~()*!.\\'').encode()) + data.flush()\ndiagram_text = base64.b64encode(out).decode()",
+      "notes": "The negative window size (-15) selects raw deflate; using the default zlib header will produce a file draw.io cannot read."
+    },
+    {
+      "name": "Writing a diagram from a program (minimal example)",
+      "kind": "format",
+      "description": "The complete recipe for generating a diagram without the editor: emit uncompressed mxfile XML with the mandatory cells 0 and 1, one vertex per node, one edge per relationship, and geometry either laid out by your own code or left rough and fixed afterwards with Arrange > Layout. This is the most reliable automation path because it has no runtime dependency on draw.io at all.",
+      "usage": "Write the XML to a `.drawio` file, or paste it into Extras > Edit Diagram, or pass it in the `#R` hash property, or send it as the `xml` field of an embed-mode `load` action.",
+      "example": "nodes = [(\"a\", \"Client\"), (\"b\", \"API\"), (\"c\", \"Database\")]\nedges = [(\"a\", \"b\", \"HTTPS\"), (\"b\", \"c\", \"SQL\")]\ncells = []\nfor i, (nid, label) in enumerate(nodes):\n    cells.append(f'<mxCell id=\"{nid}\" value=\"{label}\" '\n                 f'style=\"rounded=1;whiteSpace=wrap;html=1;\" vertex=\"1\" parent=\"1\">'\n                 f'<mxGeometry x=\"80\" y=\"{80 + i*120}\" width=\"160\" height=\"60\" as=\"geometry\"/>'\n                 f'</mxCell>')\nfor i, (s, t, label) in enumerate(edges):\n    cells.append(f'<mxCell id=\"e{i}\" value=\"{label}\" '\n                 f'style=\"edgeStyle=orthogonalEdgeStyle;html=1;\" edge=\"1\" parent=\"1\" '\n                 f'source=\"{s}\" target=\"{t}\"><mxGeometry relative=\"1\" as=\"geometry\"/></mxCell>')\nxml = ('<mxfile><diagram name=\"Page-1\" id=\"p1\"><mxGraphModel grid=\"1\" gridSize=\"10\">'\n       '<root><mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>' + ''.join(cells) +\n       '</root></mxGraphModel></diagram></mxfile>')\nopen('out.drawio', 'w', encoding='utf-8').write(xml)",
+      "notes": "Escape `&`, `<` and `>` in labels, and remember that HTML labels need `html=1` in the style plus escaped markup in the value."
+    },
+    {
+      "name": "drawio -x / --export",
+      "kind": "command",
+      "description": "Switches draw.io Desktop from an interactive editor into a headless exporter: it opens the given file or folder, renders it and exits. Every other export option depends on this flag. Combined with a virtual display it is the standard way to build diagram images in CI.",
+      "usage": "drawio -x [options] <input file or folder>\ndrawio --export [options] <input>",
+      "example": "drawio -x -f png -o architecture.png architecture.drawio\n\nOn a headless Linux runner:\nxvfb-run -a drawio -x --no-sandbox -f png -o out.png in.drawio",
+      "notes": "The Electron app still needs a display; use xvfb-run, the Docker image, or a desktop session. Exit code is non-zero if the render fails."
+    },
+    {
+      "name": "drawio -f / --format",
+      "kind": "command",
+      "description": "Chooses the output format of an export. Supported values are pdf (the default), png, jpg/jpeg, svg, vsdx and xml. If the output filename already carries an extension, that extension wins and this option is ignored.",
+      "usage": "drawio -x -f <pdf|png|jpg|svg|vsdx|xml> -o <output> <input>",
+      "example": "drawio -x -f svg -o flow.svg flow.drawio\ndrawio -x -f vsdx -o flow.vsdx flow.drawio     # convert to Visio\ndrawio -x -f xml -u -o flow.plain.drawio flow.drawio"
+    },
+    {
+      "name": "drawio -o / --output",
+      "kind": "command",
+      "description": "Names the output file, or the output folder when the input is a folder. If omitted, the input filename is reused with the new format's extension. Combined with `-r` it mirrors an input tree into an output tree.",
+      "usage": "drawio -x -f png -o <output file or folder> <input>",
+      "example": "drawio -x -f png -o build/images/ -r diagrams/\ndrawio -x -f pdf -o \"docs/Architecture Handbook.pdf\" architecture.drawio",
+      "notes": "Pair with `-k/--check` in a build so existing outputs are never silently overwritten."
+    },
+    {
+      "name": "drawio page selection (-a, -p, -g)",
+      "kind": "command",
+      "description": "Chooses which pages of a multi-page diagram are exported. `-a/--all-pages` puts every page into one file (PDF and HTML only); `-p/--page-index N` exports a single page by its 1-based index; `-g/--page-range from..to` exports a contiguous range (PDF only). With none of them, the first page is exported.",
+      "usage": "drawio -x -f pdf -a -o all.pdf in.drawio\ndrawio -x -f png -p 3 -o page3.png in.drawio\ndrawio -x -f pdf -g 2..5 -o chapters.pdf in.drawio",
+      "example": "# one PNG per page, driven by a shell loop\nfor i in 1 2 3 4; do\n  drawio -x -f png -p $i -o \"out/page-$i.png\" handbook.drawio\ndone"
+    },
+    {
+      "name": "drawio -l / --layers",
+      "kind": "command",
+      "description": "Exports only the named layers, given as comma-separated 0-based layer indexes, and applies the same selection to every page. Used to produce a family of images from one source - a base diagram, a base plus annotations, a base plus the future-state overlay.",
+      "usage": "drawio -x -f png -l <comma separated layer indexes> -o <output> <input>",
+      "example": "drawio -x -f png -l 0 -o base.png plan.drawio\ndrawio -x -f png -l 0,1 -o with-annotations.png plan.drawio"
+    },
+    {
+      "name": "drawio -t / --transparent and -e / --embed-diagram",
+      "kind": "command",
+      "description": "`-t/--transparent` drops the page background so the exported PNG or SVG composites onto any surface. `-e/--embed-diagram` stores a copy of the source diagram inside the output (PNG, SVG and PDF), producing a .drawio.png or .drawio.svg that is both a finished image and its own editable source.",
+      "usage": "drawio -x -f png -t -e -o diagram.drawio.png diagram.drawio\ndrawio -x -f svg -t -e --embed-svg-fonts true -o diagram.drawio.svg diagram.drawio",
+      "example": "# documentation image that stays editable and works on light or dark pages\ndrawio -x -f svg -t -e --embed-svg-images -o docs/flow.drawio.svg src/flow.drawio",
+      "notes": "Related SVG-only options: `--embed-svg-images` inlines referenced images and `--embed-svg-fonts <true/false>` (default true) inlines web fonts."
+    },
+    {
+      "name": "drawio -b / --border",
+      "kind": "command",
+      "description": "Adds a margin of the given width, in pixels, around the exported diagram. Useful when an image is placed directly against text or a card edge and needs breathing room without editing the diagram itself. The default is 0.",
+      "usage": "drawio -x -f png -b <border> -o <output> <input>",
+      "example": "drawio -x -f png -b 24 -t -o hero.png hero.drawio"
+    },
+    {
+      "name": "drawio -s / --scale, --width and --height",
+      "kind": "command",
+      "description": "Three ways to control output size. `-s/--scale` multiplies the natural size (2 gives a retina-quality PNG); `--width` fits the render into that pixel width, keeping the aspect ratio; `--height` does the same vertically. Giving both width and height fits inside that box.",
+      "usage": "drawio -x -f png -s 2 -o out@2x.png in.drawio\ndrawio -x -f png --width 1920 -o wide.png in.drawio\ndrawio -x -f png --width 1200 --height 800 -o boxed.png in.drawio",
+      "example": "# generate 1x and 2x assets for a docs site\ndrawio -x -f png --width 800 -o img/flow.png flow.drawio\ndrawio -x -f png --width 1600 -o img/flow@2x.png flow.drawio"
+    },
+    {
+      "name": "drawio -q / --quality and --crop",
+      "kind": "command",
+      "description": "`-q/--quality` sets the JPEG compression quality (default 90) and has no effect on lossless formats. `--crop` trims a PDF to the diagram's bounding box instead of padding it out to the configured paper size, which is what you want when the PDF will be placed into another document.",
+      "usage": "drawio -x -f jpg -q 85 -o photo-ish.jpg in.drawio\ndrawio -x -f pdf --crop -o tight.pdf in.drawio",
+      "example": "drawio -x -f pdf -a --crop -b 10 -o figures.pdf figures.drawio"
+    },
+    {
+      "name": "drawio -u / --uncompressed",
+      "kind": "command",
+      "description": "Writes plain, human-readable XML instead of the default deflate+base64 payload, for the XML and SVG output formats. Running every diagram through this flag in a pre-commit hook makes draw.io files diffable and mergeable in version control.",
+      "usage": "drawio -x -f xml -u -o <output> <input>",
+      "example": "# normalise every diagram in the repo to uncompressed XML\nfind diagrams -name '*.drawio' -exec drawio -x -f xml -u -o {} {} \\;"
+    },
+    {
+      "name": "drawio -r / --recursive and -k / --check",
+      "kind": "command",
+      "description": "`-r/--recursive` makes a folder input walk its sub-folders, converting every diagram it finds and mirroring the structure into the output folder. `-k/--check` refuses to overwrite files that already exist, so a build can be re-run cheaply and only produce what is missing.",
+      "usage": "drawio -x -r -f png -o build/img/ diagrams/\ndrawio -x -r -k -f png -o build/img/ diagrams/",
+      "example": "# CI step: render only diagrams whose image is missing\ndrawio -x -r -k -f svg -t -o public/diagrams/ docs/diagrams/"
+    },
+    {
+      "name": "drawio --theme and SVG link options",
+      "kind": "command",
+      "description": "`--theme <dark|light|auto>` renders the export in the chosen colour theme, which is how one source diagram produces both a light and a dark image for a documentation site. `--svg-theme` is the deprecated predecessor for SVG only, and `--svg-links-target <auto|new|self|blank>` decides how links inside an exported SVG open.",
+      "usage": "drawio -x -f png --theme dark -o dark.png in.drawio\ndrawio -x -f svg --svg-links-target blank -o linked.svg in.drawio",
+      "example": "drawio -x -f svg -t --theme light -o docs/img/flow-light.svg flow.drawio\ndrawio -x -f svg -t --theme dark  -o docs/img/flow-dark.svg  flow.drawio"
+    },
+    {
+      "name": "drawio HTML viewer options (--html-*)",
+      "kind": "command",
+      "description": "When exporting to HTML, a family of flags configures the generated lightbox viewer: `--html-theme <dark|light|auto>`, `--html-zoom <true/false>` for zoom controls, `--html-lightbox`, `--html-layers`, `--html-tags`, `--html-fit` for responsive width, `--html-link-target <auto|blank|self>`, `--html-link-color` and `--html-edit-link <url>` for an Edit button.",
+      "usage": "drawio -x -f html --html-layers true --html-tags true --html-theme auto -o viewer.html in.drawio",
+      "example": "drawio -x -f html -a --html-lightbox true --html-zoom true \\\n  --html-edit-link \"https://app.diagrams.net/#Uhttps%3A%2F%2Fexample.com%2Fplan.drawio\" \\\n  -o public/plan.html plan.drawio"
+    },
+    {
+      "name": "drawio other command-line options",
+      "kind": "command",
+      "description": "The remaining flags: `-c/--create` makes a new empty file when no input is given; `-z/--zoom` scales the application interface itself; `--normalize` repairs the model before anything else touches it; `--size <diagram|page>` sets the export size mode for png, jpg and svg; `--mermaid-image <true/false>` opens .mmd/.mermaid files as a static image rather than converting them to shapes; `--layout <name|json>` runs a layout after opening; `--disable-update` and `--no-silent-update` control auto-update; `-V/--version` and `-h/--help` report the build and the full option list.",
+      "usage": "drawio --help\ndrawio -x -f png --size page -o page-sized.png in.drawio\ndrawio -x -f png --layout '{\"layout\":\"mxHierarchicalLayout\"}' -o laid-out.png raw.drawio",
+      "example": "# always check the flags your installed build actually supports\ndrawio --help\ndrawio -V",
+      "notes": "Options vary slightly between drawio-desktop releases; `--help` on the installed binary is the authoritative list."
+    },
+    {
+      "name": "Headless export in CI (Docker and xvfb)",
+      "kind": "command",
+      "description": "draw.io Desktop is an Electron app, so a CI job needs a display. Two established approaches: run `xvfb-run -a drawio -x --no-sandbox ...` on a Linux runner with the .deb/AppImage installed, or use the `rlespinasse/drawio-export` Docker image, which bundles draw.io plus a virtual display and converts every diagram under a mounted folder.",
+      "usage": "docker run --rm -v \"$PWD:/data\" rlespinasse/drawio-export -f png --scale 2\nxvfb-run -a drawio -x --no-sandbox -f svg -o out.svg in.drawio",
+      "example": "# GitHub Actions step\n- name: Render diagrams\n  run: |\n    docker run --rm -v \"${{ github.workspace }}:/data\" \\\n      rlespinasse/drawio-export -f svg -t --remove-page-suffix\n- uses: actions/upload-artifact@v4\n  with: { name: diagrams, path: ./**/*.svg }",
+      "notes": "The Docker image writes into an `export/` sub-folder by default and has its own flags on top of the draw.io ones."
+    },
+    {
+      "name": "Embed mode setup and the init event",
+      "kind": "api",
+      "description": "Embed mode puts the whole editor inside an iframe that owns no storage: the host page supplies the diagram and receives the edits. Load `https://embed.diagrams.net/?embed=1&proto=json`, listen for the `init` event, and reply with a `load` action. Additional parameters tune the embedded chrome: `spin=1` (loading spinner), `libraries=1` (shape libraries), `themes=1`, `saveAndExit=1`, `noSaveBtn=1`, `noExitBtn=1`, `modified=0`, `configure=1`, `returnbounds=1` and `embedInline=1`.",
+      "usage": "<iframe src=\"https://embed.diagrams.net/?embed=1&proto=json&spin=1&libraries=1\"></iframe>\nwindow.addEventListener('message', handler);\niframe.contentWindow.postMessage(JSON.stringify(action), '*');",
+      "example": "const frame = document.querySelector('iframe');\nwindow.addEventListener('message', (evt) => {\n  if (evt.source !== frame.contentWindow) return;\n  const msg = JSON.parse(evt.data);\n  if (msg.event === 'init') {\n    frame.contentWindow.postMessage(JSON.stringify({\n      action: 'load', xml: currentXml, autosave: 1, title: 'architecture'\n    }), '*');\n  }\n});",
+      "notes": "Always check evt.source (or evt.origin) before trusting a message. Self-hosting the editor removes the dependency on embed.diagrams.net entirely.",
+      "docs": "https://www.drawio.com/doc/faq/embed-mode"
+    },
+    {
+      "name": "Embed actions: load, merge, patch, getDiff, resetDiff",
+      "kind": "api",
+      "description": "`load` puts a diagram into the editor and optionally turns on autosave; `merge` adds another diagram's XML into the current one; `patch` applies a diff produced by the editor when `diffSync` is enabled; `getDiff` asks for the current diff and checksum; `resetDiff` resets the diff baseline. Together they support collaborative hosts that store patches rather than whole documents.",
+      "usage": "{action: 'load', xml, autosave, modified, title, libs, dark, theme, border, background, scale, fit, viewbox, diffSync}\n{action: 'merge', xml}\n{action: 'patch', patch, checksum}\n{action: 'getDiff'}\n{action: 'resetDiff'}",
+      "parameters": [
+        {"name": "xml", "description": "mxfile or mxGraphModel XML; also accepts a PNG/SVG data URI with an embedded diagram."},
+        {"name": "autosave", "description": "1 makes the editor send an `autosave` event after every change instead of waiting for Save."},
+        {"name": "title", "description": "Filename shown in the editor's header."},
+        {"name": "dark / theme", "description": "Dark mode and UI theme for the embedded editor."}
+      ],
+      "example": "frame.contentWindow.postMessage(JSON.stringify({\n  action: 'load', xml: xmlFromDatabase, autosave: 1, title: 'Payment flow'\n}), '*');\n// later, merge in a generated fragment\nframe.contentWindow.postMessage(JSON.stringify({\n  action: 'merge', xml: generatedFragment\n}), '*');"
+    },
+    {
+      "name": "Embed export action and the save / autosave events",
+      "kind": "api",
+      "description": "The host asks for a rendering with `{action: 'export', format}` and receives an `export` event whose `data` is a data URI (and whose `xml` carries the source). Formats are `xml`, `json`, `svg`, `xmlsvg`, `png`, `xmlpng`, `html` and `html2` - the `xml*` variants embed the editable diagram in the image. The editor sends `save` when the user clicks Save and `autosave` (with an optional patch and checksum) as edits happen.",
+      "usage": "{action: 'export', format: 'xmlpng', xml, spin, background, scale, border}\nEvents: {event: 'save', xml, bounds, scale} and {event: 'autosave', xml, patch, checksum}",
+      "example": "if (msg.event === 'save') {\n  await api.put('/diagrams/42', { xml: msg.xml });\n  frame.contentWindow.postMessage(JSON.stringify({\n    action: 'export', format: 'xmlpng'\n  }), '*');\n} else if (msg.event === 'export') {\n  await api.put('/diagrams/42/thumbnail', { dataUri: msg.data });\n}",
+      "notes": "Storing the `xmlpng` export gives you a thumbnail and a backup of the source in a single blob."
+    },
+    {
+      "name": "Embed actions: configure, template and layout",
+      "kind": "api",
+      "description": "With `configure=1` in the URL the editor sends a `configure` event before initialising and waits for `{action: 'configure', config: {...}}`, letting the host inject the full configuration JSON (fonts, default styles, libraries, CSS). `{action: 'template'}` opens the template picker and returns the chosen template. `{action: 'layout', layouts: [...]}` runs one or more automatic layouts on the loaded diagram.",
+      "usage": "{action: 'configure', config: {defaultFonts: [...], defaultVertexStyle: {...}}}\n{action: 'template', callback, templatesOnly, enableRecent, enableSearch, enableCustomTemp}\n{action: 'layout', layouts: [{layout: 'mxHierarchicalLayout', config: {...}}]}",
+      "example": "if (msg.event === 'configure') {\n  frame.contentWindow.postMessage(JSON.stringify({\n    action: 'configure',\n    config: {\n      defaultFonts: ['Inter', 'JetBrains Mono'],\n      defaultVertexStyle: {rounded: '1', html: '1', fontFamily: 'Inter'},\n      defaultEdgeStyle: {edgeStyle: 'orthogonalEdgeStyle', html: '1'},\n      compressXml: false\n    }\n  }), '*');\n}"
+    },
+    {
+      "name": "Embed actions: dialog, prompt, draft, spinner, status, exit",
+      "kind": "api",
+      "description": "The host-driven UI actions. `dialog` shows a message with a button, `prompt` asks for a value and replies with a `prompt` event, `draft` offers a recovered draft to the user, `spinner` shows or hides the loading indicator, `status` writes a message beside the filename, `fit` and `viewbox` control the view, `invokeAction` runs a named editor action, and the editor sends `exit` when the user leaves (with `modified` telling you whether to warn).",
+      "usage": "{action: 'dialog', title, message, button, modified}\n{action: 'prompt', title, ok, defaultValue}\n{action: 'draft', xml, name, editKey, discardKey}\n{action: 'spinner', message, show, enabled}\n{action: 'status', message, modified}\n{action: 'invokeAction', actionName: 'zoomIn'}\nEvent: {event: 'exit', modified}",
+      "example": "// tell the user their save succeeded\nframe.contentWindow.postMessage(JSON.stringify({\n  action: 'status', message: 'Saved to repository', modified: false\n}), '*');\n\n// handle the user closing the editor\nif (msg.event === 'exit') {\n  if (msg.modified && !confirm('Discard unsaved changes?')) return;\n  frame.remove();\n}"
+    },
+    {
+      "name": "URL parameters",
+      "kind": "api",
+      "description": "Query parameters configure every aspect of the editor and viewer without any code. The main groups are UI (`ui=kennedy|min|atlas|dark|sketch|simple`, `dark=0|1|auto`, `sketch=1`, `splash=0`, `sidebar=0`, `format=0`, `ruler=1`, `grid=0|1`), viewer/chromeless (`chrome=0`, `lightbox=1`, `nav=1`, `layers=1`, `tags=json`, `toolbar=0`, `highlight=hex`, `target=auto|self|frame|blank`, `edit=url`, `transparent=1`, `border=60`), pages (`page=N`, `page-id=ID`, `pages=0|1`), libraries (`libs=`, `clibs=`, `search-shapes=`), storage (`mode=google|onedrive|github|dropbox|gitlab|device|browser`, `local=1`, `browser=0|1`, `stealth=1`, `lockdown=1`) and embedding (`embed=1`, `proto=json`, `configure=1`, `embedInline=1`, `plugins=0`, `p=id1;id2`, `lang=xy`).",
+      "usage": "https://app.diagrams.net/?<parameter>=<value>&<parameter>=<value>#<hash property>",
+      "example": "<!-- read-only viewer with layer toggles and folding -->\nhttps://viewer.diagrams.net/?lightbox=1&nav=1&layers=1&highlight=0000ff&target=blank\n\n<!-- editor locked to local files, dark theme, AWS + flowchart libraries, no splash -->\nhttps://app.diagrams.net/?local=1&ui=dark&splash=0&libs=aws4;flowchart",
+      "docs": "https://www.drawio.com/doc/faq/supported-url-parameters"
+    },
+    {
+      "name": "Hash properties (#R, #U, #H, #G, #W, #L)",
+      "kind": "api",
+      "description": "Content is passed in the URL fragment rather than the query string, so it is never sent to the server. `#R<url-encoded XML>` loads an inline diagram, `#U<url-encoded URL>` fetches one from a URL, `#H<github path>`, `#G<Google Drive id>`, `#W<OneDrive id>`, `#D<Dropbox>`, `#B<Bitbucket>` and `#A<GitLab>` open from a storage service, and `#L<name>` opens a diagram from browser storage. `#create=` builds a new diagram from a template or from generated content.",
+      "usage": "https://app.diagrams.net/#R<urlencoded mxfile xml>\nhttps://app.diagrams.net/#U<urlencoded https url>\nhttps://viewer.diagrams.net/?lightbox=1#U<urlencoded url>",
+      "example": "const xml = '<mxfile><diagram name=\"P1\"><mxGraphModel><root>' +\n            '<mxCell id=\"0\"/><mxCell id=\"1\" parent=\"0\"/>' +\n            '<mxCell id=\"a\" value=\"Hi\" style=\"rounded=1;html=1;\" vertex=\"1\" parent=\"1\">' +\n            '<mxGeometry x=\"40\" y=\"40\" width=\"120\" height=\"60\" as=\"geometry\"/></mxCell>' +\n            '</root></mxGraphModel></diagram></mxfile>';\nwindow.open('https://app.diagrams.net/#R' + encodeURIComponent(xml));",
+      "notes": "Hash properties are the privacy-preserving option and are what File > Export as > URL produces, but browsers and proxies limit URL length, so very large diagrams need a real file."
+    },
+    {
+      "name": "CSV import syntax",
+      "kind": "format",
+      "description": "A text block whose leading `#` lines configure the import and whose remainder is CSV with a header row. `%columnName%` placeholders substitute values into labels and styles, `# connect:` JSON objects declare which columns hold the relationships, and `# layout:` picks the automatic layout. The most practical way to turn a spreadsheet, a database query or an inventory export into a diagram.",
+      "usage": "Arrange > Insert > Advanced > CSV..., then paste the block and click Import. Lines starting `##` are comments.",
+      "parameters": [
+        {"name": "# label:", "description": "Label template for each row; may contain HTML and `%column%` placeholders."},
+        {"name": "# style:", "description": "Style string template, also with `%column%` placeholders."},
+        {"name": "# parentstyle:", "description": "Style used for parent/container rows when `# parent:` is set."},
+        {"name": "# identity: / # parent: / # namespace:", "description": "Which column is the stable id, which column names the parent row, and a prefix added to every generated cell id."},
+        {"name": "# connect:", "description": "{\"from\":\"col\",\"to\":\"col\",\"invert\":bool,\"label\":\"...\",\"fromlabel\":\"col\",\"tolabel\":\"col\",\"style\":\"...\"} - repeat for multiple relationship types. The from column may hold a comma-separated list."},
+        {"name": "# width: / # height: / # padding:", "description": "Node size - a number, `auto` (fit the label) or `@columnName`; padding applies to auto sizing."},
+        {"name": "# left: / # top:", "description": "Columns holding explicit x and y coordinates, bypassing the layout."},
+        {"name": "# ignore:", "description": "Comma-separated columns that must not become shape data."},
+        {"name": "# link:", "description": "Column whose value becomes the shape's hyperlink."},
+        {"name": "# nodespacing: / # levelspacing: / # edgespacing:", "description": "Spacing parameters passed to the layout."},
+        {"name": "# layout:", "description": "auto, none, verticalflow, horizontalflow, verticaltree, horizontaltree, organic, circle - or a JSON layout specification."}
+      ],
+      "example": "# label: %name%\n# style: rounded=1;whiteSpace=wrap;html=1;fillColor=%fill%;\n# namespace: csvimport-\n# connect: {\"from\": \"depends_on\", \"to\": \"id\", \"invert\": true, \"label\": \"depends on\", \"style\": \"edgeStyle=orthogonalEdgeStyle;html=1;endArrow=blockThin;\"}\n# width: auto\n# height: auto\n# padding: 15\n# ignore: id,fill,depends_on\n# nodespacing: 40\n# levelspacing: 80\n# layout: verticaltree\n## data below\nid,name,fill,depends_on\n1,Web,#dae8fc,\n2,API,#d5e8d4,1\n3,Database,#ffe6cc,2\n4,Cache,#f8cecc,2",
+      "docs": "https://www.drawio.com/docs/manual/insert/insert-from-csv"
+    },
+    {
+      "name": "Mermaid insert",
+      "kind": "format",
+      "description": "Pastes a Mermaid definition (flowchart, sequence, class, state, ER, gantt, pie, journey) and converts it into native, fully editable draw.io shapes rather than an embedded image. The bridge between text-first documentation workflows and a visual editor: generate Mermaid from code, then restyle and annotate it by hand.",
+      "usage": "Arrange > Insert > Advanced > Mermaid..., paste the definition and click Insert. The desktop app can also open .mmd/.mermaid files directly (see the `--mermaid-image` CLI flag).",
+      "example": "graph TD\n  A[Client] -->|HTTPS| B(Load balancer)\n  B --> C{Healthy?}\n  C -->|yes| D[Web 1]\n  C -->|no| E[Web 2]\n\nAfter inserting, select all edges (Ctrl+Shift+E) and apply your house edge style with Ctrl+E.",
+      "notes": "Mermaid conversion runs locally. Very new Mermaid diagram types may not be supported by the bundled Mermaid version in an older draw.io build."
+    },
+    {
+      "name": "PlantUML insert",
+      "kind": "format",
+      "description": "Renders a PlantUML definition (class, sequence, use case, activity, component, state, deployment, object, timing) and inserts the result into the diagram. Unlike Mermaid, PlantUML is rendered by an external service and the result is inserted as an image shape, so it cannot be edited shape by shape afterwards.",
+      "usage": "Arrange > Insert > Advanced > PlantUML..., paste the definition, choose the output format and click Insert.",
+      "example": "@startuml\nactor User\nparticipant \"Web app\" as W\ndatabase DB\nUser -> W: POST /orders\nW -> DB: INSERT order\nDB --> W: id\nW --> User: 201 Created\n@enduml",
+      "notes": "PlantUML requires network access to the rendering service, so it is unavailable with `stealth=1`, `lockdown=1` or a fully offline desktop install. Prefer Mermaid when the result must stay editable."
+    },
+    {
+      "name": "Custom stencils (shape XML)",
+      "kind": "format",
+      "description": "draw.io can draw shapes described in mxGraph's stencil XML: a `<shape>` element with a `<connections>` block of fixed connection points and a `<foreground>`/`<background>` block of path, rect, ellipse, arc, text and fill/stroke primitives, all in a normalised coordinate system given by `w` and `h`. Stencils can be loaded as a library or embedded directly in a cell's style with `stencil=` (deflate+base64 of the shape XML).",
+      "usage": "Extras > Edit Diagram and paste a cell whose style contains `shape=stencil(<encoded>)`, or publish a stencil library file and load it with File > Open Library.",
+      "parameters": [
+        {"name": "<shape name w h aspect strokewidth>", "description": "Stencil name, its design width and height, whether the aspect is fixed, and how the stroke scales."},
+        {"name": "<connections><constraint x y perimeter name/></connections>", "description": "Fixed connection points in 0..1 coordinates."},
+        {"name": "<background> / <foreground>", "description": "Background is filled and stroked once; foreground holds the detail drawing."},
+        {"name": "Primitives", "description": "path (move, line, curve, quad, arc, close), rect, roundrect, ellipse, image, text, fillstroke, fill, stroke, strokewidth, linecap, dashed, fontsize, fontcolor."}
+      ],
+      "example": "<shape name=\"Chevron\" h=\"60\" w=\"120\" aspect=\"variable\" strokewidth=\"inherit\">\n  <connections>\n    <constraint x=\"0\" y=\"0.5\" perimeter=\"0\" name=\"W\"/>\n    <constraint x=\"1\" y=\"0.5\" perimeter=\"0\" name=\"E\"/>\n  </connections>\n  <background>\n    <path>\n      <move x=\"0\" y=\"0\"/><line x=\"90\" y=\"0\"/><line x=\"120\" y=\"30\"/>\n      <line x=\"90\" y=\"60\"/><line x=\"0\" y=\"60\"/><line x=\"30\" y=\"30\"/><close/>\n    </path>\n  </background>\n  <foreground><fillstroke/></foreground>\n</shape>",
+      "notes": "jgraph publishes a stencil editor and the full primitive reference at jgraph.github.io/drawio-tools/tools/."
+    },
+    {
+      "name": "Plugins",
+      "kind": "api",
+      "description": "JavaScript extensions that add menus, shapes, behaviour and export targets to the editor. The desktop app manages them under Extras > Plugins; the web app loads built-in plugins with `p=<id>;<id>` (for example `sql`, `tags`, `number`, `replay`, `anonymize`, `explore`, `props`, `trees`, `connect`) and custom ones by URL when `plugins=1` is allowed. A plugin is a file that calls `Draw.loadPlugin(function(ui) { ... })` and manipulates the EditorUi.",
+      "usage": "Desktop: Extras > Plugins > Add... and restart. Web: `https://app.diagrams.net/?p=tags;number` or `?plugins=1` plus the plugin URL.",
+      "example": "// myplugin.js\nDraw.loadPlugin(function(ui) {\n  ui.actions.addAction('countCells...', function() {\n    const model = ui.editor.graph.getModel();\n    alert(Object.keys(model.cells).length + ' cells');\n  });\n  ui.menubar.get('extras').funct = null; // then re-add with the new item\n});",
+      "notes": "Plugins run with full access to the editor and the page, so only load ones you trust; many managed deployments disable them with `plugins=0`."
+    },
+    {
+      "name": "Configuration JSON",
+      "kind": "format",
+      "description": "One JSON object that customises the editor's fonts, colours, libraries, default styles, grid, autosave, CSS, theme and visible menus. It is stored per browser (Extras > Configuration), per desktop install, or supplied by the host through the embed protocol's `configure` action - the last being the only way to enforce a house style for every user.",
+      "usage": "Extras > Configuration... then reload; or `{action: 'configure', config: {...}}` in embed mode; or the desktop preferences file.",
+      "parameters": [
+        {"name": "defaultFonts / customFonts / fontCss", "description": "Font list, fonts added ahead of it, and @font-face CSS for web fonts."},
+        {"name": "defaultLibraries / defaultCustomLibraries / enabledLibraries", "description": "Semicolon-separated library keys shown at start, custom library ids to preload, and which libraries appear in More Shapes."},
+        {"name": "defaultVertexStyle / defaultEdgeStyle / defaultTextStyle", "description": "Style objects applied to every newly created shape, connector and text element."},
+        {"name": "presetColors / customPresetColors / defaultColors / defaultColorSchemes", "description": "The colour palettes offered in the colour dialog and the Style tab."},
+        {"name": "defaultGridSize / defaultEdgeLength / autosaveDelay / compressXml", "description": "Grid spacing, default connector length, autosave delay in ms, and whether saved XML is compressed."},
+        {"name": "css / ui / darkColor / sidebarWidth", "description": "Injected CSS, theme name (kennedy, min, atlas, dark), dark-mode background and initial sidebar width."},
+        {"name": "override / version", "description": "`override: true` ignores the user's own settings; bumping `version` forces stored settings to reset."}
+      ],
+      "example": "{\n  \"defaultFonts\": [\"Inter\", \"Helvetica\", \"JetBrains Mono\"],\n  \"defaultLibraries\": \"general;flowchart;uml;aws4\",\n  \"defaultVertexStyle\": {\"rounded\": \"1\", \"whiteSpace\": \"wrap\", \"html\": \"1\", \"fillColor\": \"#dae8fc\", \"strokeColor\": \"#6c8ebf\"},\n  \"defaultEdgeStyle\": {\"edgeStyle\": \"orthogonalEdgeStyle\", \"rounded\": \"0\", \"html\": \"1\", \"endArrow\": \"block\"},\n  \"presetColors\": [\"0B5FFF\", \"E11D48\", \"16A34A\", \"F59E0B\"],\n  \"defaultGridSize\": 10,\n  \"compressXml\": false,\n  \"autosaveDelay\": 1500,\n  \"override\": true\n}",
+      "docs": "https://www.drawio.com/doc/faq/configure-diagram-editor"
+    },
+    {
+      "name": "VS Code extension (hediet.vscode-drawio)",
+      "kind": "api",
+      "description": "Opens .drawio, .drawio.svg and .drawio.png files in a VS Code editor tab with the embedded draw.io editor, keeping the file on disk as the source of truth so diagrams version alongside code. It supports editing the underlying XML in a split view, theme synchronisation with VS Code, offline use, and a code-link feature that jumps between shapes and source locations.",
+      "usage": "Install \"Draw.io Integration\" from the VS Code marketplace, then open any .drawio file. Settings: `hediet.vscode-drawio.theme`, `.offline`, `.codeLinkActivated`, `.local-storage`.",
+      "example": "1. Create `docs/architecture.drawio.svg` in the workspace and open it - the editor appears.\n2. Draw the diagram and press Ctrl+S.\n3. Reference it from README.md with `![architecture](docs/architecture.drawio.svg)` - GitHub renders the SVG and the file stays editable.",
+      "notes": "Prefer `.drawio.svg` in a repository: it renders in Markdown, diffs as text and re-opens in the editor."
+    },
+    {
+      "name": "Confluence and Jira apps",
+      "kind": "api",
+      "description": "draw.io is published as Atlassian Marketplace apps for Confluence and Jira, Cloud and Data Center. Diagrams are stored as page attachments, so they inherit page permissions and version history; macros embed a diagram (or one page of it) into a Confluence page, and Jira issues can carry diagrams as attachments. The apps add mass import from Visio/Gliffy/Lucidchart and bulk conversion tooling.",
+      "usage": "Confluence: /draw.io Diagram macro on a page, then Edit to open the editor. Jira: the draw.io panel on an issue. Data Center installs run entirely inside the customer's network.",
+      "example": "1. On a Confluence page type `/draw.io` and choose the Diagram macro.\n2. Draw or import the diagram; it is saved as an attachment named `<diagram>.drawio` on the page.\n3. Insert the same attachment on another page with the macro's \"Existing diagram\" option to reuse it.",
+      "notes": "The editor in these apps is the same codebase, so styles, libraries and the XML format are identical to the web and desktop versions."
+    },
+    {
+      "name": "Cloud storage integrations (Drive, OneDrive, GitHub, GitLab, Dropbox)",
+      "kind": "api",
+      "description": "The web app can read and write diagrams directly in Google Drive, OneDrive/SharePoint, Dropbox, Trello, GitHub, GitLab and Bitbucket, choosing the mode from the splash screen or the `mode=` URL parameter. Git-backed storage is the most useful for engineering teams: each save is a commit on a branch, so diagrams get review, history and blame like code.",
+      "usage": "File > Open from / Save As > <service>, or `https://app.diagrams.net/?mode=github`. Hash properties `#H`, `#G`, `#W`, `#D`, `#B`, `#A` open a specific file in a service.",
+      "example": "1. Open https://app.diagrams.net/?mode=github and authorise.\n2. Pick org/repo/branch and `docs/architecture.drawio`.\n3. Edit and save - draw.io prompts for a commit message and pushes to the branch.\n4. Turn compression off (Extras > Compressed) so the pull-request diff is readable.",
+      "notes": "Individual services can be disabled with `gapi=0`, `od=0`, `db=0`, `gh=0`, `gl=0`, `tr=0`, or all external services with `stealth=1`."
+    },
+    {
+      "name": "Keyboard shortcuts",
+      "kind": "shortcut",
+      "description": "draw.io is heavily keyboard-driven. The highest-value shortcuts are Ctrl+E (edit style), Ctrl+M (edit data), Ctrl+D (duplicate), Alt+Shift+arrow (clone the shape in that direction and connect it), Ctrl+Shift+I / Ctrl+Shift+E (select all vertices / all edges) and Ctrl+Shift+H (fit the diagram to the window). Alt+click selects a shape underneath a container, and Alt+Ctrl+Shift+drag inserts or removes space across the whole diagram.",
+      "usage": "Help > Keyboard Shortcuts opens the printable reference for the build you are running (also at app.diagrams.net/shortcuts.svg).",
+      "parameters": [
+        {"name": "Editing", "description": "Ctrl+Z undo, Ctrl+Y redo, Ctrl+D duplicate, Delete, Ctrl+Delete delete with connections, Ctrl+G group, Ctrl+Shift+U ungroup, Ctrl+L lock/unlock, Ctrl+R rotate 90 degrees."},
+        {"name": "Style and data", "description": "Ctrl+E edit style, Ctrl+M edit data, Ctrl+Shift+Y autosize, Ctrl+Shift+F bring to front, Ctrl+Shift+B send to back."},
+        {"name": "Selection", "description": "Ctrl+A select all, Ctrl+Shift+A select none, Ctrl+Shift+I select vertices, Ctrl+Shift+E select edges, Alt+click select the cell below, Tab / Shift+Tab select next / previous."},
+        {"name": "View", "description": "Ctrl+Shift+H fit window, Ctrl+H reset view, Ctrl+Shift+G toggle grid, Ctrl+Shift+P format panel, Ctrl+Shift+O outline, Ctrl+Shift+L layers, Alt+Shift+A connection arrows, Alt+Shift+P connection points."},
+        {"name": "Canvas", "description": "Space+drag or right-drag pan, Alt+wheel zoom, Shift+wheel horizontal scroll, Alt+Ctrl+Shift+drag create/remove space, Alt+resize ignore the grid."},
+        {"name": "Creating", "description": "Ctrl+drag a shape to clone it, Alt+Shift+arrow to clone and connect in that direction, double-click empty canvas for the shape picker, Ctrl+F find/replace."}
+      ],
+      "example": "Build a flowchart without the mouse leaving the canvas:\n1. Double-click the canvas, type \"Start\", Enter.\n2. Alt+Shift+Down - a connected copy appears below; type \"Validate\", Enter.\n3. Ctrl+E on the new shape and paste your decision style.\n4. Ctrl+Shift+E then Ctrl+E to restyle every connector at once.",
+      "notes": "A few bindings differ between the web app, the desktop app, the Atlassian apps and macOS (Cmd for Ctrl) - the in-app reference is authoritative for your build."
+    }
+  ]
+}

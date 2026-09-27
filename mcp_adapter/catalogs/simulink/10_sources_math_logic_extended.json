@@ -1,0 +1,577 @@
+{
+  "category": "Sources, math operations & logic blocks (extended)",
+  "description": "Remaining blocks of the Sources, Math Operations and Logic and Bit Operations libraries that are not in the core chunks: counters, enumerated constants, bus element ports, element-wise and matrix math, complex-number conversions, dimension manipulation, bit manipulation, edge detection and interval tests.",
+  "tools": [
+    {
+      "name": "Counter Free-Running",
+      "kind": "block",
+      "description": "Counts up at each sample hit and wraps to zero after reaching 2^Nbits-1, producing an unsigned integer output. Use it as a cheap time-step counter or to drive periodic logic; the output data type is the smallest unsigned integer that holds Nbits.",
+      "usage": "simulink/Sources/Counter Free-Running\nParameters: NumBits (Number of Bits), tsamp (Sample time)",
+      "parameters": [
+        {"name": "NumBits", "description": "Bit width of the counter; the count wraps from 2^NumBits-1 back to 0."},
+        {"name": "tsamp", "description": "Sample time in seconds. Must be discrete; -1 inherits from the driving block."}
+      ],
+      "example": "add_block('simulink/Sources/Counter Free-Running', 'm/Cnt');\nset_param('m/Cnt', 'NumBits', '8', 'tsamp', '0.01');",
+      "notes": "Cannot be reset; use Counter Limited for a configurable upper limit or a MATLAB Function / Stateflow chart for resettable counters. Output is uint8/uint16/uint32 depending on NumBits.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/counterfreerunning.html"
+    },
+    {
+      "name": "Counter Limited",
+      "kind": "block",
+      "description": "Counts up at each sample hit and wraps to zero after reaching a user-specified upper limit rather than a power of two. Handy for cyclic indices such as scheduling one of N tasks per step.",
+      "usage": "simulink/Sources/Counter Limited\nParameters: uplimit (Upper limit), tsamp (Sample time)",
+      "parameters": [
+        {"name": "uplimit", "description": "Maximum count value; the counter restarts at 0 after reaching this value."},
+        {"name": "tsamp", "description": "Discrete sample time in seconds."}
+      ],
+      "example": "add_block('simulink/Sources/Counter Limited', 'm/Idx');\nset_param('m/Idx', 'uplimit', '3', 'tsamp', '0.1');  % outputs 0,1,2,3,0,1,...",
+      "notes": "Implemented as a masked subsystem; the output type is the smallest unsigned integer that holds uplimit.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/counterlimited.html"
+    },
+    {
+      "name": "Enumerated Constant",
+      "kind": "block",
+      "description": "Outputs a constant value of an enumerated data type defined with Simulink.defineIntEnumType or an enumeration class derived from Simulink.IntEnumType. Use it instead of Constant whenever the downstream logic (Switch Case, Stateflow, Multiport Switch) compares against enumeration members, so the model stays readable and code generation emits the enum name.",
+      "usage": "simulink/Sources/Enumerated Constant\nParameters: OutDataTypeStr ('Enum: TypeName'), Value ('TypeName.Member'), SampleTime",
+      "parameters": [
+        {"name": "OutDataTypeStr", "description": "Enumerated type in the form 'Enum: MyEnum'."},
+        {"name": "Value", "description": "Enumeration member expression, e.g. 'MyEnum.Running'."},
+        {"name": "SampleTime", "description": "Sample time; inf makes the output constant."}
+      ],
+      "example": "Simulink.defineIntEnumType('Gear', {'P','R','N','D'}, [0 1 2 3]);\nadd_block('simulink/Sources/Enumerated Constant', 'm/GearConst');\nset_param('m/GearConst', 'OutDataTypeStr', 'Enum: Gear', 'Value', 'Gear.D');",
+      "notes": "The enumeration class must be on the MATLAB path or in a data dictionary when the model compiles. Related: Simulink.defineIntEnumType, Simulink.data.getEnumTypeInfo.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/enumeratedconstant.html"
+    },
+    {
+      "name": "In Bus Element",
+      "kind": "block",
+      "description": "Selects one element (or nested sub-bus) of a bus that enters a subsystem or model through a bus element port, without needing an Inport plus Bus Selector pair. Several In Bus Element blocks with the same port name share a single external port, which makes hierarchical interfaces compact. Use it for modern bus-based component interfaces, especially with model referencing and Interface Editor.",
+      "usage": "simulink/Ports & Subsystems/In Bus Element  (also in Sources)\nParameters: PortName, Element (dot path such as 'Sensors.Temperature'), Port (number), OutDataTypeStr",
+      "parameters": [
+        {"name": "PortName", "description": "Name of the external bus port; blocks with equal PortName share one port."},
+        {"name": "Element", "description": "Dot-separated path of the selected element inside the bus; leave empty to pass the whole bus."},
+        {"name": "Port", "description": "Port number on the subsystem or model boundary."}
+      ],
+      "example": "add_block('simulink/Sources/In Bus Element', 'm/Sub/Temp');\nset_param('m/Sub/Temp', 'PortName', 'Sensors', 'Element', 'Temperature');",
+      "notes": "Bus element ports cannot be mixed with a plain Inport of the same name. Configure the bus hierarchy and element attributes in the Interface Editor or with Simulink.Bus objects. Counterpart: Out Bus Element.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/inbuselement.html"
+    },
+    {
+      "name": "Playback",
+      "kind": "block",
+      "description": "Plays back recorded or imported data from a MAT-file, Excel file, or Simulation Data Inspector runs into the model, with one output port per selected signal and automatic interpolation. It replaces the From File / From Workspace pair when you want to drive a model from logged runs, and supports buses, multiple signals and large data sets streamed from disk.",
+      "usage": "simulink/Sources/Playback\nConfigure by opening the block: load data from workspace / file / SDI, map signals to ports; set Interpolation, Extrapolation and whether to loop.",
+      "parameters": [
+        {"name": "Data source", "description": "Workspace variables, MAT/Excel/CSV file, or an SDI run to play back."},
+        {"name": "Interpolation / Extrapolation", "description": "Linear or zero-order hold between samples; hold-last-value or zero beyond the data range."},
+        {"name": "Output port names", "description": "One port per mapped signal; buses are supported when a Simulink.Bus type is defined."}
+      ],
+      "example": "% Programmatic: record a run, then in the Playback block choose 'Simulation Data Inspector' and pick the run.\nrunID = Simulink.sdi.getAllRunIDs; runID = runID(end);\nadd_block('simulink/Sources/Playback', 'm/Play');",
+      "notes": "Introduced R2022b. Data larger than memory is streamed from the file; for simple timeseries a From Workspace block is still lighter. Requires the data to be time-based.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/playback.html"
+    },
+    {
+      "name": "Repeating Sequence Interpolated",
+      "kind": "block",
+      "description": "Outputs a periodic discrete-time waveform defined by time/value vectors, linearly interpolating (or holding) between the points at the block sample time. Unlike Repeating Sequence (continuous) it produces a discrete signal with a fixed sample time, which is what fixed-step and code-generation models need.",
+      "usage": "simulink/Sources/Repeating Sequence Interpolated\nParameters: OutValues, TimeValues, LookUpMeth ('Interpolation-Use End Values' | 'Use Input Nearest' | 'Use Input Below' | 'Use Input Above'), tsamp, OutDataTypeStr",
+      "parameters": [
+        {"name": "OutValues", "description": "Vector of output values, same length as TimeValues."},
+        {"name": "TimeValues", "description": "Strictly increasing time vector; the sequence repeats with period TimeValues(end)."},
+        {"name": "LookUpMeth", "description": "Interpolation or hold method used between the table points."},
+        {"name": "tsamp", "description": "Discrete sample time."}
+      ],
+      "example": "add_block('simulink/Sources/Repeating Sequence Interpolated', 'm/Profile');\nset_param('m/Profile', 'OutValues', '[0 1 1 0]', 'TimeValues', '[0 1 2 3]', 'tsamp', '0.01');",
+      "notes": "Related: Repeating Sequence Stair (zero-order hold, no interpolation) and Repeating Sequence (continuous-time).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/repeatingsequenceinterpolated.html"
+    },
+    {
+      "name": "Add",
+      "kind": "block",
+      "description": "Rectangular-icon variant of the Sum block that adds (or subtracts, per the sign string) its inputs element-wise. Functionally identical to Sum; the library simply pre-sets a rectangular icon shape, which is preferred in wide diagrams and by many modelling guidelines.",
+      "usage": "simulink/Math Operations/Add\nParameters: Inputs ('++', '+-', '+++' ...), IconShape ('rectangular'|'round'), OutDataTypeStr, SaturateOnIntegerOverflow, CollapseMode",
+      "parameters": [
+        {"name": "Inputs", "description": "String of + and - signs (spaces allowed as spacers) that sets the number and sign of ports, or a number for summing that many inputs."},
+        {"name": "IconShape", "description": "'rectangular' or 'round'."},
+        {"name": "OutDataTypeStr", "description": "Output data type, e.g. 'Inherit: Inherit via internal rule', 'int16', 'fixdt(1,16,8)'."},
+        {"name": "AccumDataTypeStr", "description": "Accumulator data type for fixed-point sums."}
+      ],
+      "example": "add_block('simulink/Math Operations/Add', 'm/Add');\nset_param('m/Add', 'Inputs', '+-+');",
+      "notes": "Add, Subtract, Sum and Sum of Elements are all the same Sum block type (BlockType 'Sum'); find_system by BlockType returns all of them.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/add.html"
+    },
+    {
+      "name": "Subtract",
+      "kind": "block",
+      "description": "Pre-configured Sum block with Inputs set to '+-' so the output is the first input minus the second. Use it for error signals (reference minus measurement) so the diagram reads naturally; it shares all Sum data type and saturation options.",
+      "usage": "simulink/Math Operations/Subtract\nParameters: Inputs ('+-'), OutDataTypeStr, SaturateOnIntegerOverflow",
+      "parameters": [
+        {"name": "Inputs", "description": "Sign string; default '+-'."},
+        {"name": "SaturateOnIntegerOverflow", "description": "'on' saturates instead of wrapping for integer/fixed-point results."}
+      ],
+      "example": "add_block('simulink/Math Operations/Subtract', 'm/Err');\nadd_line('m', 'Ref/1', 'Err/1'); add_line('m', 'Meas/1', 'Err/2');",
+      "notes": "Identical to the Sum block; the name only documents intent.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/add.html"
+    },
+    {
+      "name": "Sum of Elements",
+      "kind": "block",
+      "description": "Sum block configured to add all elements of a single vector or matrix input (or along one dimension) and output a scalar or reduced array. Use it for norms, totals and energy computations instead of a Mux plus Sum chain.",
+      "usage": "simulink/Math Operations/Sum of Elements\nParameters: Inputs ('+'), CollapseMode ('All dimensions'|'Specified dimension'), CollapseDim, OutDataTypeStr",
+      "parameters": [
+        {"name": "CollapseMode", "description": "'All dimensions' returns a scalar; 'Specified dimension' sums along CollapseDim."},
+        {"name": "CollapseDim", "description": "Dimension index (1 = rows) to sum over when CollapseMode is 'Specified dimension'."}
+      ],
+      "example": "add_block('simulink/Math Operations/Sum of Elements', 'm/Total');\nset_param('m/Total', 'CollapseMode', 'Specified dimension', 'CollapseDim', '2');",
+      "notes": "Set Inputs to '-' to negate the sum. For products use Product of Elements.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/add.html"
+    },
+    {
+      "name": "Product of Elements",
+      "kind": "block",
+      "description": "Multiplies (or divides) all elements of one vector/matrix input together, over all dimensions or along one dimension, giving a scalar or reduced array. It is the Product block with a single input and a collapse mode; use it for cumulative gains, probabilities and factorial-like terms.",
+      "usage": "simulink/Math Operations/Product of Elements\nParameters: Inputs ('*' or '/'), CollapseMode, CollapseDim, Multiplication ('Element-wise(.*)'), OutDataTypeStr",
+      "parameters": [
+        {"name": "Inputs", "description": "'*' multiplies all elements, '/' outputs 1 divided by the product."},
+        {"name": "CollapseMode", "description": "'All dimensions' or 'Specified dimension'."}
+      ],
+      "example": "add_block('simulink/Math Operations/Product of Elements', 'm/Prod');\nset_param('m/Prod', 'Inputs', '*', 'CollapseMode', 'All dimensions');",
+      "notes": "For fixed-point inputs choose an explicit output type; the internal rule can overflow with many factors.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/productofelements.html"
+    },
+    {
+      "name": "Dot Product",
+      "kind": "block",
+      "description": "Computes sum(conj(u1).*u2) of two equal-length vectors, i.e. the inner product, as a scalar. Use it for projections, power calculations and weighted sums; it accepts real or complex inputs and fixed-point types with an explicit accumulator.",
+      "usage": "simulink/Math Operations/Dot Product\nParameters: OutDataTypeStr, AccumDataTypeStr, RndMeth, SaturateOnIntegerOverflow",
+      "parameters": [
+        {"name": "OutDataTypeStr", "description": "Output data type; default inherits via internal rule."},
+        {"name": "AccumDataTypeStr", "description": "Accumulator type for the running sum (fixed-point)."}
+      ],
+      "example": "add_block('simulink/Math Operations/Dot Product', 'm/Dot');\n% inputs: weights vector and signal vector, output scalar",
+      "notes": "Equivalent to Product (matrix mode) with a transposed first input, but simpler and generates tighter code.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/dotproduct.html"
+    },
+    {
+      "name": "Matrix Concatenate",
+      "kind": "block",
+      "description": "Concatenates input matrices along a chosen dimension (1 = vertical, 2 = horizontal, higher for N-D arrays) into one output array. It is the Concatenate block in 'Multidimensional array' mode; inputs must agree in all other dimensions. Use it to assemble state or measurement matrices from separately computed parts.",
+      "usage": "simulink/Math Operations/Matrix Concatenate\nParameters: NumInputs, Mode ('Multidimensional array'), ConcatenateDimension",
+      "parameters": [
+        {"name": "NumInputs", "description": "Number of input ports."},
+        {"name": "ConcatenateDimension", "description": "Dimension along which inputs are stacked (1 rows, 2 columns, 3+ pages)."}
+      ],
+      "example": "add_block('simulink/Math Operations/Matrix Concatenate', 'm/Cat');\nset_param('m/Cat', 'NumInputs', '2', 'ConcatenateDimension', '2');",
+      "notes": "Same block as Vector Concatenate with Mode 'Multidimensional array'. All inputs must share one data type; insert Data Type Conversion if needed.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/vectorconcatenate.html"
+    },
+    {
+      "name": "Reshape",
+      "kind": "block",
+      "description": "Changes the dimensionality of the input signal (1-D vector, column, row, or an arbitrary M-by-N array) without changing its elements, in column-major order like MATLAB reshape. Use it to adapt a vector to a block that needs a matrix, or to flatten a matrix before logging.",
+      "usage": "simulink/Math Operations/Reshape\nParameters: OutputDimensionality ('1-D array' | 'Column vector (2-D)' | 'Row vector (2-D)' | 'Customize'), OutputDimensions ('[M N]')",
+      "parameters": [
+        {"name": "OutputDimensionality", "description": "Target shape category."},
+        {"name": "OutputDimensions", "description": "Explicit [rows cols] when OutputDimensionality is 'Customize'; product must equal the input element count."}
+      ],
+      "example": "add_block('simulink/Math Operations/Reshape', 'm/ToMat');\nset_param('m/ToMat', 'OutputDimensionality', 'Customize', 'OutputDimensions', '[3 4]');",
+      "notes": "A virtual operation: no code is generated. Related: Squeeze, Permute Dimensions, Selector.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/reshape.html"
+    },
+    {
+      "name": "Bias",
+      "kind": "block",
+      "description": "Adds a constant offset to the input (y = u + Bias) with the same data type as the input. Use it in place of a Constant plus Sum pair when only an additive offset is needed; the bias is tunable and can be a vector matched element-wise.",
+      "usage": "simulink/Math Operations/Bias\nParameters: Bias, SaturateOnIntegerOverflow",
+      "parameters": [
+        {"name": "Bias", "description": "Scalar or vector offset added to the input."},
+        {"name": "SaturateOnIntegerOverflow", "description": "Saturate rather than wrap for integer/fixed-point signals."}
+      ],
+      "example": "add_block('simulink/Math Operations/Bias', 'm/Offset');\nset_param('m/Offset', 'Bias', '273.15');",
+      "notes": "The output data type always equals the input type; for a different output type use a Sum block with an explicit OutDataTypeStr.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/bias.html"
+    },
+    {
+      "name": "Rounding Function",
+      "kind": "block",
+      "description": "Applies floor, ceil, round or fix element-wise to a floating-point input. Use it to quantize continuous signals to integers before indexing or counting; the output keeps the input's floating-point type.",
+      "usage": "simulink/Math Operations/Rounding Function\nParameters: Operator ('floor' | 'ceil' | 'round' | 'fix')",
+      "parameters": [
+        {"name": "Operator", "description": "Rounding mode: floor (toward -inf), ceil (toward +inf), round (nearest, ties away from zero), fix (toward zero)."}
+      ],
+      "example": "add_block('simulink/Math Operations/Rounding Function', 'm/Rnd');\nset_param('m/Rnd', 'Operator', 'floor');",
+      "notes": "Only accepts single/double inputs; for integer conversion with rounding choose the RndMeth of a Data Type Conversion block instead.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/roundingfunction.html"
+    },
+    {
+      "name": "Slider Gain",
+      "kind": "block",
+      "description": "Gain block whose value is adjusted interactively with a slider between user-set low and high limits while the simulation runs. Use it for quick manual tuning during interactive simulation; for deployable dashboards prefer the Dashboard library Slider or Knob driving a Gain.",
+      "usage": "simulink/Math Operations/Slider Gain\nParameters: low, gain, high",
+      "parameters": [
+        {"name": "low", "description": "Lower slider limit."},
+        {"name": "gain", "description": "Current gain value (tunable)."},
+        {"name": "high", "description": "Upper slider limit."}
+      ],
+      "example": "add_block('simulink/Math Operations/Slider Gain', 'm/Kslider');\nset_param('m/Kslider', 'low', '0', 'gain', '0.5', 'high', '2');",
+      "notes": "Masked subsystem around a Gain block; the gain is tunable in Normal and Accelerator modes.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/slidergain.html"
+    },
+    {
+      "name": "Algebraic Constraint",
+      "kind": "block",
+      "description": "Constrains its input signal f(z) to zero (or to a target value) and outputs the algebraic state z that satisfies the constraint, using the solver's algebraic-loop solver. Use it to solve implicit equations inside a model, for example finding an operating point or inverting a nonlinear function.",
+      "usage": "simulink/Math Operations/Algebraic Constraint\nParameters: Constraint ('f(z) = 0' | 'f(z) = z'), InitialGuess, SolverTolerance",
+      "parameters": [
+        {"name": "Constraint", "description": "Form of the constraint on the input."},
+        {"name": "InitialGuess", "description": "Starting value for z; a good guess is essential for convergence."},
+        {"name": "SolverTolerance", "description": "Tolerance used by the algebraic-loop solver (default auto)."}
+      ],
+      "example": "add_block('simulink/Math Operations/Algebraic Constraint', 'm/Solve');\nset_param('m/Solve', 'InitialGuess', '1');\n% feed back z through the function block to the constraint input",
+      "notes": "Creates an intentional algebraic loop; set the model's Algebraic loop diagnostic to none. Not supported for code generation with most targets.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/algebraicconstraint.html"
+    },
+    {
+      "name": "Polynomial",
+      "kind": "block",
+      "description": "Evaluates a polynomial P(u) defined by a coefficient vector (highest power first, MATLAB polyval convention) for each input element. Use it for calibration curves and simple nonlinear characteristics that fit a polynomial; for tabulated data prefer a lookup table.",
+      "usage": "simulink/Math Operations/Polynomial\nParameters: coefs (coefficient vector, e.g. '[1 0 -2 3]')",
+      "parameters": [
+        {"name": "coefs", "description": "Row vector of coefficients in descending powers of u."}
+      ],
+      "example": "add_block('simulink/Math Operations/Polynomial', 'm/Cal');\nset_param('m/Cal', 'coefs', '[0.002 -0.1 5]');",
+      "notes": "Evaluation uses Horner's rule; coefficients are tunable parameters in generated code.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/polynomial.html"
+    },
+    {
+      "name": "Complex to Magnitude-Angle",
+      "kind": "block",
+      "description": "Outputs the magnitude and/or phase angle (radians, in (-pi, pi]) of a complex input signal, element-wise. Use it after FFT or phasor computations to get polar quantities; the output is real of the same base type.",
+      "usage": "simulink/Math Operations/Complex to Magnitude-Angle\nParameters: Output ('Magnitude' | 'Angle' | 'Magnitude and angle'), SampleTime",
+      "parameters": [
+        {"name": "Output", "description": "Which quantities to output; 'Magnitude and angle' gives two ports."}
+      ],
+      "example": "add_block('simulink/Math Operations/Complex to Magnitude-Angle', 'm/Polar');\nset_param('m/Polar', 'Output', 'Magnitude and angle');",
+      "notes": "For fixed-point CORDIC-based conversion use the Complex to Magnitude-Angle HDL Optimized block from DSP System Toolbox.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/complextomagnitudeangle.html"
+    },
+    {
+      "name": "Magnitude-Angle to Complex",
+      "kind": "block",
+      "description": "Forms a complex signal from magnitude and angle inputs (or from one input plus a constant for the other). Use it to synthesize phasors and rotate vectors in the complex plane.",
+      "usage": "simulink/Math Operations/Magnitude-Angle to Complex\nParameters: Input ('Magnitude' | 'Angle' | 'Magnitude and angle'), ConstantPart (constant angle or magnitude), ApproximationMethod ('None'|'CORDIC'), SampleTime",
+      "parameters": [
+        {"name": "Input", "description": "Which quantity is supplied as a signal; the other comes from ConstantPart."},
+        {"name": "ConstantPart", "description": "Fixed magnitude or angle when only one input port is used."},
+        {"name": "ApproximationMethod", "description": "'CORDIC' enables fixed-point implementation."}
+      ],
+      "example": "add_block('simulink/Math Operations/Magnitude-Angle to Complex', 'm/Phasor');\nset_param('m/Phasor', 'Input', 'Magnitude and angle');",
+      "notes": "Angle is in radians. Inverse of Complex to Magnitude-Angle.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/magnitudeangletocomplex.html"
+    },
+    {
+      "name": "Real-Imag to Complex",
+      "kind": "block",
+      "description": "Combines real and imaginary parts (both signals, or one signal and one constant) into a complex output. Use it to build complex signals for FFT, baseband communications or phasor models.",
+      "usage": "simulink/Math Operations/Real-Imag to Complex\nParameters: Input ('Real' | 'Imag' | 'Real and imag'), ConstantPart, SampleTime",
+      "parameters": [
+        {"name": "Input", "description": "Which part(s) arrive as signals."},
+        {"name": "ConstantPart", "description": "Constant value of the part not supplied as a signal."}
+      ],
+      "example": "add_block('simulink/Math Operations/Real-Imag to Complex', 'm/Cplx');\nset_param('m/Cplx', 'Input', 'Real and imag');",
+      "notes": "Both inputs must share data type; the output is complex of that type.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/realimagtocomplex.html"
+    },
+    {
+      "name": "Complex to Real-Imag",
+      "kind": "block",
+      "description": "Outputs the real part, imaginary part, or both, of a complex input. Use it to split a complex signal for separate processing or logging.",
+      "usage": "simulink/Math Operations/Complex to Real-Imag\nParameters: Output ('Real' | 'Imag' | 'Real and imag'), SampleTime",
+      "parameters": [
+        {"name": "Output", "description": "Which part(s) to output; 'Real and imag' creates two ports."}
+      ],
+      "example": "add_block('simulink/Math Operations/Complex to Real-Imag', 'm/Split');\nset_param('m/Split', 'Output', 'Real and imag');",
+      "notes": "Real inputs are passed through with an imaginary part of zero.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/complextorealimag.html"
+    },
+    {
+      "name": "Unary Minus",
+      "kind": "block",
+      "description": "Negates the input (y = -u) element-wise while preserving the data type. Use it instead of a Gain of -1 for fixed-point and integer signals, where the intent and overflow behaviour (saturate on most-negative value) are explicit.",
+      "usage": "simulink/Math Operations/Unary Minus\nParameters: SaturateOnIntegerOverflow",
+      "parameters": [
+        {"name": "SaturateOnIntegerOverflow", "description": "When on, -intmin saturates to intmax instead of wrapping."}
+      ],
+      "example": "add_block('simulink/Math Operations/Unary Minus', 'm/Neg');\nset_param('m/Neg', 'SaturateOnIntegerOverflow', 'on');",
+      "notes": "Related: Gain, Sign, Abs.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/unaryminus.html"
+    },
+    {
+      "name": "Assignment",
+      "kind": "block",
+      "description": "Writes the values of input U2 into selected elements of input Y0 (indexed by parameter or by index input ports) and outputs the modified array, i.e. Y(idx) = U2 in MATLAB terms. Use it to update part of a vector or matrix signal, build arrays inside iterator subsystems, or implement element-wise overrides.",
+      "usage": "simulink/Math Operations/Assignment\nParameters: NumberOfDimensions, IndexOptionArray ('Assign all' | 'Index vector (dialog)' | 'Index vector (port)' | 'Starting index (dialog)' | 'Starting index (port)'), IndexParamArray, OutputInitialize ('Initialize using input port <Y0>' | 'Specify size for each dimension in table'), DiagnosticForDimensions",
+      "parameters": [
+        {"name": "NumberOfDimensions", "description": "Rank of the output array (1 for vectors, 2 for matrices)."},
+        {"name": "IndexOptionArray", "description": "Per dimension: how elements are selected (all, dialog index vector, index port, starting index)."},
+        {"name": "IndexParamArray", "description": "Index vectors when indexing from the dialog (1-based)."},
+        {"name": "OutputInitialize", "description": "Whether Y0 is an input port or the output is sized from the dialog and initialized to zero/old value."}
+      ],
+      "example": "add_block('simulink/Math Operations/Assignment', 'm/Assign');\nset_param('m/Assign', 'NumberOfDimensions', '1', 'IndexOptionArray', 'Index vector (port)');",
+      "notes": "Index port is 1-based by default (IndexMode). In a For Iterator Subsystem combine with the iteration index to fill an array element-by-element.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/assignment.html"
+    },
+    {
+      "name": "Permute Dimensions",
+      "kind": "block",
+      "description": "Rearranges the dimensions of an N-D input signal according to an order vector, generalizing matrix transpose ([2 1]). Use it to transpose matrices or reorder pages of multidimensional arrays before matrix multiplication or logging.",
+      "usage": "simulink/Math Operations/Permute Dimensions\nParameters: Order (e.g. '[2 1]')",
+      "parameters": [
+        {"name": "Order", "description": "Permutation vector of dimension indices, as in MATLAB permute."}
+      ],
+      "example": "add_block('simulink/Math Operations/Permute Dimensions', 'm/Transpose');\nset_param('m/Transpose', 'Order', '[2 1]');",
+      "notes": "For a plain transpose the Math Function block with Function 'transpose' or 'hermitian' is an alternative.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/permutedimensions.html"
+    },
+    {
+      "name": "Squeeze",
+      "kind": "block",
+      "description": "Removes singleton dimensions from a multidimensional input signal, like MATLAB squeeze, e.g. turning a 1x1xN array into an N-element vector. Use it after Selector or Concatenate operations that leave unit dimensions.",
+      "usage": "simulink/Math Operations/Squeeze\nNo parameters.",
+      "parameters": [],
+      "example": "add_block('simulink/Math Operations/Squeeze', 'm/Sq');",
+      "notes": "2-D inputs with a singleton dimension become 1-D vectors; use Reshape when you need an explicit row or column.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/squeeze.html"
+    },
+    {
+      "name": "Weighted Sample Time Math",
+      "kind": "block",
+      "description": "Adds, subtracts, multiplies or divides the input by a weighted sample time (w*Ts) or its reciprocal, or simply outputs Ts or 1/Ts. Use it to make discrete integrators, differentiators and rate calculations that stay correct when the sample time changes, without hard-coding Ts.",
+      "usage": "simulink/Math Operations/Weighted Sample Time Math\nParameters: TsampMathOp ('+' | '-' | '*' | '/' | 'Ts Only' | '1/Ts Only'), weightValue, TsampMathImp ('Online Calculations' | 'Offline Scaling Adjustment'), OutDataTypeStr",
+      "parameters": [
+        {"name": "TsampMathOp", "description": "Operation between the input and the weighted sample time."},
+        {"name": "weightValue", "description": "Weight w multiplying the sample time."},
+        {"name": "TsampMathImp", "description": "Offline scaling folds Ts into fixed-point scaling instead of a runtime multiply."}
+      ],
+      "example": "add_block('simulink/Math Operations/Weighted Sample Time Math', 'm/Ts');\nset_param('m/Ts', 'TsampMathOp', 'Ts Only');",
+      "notes": "The block inherits its sample time from the input; with continuous inputs it errors. Related: Weighted Sample Time (Signal Attributes).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/weightedsampletimemath.html"
+    },
+    {
+      "name": "Sine Wave Function",
+      "kind": "block",
+      "description": "Generates a sine wave computed from the input signal as the time argument (y = A*sin(freq*u + phase) + bias), rather than from simulation time as the Sine Wave source does. Use it when the phase argument comes from a model signal such as an integrated frequency or an encoder angle.",
+      "usage": "simulink/Math Operations/Sine Wave Function\nParameters: Amplitude, Bias, Frequency, Phase, SineType ('Time based'), TimeSource ('Use external signal')",
+      "parameters": [
+        {"name": "Amplitude", "description": "Peak amplitude A."},
+        {"name": "Frequency", "description": "Angular frequency in rad/s multiplying the input."},
+        {"name": "Phase", "description": "Phase offset in radians."},
+        {"name": "Bias", "description": "DC offset added to the output."}
+      ],
+      "example": "add_block('simulink/Math Operations/Sine Wave Function', 'm/SinFcn');\nset_param('m/SinFcn', 'Amplitude', '1', 'Frequency', '2*pi*50');",
+      "notes": "Same underlying Sin block type as Sine Wave with TimeSource set to external input. For fixed-point sin/cos use the Sine lookup block or Trigonometric Function with CORDIC.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/sinewavefunction.html"
+    },
+    {
+      "name": "Find Nonzero Elements",
+      "kind": "block",
+      "description": "Outputs the indices (linear or subscripts) of the nonzero elements of the input, like MATLAB find, optionally with the nonzero values themselves. The output is variable-size, so use it inside logic that handles variable-size signals or with a fixed maximum count.",
+      "usage": "simulink/Math Operations/Find Nonzero Elements\nParameters: IndexOutputFormat ('Linear indices' | 'Subscripts'), IndexMode ('Zero-based'|'One-based'), ShowOutputPortForNonzeroInputValues, OutDataTypeStr",
+      "parameters": [
+        {"name": "IndexOutputFormat", "description": "Linear indices (one port) or one subscript port per dimension."},
+        {"name": "IndexMode", "description": "Zero- or one-based indexing."},
+        {"name": "ShowOutputPortForNonzeroInputValues", "description": "Adds a port with the nonzero values."}
+      ],
+      "example": "add_block('simulink/Math Operations/Find Nonzero Elements', 'm/Find');\nset_param('m/Find', 'IndexMode', 'One-based');",
+      "notes": "Produces a variable-size output; downstream blocks must support variable-size signals or you must bound the size with a Selector.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/findnonzeroelements.html"
+    },
+    {
+      "name": "MinMax Running Resettable",
+      "kind": "block",
+      "description": "Tracks the running minimum or maximum of the input over time, resetting to the current input when the reset port R is true. Use it for peak detection, envelope tracking and holding extreme values between events.",
+      "usage": "simulink/Math Operations/MinMax Running Resettable\nParameters: Function ('min' | 'max'), InitialCondition",
+      "parameters": [
+        {"name": "Function", "description": "Track 'min' or 'max'."},
+        {"name": "InitialCondition", "description": "Value used for the running extreme before the first sample."}
+      ],
+      "example": "add_block('simulink/Math Operations/MinMax Running Resettable', 'm/Peak');\nset_param('m/Peak', 'Function', 'max');",
+      "notes": "Masked subsystem; the reset input is evaluated at each sample hit. The plain MinMax block compares inputs at a single instant.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/minmaxrunningresettable.html"
+    },
+    {
+      "name": "Compare To Constant",
+      "kind": "block",
+      "description": "Compares the input to a constant with a relational operator and outputs a boolean (or uint8) true/false. It is a masked Relational Operator with a built-in Constant; use it for thresholds and enables where a separate Constant block would clutter the diagram.",
+      "usage": "simulink/Logic and Bit Operations/Compare To Constant\nParameters: relop ('==' | '~=' | '<' | '<=' | '>' | '>='), const, OutDataTypeStr ('boolean' | 'uint8'), ZeroCross",
+      "parameters": [
+        {"name": "relop", "description": "Relational operator applied as (u relop const)."},
+        {"name": "const", "description": "Constant to compare against; may be a workspace variable."},
+        {"name": "ZeroCross", "description": "Enable zero-crossing detection for variable-step solvers."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Compare To Constant', 'm/Over');\nset_param('m/Over', 'relop', '>', 'const', 'Tmax');",
+      "notes": "Compare To Zero is the same block with const fixed at 0. The constant is a tunable parameter in generated code unless inlined.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/comparetoconstant.html"
+    },
+    {
+      "name": "Bit Set",
+      "kind": "block",
+      "description": "Sets one bit of an unsigned or fixed-point integer input to 1 (zero-based bit index) and outputs the result. Use it to build status words and register values for embedded interfaces.",
+      "usage": "simulink/Logic and Bit Operations/Bit Set\nParameters: iBit (Index of bit, 0 = LSB)",
+      "parameters": [
+        {"name": "iBit", "description": "Zero-based index of the bit to set; may be a vector matching the input width."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Bit Set', 'm/SetFlag');\nset_param('m/SetFlag', 'iBit', '3');",
+      "notes": "Input must be an integer or fixed-point type with zero bias. Counterpart: Bit Clear. For arbitrary masks use Bitwise Operator.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/bitset.html"
+    },
+    {
+      "name": "Bit Clear",
+      "kind": "block",
+      "description": "Clears one bit of an unsigned or fixed-point integer input to 0 (zero-based index) and outputs the result. Use it with Bit Set to manipulate flag registers explicitly.",
+      "usage": "simulink/Logic and Bit Operations/Bit Clear\nParameters: iBit (Index of bit, 0 = LSB)",
+      "parameters": [
+        {"name": "iBit", "description": "Zero-based index of the bit to clear."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Bit Clear', 'm/ClrFlag');\nset_param('m/ClrFlag', 'iBit', '0');",
+      "notes": "Requires integer or fixed-point inputs. Related: Bitwise Operator with AND and a mask.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/bitclear.html"
+    },
+    {
+      "name": "Extract Bits",
+      "kind": "block",
+      "description": "Outputs a contiguous range of bits from an integer or fixed-point input: upper half, lower half, a range ending at MSB/LSB, or an explicit [start end] bit range. The output type is an unsigned (or signed) integer just wide enough for the selected bits, optionally preserving fixed-point scaling.",
+      "usage": "simulink/Logic and Bit Operations/Extract Bits\nParameters: bitsToExtract ('Upper half' | 'Lower half' | 'Range starting with most significant bit' | 'Range ending with least significant bit' | 'Range of bits'), numBits, bitIdxRange ('[start end]'), outScalingMode ('Preserve fixed-point scaling' | 'Treat bit field as an integer')",
+      "parameters": [
+        {"name": "bitsToExtract", "description": "Which bits to extract."},
+        {"name": "numBits", "description": "Number of bits for the MSB/LSB range modes."},
+        {"name": "bitIdxRange", "description": "Zero-based [start end] indices for 'Range of bits'."},
+        {"name": "outScalingMode", "description": "Keep the fixed-point slope/bias of the extracted field or treat it as a plain integer."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Extract Bits', 'm/Field');\nset_param('m/Field', 'bitsToExtract', 'Range of bits', 'bitIdxRange', '[4 7]');",
+      "notes": "For floating-point inputs use Float Extract Bits. Combine with Shift Arithmetic and Bitwise Operator for packing/unpacking.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/extractbits.html"
+    },
+    {
+      "name": "Detect Change",
+      "kind": "block",
+      "description": "Outputs true for one sample whenever the input differs from its value at the previous sample hit, and false otherwise. Use it to trigger actions on any change of a discrete signal such as a mode or set-point.",
+      "usage": "simulink/Logic and Bit Operations/Detect Change\nParameters: vinit (Initial condition), OutDataTypeStr ('boolean' | 'uint8')",
+      "parameters": [
+        {"name": "vinit", "description": "Assumed previous value at the first sample (so the first output is true if the input differs from it)."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Detect Change', 'm/Chg');\nset_param('m/Chg', 'vinit', '0');",
+      "notes": "Requires a discrete sample time (contains a Unit Delay). Related: Detect Increase, Detect Decrease, Stateflow hasChanged.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/detectchange.html"
+    },
+    {
+      "name": "Detect Increase",
+      "kind": "block",
+      "description": "Outputs true at samples where the input is greater than its previous value. Use it to detect rising trends or count upward steps of a discrete signal.",
+      "usage": "simulink/Logic and Bit Operations/Detect Increase\nParameters: vinit, OutDataTypeStr",
+      "parameters": [
+        {"name": "vinit", "description": "Initial previous value used at the first sample."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Detect Increase', 'm/Inc');",
+      "notes": "Counterpart: Detect Decrease. Both compare strict inequalities.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/detectincrease.html"
+    },
+    {
+      "name": "Detect Decrease",
+      "kind": "block",
+      "description": "Outputs true at samples where the input is less than its previous value. Use it to detect falling trends or decrement events in discrete signals.",
+      "usage": "simulink/Logic and Bit Operations/Detect Decrease\nParameters: vinit, OutDataTypeStr",
+      "parameters": [
+        {"name": "vinit", "description": "Initial previous value used at the first sample."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Detect Decrease', 'm/Dec');",
+      "notes": "Counterpart: Detect Increase.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/detectdecrease.html"
+    },
+    {
+      "name": "Detect Rise Positive",
+      "kind": "block",
+      "description": "Outputs true when the input becomes strictly positive after being zero or negative at the previous sample (a rising edge through zero). Use it for edge-triggered logic on signed signals.",
+      "usage": "simulink/Logic and Bit Operations/Detect Rise Positive\nParameters: vinit, OutDataTypeStr",
+      "parameters": [
+        {"name": "vinit", "description": "Initial condition of the internal delay (previous input value)."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Detect Rise Positive', 'm/RiseP');",
+      "notes": "Detect Rise Nonnegative triggers when the input becomes >= 0. For boolean rising edges of a 0/1 signal both behave the same.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/detectrisepositive.html"
+    },
+    {
+      "name": "Detect Rise Nonnegative",
+      "kind": "block",
+      "description": "Outputs true when the input becomes greater than or equal to zero after being strictly negative at the previous sample. Use it to catch zero-crossing-up events including landing exactly on zero.",
+      "usage": "simulink/Logic and Bit Operations/Detect Rise Nonnegative\nParameters: vinit, OutDataTypeStr",
+      "parameters": [
+        {"name": "vinit", "description": "Initial previous value."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Detect Rise Nonnegative', 'm/RiseNN');",
+      "notes": "Related: Detect Rise Positive, Hit Crossing (continuous-time).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/detectrisenonnegative.html"
+    },
+    {
+      "name": "Detect Fall Negative",
+      "kind": "block",
+      "description": "Outputs true when the input becomes strictly negative after being zero or positive at the previous sample (falling edge through zero).",
+      "usage": "simulink/Logic and Bit Operations/Detect Fall Negative\nParameters: vinit, OutDataTypeStr",
+      "parameters": [
+        {"name": "vinit", "description": "Initial previous value."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Detect Fall Negative', 'm/FallN');",
+      "notes": "Counterpart of Detect Rise Positive.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/detectfallnegative.html"
+    },
+    {
+      "name": "Detect Fall Nonpositive",
+      "kind": "block",
+      "description": "Outputs true when the input becomes less than or equal to zero after being strictly positive at the previous sample. Use it for falling-edge detection on 0/1 signals and zero-crossing-down events.",
+      "usage": "simulink/Logic and Bit Operations/Detect Fall Nonpositive\nParameters: vinit, OutDataTypeStr",
+      "parameters": [
+        {"name": "vinit", "description": "Initial previous value."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Detect Fall Nonpositive', 'm/FallNP');",
+      "notes": "Counterpart of Detect Rise Nonnegative.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/detectfallnonpositive.html"
+    },
+    {
+      "name": "Interval Test",
+      "kind": "block",
+      "description": "Outputs true when the input lies within a fixed interval [lower, upper], with options to include or exclude each endpoint. Use it for range checks and hysteresis-free window comparators.",
+      "usage": "simulink/Logic and Bit Operations/Interval Test\nParameters: IntervalClosedRight ('on'|'off'), uplimit, IntervalClosedLeft, lowlimit, OutDataTypeStr",
+      "parameters": [
+        {"name": "lowlimit / uplimit", "description": "Interval bounds (constants or workspace variables)."},
+        {"name": "IntervalClosedLeft / IntervalClosedRight", "description": "Whether the bound itself counts as inside."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Interval Test', 'm/InRange');\nset_param('m/InRange', 'lowlimit', '-5', 'uplimit', '5');",
+      "notes": "For bounds that change at run time use Interval Test Dynamic. Related: Check Static Range (verification).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/intervaltest.html"
+    },
+    {
+      "name": "Interval Test Dynamic",
+      "kind": "block",
+      "description": "Outputs true when input u lies between the values on its lo and up input ports, with selectable closed/open endpoints. Use it when the interval bounds are computed signals rather than constants.",
+      "usage": "simulink/Logic and Bit Operations/Interval Test Dynamic\nPorts: up, u, lo. Parameters: IntervalClosedRight, IntervalClosedLeft, OutDataTypeStr",
+      "parameters": [
+        {"name": "IntervalClosedLeft / IntervalClosedRight", "description": "Include the lower/upper bound in the interval."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Interval Test Dynamic', 'm/InWin');",
+      "notes": "All three inputs must have the same data type.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/intervaltestdynamic.html"
+    },
+    {
+      "name": "Combinatorial Logic",
+      "kind": "block",
+      "description": "Implements a truth table: the boolean input vector is interpreted as a row index into a user-supplied truth table matrix, and the corresponding row is output. Use it for small combinational logic functions such as decoders, in place of many Logical Operator blocks.",
+      "usage": "simulink/Logic and Bit Operations/Combinatorial Logic\nParameters: TruthTable (matrix with 2^n rows and m columns)",
+      "parameters": [
+        {"name": "TruthTable", "description": "Matrix whose row k+1 is the output for the input bits interpreted as binary number k (first input = MSB)."}
+      ],
+      "example": "add_block('simulink/Logic and Bit Operations/Combinatorial Logic', 'm/XOR2');\nset_param('m/XOR2', 'TruthTable', '[0;1;1;0]');",
+      "notes": "The row order is MSB-first for the input vector. For larger tables or conditions prefer a Stateflow Truth Table.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/combinatoriallogic.html"
+    }
+  ]
+}

@@ -1,0 +1,447 @@
+{
+  "category": "Continuous, discrete & discontinuities blocks",
+  "description": "Blocks from the Simulink Continuous, Discrete and Discontinuities libraries: the integrators, transfer functions, state-space models, delays and hold elements that carry a model's dynamic state, plus the nonlinear limiting elements (saturation, dead zone, rate limits, relay, quantisation, backlash) that make a model behave like real hardware. These are the blocks that determine solver choice, sample-time propagation and zero-crossing behaviour, so their parameters matter as much for simulation performance as for results.",
+  "tools": [
+    {
+      "name": "Integrator",
+      "kind": "block",
+      "description": "Integrates its input with respect to time, producing a continuous state that the solver advances: y(t) = integral of u from t0 to t, plus the initial condition. Optional features turn it into a practical control element — output limiting with anti-windup, an external reset port with selectable trigger edge, an external initial-condition port, a separate state output port, and state wrapping for angles. Use it for every continuous state in a plant model, for the integral term of a hand-built controller, and for accumulating a rate into a position.",
+      "usage": "Simulink > Continuous > Integrator (Integrator Limited is the same block with LimitOutput preset to 'on')",
+      "parameters": [
+        {"name": "InitialCondition", "description": "Initial value of the state at simulation start. Cannot be Inf or NaN."},
+        {"name": "InitialConditionSource", "description": "'internal' (dialog value) or 'external' to add an input port carrying the initial condition."},
+        {"name": "LimitOutput", "description": "'on' clamps the output between the saturation limits and holds the state there, providing integrator anti-windup."},
+        {"name": "UpperSaturationLimit", "description": "Upper clamp on the output when LimitOutput is 'on'."},
+        {"name": "LowerSaturationLimit", "description": "Lower clamp on the output when LimitOutput is 'on'."},
+        {"name": "ExternalReset", "description": "'none' (default), 'rising', 'falling', 'either', 'level' or 'level hold' — adds a reset port that returns the state to its initial condition."},
+        {"name": "ShowSaturationPort", "description": "'on' adds an output port reporting whether the integrator is saturated (+1, 0 or -1)."},
+        {"name": "ShowStatePort", "description": "'on' adds a state output port that can be fed back without creating an algebraic loop."},
+        {"name": "WrapState", "description": "'on' wraps the state into a range, which is the correct way to model an unbounded rotating angle."},
+        {"name": "WrappedStateUpperValue", "description": "Upper wrap value, e.g. 'pi' or '2*pi'."},
+        {"name": "WrappedStateLowerValue", "description": "Lower wrap value, e.g. '-pi' or '0'."},
+        {"name": "AbsoluteTolerance", "description": "Per-block absolute tolerance for the variable-step solver; 'auto' uses the model setting."}
+      ],
+      "example": "mdl = 'dynDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('simulink/Continuous/Integrator', [mdl '/Int']);\nset_param([mdl '/Int'], 'InitialCondition', '0', 'LimitOutput', 'on', 'UpperSaturationLimit', '10', 'LowerSaturationLimit', '-10', 'ExternalReset', 'rising');",
+      "notes": "This block forces a continuous solver; a model made only of Integrators will not run with a discrete solver. Direct output-to-input feedback around an Integrator is fine (the state breaks the loop), but feeding the output back through a direct-feedthrough chain into its own input creates an algebraic loop. Prefer LimitOutput over a downstream Saturation block in a PI loop: only the former stops the state winding up. Second-Order Integrator integrates twice with limits on both x and dx/dt.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/integrator.html"
+    },
+    {
+      "name": "Derivative",
+      "kind": "block",
+      "description": "Approximates the time derivative of its input as the change in input divided by the change in time since the previous major time step. It has no internal state, so its accuracy depends entirely on the solver step size, and it amplifies any noise or discontinuity in the input. Use it only when no alternative exists; for linearisation the block is replaced by the first-order approximation s/(c*s+1) whose time constant is set by CoefficientInTFapproximation.",
+      "usage": "Simulink > Continuous > Derivative",
+      "parameters": [
+        {"name": "CoefficientInTFapproximation", "description": "Time constant c of the transfer function s/(c*s+1) used to approximate this block during linearization and trim. Default '0.001'."}
+      ],
+      "example": "add_block('simulink/Continuous/Derivative', 'dynDemo/Dot');\nset_param('dynDemo/Dot', 'CoefficientInTFapproximation', '0.001');",
+      "notes": "Almost always the wrong block. Numerical differentiation of a stepped or noisy input produces huge spikes and can force the variable-step solver down to its minimum step. Prefer restructuring the model so the derivative is a state you integrate from, or use a Transfer Fcn s/(tau*s+1) as a filtered derivative. For discrete signals use Discrete Derivative, which divides by the fixed sample time instead.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/derivative.html"
+    },
+    {
+      "name": "Transfer Fcn",
+      "kind": "block",
+      "description": "Implements a continuous-time linear transfer function in the Laplace variable s, given as numerator and denominator coefficient vectors in descending powers of s. Internally it is realised in controllable canonical form, so it contributes as many continuous states as the denominator order. Use it for plant models identified from frequency-response data, for classical compensators (lead, lag, PI), and for filters expressed directly as a ratio of polynomials.",
+      "usage": "Simulink > Continuous > Transfer Fcn",
+      "parameters": [
+        {"name": "Numerator", "description": "Numerator coefficient vector in descending powers of s, e.g. '[1 3]'. A matrix gives a single-input multi-output transfer function."},
+        {"name": "Denominator", "description": "Denominator coefficient vector in descending powers of s, e.g. '[1 2 10]'. Its order must be at least that of the numerator."},
+        {"name": "ParameterTunability", "description": "'Auto', 'Optimized' or 'Unconstrained' — controls whether the coefficients stay tunable in accelerated simulation and generated code."},
+        {"name": "AbsoluteTolerance", "description": "Per-block absolute tolerance for the variable-step solver; 'auto' uses the model setting."},
+        {"name": "ContinuousStateAttributes", "description": "Names for the block's continuous states, used when logging states."}
+      ],
+      "example": "add_block('simulink/Continuous/Transfer Fcn', 'dynDemo/Plant');\nset_param('dynDemo/Plant', 'Numerator', '[1]', 'Denominator', '[1 2 10]');",
+      "notes": "The initial state is always zero and cannot be set on this block — use State-Space if you need non-zero initial conditions. A numerator of the same order as the denominator makes the block direct-feedthrough, which can create an algebraic loop in a feedback path. High-order polynomial coefficients are numerically ill-conditioned; above roughly sixth order prefer Zero-Pole or a state-space realisation.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/transferfcn.html"
+    },
+    {
+      "name": "State-Space",
+      "kind": "block",
+      "description": "Implements the continuous-time linear system dx/dt = A*x + B*u, y = C*x + D*u from four matrices plus an initial state vector. It is the numerically best-conditioned way to embed a multi-input multi-output linear model, and unlike Transfer Fcn it accepts non-zero initial conditions. Use it for models exported from Control System Toolbox (ss objects), for linearised plants obtained with linmod or Simulink Control Design, and for any MIMO dynamics.",
+      "usage": "Simulink > Continuous > State-Space",
+      "parameters": [
+        {"name": "A", "description": "System matrix, n-by-n."},
+        {"name": "B", "description": "Input matrix, n-by-m."},
+        {"name": "C", "description": "Output matrix, r-by-n."},
+        {"name": "D", "description": "Feedthrough matrix, r-by-m. A non-zero D makes the block direct-feedthrough."},
+        {"name": "InitialCondition", "description": "Initial state vector x(0); a scalar is expanded to all states."},
+        {"name": "AllowTunableDMatrix", "description": "'on' keeps D tunable in generated code when its initial value is zero."},
+        {"name": "ParameterTunability", "description": "'Auto', 'Optimized' or 'Unconstrained' for the matrix parameters."},
+        {"name": "AbsoluteTolerance", "description": "Per-block absolute tolerance for the variable-step solver."},
+        {"name": "ContinuousStateAttributes", "description": "Names for the continuous states, used when logging."}
+      ],
+      "example": "A = [0 1; -10 -2]; B = [0; 1]; C = [1 0]; D = 0;\nadd_block('simulink/Continuous/State-Space', 'dynDemo/SS');\nset_param('dynDemo/SS', 'A', 'A', 'B', 'B', 'C', 'C', 'D', 'D', 'InitialCondition', '[1; 0]');",
+      "notes": "A non-zero D matrix makes the block direct-feedthrough and can close an algebraic loop when the block sits in a unity-feedback path. A stiff A matrix (eigenvalues spread over many orders of magnitude) needs a stiff solver such as ode15s or ode23t; ode45 will crawl. Use Discrete State-Space for a sampled equivalent produced by c2d.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/statespace.html"
+    },
+    {
+      "name": "Zero-Pole",
+      "kind": "block",
+      "description": "Implements a continuous-time transfer function specified by its zeros, poles and an overall gain rather than by polynomial coefficients: K * prod(s - z) / prod(s - p). This factored form is far better conditioned than the expanded polynomial for high-order systems and maps directly onto how filters and compensators are designed. Use it for notch and lead-lag networks, for systems designed from a root-locus or pole-placement, and whenever you have a Control System Toolbox zpk object.",
+      "usage": "Simulink > Continuous > Zero-Pole",
+      "parameters": [
+        {"name": "Zeros", "description": "Column vector of zeros; use '[]' for none. Complex zeros must appear in conjugate pairs."},
+        {"name": "Poles", "description": "Column vector of poles. There must be at least as many poles as zeros."},
+        {"name": "Gain", "description": "Overall scalar gain K multiplying the factored form."},
+        {"name": "ParameterTunability", "description": "'Auto', 'Optimized' or 'Unconstrained' for the zero/pole/gain parameters."},
+        {"name": "AbsoluteTolerance", "description": "Per-block absolute tolerance for the variable-step solver."},
+        {"name": "ContinuousStateAttributes", "description": "Names for the block's continuous states."}
+      ],
+      "example": "add_block('simulink/Continuous/Zero-Pole', 'dynDemo/Comp');\nset_param('dynDemo/Comp', 'Zeros', '[-2]', 'Poles', '[-20]', 'Gain', '10');",
+      "notes": "Only single-input single-output systems are supported; for MIMO use State-Space. Complex zeros and poles must be given as exact conjugate pairs or the block errors. Equal numbers of zeros and poles make the block direct-feedthrough. The gain here is the zpk gain, not the DC gain — evaluate K*prod(-z)/prod(-p) if you need the steady-state value.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/zeropole.html"
+    },
+    {
+      "name": "PID Controller",
+      "kind": "block",
+      "description": "A complete one-degree-of-freedom P, PI, PD or PID controller in either parallel or ideal form, with a filtered derivative term, selectable continuous- or discrete-time implementation, output saturation with back-calculation or clamping anti-windup, an external reset port and optional external gain and saturation ports. It is also the block the PID Tuner and Simulink Control Design tune automatically. Use it for essentially every feedback loop rather than assembling gain, integrator and derivative blocks by hand.",
+      "usage": "Simulink > Continuous > PID Controller (Discrete PID Controller is the same block with TimeDomain preset to 'Discrete-time')",
+      "parameters": [
+        {"name": "Controller", "description": "Controller type: 'PID' (default), 'PI', 'PD', 'P' or 'I'."},
+        {"name": "Form", "description": "'Parallel' (P + I/s + D*s) or 'Ideal' (P*(1 + I/s + D*s))."},
+        {"name": "TimeDomain", "description": "'Continuous-time' (default for this block) or 'Discrete-time'."},
+        {"name": "P", "description": "Proportional gain."},
+        {"name": "I", "description": "Integral gain."},
+        {"name": "D", "description": "Derivative gain."},
+        {"name": "N", "description": "Derivative filter coefficient; the derivative term is D*N/(1 + N/s). Inf (unfiltered) is not supported."},
+        {"name": "IntegratorMethod", "description": "Discrete integration rule: 'Forward Euler', 'Backward Euler' or 'Trapezoidal'."},
+        {"name": "LimitOutput", "description": "'on' saturates the controller output between the saturation limits."},
+        {"name": "UpperSaturationLimit", "description": "Upper output limit when LimitOutput is 'on'."},
+        {"name": "LowerSaturationLimit", "description": "Lower output limit when LimitOutput is 'on'."},
+        {"name": "AntiWindupMode", "description": "'none', 'back-calculation', 'clamping' or 'external' integrator anti-windup strategy."},
+        {"name": "Kb", "description": "Back-calculation coefficient used when AntiWindupMode is 'back-calculation'."},
+        {"name": "InitialConditionForIntegrator", "description": "Initial value of the integrator state."},
+        {"name": "InitialConditionForFilter", "description": "Initial value of the derivative filter state."},
+        {"name": "SampleTime", "description": "Sample time for discrete-time operation; '-1' inherits."}
+      ],
+      "example": "add_block('simulink/Continuous/PID Controller', 'dynDemo/PID');\nset_param('dynDemo/PID', 'Controller', 'PI', 'Form', 'Parallel', 'P', '2.5', 'I', '0.8', 'LimitOutput', 'on', 'UpperSaturationLimit', '1', 'LowerSaturationLimit', '-1', 'AntiWindupMode', 'clamping');",
+      "notes": "Always enable LimitOutput together with an AntiWindupMode when the actuator saturates; a downstream Saturation block alone lets the integrator wind up and produces large overshoot. 'Ideal' form multiplies I and D by P, so gains are not interchangeable between forms. PID Controller (2DOF) adds setpoint weights b and c to reduce derivative kick on setpoint changes.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/pidcontroller.html"
+    },
+    {
+      "name": "Transport Delay",
+      "kind": "block",
+      "description": "Delays its input by a fixed amount of simulation time, buffering past values and interpolating between them when the solver step does not land exactly on the delayed time. Before the delay has elapsed the block outputs the value set in InitialOutput. Use it to model transport lag in pipes, conveyors and communication links, and to represent the dead time that dominates many process-control loops.",
+      "usage": "Simulink > Continuous > Transport Delay",
+      "parameters": [
+        {"name": "DelayTime", "description": "Amount of simulation time to delay the input. Must be non-negative."},
+        {"name": "InitialOutput", "description": "Output value for simulation times before the delay has elapsed."},
+        {"name": "BufferSize", "description": "Initial memory allocation, in number of stored input points. Too small a buffer causes a run-time warning and reallocation."},
+        {"name": "FixedBuffer", "description": "'on' uses a fixed-size buffer, required for code generation; old points are overwritten rather than the buffer growing."},
+        {"name": "TransDelayFeedthrough", "description": "'on' makes the block pass its input straight through during linearization and trim instead of contributing a delay."},
+        {"name": "PadeOrder", "description": "Order of the Pade approximation used to represent the delay during linearization; '0' means no dynamics."}
+      ],
+      "example": "add_block('simulink/Continuous/Transport Delay', 'dynDemo/Lag');\nset_param('dynDemo/Lag', 'DelayTime', '0.25', 'InitialOutput', '0', 'BufferSize', '1024');",
+      "notes": "Dead time is not linearizable exactly, so set PadeOrder to 2 or higher before running linmod or a Simulink Control Design workflow, otherwise the delay is silently ignored. The delay time cannot change during simulation — use Variable Transport Delay for that. Placing this block in a feedback loop with a variable-step solver can force small steps; a discrete model with a Delay block is usually cheaper.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/transportdelay.html"
+    },
+    {
+      "name": "Variable Transport Delay",
+      "kind": "block",
+      "description": "Delays its first input by an amount that arrives on a second input port and can change during simulation. The VariableDelayType parameter selects between two interpretations: 'Variable transport delay' models material travelling at a varying speed (the delay applies to the time the sample was emitted), while 'Variable time delay' simply outputs the value from t minus the current delay. Use it for flow-dependent pipe transport, variable-speed conveyors, and communication channels with jitter.",
+      "usage": "Simulink > Continuous > Variable Transport Delay (the Variable Time Delay library block is the same block with the other VariableDelayType setting)",
+      "parameters": [
+        {"name": "VariableDelayType", "description": "'Variable transport delay' or 'Variable time delay' — selects the delay semantics."},
+        {"name": "MaximumDelay", "description": "Upper bound on the delay input; larger values are clipped to this and it also sizes the buffer."},
+        {"name": "InitialOutput", "description": "Output value before the delay has elapsed."},
+        {"name": "MaximumPoints", "description": "Maximum number of buffered input points."},
+        {"name": "FixedBuffer", "description": "'on' uses a fixed-size buffer, required for code generation."},
+        {"name": "ZeroDelay", "description": "'on' outputs the input directly during linearization and trim."},
+        {"name": "PadeOrder", "description": "Order of the Pade approximation used for linearization."},
+        {"name": "AbsoluteTolerance", "description": "Per-block absolute tolerance for the variable-step solver."}
+      ],
+      "example": "add_block('simulink/Continuous/Variable Transport Delay', 'dynDemo/VarLag');\nset_param('dynDemo/VarLag', 'VariableDelayType', 'Variable time delay', 'MaximumDelay', '2', 'InitialOutput', '0');",
+      "notes": "A negative delay input is treated as zero and a delay above MaximumDelay is clipped, both silently — check the range of your delay signal. In 'Variable transport delay' mode a rapidly decreasing delay can make samples arrive out of order, which the block resolves by holding the most recent value. Buffer memory scales with MaximumDelay divided by the solver step, so an over-generous MaximumDelay is expensive.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/variabletransportdelay.html"
+    },
+    {
+      "name": "Unit Delay",
+      "kind": "block",
+      "description": "Holds and delays its input by one sample period, implementing the z^-1 operator. It is the fundamental memory element of a discrete model: it stores a value at each sample hit and outputs the previous one, starting from InitialCondition. Use it to build difference equations and digital filters by hand, to hold a previous value for edge detection, and above all to break algebraic loops in feedback paths.",
+      "usage": "Simulink > Discrete > Unit Delay (also Simulink > Commonly Used Blocks > Unit Delay)",
+      "parameters": [
+        {"name": "InitialCondition", "description": "Output during the first sample period, before any input has been stored."},
+        {"name": "SampleTime", "description": "Discrete sample period; '-1' inherits from the driving block."},
+        {"name": "InputProcessing", "description": "'Elements as channels (sample based)' or 'Columns as channels (frame based)'."},
+        {"name": "StateName", "description": "Name given to the block's state, used for state logging and in generated code."},
+        {"name": "StateMustResolveToSignalObject", "description": "'on' requires StateName to resolve to a Simulink.Signal object."}
+      ],
+      "example": "add_block('simulink/Discrete/Unit Delay', 'dynDemo/z1');\nset_param('dynDemo/z1', 'InitialCondition', '0', 'SampleTime', '0.01');",
+      "notes": "This is the standard cure for an algebraic loop, but inserting one changes the dynamics by adding a sample of phase lag, so do it deliberately rather than to silence a diagnostic. Delay is the more capable modern alternative: it does the same job with a configurable delay length, an optional enable port and an external reset. Memory is the continuous-time analogue, delaying by one major solver step rather than a fixed period.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/unitdelay.html"
+    },
+    {
+      "name": "Delay",
+      "kind": "block",
+      "description": "Delays the input by a configurable number of sample periods, where the delay length can be a dialog constant or arrive on an input port and change during simulation. Optional enable and reset ports let the delay line be frozen or flushed, and a circular buffer implementation keeps long delays cheap. Use it in place of a chain of Unit Delay blocks for FIR structures, sample alignment, and any buffered history of a discrete signal.",
+      "usage": "Simulink > Discrete > Delay (also Simulink > Commonly Used Blocks > Delay)",
+      "parameters": [
+        {"name": "DelayLength", "description": "Number of sample periods to delay when DelayLengthSource is 'Dialog'."},
+        {"name": "DelayLengthSource", "description": "'Dialog' (default) or 'Input port' to make the delay length a run-time signal."},
+        {"name": "DelayLengthUpperLimit", "description": "Maximum delay length when the length comes from an input port; sizes the buffer."},
+        {"name": "InitialCondition", "description": "Value output for the first DelayLength samples."},
+        {"name": "InitialConditionSource", "description": "'Dialog' or 'Input port'."},
+        {"name": "ExternalReset", "description": "'None', 'Rising', 'Falling', 'Either', 'Level' or 'Level hold' — adds a port that flushes the delay line back to its initial condition."},
+        {"name": "ShowEnablePort", "description": "'on' adds an enable port; when it is false the block holds its state."},
+        {"name": "UseCircularBuffer", "description": "'on' uses a circular buffer instead of an array shift, which is far faster for long delays."},
+        {"name": "PreventDirectFeedthrough", "description": "'on' removes direct feedthrough, which helps break algebraic loops when the delay length can be zero."},
+        {"name": "SampleTime", "description": "Discrete sample period; '-1' inherits."}
+      ],
+      "example": "add_block('simulink/Discrete/Delay', 'dynDemo/Buf');\nset_param('dynDemo/Buf', 'DelayLength', '5', 'InitialCondition', '0', 'UseCircularBuffer', 'on', 'ExternalReset', 'Rising');",
+      "notes": "With DelayLengthSource set to 'Input port' and a length of zero the block is direct-feedthrough and can form an algebraic loop; set PreventDirectFeedthrough to 'on' to avoid that. Turn UseCircularBuffer on for delay lengths beyond a handful of samples — the default array-shift implementation is O(n) per step. Tapped Delay is the related block that outputs the whole delay line as a vector.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/delay.html"
+    },
+    {
+      "name": "Discrete-Time Integrator",
+      "kind": "block",
+      "description": "Accumulates its input at a fixed sample rate using Forward Euler, Backward Euler or Trapezoidal integration, in either integration mode (input multiplied by the sample time) or accumulation mode (input added directly). It offers the same practical extras as the continuous Integrator: output limiting with anti-windup, an external reset with selectable edge, an external initial condition and a state output port. Use it for every integral term in a discrete controller and for any accumulator in a fixed-step model destined for code generation.",
+      "usage": "Simulink > Discrete > Discrete-Time Integrator (also Simulink > Commonly Used Blocks)",
+      "parameters": [
+        {"name": "IntegratorMethod", "description": "'Integration: Forward Euler' (default), 'Integration: Backward Euler', 'Integration: Trapezoidal', or the matching 'Accumulation: ...' variants which omit the multiply by T."},
+        {"name": "gainval", "description": "Gain value K applied to the input before integration; each element must be a positive real number."},
+        {"name": "InitialCondition", "description": "Initial value of the integrator state."},
+        {"name": "InitialConditionSource", "description": "'internal' (dialog) or 'external' to add an initial-condition input port."},
+        {"name": "InitialConditionSetting", "description": "'Auto', 'Output' or 'Compatibility' — controls whether the initial condition applies to the state or the output."},
+        {"name": "SampleTime", "description": "Discrete sample period; '-1' inherits."},
+        {"name": "LimitOutput", "description": "'on' clamps the output between the saturation limits, providing anti-windup."},
+        {"name": "UpperSaturationLimit", "description": "Upper clamp when LimitOutput is 'on'."},
+        {"name": "LowerSaturationLimit", "description": "Lower clamp when LimitOutput is 'on'."},
+        {"name": "ExternalReset", "description": "'none', 'rising', 'falling', 'either', 'level' or 'sampled level' — adds a reset port."},
+        {"name": "ShowStatePort", "description": "'on' adds a state output port usable in feedback without an algebraic loop."}
+      ],
+      "example": "add_block('simulink/Discrete/Discrete-Time Integrator', 'dynDemo/DInt');\nset_param('dynDemo/DInt', 'IntegratorMethod', 'Integration: Trapezoidal', 'gainval', '1.0', 'SampleTime', '0.01', 'InitialCondition', '0', 'LimitOutput', 'on', 'UpperSaturationLimit', '5', 'LowerSaturationLimit', '-5');",
+      "notes": "Forward Euler is not direct-feedthrough and so is safe in feedback loops; Backward Euler and Trapezoidal are direct-feedthrough and can create algebraic loops. Use the 'Accumulation' methods when the input is already a per-sample increment — the 'Integration' methods multiply by the sample time and will otherwise scale your result by T. Trapezoidal is noticeably more accurate at the same rate and is the usual choice for a discretised PI controller.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/discretetimeintegrator.html"
+    },
+    {
+      "name": "Discrete Transfer Fcn",
+      "kind": "block",
+      "description": "Implements a discrete-time transfer function in z, with numerator and denominator coefficient vectors given in descending powers of z. Coefficients and initial states can come from the dialog or from input ports, and an external reset port can return the filter states to their initial values. Use it for digital compensators produced by c2d, for IIR filters, and for any difference equation you would rather write as a polynomial ratio than as a chain of delays.",
+      "usage": "Simulink > Discrete > Discrete Transfer Fcn",
+      "parameters": [
+        {"name": "Numerator", "description": "Numerator coefficient vector in descending powers of z, e.g. '[1 -0.9]'."},
+        {"name": "Denominator", "description": "Denominator coefficient vector in descending powers of z, e.g. '[1 -0.5]'."},
+        {"name": "NumeratorSource", "description": "'Dialog' (default) or 'Input port' to supply the numerator at run time."},
+        {"name": "DenominatorSource", "description": "'Dialog' (default) or 'Input port'."},
+        {"name": "InitialStates", "description": "Initial value of the internal filter states; a scalar is expanded to all states."},
+        {"name": "InitialStatesSource", "description": "'Dialog' or 'Input port'."},
+        {"name": "ExternalReset", "description": "'None', 'Rising', 'Falling', 'Either', 'Level' or 'Level hold' — resets the filter states."},
+        {"name": "a0EqualsOne", "description": "'on' asserts the leading denominator coefficient is 1 so the division is optimised out of generated code."},
+        {"name": "SampleTime", "description": "Discrete sample period; '-1' inherits."},
+        {"name": "OutDataTypeStr", "description": "Output signal data type."}
+      ],
+      "example": "add_block('simulink/Discrete/Discrete Transfer Fcn', 'dynDemo/DTF');\nset_param('dynDemo/DTF', 'Numerator', '[0.1]', 'Denominator', '[1 -0.9]', 'SampleTime', '0.01', 'InitialStates', '0');",
+      "notes": "Setting a0EqualsOne while the leading denominator coefficient is not 1 produces silently wrong results in generated code — normalise the coefficients first. Coefficients in descending powers of z are the same convention as MATLAB's filter and c2d, so a tf object's num/den transfer straight across. For high-order filters prefer Discrete Filter with a second-order-section structure to avoid coefficient sensitivity.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/discretetransferfcn.html"
+    },
+    {
+      "name": "Discrete Filter",
+      "kind": "block",
+      "description": "Implements an IIR or FIR digital filter whose numerator and denominator are given in ascending powers of z^-1, the convention used in signal processing, and offers a choice of realisation structures including direct form I and II and their transposed variants. Coefficients, initial states and a reset can all be driven from input ports. Use it for signal-processing filters designed with the Filter Designer, for adaptive filters whose coefficients change at run time, and wherever the numerical properties of a particular structure matter.",
+      "usage": "Simulink > Discrete > Discrete Filter",
+      "parameters": [
+        {"name": "Numerator", "description": "Numerator coefficients in ascending powers of z^-1, e.g. '[0.1 0.2 0.1]'."},
+        {"name": "Denominator", "description": "Denominator coefficients in ascending powers of z^-1, e.g. '[1 -0.5]'. Use '[1]' for an FIR filter."},
+        {"name": "FilterStructure", "description": "Realisation form, e.g. 'Direct form II' (default), 'Direct form II transposed', 'Direct form I' or 'Direct form I transposed'."},
+        {"name": "NumeratorSource", "description": "'Dialog' or 'Input port'."},
+        {"name": "DenominatorSource", "description": "'Dialog' or 'Input port'."},
+        {"name": "InitialStates", "description": "Initial filter states (the numerator-side states for direct form I)."},
+        {"name": "InitialDenominatorStates", "description": "Initial denominator-side states for the direct form I structures."},
+        {"name": "ExternalReset", "description": "'None', 'Rising', 'Falling', 'Either', 'Level' or 'Level hold'."},
+        {"name": "a0EqualsOne", "description": "'on' asserts the leading denominator coefficient is 1 so the division is removed from generated code."},
+        {"name": "SampleTime", "description": "Discrete sample period; '-1' inherits."}
+      ],
+      "example": "add_block('simulink/Discrete/Discrete Filter', 'dynDemo/LPF');\nset_param('dynDemo/LPF', 'Numerator', '[0.0675 0.1349 0.0675]', 'Denominator', '[1 -1.1430 0.4128]', 'FilterStructure', 'Direct form II transposed', 'SampleTime', '0.01');",
+      "notes": "The coefficient convention differs from Discrete Transfer Fcn: ascending powers of z^-1 here, descending powers of z there. Numerically the two blocks implement the same filter but the vectors are ordered the same way, so the practical difference is how you think about the polynomial. Direct form II transposed is the most numerically robust choice for fixed-point implementations.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/discretefilter.html"
+    },
+    {
+      "name": "Discrete State-Space",
+      "kind": "block",
+      "description": "Implements the discrete-time linear system x[k+1] = A*x[k] + B*u[k], y[k] = C*x[k] + D*u[k] from four matrices, an initial state vector and a sample time. It is the sampled counterpart of the State-Space block and the natural destination for a model discretised with c2d. Use it for digital observers and Kalman filters, MIMO digital compensators, and any fixed-step plant model intended for code generation.",
+      "usage": "Simulink > Discrete > Discrete State-Space",
+      "parameters": [
+        {"name": "A", "description": "State transition matrix, n-by-n."},
+        {"name": "B", "description": "Input matrix, n-by-m."},
+        {"name": "C", "description": "Output matrix, r-by-n."},
+        {"name": "D", "description": "Feedthrough matrix, r-by-m; non-zero makes the block direct-feedthrough."},
+        {"name": "InitialCondition", "description": "Initial state vector x[0]; a scalar is expanded to all states."},
+        {"name": "SampleTime", "description": "Discrete sample period; '-1' inherits."},
+        {"name": "StateName", "description": "Name given to the block's state for logging and generated code."},
+        {"name": "StateMustResolveToSignalObject", "description": "'on' requires StateName to resolve to a Simulink.Signal object."}
+      ],
+      "example": "sysd = c2d(ss([0 1; -10 -2], [0; 1], [1 0], 0), 0.01);\nadd_block('simulink/Discrete/Discrete State-Space', 'dynDemo/DSS');\nset_param('dynDemo/DSS', 'A', 'sysd.A', 'B', 'sysd.B', 'C', 'sysd.C', 'D', 'sysd.D', 'SampleTime', '0.01', 'InitialCondition', '[0; 0]');",
+      "notes": "The matrices must match the sample time they were discretised at; reusing continuous-time A and B here produces a wildly unstable model. Eigenvalues of A outside the unit circle mean an unstable discrete system regardless of what the continuous original did. A non-zero D can close an algebraic loop in a unity-feedback configuration.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/discretestatespace.html"
+    },
+    {
+      "name": "Discrete PID Controller",
+      "kind": "block",
+      "description": "The same PID implementation as the continuous PID Controller block but preset to discrete time, with selectable integrator and filter discretisation rules (Forward Euler, Backward Euler, Trapezoidal), output saturation with anti-windup, external reset and tunable gains. It is the block to place in any sampled control loop that will become embedded C code. Use it for digital speed, position, temperature and current loops, and as the tuning target for the PID Tuner in a discrete model.",
+      "usage": "Simulink > Discrete > Discrete PID Controller",
+      "parameters": [
+        {"name": "Controller", "description": "'PID' (default), 'PI', 'PD', 'P' or 'I'."},
+        {"name": "Form", "description": "'Parallel' or 'Ideal' controller form."},
+        {"name": "TimeDomain", "description": "'Discrete-time' (default for this block) or 'Continuous-time'."},
+        {"name": "P", "description": "Proportional gain."},
+        {"name": "I", "description": "Integral gain."},
+        {"name": "D", "description": "Derivative gain."},
+        {"name": "N", "description": "Derivative filter coefficient."},
+        {"name": "IntegratorMethod", "description": "'Forward Euler', 'Backward Euler' or 'Trapezoidal' discretisation of the integral term."},
+        {"name": "FilterMethod", "description": "Discretisation rule for the derivative filter: 'Forward Euler', 'Backward Euler' or 'Trapezoidal'."},
+        {"name": "LimitOutput", "description": "'on' saturates the controller output."},
+        {"name": "UpperSaturationLimit", "description": "Upper output limit."},
+        {"name": "LowerSaturationLimit", "description": "Lower output limit."},
+        {"name": "AntiWindupMode", "description": "'none', 'back-calculation', 'clamping' or 'external'."},
+        {"name": "SampleTime", "description": "Controller sample period; '-1' inherits."}
+      ],
+      "example": "add_block('simulink/Discrete/Discrete PID Controller', 'dynDemo/DPID');\nset_param('dynDemo/DPID', 'Controller', 'PID', 'P', '1.2', 'I', '5', 'D', '0.01', 'N', '100', 'IntegratorMethod', 'Trapezoidal', 'SampleTime', '0.001', 'LimitOutput', 'on', 'UpperSaturationLimit', '12', 'LowerSaturationLimit', '-12', 'AntiWindupMode', 'back-calculation');",
+      "notes": "Gains tuned in continuous time are not directly reusable: the integral term is multiplied by the sample time, so re-tune after discretising or use the PID Tuner on the discrete model. Forward Euler integration is not direct-feedthrough and avoids algebraic loops; Backward Euler and Trapezoidal are. Clearing 'Use filtered derivative' is possible only in discrete time.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/discretepidcontroller.html"
+    },
+    {
+      "name": "Zero-Order Hold",
+      "kind": "block",
+      "description": "Samples its input at a fixed rate and holds that value constant until the next sample hit, converting a continuous or faster-rate signal into a slower discrete one. It is the model of a digital-to-analog converter and of the sampling instant of an analog-to-digital converter. Use it at the boundary between a continuous plant and a discrete controller, and to rate-transition a signal down to a slower task in a multirate model.",
+      "usage": "Simulink > Discrete > Zero-Order Hold",
+      "parameters": [
+        {"name": "SampleTime", "description": "Discrete sample period at which the input is sampled and held; '-1' inherits from the driving block."}
+      ],
+      "example": "add_block('simulink/Discrete/Zero-Order Hold', 'dynDemo/ZOH');\nset_param('dynDemo/ZOH', 'SampleTime', '0.01');",
+      "notes": "A zero-order hold adds roughly half a sample period of phase lag to a loop, which matters for stability margins — account for it when discretising a continuous design. For transitions between two discrete rates prefer the Rate Transition block, which also handles data integrity and determinism between asynchronous tasks. First-Order Hold instead extrapolates linearly between samples.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/zeroorderhold.html"
+    },
+    {
+      "name": "Memory",
+      "kind": "block",
+      "description": "Outputs its input from the previous major integration step, holding one value of history with no fixed sample rate. Unlike Unit Delay it works in continuous-time models, where the delay is whatever step the solver just took. Use it to break an algebraic loop in a continuous model, to compare a signal with its immediately previous value, and to feed a state back into the computation that produces it.",
+      "usage": "Simulink > Discrete > Memory",
+      "parameters": [
+        {"name": "InitialCondition", "description": "Output at the first integration step, before any value has been stored."},
+        {"name": "InheritSampleTime", "description": "'on' inherits the sample time from the driving block instead of using the solver step."},
+        {"name": "LinearizeMemory", "description": "'on' makes the block pass its input straight through during linearization and trim."},
+        {"name": "LinearizeAsDelay", "description": "'on' linearizes the block as a unit delay when the input is discrete."},
+        {"name": "StateName", "description": "Name given to the block's state for logging and generated code."},
+        {"name": "StateMustResolveToSignalObject", "description": "'on' requires StateName to resolve to a Simulink.Signal object."}
+      ],
+      "example": "add_block('simulink/Discrete/Memory', 'dynDemo/Mem');\nset_param('dynDemo/Mem', 'InitialCondition', '0', 'LinearizeMemory', 'on');",
+      "notes": "Because the delay equals the solver step, a Memory block in a variable-step model makes the results step-size dependent and therefore not reproducible across solver settings. That is acceptable for breaking an algebraic loop in a trim or initialisation path, but for real dynamics use Unit Delay with an explicit sample time. Leave LinearizeMemory on so the block does not distort a linearization.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/memory.html"
+    },
+    {
+      "name": "Saturation",
+      "kind": "block",
+      "description": "Clips its input to lie between a fixed lower and upper limit, passing the signal through unchanged in between. It is the standard model of an actuator that cannot exceed its physical range, of a DAC that clips, and of any bounded quantity. Zero-crossing detection is on by default so the variable-step solver places a step exactly where the signal enters or leaves the limit, keeping the corner sharp.",
+      "usage": "Simulink > Discontinuities > Saturation (also Simulink > Commonly Used Blocks > Saturation)",
+      "parameters": [
+        {"name": "UpperLimit", "description": "Upper clipping value. Must be greater than LowerLimit."},
+        {"name": "LowerLimit", "description": "Lower clipping value."},
+        {"name": "LinearizeAsGain", "description": "'on' (default) linearizes the block as a unit gain; 'off' linearizes it as zero gain when saturated."},
+        {"name": "ZeroCross", "description": "'on' (default) enables zero-crossing detection at both limits."},
+        {"name": "SampleTime", "description": "Sample time; '-1' inherits."},
+        {"name": "OutDataTypeStr", "description": "Output signal data type."},
+        {"name": "OutMin", "description": "Lower bound used for range checking and fixed-point autoscaling."},
+        {"name": "OutMax", "description": "Upper bound used for range checking and fixed-point autoscaling."}
+      ],
+      "example": "add_block('simulink/Discontinuities/Saturation', 'dynDemo/Sat');\nset_param('dynDemo/Sat', 'UpperLimit', '10', 'LowerLimit', '-10', 'ZeroCross', 'on');",
+      "notes": "Putting a Saturation after an integrator in a control loop does not prevent integrator windup — the integrator state keeps growing behind the clip. Use the Integrator's own LimitOutput, or the PID Controller's anti-windup, instead. For limits that arrive on signal lines use Saturation Dynamic, or a MinMax pair. Turning ZeroCross off speeds up models with many saturations at the cost of a slightly ragged corner.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/saturation.html"
+    },
+    {
+      "name": "Dead Zone",
+      "kind": "block",
+      "description": "Outputs zero while the input lies inside a specified band and outputs the input offset by the band edge outside it, producing the classic insensitivity nonlinearity. It models valve overlap, gear lash approximated statically, sensor deadband and controller thresholds that suppress small errors. Use it to stop a controller reacting to noise around zero and to represent mechanical or hydraulic components that do nothing until a threshold is exceeded.",
+      "usage": "Simulink > Discontinuities > Dead Zone",
+      "parameters": [
+        {"name": "LowerValue", "description": "Start of the dead zone. Inputs above this and below UpperValue produce zero output."},
+        {"name": "UpperValue", "description": "End of the dead zone."},
+        {"name": "LinearizeAsGain", "description": "'on' linearizes the block as a unit gain rather than as zero gain."},
+        {"name": "ZeroCross", "description": "'on' (default) enables zero-crossing detection at both band edges."},
+        {"name": "SaturateOnIntegerOverflow", "description": "'on' saturates rather than wraps on integer overflow."},
+        {"name": "SampleTime", "description": "Sample time; '-1' inherits."}
+      ],
+      "example": "add_block('simulink/Discontinuities/Dead Zone', 'dynDemo/DZ');\nset_param('dynDemo/DZ', 'LowerValue', '-0.1', 'UpperValue', '0.1');",
+      "notes": "The output is discontinuous in slope, not in value, so it is gentler on the solver than Relay but still needs zero-crossing detection to be crisp. Inside the band the block linearizes to zero gain unless LinearizeAsGain is on, which can make a loop appear to have no feedback at an operating point inside the dead zone. Dead Zone Dynamic takes its limits from input ports. Backlash models hysteretic lash, which Dead Zone does not.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/deadzone.html"
+    },
+    {
+      "name": "Rate Limiter",
+      "kind": "block",
+      "description": "Limits how fast its output can change, applying separate rising and falling slew-rate limits measured in units per second. When the input changes faster than allowed the output ramps at the limit until it catches up. Use it to model actuator slew rates, motor acceleration limits and valve stroke times, and to soften a stepped setpoint into something the plant can physically follow.",
+      "usage": "Simulink > Discontinuities > Rate Limiter",
+      "parameters": [
+        {"name": "RisingSlewLimit", "description": "Maximum allowed rate of increase, in units per second. Must be positive."},
+        {"name": "FallingSlewLimit", "description": "Maximum allowed rate of decrease, in units per second. Must be negative."},
+        {"name": "SampleTimeMode", "description": "'inherited' (default, continuous behaviour) or 'continuous'. Controls how the rate is evaluated relative to the solver."},
+        {"name": "InitialCondition", "description": "Output value at the first time step, before any rate limiting has occurred."},
+        {"name": "LinearizeAsGain", "description": "'on' linearizes the block as a unit gain instead of treating it as rate limited."}
+      ],
+      "example": "add_block('simulink/Discontinuities/Rate Limiter', 'dynDemo/Slew');\nset_param('dynDemo/Slew', 'RisingSlewLimit', '5', 'FallingSlewLimit', '-5', 'InitialCondition', '0');",
+      "notes": "Limits are per second, not per sample — a common mistake when converting a per-step increment into this block. Rate limiting inside a feedback loop introduces a nonlinearity that can cause limit cycles and destroys the validity of a linear design at large signal amplitudes. For limits that change during simulation use Rate Limiter Dynamic. This block is not recommended inside a triggered subsystem because the elapsed time is ill-defined there.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/ratelimiter.html"
+    },
+    {
+      "name": "Relay",
+      "kind": "block",
+      "description": "Switches its output between two constant values with hysteresis: the output goes to the on value when the input rises above the switch-on point and only returns to the off value when the input falls below the switch-off point. The gap between the two thresholds is the hysteresis band that prevents chattering. Use it for thermostats, comparators with hysteresis, bang-bang and sliding-mode controllers, and any on/off actuator.",
+      "usage": "Simulink > Discontinuities > Relay",
+      "parameters": [
+        {"name": "OnSwitchValue", "description": "Input value at or above which the relay switches on. Must be greater than or equal to OffSwitchValue."},
+        {"name": "OffSwitchValue", "description": "Input value at or below which the relay switches off."},
+        {"name": "OnOutputValue", "description": "Output while the relay is on."},
+        {"name": "OffOutputValue", "description": "Output while the relay is off."},
+        {"name": "ZeroCross", "description": "'on' (default) enables zero-crossing detection at both switching points."},
+        {"name": "InputProcessing", "description": "'Elements as channels (sample based)' or 'Columns as channels (frame based)'."},
+        {"name": "SampleTime", "description": "Sample time; '-1' inherits."},
+        {"name": "OutDataTypeStr", "description": "Output signal data type."}
+      ],
+      "example": "add_block('simulink/Discontinuities/Relay', 'dynDemo/Thermostat');\nset_param('dynDemo/Thermostat', 'OnSwitchValue', '21', 'OffSwitchValue', '19', 'OnOutputValue', '1', 'OffOutputValue', '0');",
+      "notes": "Setting OnSwitchValue equal to OffSwitchValue removes the hysteresis and turns the block into an ideal comparator, which will chatter and can stall a variable-step solver — always keep a band unless you know the input is monotonic through the threshold. The output limits in the dialog are for range checking only and do not clip the signal; use Saturation for that. The block is a discontinuity, so leave ZeroCross on.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/relay.html"
+    },
+    {
+      "name": "Quantizer",
+      "kind": "block",
+      "description": "Rounds its input to the nearest multiple of a fixed quantization interval, producing a staircase output that models the finite resolution of an ADC, an encoder or a digital readout. The operation is q*round(u/q), applied element-wise, and it is continuous in time — only the amplitude is discretised. Use it to study quantisation noise, to model sensor resolution limits, and to check that a control law still behaves with a coarse measurement.",
+      "usage": "Simulink > Discontinuities > Quantizer",
+      "parameters": [
+        {"name": "QuantizationInterval", "description": "Size of the quantization step q. The output is q*round(u/q)."},
+        {"name": "LinearizeAsGain", "description": "'on' (default) linearizes the block as a unit gain, since the true derivative is zero almost everywhere."},
+        {"name": "SampleTime", "description": "Sample time; '-1' inherits."}
+      ],
+      "example": "add_block('simulink/Discontinuities/Quantizer', 'dynDemo/ADC');\nset_param('dynDemo/ADC', 'QuantizationInterval', '10/4096');",
+      "notes": "Quantizer only discretises amplitude — combine it with a Zero-Order Hold to model a real sampled ADC, and with Saturation to model its input range. The staircase has zero-derivative plateaus, so leaving LinearizeAsGain on is essential or a linearization through this block returns zero gain. For bit-accurate modelling of a fixed-point datapath use a Data Type Conversion to a fixdt type instead.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/quantizer.html"
+    },
+    {
+      "name": "Backlash",
+      "kind": "block",
+      "description": "Models mechanical play: the output holds still while the input moves within a deadband of specified width, and engages and follows the input once the band edge is reached, carrying the band along with it. Unlike Dead Zone this nonlinearity has memory, so the response depends on the direction of travel — it is a true hysteresis. Use it for gear lash, linkage slop, shaft couplings and any drivetrain with clearance.",
+      "usage": "Simulink > Discontinuities > Backlash",
+      "parameters": [
+        {"name": "BacklashWidth", "description": "Total width of the deadband zone centred on the current output value."},
+        {"name": "InitialOutput", "description": "Initial output, which is also the initial centre of the deadband zone."},
+        {"name": "InputProcessing", "description": "'Elements as channels (sample based)' or 'Columns as channels (frame based)'."},
+        {"name": "ZeroCross", "description": "'on' (default) enables zero-crossing detection at engagement and disengagement."}
+      ],
+      "example": "add_block('simulink/Discontinuities/Backlash', 'dynDemo/Lash');\nset_param('dynDemo/Lash', 'BacklashWidth', '0.05', 'InitialOutput', '0');",
+      "notes": "Because it has internal state, Backlash is not linearizable in any useful way and a linear analysis through it will hide the lash entirely. In a position feedback loop it is a classic source of limit cycles at low amplitude. The width is the full band, not the half-width, so a gear pair with plus/minus 0.02 rad of play needs BacklashWidth of 0.04.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/backlash.html"
+    },
+    {
+      "name": "Hit Crossing",
+      "kind": "block",
+      "description": "Detects when its input crosses a specified offset value in a chosen direction and emits a pulse, a message or a function-call at exactly that instant, forcing the variable-step solver to place a time step on the crossing. It is the explicit form of the zero-crossing machinery other discontinuity blocks use internally. Use it to trigger an event at a threshold, to time bounces and switching instants precisely, and to drive a function-call subsystem from a continuous condition.",
+      "usage": "Simulink > Discontinuities > Hit Crossing",
+      "parameters": [
+        {"name": "HitCrossingOffset", "description": "Value the input is tested against; the block fires when the input crosses this level."},
+        {"name": "HitCrossingDirection", "description": "'either' (default), 'rising' or 'falling' — which direction of crossing to detect."},
+        {"name": "ShowOutputPort", "description": "'off' or 'on'. With it off the block only forces a solver step and produces no signal."},
+        {"name": "HitCrossingOutputType", "description": "'Signal' (default), 'Message' or 'Function-Call' — what the block emits on a crossing."},
+        {"name": "ZeroCross", "description": "'on' (default) enables the underlying zero-crossing detection."}
+      ],
+      "example": "add_block('simulink/Discontinuities/Hit Crossing', 'dynDemo/Impact');\nset_param('dynDemo/Impact', 'HitCrossingOffset', '0', 'HitCrossingDirection', 'falling', 'HitCrossingOutputType', 'Function-Call');",
+      "notes": "Zero-crossing detection only works with a variable-step solver; under a fixed-step solver the block degrades to checking at sample hits and can miss a crossing entirely. A signal that sits exactly at the offset for a stretch of time can cause repeated detections and a zero-crossing-limit error — add a small hysteresis upstream. Excessive hit-crossing events are a common cause of 'solver is taking many small steps' warnings.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/hitcrossing.html"
+    }
+  ]
+}

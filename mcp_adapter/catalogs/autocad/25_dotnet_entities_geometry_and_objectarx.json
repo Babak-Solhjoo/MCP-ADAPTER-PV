@@ -1,0 +1,536 @@
+{
+  "category": ".NET Entity Classes, Geometry, Events & ObjectARX C++ Basics",
+  "description": "The managed entity classes most used from C#/VB.NET (Line, Circle, Arc, Polyline, DBText, MText, BlockReference, AttributeReference, dynamic block properties, Hatch, Solid3d), geometry types and curve/intersection helpers, jigs, overrules, layouts and plotting, document and database events, followed by the core ObjectARX C++ concepts (opening objects, smart pointers, transactions, ADS-style selection and result buffers, custom entities, reactors and the SDK). Not available in AutoCAD LT.",
+  "tools": [
+    {
+      "name": "DatabaseServices.Line",
+      "kind": "api",
+      "description": "Managed class for a LINE entity defined by StartPoint and EndPoint in WCS. Read-only properties include Length, Angle and Delta. Created with new Line(p1, p2), appended to a BlockTableRecord and added to the transaction.",
+      "usage": "new Line(Point3d start, Point3d end)\nline.StartPoint  line.EndPoint  line.Length  line.Angle  line.Delta",
+      "parameters": [
+        {"name": "start / end", "description": "WCS endpoints."},
+        {"name": "Thickness / Normal", "description": "Extrusion thickness and plane normal."}
+      ],
+      "example": "using (var tr = db.TransactionManager.StartTransaction()) {\n    var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);\n    var ln = new Line(new Point3d(0, 0, 0), new Point3d(100, 50, 0)) { Layer = \"0\" };\n    ms.AppendEntity(ln);\n    tr.AddNewlyCreatedDBObject(ln, true);\n    tr.Commit();\n}",
+      "notes": "Line derives from Curve, so all Curve methods (GetDistAtPoint, GetOffsetCurves, GetSplitCurves) apply. Set properties such as Layer only to existing layer names or eKeyNotFound is thrown.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Line"
+    },
+    {
+      "name": "DatabaseServices.Circle",
+      "kind": "api",
+      "description": "Managed class for a CIRCLE entity with Center, Radius and Normal, plus derived Diameter, Circumference and Area. The normal defines the plane of the circle, normally Vector3d.ZAxis.",
+      "usage": "new Circle(Point3d center, Vector3d normal, double radius)",
+      "parameters": [
+        {"name": "center", "description": "WCS center point."},
+        {"name": "normal", "description": "Plane normal, usually Vector3d.ZAxis."},
+        {"name": "radius", "description": "Positive radius."}
+      ],
+      "example": "var c = new Circle(new Point3d(50, 50, 0), Vector3d.ZAxis, 12.5);\nc.ColorIndex = 3;\nms.AppendEntity(c); tr.AddNewlyCreatedDBObject(c, true);",
+      "notes": "Setting Diameter or Area adjusts Radius. A zero or negative radius throws eInvalidInput.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Circle"
+    },
+    {
+      "name": "DatabaseServices.Arc",
+      "kind": "api",
+      "description": "Managed class for an ARC entity defined by center, radius, start angle and end angle (radians, counterclockwise about the normal). StartPoint, EndPoint, Length and TotalAngle are derived.",
+      "usage": "new Arc(Point3d center, double radius, double startAngle, double endAngle)\nnew Arc(Point3d center, Vector3d normal, double radius, double startAngle, double endAngle)",
+      "parameters": [
+        {"name": "startAngle / endAngle", "description": "Angles in radians measured from the OCS X axis."},
+        {"name": "normal", "description": "Plane normal; angles are measured in the arc's OCS."}
+      ],
+      "example": "var a = new Arc(Point3d.Origin, 20.0, 0.0, Math.PI / 2);   // quarter arc\nms.AppendEntity(a); tr.AddNewlyCreatedDBObject(a, true);\ned.WriteMessage($\"\\nArc length {a.Length:F3}\");",
+      "notes": "To build an arc through three points use CircularArc3d from the geometry library and create the Arc from its center, radius and angles.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Arc"
+    },
+    {
+      "name": "DatabaseServices.Polyline",
+      "kind": "api",
+      "description": "Managed class for the lightweight polyline (LWPOLYLINE). Vertices are 2D points in the polyline's plane with optional bulge (arc segments) and start/end widths; Elevation and Normal place the plane. Polyline2d and Polyline3d are separate classes for old-style and 3D polylines.",
+      "usage": "var pl = new Polyline();\npl.AddVertexAt(int index, Point2d pt, double bulge, double startWidth, double endWidth);\npl.Closed = true;",
+      "parameters": [
+        {"name": "AddVertexAt", "description": "Inserts a vertex; bulge = tan(angle/4), 0 for straight segments."},
+        {"name": "NumberOfVertices / GetPoint2dAt / GetPoint3dAt", "description": "Vertex access."},
+        {"name": "SetBulgeAt / GetBulgeAt / RemoveVertexAt", "description": "Segment editing."}
+      ],
+      "example": "var pl = new Polyline();\npl.AddVertexAt(0, new Point2d(0, 0), 0, 0, 0);\npl.AddVertexAt(1, new Point2d(100, 0), 1.0, 0, 0);   // semicircular segment\npl.AddVertexAt(2, new Point2d(100, 50), 0, 0, 0);\npl.Closed = true;\nms.AppendEntity(pl); tr.AddNewlyCreatedDBObject(pl, true);\ned.WriteMessage($\"\\nArea {pl.Area:F2}\");",
+      "notes": "Vertices are OCS 2D coordinates; for polylines in a rotated UCS set Normal and Elevation and transform points accordingly. ConvertFrom/ConvertTo convert to and from Polyline2d.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Polyline"
+    },
+    {
+      "name": "DatabaseServices.DBText",
+      "kind": "api",
+      "description": "Managed class for single-line TEXT. Key properties are Position, Height, TextString, Rotation, WidthFactor, Oblique, TextStyleId and the justification pair HorizontalMode/VerticalMode with AlignmentPoint.",
+      "usage": "new DBText { Position = pt, Height = 2.5, TextString = \"...\" }",
+      "parameters": [
+        {"name": "HorizontalMode / VerticalMode", "description": "Justification (TextHorizontalMode.TextCenter, TextVerticalMode.TextVerticalMid...)."},
+        {"name": "AlignmentPoint", "description": "Justification point used for anything other than left/baseline."},
+        {"name": "AdjustAlignment(Database)", "description": "Recomputes Position from AlignmentPoint; needs the working database to be the owner database."}
+      ],
+      "example": "var t = new DBText {\n    TextString = \"ROOM 1.07\", Height = 3.0,\n    HorizontalMode = TextHorizontalMode.TextCenter,\n    VerticalMode = TextVerticalMode.TextVerticalMid,\n    AlignmentPoint = new Point3d(50, 25, 0) };\nms.AppendEntity(t); tr.AddNewlyCreatedDBObject(t, true);\nt.AdjustAlignment(db);",
+      "notes": "For non-left justifications, set AlignmentPoint (not Position) and call AdjustAlignment after appending, otherwise the text appears at the origin until regen.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_DBText"
+    },
+    {
+      "name": "DatabaseServices.MText",
+      "kind": "api",
+      "description": "Managed class for multiline text. Contents holds the formatted string with inline codes, Text returns plain text, and Location, TextHeight, Width, Attachment, Rotation and TextStyleId control placement and style.",
+      "usage": "new MText { Location = pt, Contents = \"...\", TextHeight = 2.5, Width = 100, Attachment = AttachmentPoint.TopLeft }",
+      "parameters": [
+        {"name": "Contents", "description": "Formatted content with codes such as \\P (paragraph)."},
+        {"name": "Text", "description": "Read-only plain text without formatting codes."},
+        {"name": "ActualHeight / ActualWidth", "description": "Measured size after layout."}
+      ],
+      "example": "var m = new MText {\n    Location = new Point3d(10, 200, 0), Width = 120, TextHeight = 3.5,\n    Attachment = AttachmentPoint.TopLeft,\n    Contents = \"GENERAL NOTES\\\\PAll dimensions in millimetres.\" };\nms.AppendEntity(m); tr.AddNewlyCreatedDBObject(m, true);",
+      "notes": "In C# string literals the MText paragraph code is written \"\\\\P\" (or @\"\\P\"). ExplodeFragments enumerates formatted fragments for custom rendering.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_MText"
+    },
+    {
+      "name": "DatabaseServices.BlockReference",
+      "kind": "api",
+      "description": "Managed class for a block insert (INSERT). It references a BlockTableRecord and has Position, ScaleFactors, Rotation, Normal and an AttributeCollection. For dynamic blocks, DynamicBlockTableRecord returns the original definition and IsDynamicBlock is true.",
+      "usage": "new BlockReference(Point3d position, ObjectId blockTableRecordId)\nbr.ScaleFactors = new Scale3d(s); br.Rotation = angle;",
+      "parameters": [
+        {"name": "BlockTableRecord / DynamicBlockTableRecord", "description": "Referenced (possibly anonymous) and original definitions."},
+        {"name": "AttributeCollection", "description": "ObjectIds of AttributeReferences; empty for new references until you add them."},
+        {"name": "BlockTransform", "description": "Matrix3d mapping definition coordinates to WCS."}
+      ],
+      "example": "var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\nvar br = new BlockReference(new Point3d(250, 120, 0), bt[\"TAG\"]) { Rotation = 0.0 };\nms.AppendEntity(br);\ntr.AddNewlyCreatedDBObject(br, true);\n// then add AttributeReferences for each AttributeDefinition (see AttributeReference)",
+      "notes": "Creating a BlockReference does not create attributes automatically, unlike INSERT. Get the user-facing name of dynamic blocks from ((BlockTableRecord)tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead)).Name.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_BlockReference"
+    },
+    {
+      "name": "AttributeReference",
+      "kind": "api",
+      "description": "Managed class for an attribute attached to a block reference (Tag, TextString, plus DBText geometry). New references are created from the block's AttributeDefinitions with SetAttributeFromBlock and appended to the BlockReference's AttributeCollection.",
+      "usage": "var ar = new AttributeReference();\nar.SetAttributeFromBlock(AttributeDefinition def, Matrix3d blockTransform);\nbr.AttributeCollection.AppendAttribute(ar);\ntr.AddNewlyCreatedDBObject(ar, true);",
+      "parameters": [
+        {"name": "Tag / TextString", "description": "Attribute tag and value."},
+        {"name": "IsMTextAttribute / MTextAttribute", "description": "Multiline attribute support."},
+        {"name": "Invisible / IsConstant (definition)", "description": "Constant definitions are not instantiated as references."}
+      ],
+      "example": "var def = (BlockTableRecord)tr.GetObject(br.BlockTableRecord, OpenMode.ForRead);\nforeach (ObjectId id in def) {\n    if (tr.GetObject(id, OpenMode.ForRead) is AttributeDefinition ad && !ad.Constant) {\n        var ar = new AttributeReference();\n        ar.SetAttributeFromBlock(ad, br.BlockTransform);\n        ar.TextString = ad.Tag == \"DWGNO\" ? \"A-101\" : ad.TextString;\n        br.AttributeCollection.AppendAttribute(ar);\n        tr.AddNewlyCreatedDBObject(ar, true);\n    }\n}",
+      "notes": "To read existing values iterate br.AttributeCollection and open each ObjectId as AttributeReference. After changing geometry in side databases call AdjustAlignment with the working database set.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_AttributeReference"
+    },
+    {
+      "name": "BlockReference.DynamicBlockReferencePropertyCollection",
+      "kind": "api",
+      "description": "Collection of the dynamic properties (distances, angles, flips, visibility states, lookups) of a dynamic block reference. Each DynamicBlockReferenceProperty exposes PropertyName, Value, UnitsType, ReadOnly and GetAllowedValues(); setting Value updates the reference.",
+      "usage": "DynamicBlockReferencePropertyCollection br.DynamicBlockReferencePropertyCollection\nprop.PropertyName  prop.Value  prop.ReadOnly  prop.GetAllowedValues()",
+      "parameters": [
+        {"name": "PropertyName", "description": "Name as defined in the Block Editor (e.g. \"Distance1\", \"Visibility1\")."},
+        {"name": "Value", "description": "object; distances/angles are double (angles in radians), visibility and lookup values are strings, flips are short."},
+        {"name": "GetAllowedValues()", "description": "Allowed values for lists (visibility states, value sets)."}
+      ],
+      "example": "if (br.IsDynamicBlock) {\n    br.UpgradeOpen();\n    foreach (DynamicBlockReferenceProperty p in br.DynamicBlockReferencePropertyCollection) {\n        if (p.PropertyName == \"Width\" && !p.ReadOnly) p.Value = 900.0;\n        if (p.PropertyName == \"Visibility1\") p.Value = \"Double door\";\n    }\n}",
+      "notes": "Assigning a value of the wrong .NET type throws eInvalidInput. The 'Origin' property appears in the collection and is read-only. Changing properties converts the reference to a new anonymous *U block.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_DynamicBlockReferencePropertyCollection"
+    },
+    {
+      "name": "DatabaseServices.Hatch",
+      "kind": "api",
+      "description": "Managed class for HATCH entities: pattern, gradient or solid fills bounded by loops built from entities (associative) or from explicit curves. Typical creation sets pattern properties, appends the hatch to the database, then appends loops and evaluates the hatch.",
+      "usage": "var h = new Hatch();\nh.SetHatchPattern(HatchPatternType.PreDefined, \"ANSI31\");\nh.AppendLoop(HatchLoopTypes.Outermost, ObjectIdCollection ids);\nh.EvaluateHatch(true);",
+      "parameters": [
+        {"name": "SetHatchPattern(type, name)", "description": "PreDefined (acad.pat/acadiso.pat), UserDefined or CustomDefined; \"SOLID\" for solid fill."},
+        {"name": "PatternScale / PatternAngle", "description": "Set before SetHatchPattern so they take effect."},
+        {"name": "Associative", "description": "true links the hatch to its boundary objects; set after appending to the database."}
+      ],
+      "example": "var h = new Hatch();\nms.AppendEntity(h); tr.AddNewlyCreatedDBObject(h, true);\nh.PatternScale = 2.0;\nh.SetHatchPattern(HatchPatternType.PreDefined, \"ANSI31\");\nh.Associative = true;\nh.AppendLoop(HatchLoopTypes.Outermost, new ObjectIdCollection { boundaryPolylineId });\nh.EvaluateHatch(true);",
+      "notes": "Boundaries must be closed and coplanar; open or self-intersecting loops throw eInvalidInput on EvaluateHatch. Gradient fills use SetGradient and HatchObjectType.GradientObject.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Hatch"
+    },
+    {
+      "name": "DatabaseServices.Solid3d",
+      "kind": "api",
+      "description": "Managed class for ACIS 3D solids. Primitive creation methods (CreateBox, CreateSphere, CreateFrustum, CreateTorus, CreateWedge), sweeps (Extrude, Revolve, CreateExtrudedSolid, CreateSweptSolid, CreateLoftedSolid), Boolean operations and slicing are available, as are MassProperties.",
+      "usage": "var s = new Solid3d(); s.CreateBox(double x, double y, double z);\ns.BooleanOperation(BooleanOperationType.BoolSubtract, Solid3d other);",
+      "parameters": [
+        {"name": "CreateBox / CreateSphere / CreateFrustum", "description": "Primitives centered at the origin; move them with TransformBy."},
+        {"name": "BooleanOperation", "description": "BoolUnite, BoolSubtract or BoolIntersect; the other solid becomes empty and should be erased/disposed."},
+        {"name": "Extrude(Region, height, taperAngle)", "description": "Extrude a region profile."}
+      ],
+      "example": "var box = new Solid3d(); box.CreateBox(100, 60, 20);\nvar hole = new Solid3d(); hole.CreateFrustum(30, 5, 5, 5);\nbox.BooleanOperation(BooleanOperationType.BoolSubtract, hole);\nhole.Dispose();\nbox.TransformBy(Matrix3d.Displacement(new Vector3d(50, 30, 10)));\nms.AppendEntity(box); tr.AddNewlyCreatedDBObject(box, true);",
+      "notes": "Primitives are created centered on the origin in WCS. Solid modelling APIs are not available in AutoCAD LT and require the full AutoCAD modeler.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Solid3d"
+    },
+    {
+      "name": "Entity.TransformBy",
+      "kind": "api",
+      "description": "Applies a Matrix3d transformation (move, rotate, scale, mirror or any combination) to an entity opened for write. It is the managed equivalent of MOVE/ROTATE/SCALE/MIRROR applied programmatically.",
+      "usage": "void Entity.TransformBy(Matrix3d transform)",
+      "parameters": [
+        {"name": "transform", "description": "Matrix3d.Displacement(v), Matrix3d.Rotation(angle, axis, center), Matrix3d.Scaling(factor, center), Matrix3d.Mirroring(line3d)."}
+      ],
+      "example": "var m = Matrix3d.Rotation(Math.PI / 4, Vector3d.ZAxis, Point3d.Origin)\n       .PreMultiplyBy(Matrix3d.Displacement(new Vector3d(100, 0, 0)));\nent.UpgradeOpen();\nent.TransformBy(m);",
+      "notes": "Non-uniform scaling fails for circles, arcs and text (eCannotScaleNonUniformly). GetTransformedCopy returns a transformed clone instead of modifying the entity.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Entity"
+    },
+    {
+      "name": "Matrix3d",
+      "kind": "api",
+      "description": "4x4 transformation matrix structure from Autodesk.AutoCAD.Geometry, used for entity transformations, UCS conversions and block transforms. Static factory methods create displacement, rotation, scaling, mirroring, plane-to-world and coordinate-system alignment matrices.",
+      "usage": "Matrix3d.Displacement(Vector3d)  Matrix3d.Rotation(double angle, Vector3d axis, Point3d center)\nMatrix3d.Scaling(double factor, Point3d center)  Matrix3d.AlignCoordinateSystem(...)  m.Inverse()  m.PreMultiplyBy(other)",
+      "parameters": [
+        {"name": "PreMultiplyBy / PostMultiplyBy", "description": "Compose transformations; a.PreMultiplyBy(b) = b * a (apply a first, then b)."},
+        {"name": "Inverse()", "description": "Reverse transformation (e.g. WCS to UCS)."},
+        {"name": "CoordinateSystem3d", "description": "Origin and axes extracted from a matrix."}
+      ],
+      "example": "Matrix3d ucs2wcs = ed.CurrentUserCoordinateSystem;\nMatrix3d wcs2ucs = ucs2wcs.Inverse();\nPoint3d ucsPt = somePoint.TransformBy(wcs2ucs);",
+      "notes": "Matrix multiplication is not commutative; test compositions with simple cases.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_Geometry_Matrix3d"
+    },
+    {
+      "name": "Point3d",
+      "kind": "api",
+      "description": "Immutable 3D point structure from Autodesk.AutoCAD.Geometry, with Vector3d as its companion for directions. Provides distance, vector arithmetic, transformations and tolerance-based equality used throughout the API.",
+      "usage": "new Point3d(x, y, z)  p.DistanceTo(q)  p.GetVectorTo(q)  p + v  p.TransformBy(m)  p.IsEqualTo(q, Tolerance.Global)",
+      "parameters": [
+        {"name": "Vector3d", "description": "Direction type: GetNormal(), Length, CrossProduct, DotProduct, GetAngleTo, RotateBy."},
+        {"name": "Tolerance", "description": "IsEqualTo(other, new Tolerance(1e-9, 1e-9)) for robust comparisons."}
+      ],
+      "example": "var a = new Point3d(0, 0, 0); var b = new Point3d(30, 40, 0);\ndouble d = a.DistanceTo(b);                  // 50\nVector3d dir = a.GetVectorTo(b).GetNormal();\nPoint3d mid = a + a.GetVectorTo(b) * 0.5;",
+      "notes": "Point2d/Vector2d are used for polyline vertices; convert with new Point2d(p.X, p.Y) and polyline.GetPoint3dAt.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_Geometry_Point3d"
+    },
+    {
+      "name": "Entity.IntersectWith",
+      "kind": "api",
+      "description": "Computes the intersection points between two entities and adds them to a Point3dCollection. The Intersect option chooses whether either entity is extended to infinity.",
+      "usage": "void Entity.IntersectWith(Entity other, Intersect option, Point3dCollection points, IntPtr thisGsMarker, IntPtr otherGsMarker)\nvoid Entity.IntersectWith(Entity other, Intersect option, Plane projectionPlane, Point3dCollection points, IntPtr thisGsMarker, IntPtr otherGsMarker)",
+      "parameters": [
+        {"name": "option", "description": "Intersect.OnBothOperands, ExtendThis, ExtendArgument or ExtendBoth."},
+        {"name": "points", "description": "Collection receiving the WCS intersection points."},
+        {"name": "gs markers", "description": "Pass IntPtr.Zero unless intersecting subentities."}
+      ],
+      "example": "var pts = new Point3dCollection();\nline1.IntersectWith(line2, Intersect.OnBothOperands, pts, IntPtr.Zero, IntPtr.Zero);\nforeach (Point3d p in pts) ed.WriteMessage($\"\\n{p}\");",
+      "notes": "The projection-plane overload finds apparent intersections of 3D curves viewed in a plane. Very long or nearly parallel curves may produce tolerance-dependent results.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Entity"
+    },
+    {
+      "name": "Curve.GetDistAtPoint",
+      "kind": "api",
+      "description": "Returns the length along a curve from its start to a point on the curve. It belongs to the Curve base class family of evaluation methods (GetPointAtDist, GetParameterAtPoint, GetPointAtParameter, GetClosestPointTo, GetFirstDerivative) shared by Line, Arc, Circle, Polyline, Spline and Ellipse.",
+      "usage": "double Curve.GetDistAtPoint(Point3d point)\nPoint3d Curve.GetPointAtDist(double dist)\nPoint3d Curve.GetClosestPointTo(Point3d givenPoint, bool extend)\ndouble Curve.GetParameterAtPoint(Point3d point)",
+      "parameters": [
+        {"name": "point", "description": "WCS point that must lie on the curve (project it first with GetClosestPointTo)."},
+        {"name": "EndParam / StartParam", "description": "Parameter range; for polylines EndParam equals the number of segments."}
+      ],
+      "example": "var onCurve = route.GetClosestPointTo(pickWcs, false);\ndouble chainage = route.GetDistAtPoint(onCurve);\nPoint3d every25 = route.GetPointAtDist(Math.Min(chainage + 25, route.GetDistanceAtParameter(route.EndParam)));",
+      "notes": "Points not on the curve throw eInvalidInput; always snap first. GetOffsetCurves and GetSplitCurves create new curves from an existing one.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Curve"
+    },
+    {
+      "name": "Entity.GeometricExtents",
+      "kind": "api",
+      "description": "Returns the WCS axis-aligned bounding box (Extents3d with MinPoint and MaxPoint) of an entity. Used for zoom-to-object, layout of generated geometry and overlap checks.",
+      "usage": "Extents3d Entity.GeometricExtents { get; }\nExtents3d? Entity.Bounds { get; }",
+      "parameters": [
+        {"name": "MinPoint / MaxPoint", "description": "Lower-left and upper-right corners."},
+        {"name": "Bounds", "description": "Nullable variant that returns null instead of throwing."}
+      ],
+      "example": "var ext = new Extents3d();\nforeach (ObjectId id in ids)\n    if (tr.GetObject(id, OpenMode.ForRead) is Entity e && e.Bounds.HasValue)\n        ext.AddExtents(e.Bounds.Value);\ned.WriteMessage($\"\\nSelection extents: {ext.MinPoint} - {ext.MaxPoint}\");",
+      "notes": "GeometricExtents throws for entities without extents (empty text, xlines, rays); prefer Bounds. Text extents include the full character cell height.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Entity"
+    },
+    {
+      "name": "EntityJig",
+      "kind": "api",
+      "description": "Abstract base class for interactive jigs that drag a single entity while the user supplies input. Override Sampler to acquire input (point, distance, angle) and Update to apply it to the entity, then run the jig with Editor.Drag. DrawJig is the alternative for drawing arbitrary graphics.",
+      "usage": "class MyJig : EntityJig { protected override SamplerStatus Sampler(JigPrompts prompts) {...} protected override bool Update() {...} }\nPromptResult r = ed.Drag(jig);",
+      "parameters": [
+        {"name": "Sampler(JigPrompts)", "description": "Calls prompts.AcquirePoint/AcquireDistance/AcquireAngle and returns SamplerStatus.OK, NoChange or Cancel."},
+        {"name": "Update()", "description": "Applies the sampled value to Entity; return true to redraw."},
+        {"name": "Entity", "description": "The entity being dragged (not yet in the database)."}
+      ],
+      "example": "class CircleJig : EntityJig {\n    Point3d _c; double _r = 1;\n    public CircleJig(Point3d c) : base(new Circle(c, Vector3d.ZAxis, 1)) { _c = c; }\n    protected override SamplerStatus Sampler(JigPrompts p) {\n        var o = new JigPromptDistanceOptions(\"\\nRadius: \") { BasePoint = _c, UseBasePoint = true };\n        var r = p.AcquireDistance(o);\n        if (r.Status != PromptStatus.OK) return SamplerStatus.Cancel;\n        if (Math.Abs(r.Value - _r) < 1e-9) return SamplerStatus.NoChange;\n        _r = r.Value; return SamplerStatus.OK;\n    }\n    protected override bool Update() { ((Circle)Entity).Radius = _r; return true; }\n    public Entity Result => Entity;\n}",
+      "notes": "Append the jigged entity to the database only after Drag returns OK. Return NoChange when the input did not change to avoid flicker.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_EntityJig"
+    },
+    {
+      "name": "Overrule",
+      "kind": "api",
+      "description": "Framework for changing the behaviour of existing entity types without custom objects: DrawableOverrule changes display, TransformOverrule intercepts moves, GripOverrule custom grips, ObjectOverrule open/close/erase, OsnapOverrule snaps and others. Overrules are registered per runtime class and can be filtered by XData or dictionary content.",
+      "usage": "Overrule.AddOverrule(RXClass targetClass, Overrule overrule, bool addAtLast)\nOverrule.Overruling = true;\noverrule.SetXDataFilter(\"REGAPP\");",
+      "parameters": [
+        {"name": "targetClass", "description": "RXObject.GetClass(typeof(Line)) etc."},
+        {"name": "SetXDataFilter / SetExtensionDictionaryEntryFilter / SetIdFilter", "description": "Restrict the overrule to tagged objects."},
+        {"name": "IsApplicable", "description": "Override for custom filtering logic."}
+      ],
+      "example": "public class PipeDraw : DrawableOverrule {\n    public override bool WorldDraw(Drawable d, WorldDraw wd) {\n        base.WorldDraw(d, wd);\n        if (d is Line ln) wd.Geometry.Circle(ln.StartPoint, 2.0, Vector3d.ZAxis);\n        return true;\n    }\n}\nvar ov = new PipeDraw(); ov.SetXDataFilter(\"ACME_PIPE\");\nOverrule.AddOverrule(RXObject.GetClass(typeof(Line)), ov, false);\nOverrule.Overruling = true;",
+      "notes": "Overrule behaviour exists only while your plug-in is loaded; the drawing itself is unchanged. Keep WorldDraw fast because it runs on every regen.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_Runtime_Overrule"
+    },
+    {
+      "name": "LayoutManager",
+      "kind": "api",
+      "description": "Singleton (LayoutManager.Current) that creates, copies, renames, deletes and switches layouts of the working database. Layout objects themselves (in the ACAD_LAYOUT dictionary) carry plot settings and their paper-space BlockTableRecord.",
+      "usage": "LayoutManager lm = LayoutManager.Current;\nObjectId id = lm.CreateLayout(string name);\nlm.CurrentLayout = \"A1-Sheet\";\nlm.CopyLayout(src, dst); lm.RenameLayout(old, new); lm.DeleteLayout(name);",
+      "parameters": [
+        {"name": "CurrentLayout", "description": "Name of the active layout; \"Model\" for model space."},
+        {"name": "GetLayoutId(name)", "description": "ObjectId of a Layout by name."},
+        {"name": "LayoutCount", "description": "Number of layouts including Model."}
+      ],
+      "example": "var lm = LayoutManager.Current;\nObjectId lid = lm.CreateLayout(\"A-102\");\nusing (var tr = db.TransactionManager.StartTransaction()) {\n    var lay = (Layout)tr.GetObject(lid, OpenMode.ForRead);\n    var ps = (BlockTableRecord)tr.GetObject(lay.BlockTableRecordId, OpenMode.ForWrite);\n    // add title block, viewports ...\n    tr.Commit();\n}\nlm.CurrentLayout = \"A-102\";",
+      "notes": "Operates on HostApplicationServices.WorkingDatabase. Switching CurrentLayout requires the document to be active and locked when called from session context.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_LayoutManager"
+    },
+    {
+      "name": "PlotEngine",
+      "kind": "api",
+      "description": "Low-level plotting pipeline from Autodesk.AutoCAD.PlottingServices, created by PlotFactory.CreatePublishEngine. Combined with PlotInfo, PlotSettings, PlotSettingsValidator and PlotInfoValidator it plots layouts to devices or files (PDF, DWF, PLT) without the PLOT command.",
+      "usage": "using (PlotEngine pe = PlotFactory.CreatePublishEngine()) {\n  pe.BeginPlot(progress, null); pe.BeginDocument(plotInfo, docName, null, 1, true, fileName);\n  pe.BeginPage(pageInfo, plotInfo, true, null); pe.BeginGenerateGraphics(null); pe.EndGenerateGraphics(null);\n  pe.EndPage(null); pe.EndDocument(null); pe.EndPlot(null);\n}",
+      "parameters": [
+        {"name": "PlotFactory.ProcessPlotState", "description": "Must be ProcessPlotType.NoPlot before starting a new plot."},
+        {"name": "PlotSettingsValidator", "description": "SetPlotConfigurationName (e.g. \"DWG To PDF.pc3\", media name), SetPlotType, SetUseStandardScale, SetCurrentStyleSheet."},
+        {"name": "BACKGROUNDPLOT", "description": "Set to 0 during programmatic plotting."}
+      ],
+      "example": "var psv = PlotSettingsValidator.Current;\nvar ps = new PlotSettings(layout.ModelType);\nps.CopyFrom(layout);\npsv.SetPlotConfigurationName(ps, \"DWG To PDF.pc3\", \"ISO_full_bleed_A1_(841.00_x_594.00_MM)\");\npsv.SetPlotType(ps, Autodesk.AutoCAD.DatabaseServices.PlotType.Layout);\npsv.SetUseStandardScale(ps, true);\npsv.SetStdScaleType(ps, StdScaleType.StdScale1To1);\nvar pi = new PlotInfo { Layout = layout.ObjectId, OverrideSettings = ps };\nnew PlotInfoValidator { MediaMatchingPolicy = MatchingPolicy.MatchEnabled }.Validate(pi);",
+      "notes": "The page sequence must be called exactly in order or AutoCAD throws. For multi-sheet PDFs the Publisher API (Application.Publisher.PublishExecute with DsdData) is often simpler.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_PlottingServices_PlotEngine"
+    },
+    {
+      "name": "Database.Insert",
+      "kind": "api",
+      "description": "Inserts an entire source database into the destination database as a new block definition, the programmatic equivalent of inserting a DWG file as a block. Returns the ObjectId of the created BlockTableRecord.",
+      "usage": "ObjectId Database.Insert(string blockName, Database dataBase, bool preserveSourceDatabase)",
+      "parameters": [
+        {"name": "blockName", "description": "Name for the new block definition."},
+        {"name": "dataBase", "description": "Source database, typically read with ReadDwgFile."},
+        {"name": "preserveSourceDatabase", "description": "true keeps the source database usable afterwards."}
+      ],
+      "example": "using (var src = new Database(false, true)) {\n    src.ReadDwgFile(@\"C:\\CAD\\Blocks\\titleA1.dwg\", FileOpenMode.OpenForReadAndAllShare, true, \"\");\n    ObjectId btrId = db.Insert(\"TITLE_A1\", src, true);\n    // create a BlockReference to btrId ...\n}",
+      "notes": "Check BlockTable.Has first if an existing definition of the same name must not be replaced. The other overload Insert(Matrix3d, Database, bool) merges the source entities directly into model space.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Database"
+    },
+    {
+      "name": "Document.CommandWillStart",
+      "kind": "api",
+      "description": "Document event raised before a command starts; companions CommandEnded, CommandCancelled and CommandFailed report how it finished. CommandEventArgs.GlobalCommandName identifies the command. Used for command logging, standards enforcement and post-processing after built-in commands.",
+      "usage": "doc.CommandWillStart += (object sender, CommandEventArgs e) => { ... };\ndoc.CommandEnded += handler;",
+      "parameters": [
+        {"name": "e.GlobalCommandName", "description": "English command name in upper case, e.g. \"HATCH\"."},
+        {"name": "sender", "description": "The Document raising the event."}
+      ],
+      "example": "void Hook(Document doc) {\n    doc.CommandWillStart += (s, e) => {\n        if (e.GlobalCommandName == \"HATCH\")\n            Application.SetSystemVariable(\"CLAYER\", \"HATCH\");\n    };\n}\nforeach (Document d in Application.DocumentManager) Hook(d);\nApplication.DocumentManager.DocumentCreated += (s, e) => Hook(e.Document);",
+      "notes": "Events are per document, so subscribe for existing documents and in DocumentCreated. Do not modify the database from CommandWillStart for the command's own objects; wait for CommandEnded.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_ApplicationServices_Document"
+    },
+    {
+      "name": "Database.ObjectAppended",
+      "kind": "api",
+      "description": "Database event raised when an object is added to the database; ObjectModified and ObjectErased report changes and deletions. ObjectEventArgs.DBObject gives the object, open for notification only.",
+      "usage": "db.ObjectAppended += (object sender, ObjectEventArgs e) => { ObjectId id = e.DBObject.ObjectId; };",
+      "parameters": [
+        {"name": "e.DBObject", "description": "The appended object; read it but do not modify it inside the handler."},
+        {"name": "ObjectErased", "description": "Uses ObjectErasedEventArgs with an Erased flag (true for erase, false for unerase)."}
+      ],
+      "example": "var newIds = new ObjectIdCollection();\ndb.ObjectAppended += (s, e) => { if (e.DBObject is Entity) newIds.Add(e.DBObject.ObjectId); };\ndoc.CommandEnded += (s, e) => { /* tag newIds with XData, then */ newIds.Clear(); };",
+      "notes": "Handlers fire very often, including for internal objects; collect ids and process them later (e.g. in CommandEnded) with a normal transaction.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Database"
+    },
+    {
+      "name": "ObjectARX SDK",
+      "kind": "api",
+      "description": "The C++ SDK for native AutoCAD extensions (.arx for AutoCAD, .dbx object enablers usable by any RealDWG host, .crx for the core console). It contains headers, libraries, samples, the managed-wrapper assemblies and wizards, and is released per binary-compatible AutoCAD family (R25.x covers 2025 and 2026).",
+      "usage": "Download: Autodesk Platform Services (formerly developer network) ObjectARX SDK for the target release\nBuild: Visual Studio 2022 (v143 toolset for the 2025 family), x64, /MD runtime\nLoad: ARX command, APPLOAD, (arxload \"file.arx\"), autoloader bundle",
+      "parameters": [
+        {"name": ".arx", "description": "Full application running inside AutoCAD (commands, UI, reactors)."},
+        {"name": ".dbx", "description": "Object enabler containing custom object classes only; no editor dependencies."},
+        {"name": ".crx", "description": "Core module that runs in accoreconsole and Design Automation (no UI)."}
+      ],
+      "example": "// minimal acrxEntryPoint (see the acrxEntryPoint / acedRegCmds entry)\nextern \"C\" AcRx::AppRetCode acrxEntryPoint(AcRx::AppMsgCode msg, void* pkt) {\n    switch (msg) {\n    case AcRx::kInitAppMsg: acrxUnlockApplication(pkt); acrxRegisterAppMDIAware(pkt); break;\n    case AcRx::kUnloadAppMsg: break;\n    }\n    return AcRx::kRetOK;\n}",
+      "notes": "Binaries must be rebuilt when the family changes (for example R24 to R25 at AutoCAD 2025). Not supported in AutoCAD LT.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "acdbOpenObject",
+      "kind": "api",
+      "description": "Opens a database object by AcDbObjectId in ObjectARX, returning a pointer that must be closed with close() when done. It is the classic open/close mechanism that underlies smart pointers and the managed API.",
+      "usage": "template<class T> Acad::ErrorStatus acdbOpenObject(T*& pObj, AcDbObjectId id, AcDb::OpenMode mode, bool openErased = false);",
+      "parameters": [
+        {"name": "pObj", "description": "Receives the opened object pointer."},
+        {"name": "mode", "description": "AcDb::kForRead, kForWrite or kForNotify."},
+        {"name": "return", "description": "Acad::eOk on success, e.g. eWasOpenForWrite, eOnLockedLayer or eNotThatKindOfClass on failure."}
+      ],
+      "example": "AcDbLine* pLine = nullptr;\nif (acdbOpenObject(pLine, lineId, AcDb::kForWrite) == Acad::eOk) {\n    pLine->setEndPoint(AcGePoint3d(100, 0, 0));\n    pLine->close();   // mandatory\n}",
+      "notes": "Every successful open must be matched by close() (not delete for database-resident objects). Prefer AcDbObjectPointer or transactions to avoid leaks.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "AcDbObjectPointer",
+      "kind": "api",
+      "description": "ObjectARX smart-pointer template that opens an object in its constructor and closes it automatically in its destructor. Typed variants include AcDbEntityPointer, AcDbBlockTableRecordPointer and AcDbSymbolTablePointer.",
+      "usage": "AcDbObjectPointer<AcDbCircle> pCircle(id, AcDb::kForRead);\nif (pCircle.openStatus() == Acad::eOk) { double r = pCircle->radius(); }",
+      "parameters": [
+        {"name": "openStatus()", "description": "Result of the open; test before dereferencing."},
+        {"name": "create()", "description": "Creates a new non-resident object owned by the pointer."},
+        {"name": "release()", "description": "Hands ownership back (e.g. after appending to the database)."}
+      ],
+      "example": "AcDbBlockTableRecordPointer pMs(acdbSymUtil()->blockModelSpaceId(pDb), AcDb::kForWrite);\nAcDbObjectPointer<AcDbLine> pLine;\npLine.create();\npLine->set(AcGePoint3d(0,0,0), AcGePoint3d(10,10,0));\nAcDbObjectId newId;\npMs->appendAcDbEntity(newId, pLine);\n// both pointers close their objects when they go out of scope",
+      "notes": "Keep the scope of smart pointers short; an object stays open while the pointer lives, blocking other writers.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "acdbHostApplicationServices",
+      "kind": "api",
+      "description": "Returns the AcDbHostApplicationServices object, whose workingDatabase() gives the current drawing database in ObjectARX code. It also provides services such as findFile and temporary-path lookup.",
+      "usage": "AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();",
+      "parameters": [
+        {"name": "workingDatabase()", "description": "Current database; can be changed with setWorkingDatabase for side databases."},
+        {"name": "findFile()", "description": "Resolve a file on the support path."}
+      ],
+      "example": "AcDbDatabase* pDb = acdbHostApplicationServices()->workingDatabase();\nAcDbBlockTablePointer pBt(pDb, AcDb::kForRead);\nacutPrintf(_T(\"\\nBlock count check done.\"));",
+      "notes": "The managed equivalent is HostApplicationServices.WorkingDatabase. Always restore the previous working database after switching.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "AcDbDatabase::readDwgFile",
+      "kind": "api",
+      "description": "Reads a DWG file into an AcDbDatabase created without default contents, giving a side database for batch processing in ObjectARX or RealDWG applications.",
+      "usage": "AcDbDatabase* pDb = new AcDbDatabase(false, true);\nAcad::ErrorStatus es = pDb->readDwgFile(const ACHAR* fileName, AcDbDatabase::OpenMode shmode = kForReadAndReadShare, bool allowCPConversion = false, const wchar_t* password = nullptr);",
+      "parameters": [
+        {"name": "AcDbDatabase(false, true)", "description": "buildDefaultDrawing = false, noDocument = true."},
+        {"name": "shmode", "description": "kForReadAndReadShare, kForReadAndWriteNoShare, kForReadAndAllShare, kTryForReadShare."}
+      ],
+      "example": "AcDbDatabase* pDb = new AcDbDatabase(false, true);\nif (pDb->readDwgFile(_T(\"C:\\\\Proj\\\\A-101.dwg\"), AcDbDatabase::kForReadAndAllShare) == Acad::eOk) {\n    pDb->closeInput(true);\n    // ... process ...\n    pDb->saveAs(_T(\"C:\\\\Out\\\\A-101.dwg\"));\n}\ndelete pDb;",
+      "notes": "Side databases are deleted with delete (unlike resident objects). Call closeInput(true) to load everything before closing the file handle.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "actrTransactionManager",
+      "kind": "api",
+      "description": "Macro giving the global AcTransactionManager in ObjectARX. startTransaction, getObject and endTransaction/abortTransaction implement the same transaction model that the .NET API wraps, with automatic closing and rollback.",
+      "usage": "AcTransaction* pTr = actrTransactionManager->startTransaction();\nactrTransactionManager->getObject(pObj, id, AcDb::kForWrite);\nactrTransactionManager->endTransaction();   // or abortTransaction()",
+      "parameters": [
+        {"name": "getObject", "description": "Opens an object inside the top transaction; no close() needed."},
+        {"name": "addNewlyCreatedDBObject", "description": "Register new objects with the transaction."}
+      ],
+      "example": "actrTransactionManager->startTransaction();\nAcDbObject* pObj = nullptr;\nif (actrTransactionManager->getObject(pObj, entId, AcDb::kForWrite) == Acad::eOk)\n    AcDbEntity::cast(pObj)->setColorIndex(1);\nactrTransactionManager->endTransaction();",
+      "notes": "Transactions are the recommended approach for code touching many objects; open/close is faster for single quick reads.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "acedSSGet",
+      "kind": "api",
+      "description": "ObjectARX global function equivalent to AutoLISP ssget: prompts for or builds a selection set, optionally filtered by a resbuf filter list, and returns it as an ads_name. Companion functions are acedSSLength, acedSSName and acedSSFree.",
+      "usage": "int acedSSGet(const ACHAR* str, const void* pt1, const void* pt2, const resbuf* filter, ads_name ss);",
+      "parameters": [
+        {"name": "str", "description": "Selection mode like ssget: nullptr for user selection, _T(\"X\") for all, _T(\"_W\"), _T(\"_C\"), _T(\"I\") ..."},
+        {"name": "filter", "description": "resbuf chain built with acutBuildList, or nullptr."},
+        {"name": "return", "description": "RTNORM on success, RTCAN on cancel, RTERROR when nothing selected."}
+      ],
+      "example": "resbuf* flt = acutBuildList(RTDXF0, _T(\"CIRCLE\"), 8, _T(\"HOLES\"), RTNONE);\nads_name ss;\nif (acedSSGet(nullptr, nullptr, nullptr, flt, ss) == RTNORM) {\n    Adesk::Int32 n = 0; acedSSLength(ss, &n);\n    acutPrintf(_T(\"\\n%d circles\"), n);\n    acedSSFree(ss);\n}\nacutRelRb(flt);",
+      "notes": "Always free selection sets with acedSSFree and filters with acutRelRb; there is a limit on open selection sets (128 in older releases).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "acutPrintf",
+      "kind": "api",
+      "description": "Prints formatted text to the AutoCAD command line from ObjectARX code, using printf-style format strings with wide characters.",
+      "usage": "int acutPrintf(const ACHAR* format, ...);",
+      "parameters": [
+        {"name": "format", "description": "Format string wrapped in _T() or L\"\"; start with \\n for a new line."}
+      ],
+      "example": "acutPrintf(_T(\"\\nProcessed %d objects in %s\"), count, pDb->originalFileName());",
+      "notes": "Output goes to stdout in accoreconsole, which makes it usable for batch logging.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "acedDefun",
+      "kind": "api",
+      "description": "Defines an external AutoLISP function implemented in ObjectARX, identified by a function code; acedRegFunc registers the C++ callback for that code. The function reads arguments with acedGetArgs and returns values with acedRetReal, acedRetStr, acedRetList and related functions.",
+      "usage": "int acedDefun(const ACHAR* sname, int funcno);\nint acedRegFunc(int (*fhdl)(void), int fcode);\nresbuf* acedGetArgs();",
+      "parameters": [
+        {"name": "sname", "description": "LISP function name (prefix C: to make it a command)."},
+        {"name": "funcno", "description": "Integer code identifying the function."},
+        {"name": "fhdl", "description": "Callback returning RSRSLT."}
+      ],
+      "example": "static int dblIt() {\n    resbuf* rb = acedGetArgs();\n    if (rb && rb->restype == RTREAL) acedRetReal(rb->resval.rreal * 2.0); else acedRetNil();\n    return RSRSLT;\n}\n// in kLoadDwgMsg:\nacedDefun(_T(\"dbl-it\"), 1);\nacedRegFunc(dblIt, 1);",
+      "notes": "Functions must be defined per document (on kLoadDwgMsg) because LISP namespaces are per drawing. The .NET equivalent is [LispFunction].",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "resbuf / acutBuildList",
+      "kind": "api",
+      "description": "resbuf is the linked-list result buffer structure (rbnext, restype, resval) used by ADS-style ObjectARX functions for DXF data, filters, XData and LISP values. acutBuildList builds a chain from type/value pairs terminated by 0 or RTNONE, and acutRelRb frees it.",
+      "usage": "struct resbuf { resbuf* rbnext; short restype; ads_u_val resval; };\nresbuf* acutBuildList(int rtype, ...);\nint acutRelRb(resbuf* rb);",
+      "parameters": [
+        {"name": "restype", "description": "DXF group code or RT* type (RTSHORT, RTREAL, RTSTR, RT3DPOINT, RTENAME, RTDXF0 for code 0)."},
+        {"name": "resval", "description": "Union: rint, rreal, rstring, rpoint, rlname ..."}
+      ],
+      "example": "resbuf* xd = acutBuildList(AcDb::kDxfRegAppName, _T(\"ACME\"),\n                           AcDb::kDxfXdAsciiString, _T(\"PUMP-07\"), RTNONE);\npEnt->setXData(xd);\nacutRelRb(xd);",
+      "notes": "Use RTDXF0 instead of 0 for group code 0 in filter lists, since 0 terminates the argument list. Every chain returned by an API (acdbEntGet, xData) must be released.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "acdbGetObjectId",
+      "kind": "api",
+      "description": "Converts an ADS entity name (ads_name, as returned by acedEntSel or acedSSName) to an AcDbObjectId so the object can be opened with the AcDb API. acdbGetAdsName performs the reverse conversion.",
+      "usage": "Acad::ErrorStatus acdbGetObjectId(AcDbObjectId& objId, const ads_name objName);\nAcad::ErrorStatus acdbGetAdsName(ads_name& objName, AcDbObjectId objId);",
+      "parameters": [
+        {"name": "objName", "description": "Two-long ads_name from ADS-style functions."},
+        {"name": "objId", "description": "Resulting AcDbObjectId."}
+      ],
+      "example": "ads_name en; ads_point pt;\nif (acedEntSel(_T(\"\\nSelect: \"), en, pt) == RTNORM) {\n    AcDbObjectId id; acdbGetObjectId(id, en);\n    AcDbEntityPointer pEnt(id, AcDb::kForRead);\n}",
+      "notes": "ads_names are valid only in the current session and document.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "Acad::ErrorStatus",
+      "kind": "api",
+      "description": "Enumeration returned by most ObjectARX database functions to report success (Acad::eOk) or a specific failure. acadErrorStatusText converts a value to readable text; the .NET API surfaces the same values as Autodesk.AutoCAD.Runtime.Exception.ErrorStatus.",
+      "usage": "Acad::ErrorStatus es = ...;\nif (es != Acad::eOk) acutPrintf(_T(\"\\n%s\"), acadErrorStatusText(es));",
+      "parameters": [
+        {"name": "eOk", "description": "Success."},
+        {"name": "eWasOpenForWrite / eWasOpenForRead", "description": "Object already open in a conflicting mode."},
+        {"name": "eOnLockedLayer / eKeyNotFound / eInvalidInput / eNotApplicable", "description": "Common failures."}
+      ],
+      "example": "Acad::ErrorStatus es = pBt->getAt(_T(\"VALVE\"), blkId);\nif (es == Acad::eKeyNotFound) acutPrintf(_T(\"\\nBlock not defined.\"));",
+      "notes": "Check every return value; ignoring an error often leads to crashes later when using an unopened pointer.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "AcGePoint3d",
+      "kind": "api",
+      "description": "The AcGe geometry library's 3D point class in ObjectARX, with AcGeVector3d for directions and AcGeMatrix3d for transformations. These classes (and 2D, curve and surface classes) are shared by entity methods and are mirrored by the .NET Autodesk.AutoCAD.Geometry types.",
+      "usage": "AcGePoint3d p(x, y, z);  p.distanceTo(q);  q - p (AcGeVector3d);  p.transformBy(AcGeMatrix3d::translation(v));",
+      "parameters": [
+        {"name": "AcGeVector3d", "description": "normal(), length(), crossProduct(), dotProduct(), angleTo()."},
+        {"name": "AcGeMatrix3d", "description": "translation, rotation, scaling, mirroring, alignCoordSys, inverse."},
+        {"name": "AcGeTol", "description": "Tolerance object for isEqualTo comparisons."}
+      ],
+      "example": "AcGePoint3d a(0,0,0), b(30,40,0);\ndouble d = a.distanceTo(b);                       // 50\nAcGeMatrix3d m = AcGeMatrix3d::rotation(1.5707963267948966, AcGeVector3d::kZAxis, a);\npEnt->transformBy(m);",
+      "notes": "ADS-style functions use ads_point (double[3]); asDblArray/asPnt3d convert between the two.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "AcDbEntity::subWorldDraw",
+      "kind": "api",
+      "description": "Virtual method a custom entity class (derived from AcDbEntity) overrides to generate its viewport-independent graphics through AcGiWorldDraw. Custom entities also implement DWG/DXF filing (dwgInFields/dwgOutFields), grips, osnaps and transforms, and are registered with ACRX_DXF_DEFINE_MEMBERS.",
+      "usage": "Adesk::Boolean MyEntity::subWorldDraw(AcGiWorldDraw* wd) { wd->geometry().circle(center, r, normal); return Adesk::kTrue; }",
+      "parameters": [
+        {"name": "AcGiWorldDraw::geometry()", "description": "Primitives: polyline, circle, text, shell, mesh."},
+        {"name": "subViewportDraw", "description": "Viewport-dependent graphics when subWorldDraw returns kFalse."},
+        {"name": "dwgOutFields / dwgInFields", "description": "Persistence of the entity's data."}
+      ],
+      "example": "Adesk::Boolean AcmePipe::subWorldDraw(AcGiWorldDraw* wd) {\n    assertReadEnabled();\n    AcGePoint3d pts[2] = { m_start, m_end };\n    wd->geometry().polyline(2, pts);\n    wd->geometry().circle(m_start, m_dia / 2, AcGeVector3d::kZAxis);\n    return Adesk::kTrue;\n}",
+      "notes": "Without the application (or its .dbx object enabler) loaded, custom entities appear as proxies (see PROXYGRAPHICS). Overrules are a lighter alternative when you only need to change the display of standard entities.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "AcEditorReactor",
+      "kind": "api",
+      "description": "ObjectARX reactor base class for editor-level notifications: commands starting and ending, LISP evaluation, drawing open/save, system variable changes, xref and undo events. Derive from it, override the callbacks and register the instance with acedEditor->addReactor.",
+      "usage": "class MyReactor : public AcEditorReactor { void commandWillStart(const ACHAR* cmd) override; void commandEnded(const ACHAR* cmd) override; };\nacedEditor->addReactor(pReactor);  acedEditor->removeReactor(pReactor);",
+      "parameters": [
+        {"name": "commandWillStart / commandEnded / commandCancelled", "description": "Command notifications with the global command name."},
+        {"name": "beginSave / saveComplete / beginClose", "description": "Drawing file events."},
+        {"name": "sysVarChanged", "description": "System variable change notification."}
+      ],
+      "example": "void AcmeEdReactor::commandEnded(const ACHAR* cmd) {\n    if (_tcscmp(cmd, _T(\"QSAVE\")) == 0) acutPrintf(_T(\"\\nSaved.\"));\n}\n// kInitAppMsg: acedEditor->addReactor(g_pEd = new AcmeEdReactor());\n// kUnloadAppMsg: acedEditor->removeReactor(g_pEd); delete g_pEd;",
+      "notes": "Remove reactors before unloading the module or AutoCAD will call into freed code. Database-level events use AcDbDatabaseReactor; object-level ones use persistent or transient object reactors.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    }
+  ]
+}

@@ -1,0 +1,527 @@
+{
+  "category": "Dynamic Function eXchange, ECO, Incremental/Team Flows & Advanced Implementation",
+  "description": "Expert implementation flows: Dynamic Function eXchange (reconfigurable modules, configurations, partial bitstreams, abstract shells, nested DFX, the DFX Controller/Decoupler/Shutdown Manager IP and the ICAP/PCAP/MCAP loading paths), incremental implementation and Intelligent Design Runs, hierarchical and team design with checkpoints, the ECO netlist-editing commands and ECO Navigator, custom DRCs, timing-analysis configuration, and the methodology references for strategies, timing closure, CDC, SSI devices and power.",
+  "tools": [
+    {
+      "name": "create_reconfig_module",
+      "kind": "tcl-command",
+      "description": "Register a Reconfigurable Module (RM) for a Partition Definition in Project Mode DFX: each RM is a set of sources (RTL, IP, block design) implementing the same interface as the partition's black box, and it gets its own out-of-context synthesis run. -partition_def names the partition created with create_partition_def, -top the RM's top module; -gate_level adds a netlist-only (DCP/EDIF) module and -define_from an existing hierarchy's sources.",
+      "usage": "create_reconfig_module -name <rm_name> -partition_def <pdef> [-top <module>] [-gate_level] [-define_from <cell>] [-define_from_file <dcp>] [-quiet]",
+      "parameters": [
+        {"name": "-name", "description": "RM name (used in run names such as <rm>_synth_1)."},
+        {"name": "-partition_def", "description": "Partition definition object from create_partition_def / get_partition_defs."},
+        {"name": "-top", "description": "Top module of the RM sources."},
+        {"name": "-define_from", "description": "Create the RM from the sources currently instantiated at the partition cell."},
+        {"name": "-gate_level", "description": "RM delivered as a netlist (add a DCP with add_files)."}
+      ],
+      "example": "set_property PR_FLOW 1 [current_project]\ncreate_partition_def -name pd_math -module math_rp\ncreate_reconfig_module -name rm_add -partition_def [get_partition_defs pd_math] -define_from math_rp\ncreate_reconfig_module -name rm_mul -partition_def [get_partition_defs pd_math] -top math_mul\nadd_files -of_objects [get_reconfig_modules rm_mul] ./rtl/math_mul.v\nupdate_compile_order -fileset [get_filesets rm_mul]\ncreate_pr_configuration -name cfg_add -partitions [list math_rp_inst:rm_add]\ncreate_pr_configuration -name cfg_mul -partitions [list math_rp_inst:rm_mul]\nset_property PR_CONFIGURATION cfg_add [get_runs impl_1]\ncreate_run impl_2 -parent_run impl_1 -flow {Vivado Implementation 2024} -pr_config cfg_mul",
+      "notes": "The project must be a DFX project (set_property PR_FLOW 1, or Tools > Enable Dynamic Function eXchange). Each RM has its own fileset; sources are added with add_files -of_objects [get_reconfig_modules ...]. The DFX Wizard does all of this graphically.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Dynamic-Function-eXchange-Project-Flow"
+    },
+    {
+      "name": "set_property PR_CONFIGURATION (implementation run to configuration) / setup_pr_configurations",
+      "kind": "system-variable",
+      "description": "Bind an implementation run to a PR configuration (a mapping of each reconfigurable partition instance to one RM): the parent run (impl_1) implements the static logic plus the first configuration and writes the static checkpoint; child runs created with create_run -parent_run implement the other configurations re-using the parent's locked static design. setup_pr_configurations automatically creates configurations and child runs for every RM combination in the DFX Wizard style; get_pr_configurations / current_pr_configuration / delete_pr_configurations manage them.",
+      "usage": "set_property PR_CONFIGURATION <config_name> [get_runs <impl_run>]\ncreate_run <child_impl> -parent_run <parent_impl> -flow {Vivado Implementation 2024} -pr_config <config_name>\nsetup_pr_configurations [-partitions <list>] [-force] [-run <impl_run>] [-quiet]\nget_pr_configurations [-filter <expr>] [<patterns>]\ncreate_pr_configuration -name <name> -partitions {<inst>:<rm> ...} [-greyboxes <insts>]",
+      "parameters": [
+        {"name": "PR_CONFIGURATION", "description": "Run property; the first configuration goes on the parent run."},
+        {"name": "-parent_run", "description": "Child runs inherit the routed static design from the parent (as a locked checkpoint)."},
+        {"name": "-greyboxes", "description": "Partition instances implemented as empty (greybox) modules in this configuration, producing a blanking bitstream."},
+        {"name": "setup_pr_configurations", "description": "Generate a configuration + child run per RM automatically."}
+      ],
+      "example": "setup_pr_configurations -force\nget_pr_configurations\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\nlaunch_runs [get_runs -filter {IS_IMPLEMENTATION && NAME != impl_1}] -to_step write_bitstream -jobs 8\n# outputs: impl_1/<top>.bit (full), impl_1/<top>_math_rp_inst_rm_add_partial.bit, impl_2/..._rm_mul_partial.bit",
+      "notes": "Child runs must be re-run whenever the parent (static) changes. pr_verify between configurations is executed automatically by the project flow before bitstreams are written.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Dynamic-Function-eXchange-Project-Flow"
+    },
+    {
+      "name": "pr_verify",
+      "kind": "tcl-command",
+      "description": "Verify that two or more routed DFX configurations (checkpoints) have identical static logic, placement and routing, and compatible partition-pin interfaces, which guarantees that any partial bitstream can be loaded into a device configured with any of the full bitstreams. It must pass before partial bitstreams are trusted; in the non-project flow it is run explicitly, in the project flow automatically.",
+      "usage": "pr_verify [-full_check] [-file <report>] [-in_memory] [-initial <dcp>] [-additional <dcp_list>] [-quiet] [<dcp1> <dcp2>]",
+      "parameters": [
+        {"name": "<dcp1> <dcp2> / -initial + -additional", "description": "Routed checkpoints of the configurations to compare (two, or one initial against many)."},
+        {"name": "-full_check", "description": "Also compare non-essential properties and generate a detailed diff."},
+        {"name": "-in_memory", "description": "Compare the open design against a checkpoint."},
+        {"name": "-file", "description": "Write the report."}
+      ],
+      "example": "pr_verify -full_check -file pr_verify.rpt ./impl/config_add_routed.dcp ./impl/config_mul_routed.dcp\n# multiple\npr_verify -initial ./impl/config_add_routed.dcp -additional {./impl/config_mul_routed.dcp ./impl/config_blank_routed.dcp}",
+      "notes": "Failures usually come from re-running place/route on the static logic instead of using lock_design -level routing on the imported static checkpoint, or from timing-driven changes inside the static area after read_checkpoint -cell.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/pr_verify"
+    },
+    {
+      "name": "pr_subdivide / pr_recombine (Nested DFX)",
+      "kind": "tcl-command",
+      "description": "Nested Dynamic Function eXchange (UltraScale+/Versal): pr_subdivide splits an already-implemented reconfigurable partition into lower-level reconfigurable partitions (using a checkpoint of the RM that itself contains HD.RECONFIGURABLE cells), so that a large RP can be reconfigured as a whole or partially in smaller pieces; pr_recombine merges the lower-level partitions back into the parent RP for generating the parent-level partial bitstream. The flow requires separate implementation of the parent RP (as a routed RM) and of each child RM within it.",
+      "usage": "pr_subdivide -cell <rp_cell> -subcells <list_of_child_rp_cells> [-from_dcp <rm_routed.dcp>] [-quiet]\npr_recombine -cell <rp_cell> [-quiet]",
+      "parameters": [
+        {"name": "-cell", "description": "The parent reconfigurable partition cell."},
+        {"name": "-subcells", "description": "Hierarchical cells inside it that become second-level RPs (must have HD.RECONFIGURABLE in the RM)."},
+        {"name": "-from_dcp", "description": "The routed checkpoint of the parent RM containing the child RPs."}
+      ],
+      "example": "open_checkpoint ./static_routed.dcp\npr_subdivide -cell u_rp_big -subcells {u_rp_big/u_child0 u_rp_big/u_child1} -from_dcp ./rm_big_routed.dcp\n# implement child RMs with read_checkpoint -cell u_rp_big/u_child0 ... place_design/route_design, write partial bitstreams with write_bitstream -cell\npr_recombine -cell u_rp_big\nwrite_bitstream -cell u_rp_big -force ./rp_big_partial.bit",
+      "notes": "Only one level of nesting below a parent RP is supported per subdivide; Abstract Shells can be written for nested RPs. Requires 2020.2+ and is not available on 7 series.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Nested-Dynamic-Function-eXchange"
+    },
+    {
+      "name": "write_abstract_shell",
+      "kind": "tcl-command",
+      "description": "Write a reduced static checkpoint (Abstract Shell) for one reconfigurable partition that contains only the logic, placement and routing needed to implement RMs for that RP (the partition boundary, connected static logic and routing, timing context) instead of the full static design, so RM compile time and memory drop dramatically and the static design IP is not exposed to RM developers. RMs are implemented with read_checkpoint of the abstract shell + read_checkpoint -cell of the RM, then partial bitstreams written with write_bitstream -cell; pr_verify against the full static confirms consistency.",
+      "usage": "open_checkpoint ./static_routed.dcp\nupdate_design -cell <rp_cell> -black_box\nlock_design -level routing\nwrite_abstract_shell -cell <rp_cell> [-force] [-quiet] <abstract_shell.dcp>",
+      "parameters": [
+        {"name": "-cell", "description": "The reconfigurable partition to generate the shell for (one shell per RP)."},
+        {"name": "-force", "description": "Overwrite an existing file."}
+      ],
+      "example": "# static side (once)\nopen_checkpoint ./impl/static_routed.dcp\nupdate_design -cell u_rp0 -black_box\nlock_design -level routing\nwrite_abstract_shell -cell u_rp0 -force ./shells/rp0_abstract.dcp\n# RM developer side\nopen_checkpoint ./shells/rp0_abstract.dcp\nread_checkpoint -cell u_rp0 ./rm/rm_new_synth.dcp\nopt_design; place_design; route_design\nwrite_checkpoint -force ./rm/rm_new_routed.dcp\nwrite_bitstream -cell u_rp0 -force ./rm/rm_new_partial.bit\n# verification\npr_verify -initial ./impl/static_routed.dcp -additional ./rm/rm_new_routed.dcp",
+      "notes": "Introduced in 2020.2 for UltraScale+ (Versal later). Abstract Shells cannot generate full bitstreams (only partial) and their timing analysis covers paths into/out of the RP only. Report: report_dfx_summary and report_pr_configuration_analysis.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Abstract-Shell-for-Dynamic-Function-eXchange"
+    },
+    {
+      "name": "write_bitstream -cell (partial bitstreams) / -no_partial_bitfile / greybox blanking bitstreams",
+      "kind": "tcl-command",
+      "description": "In a DFX design write_bitstream on the full routed configuration writes the full bitstream plus one partial bitstream per reconfigurable partition (<top>_<rp_inst>_partial.bit) unless -no_partial_bitfile is given; -cell <rp_cell> writes only the partial bitstream of that RP (used with Abstract Shells and for RM-only re-implementation); a configuration whose RP is implemented as a greybox (update_design -cell -buffer_ports) produces a blanking partial bitstream that safely empties the RP. -bin_file adds the headerless .bin needed for ICAP/PCAP/MCAP loading, and BITSTREAM.GENERAL.COMPRESS shrinks partials.",
+      "usage": "write_bitstream [-cell <rp_cell>] [-no_partial_bitfile] [-bin_file] [-reference_bitfile <full.bit>] [-force] <file>\n# blanking configuration\nupdate_design -cell <rp_cell> -buffer_ports\nplace_design; route_design\nwrite_bitstream -cell <rp_cell> -force ./blank_partial.bit",
+      "parameters": [
+        {"name": "-cell", "description": "RP instance whose partial bitstream is written."},
+        {"name": "-no_partial_bitfile", "description": "Write only the full bitstream."},
+        {"name": "-reference_bitfile", "description": "Full bitstream of another configuration for generating a 'delta' partial? (used for Versal/partial-bitstream comparison, see notes)."},
+        {"name": "-bin_file", "description": "Also write .bin for software-driven loading."}
+      ],
+      "example": "open_checkpoint ./impl/config_add_routed.dcp\nset_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]\nwrite_bitstream -force -bin_file ./bit/config_add.bit         ;# full + config_add_math_rp_inst_partial.bit/.bin\nopen_checkpoint ./impl/config_mul_routed.dcp\nwrite_bitstream -cell math_rp_inst -force -bin_file ./bit/rm_mul_partial.bit",
+      "notes": "Partial bitstreams for a given RP must come from configurations that pass pr_verify with the loaded full bitstream. RESET_AFTER_RECONFIG (7 series/UltraScale property on the Pblock) or the DFX Decoupler must handle the RP's reset after loading. Versal partial images are .pdi via write_device_image -cell.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Partial-Bitstreams"
+    },
+    {
+      "name": "report_pr_configuration_analysis / report_dfx_summary / get_dfx_footprint",
+      "kind": "tcl-command",
+      "description": "DFX-specific reports: report_pr_configuration_analysis compares several RM checkpoints for one RP (utilisation, timing, complexity per RM) to size the RP Pblock for the worst case; report_dfx_summary lists RPs, RMs, Pblock resources, partition pins and DRC status in one place; get_dfx_footprint returns the physical resources (tiles/frames) a Pblock/RP occupies, used to check for overlaps and clock-region alignment. Together with the DFX DRCs (HDPR-*) in report_drc they validate the floorplan before implementation.",
+      "usage": "report_pr_configuration_analysis -cell <rp_cell> -dcps <list_of_rm_dcps> [-complexity] [-clocking] [-timing] [-rent] [-file <f>] [-quiet]\nreport_dfx_summary [-file <f>] [-append] [-return_string] [-quiet]\nget_dfx_footprint [-of_objects <pblocks|cells>] [-quiet]\nreport_drc -ruledecks {dfx? see notes} ",
+      "parameters": [
+        {"name": "-dcps", "description": "Synthesized or routed RM checkpoints to analyse for the RP."},
+        {"name": "-complexity / -clocking / -timing / -rent", "description": "Analysis categories (resource complexity, clock usage, timing summaries, Rent exponent)."}
+      ],
+      "example": "report_pr_configuration_analysis -cell math_rp_inst -dcps {./synth/rm_add.dcp ./synth/rm_mul.dcp ./synth/rm_fir.dcp} -complexity -clocking -file rp_analysis.rpt\nreport_dfx_summary -file dfx_summary.rpt\nreport_drc -checks [get_drc_checks HDPR*] -file dfx_drc.rpt",
+      "notes": "The DFX DRC checks are named HDPR-1 ... HDPR-nn (report_drc -checks [get_drc_checks HDPR*]) and run automatically in DFX projects; report_drc's 'dfx' rules are part of the default deck when PR_FLOW is set.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Tcl-Commands"
+    },
+    {
+      "name": "DFX Controller (dfx_controller)",
+      "kind": "block",
+      "description": "IP (formerly Partial Reconfiguration Controller, prc) that manages partial reconfiguration autonomously: for each Virtual Socket (RP) it stores a table of RMs with their partial-bitstream addresses/sizes in memory, fetches the bitstream over AXI4 (from DDR, flash via AXI, or an ICAP-connected source) and writes it to the ICAP (or MCAP/PCAP on some parts), sequencing shutdown/startup with the DFX Decoupler and AXI Shutdown Manager through handshake signals, triggered by hardware pins or AXI4-Lite register writes, and reporting status/errors. Software only needs to write the trigger register; software-driven alternatives are AXI HWICAP or the PS PCAP.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:dfx_controller dfx_controller_0\nset_property -dict [list CONFIG.ALL_PARAMS {HAS_AXI_LITE_IF 1 RESET_ACTIVE_LEVEL 0 CP_FIFO_DEPTH 32 CP_FIFO_TYPE lutram CDC_STAGES 2 VS {VS_0 {ID 0 NAME VS_0 RM {RM_0 {ID 0 NAME rm_add BS {0 {ID 0 ADDR 0x10000000 SIZE 123456 CLEAR 0}} RESET_REQUIRED low STARTUP_REQUIRED no SHUTDOWN_REQUIRED hw} RM_1 {ID 1 NAME rm_mul BS {0 {ID 0 ADDR 0x10100000 SIZE 123456 CLEAR 0}} RESET_REQUIRED low}} NUM_TRIGGERS_ALLOCATED 2 TRIGGER0_TO_RM 0 TRIGGER1_TO_RM 1 START_IN_SHUTDOWN 0 SHUTDOWN_ON_ERROR 1 HAS_POR_RM 1 POR_RM 0}}} [get_bd_cells dfx_controller_0]",
+      "parameters": [
+        {"name": "Virtual Sockets (VS_n)", "description": "One per RP: list of RMs with bitstream ID/address/size, reset and shutdown/startup requirements, triggers mapped to RMs, power-on RM."},
+        {"name": "ICAP / MCAP / PCAP interface", "description": "The port used to load bitstreams (ICAP for pure FPGAs; the controller exposes icap_* pins to an ICAPE3/ICAPE2)."},
+        {"name": "HAS_AXI_LITE_IF", "description": "Control/status registers (trigger, status, software RM select, bitstream table update)."},
+        {"name": "vsm_VS_0_rm_shutdown_req / rm_shutdown_ack / rm_decouple / rm_reset / sw_startup_req", "description": "Handshake pins to the DFX Decoupler, Shutdown Manager and RM reset logic."}
+      ],
+      "example": "# Typical wiring in IPI\nconnect_bd_net [get_bd_pins dfx_controller_0/vsm_VS_0_rm_decouple] [get_bd_pins dfx_decoupler_0/decouple]\nconnect_bd_net [get_bd_pins dfx_controller_0/vsm_VS_0_rm_shutdown_req] [get_bd_pins dfx_axi_shutdown_manager_0/request_shutdown]\nconnect_bd_net [get_bd_pins dfx_axi_shutdown_manager_0/in_shutdown] [get_bd_pins dfx_controller_0/vsm_VS_0_rm_shutdown_ack]\nconnect_bd_intf_net [get_bd_intf_pins dfx_controller_0/M_AXI_MEM] [get_bd_intf_pins smartconnect_0/S01_AXI]   ;# bitstream fetch from DDR\n# ICAP: instantiate ICAPE3 in RTL or use the controller's ICAP interface pins",
+      "notes": "Bitstream sizes in the table must match the actual partial .bin (bytes); the controller supports bitstream compression and, on UltraScale+, clearing bitstreams (CLEAR entries) where the family needs them (UltraScale requires clearing bitstreams before loading a new RM; UltraScale+ does not). Driver: dfx? the controller is programmed via AXI4-Lite registers documented in PG374.",
+      "docs": "https://docs.amd.com/r/en-US/pg374-dfx-controller"
+    },
+    {
+      "name": "DFX Decoupler (dfx_decoupler)",
+      "kind": "block",
+      "description": "IP (formerly Partial Reconfiguration Decoupler) placed on the boundary between static logic and a reconfigurable partition: when 'decouple' is asserted it drives safe values on every signal or interface crossing the boundary (configurable per interface: AXI4/AXI4-Lite/AXI4-Stream/clock/reset/interrupt/GPIO with per-signal decouple values and optional registers), so glitches on the RP's outputs during reconfiguration cannot corrupt the static design, and it reports its status back. Required for every RP whose outputs feed static logic that must keep running.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:dfx_decoupler dfx_decoupler_0\nset_property -dict [list CONFIG.ALL_PARAMS {HAS_AXI_LITE 0 HAS_AXIS_CONTROL 0 INTF {axis_data {ID 0 VLNV xilinx.com:interface:axis_rtl:1.0 MODE slave SIGNALS {TVALID {DECOUPLED_VALUE 0x0 PRESENT 1} TREADY {DECOUPLED_VALUE 0x0 PRESENT 1} TDATA {PRESENT 1 WIDTH 32} TLAST {PRESENT 1}}} axi_lite {ID 1 VLNV xilinx.com:interface:aximm_rtl:1.0 PROTOCOL axi4lite MODE master SIGNALS {ARVALID {DECOUPLED_VALUE 0x0} AWVALID {DECOUPLED_VALUE 0x0} WVALID {DECOUPLED_VALUE 0x0} BVALID? {} ...}}}}] [get_bd_cells dfx_decoupler_0]",
+      "parameters": [
+        {"name": "INTF (per interface)", "description": "Interface VLNV/mode, which signals are decoupled, their decoupled values, and registering options (REGISTER, ENABLE_REGISTER? per signal)."},
+        {"name": "decouple / decouple_status", "description": "Control input (from DFX Controller or software GPIO) and status output."},
+        {"name": "HAS_AXI_LITE / HAS_AXIS_CONTROL / HAS_SIGNAL_CONTROL", "description": "How decouple is driven: AXI4-Lite register, AXI4-Stream, or a plain signal."}
+      ],
+      "example": "# Connect rp_inst/m_axis (RP side) through the decoupler to the static consumer\nconnect_bd_intf_net [get_bd_intf_pins rp_inst/m_axis] [get_bd_intf_pins dfx_decoupler_0/rp_axis_data]\nconnect_bd_intf_net [get_bd_intf_pins dfx_decoupler_0/s_axis_data] [get_bd_intf_pins axis_data_fifo_0/S_AXIS]\nconnect_bd_net [get_bd_pins dfx_controller_0/vsm_VS_0_rm_decouple] [get_bd_pins dfx_decoupler_0/decouple]",
+      "notes": "Decoupling AXI interfaces mid-transaction violates the protocol; use the AXI Shutdown Manager to quiesce them first and the decoupler only as the final isolation. Interfaces are configured most easily in the IP GUI (per-signal table) and then captured with write_bd_tcl.",
+      "docs": "https://docs.amd.com/r/en-US/pg375-dfx-decoupler"
+    },
+    {
+      "name": "DFX AXI Shutdown Manager (dfx_axi_shutdown_manager)",
+      "kind": "block",
+      "description": "IP (formerly PR AXI Shutdown Manager) inserted on an AXI4/AXI4-Lite link between an RP and the static design that, on request, blocks new transactions, waits for outstanding ones to complete (or generates error responses for a master RP's pending requests) and signals in_shutdown, guaranteeing that the AXI interconnect is idle before the RP is decoupled and reconfigured; after reconfiguration it re-enables traffic. Available in master and slave variants depending on which side the RP is on.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:dfx_axi_shutdown_manager dfx_axi_shutdown_manager_0\nset_property -dict [list CONFIG.CTRL_INTERFACE_TYPE {1} CONFIG.RP_IS_MASTER {false} CONFIG.DP_PROTOCOL {AXI4LITE}] [get_bd_cells dfx_axi_shutdown_manager_0]",
+      "parameters": [
+        {"name": "CONFIG.RP_IS_MASTER", "description": "true when the RP contains the AXI master (the manager errors out pending requests during shutdown), false for RP slaves."},
+        {"name": "CONFIG.DP_PROTOCOL", "description": "AXI4, AXI4LITE, AXI3 of the data path."},
+        {"name": "CONFIG.CTRL_INTERFACE_TYPE", "description": "1 = signal control (request_shutdown/in_shutdown pins), 2 = AXI4-Lite control."},
+        {"name": "request_shutdown / in_shutdown", "description": "Handshake with the DFX Controller."}
+      ],
+      "example": "connect_bd_intf_net [get_bd_intf_pins smartconnect_0/M02_AXI] [get_bd_intf_pins dfx_axi_shutdown_manager_0/S_AXI]\nconnect_bd_intf_net [get_bd_intf_pins dfx_axi_shutdown_manager_0/M_AXI] [get_bd_intf_pins dfx_decoupler_0/s_axi_lite]\nconnect_bd_intf_net [get_bd_intf_pins dfx_decoupler_0/rp_axi_lite] [get_bd_intf_pins rp_inst/s_axi_lite]",
+      "notes": "Order on the link: interconnect -> Shutdown Manager -> Decoupler -> RP. With software-driven DFX (no controller) the request/in_shutdown pins can be driven from AXI GPIO.",
+      "docs": "https://docs.amd.com/r/en-US/pg373-dfx-axi-shutdown-manager"
+    },
+    {
+      "name": "Dynamic Function eXchange Wizard (Tools > Dynamic Function eXchange Wizard)",
+      "kind": "tool",
+      "description": "GUI wizard for DFX projects (after Tools > Enable Dynamic Function eXchange): Edit Reconfigurable Modules (create RMs per Partition Definition from sources/IP/BD, gate-level RMs), Edit Configurations (assign an RM or greybox to each RP instance, automatic generation of all configurations), Edit Configuration Runs (parent impl run and child runs per configuration) and a summary; it issues create_reconfig_module, create_pr_configuration, create_run -pr_config and setup_pr_configurations. The Pblock floorplanning of each RP is done in the Device window (Draw Pblock on the RP cell with SNAPPING_MODE ON).",
+      "usage": "Tools > Enable Dynamic Function eXchange (set_property PR_FLOW 1 [current_project]); right-click a hierarchical cell in Sources > Create Partition Definition; Tools > Dynamic Function eXchange Wizard > Edit Reconfigurable Modules / Edit Configurations / Edit Configuration Runs",
+      "parameters": [
+        {"name": "Create Partition Definition", "description": "Turns a hierarchy into a Partition Definition + first RM (create_partition_def + create_reconfig_module -define_from)."},
+        {"name": "Edit Configurations > automatically create configurations", "description": "One configuration per RM plus optional greybox (setup_pr_configurations)."},
+        {"name": "Edit Configuration Runs", "description": "Set the parent implementation run and create child runs per configuration."},
+        {"name": "Floorplan", "description": "Draw Pblock for the RP cell; set SNAPPING_MODE ON, RESET_AFTER_RECONFIG (7 series/UltraScale), CONTAIN_ROUTING is implicit for RPs."}
+      ],
+      "example": "1. Tools > Enable Dynamic Function eXchange\n2. Sources > right-click math_rp inst > Create Partition Definition (pd_math, rm_add)\n3. DFX Wizard > Edit RMs > + > rm_mul with math_mul.v\n4. Edit Configurations > automatically create > config_1 (rm_add), config_2 (rm_mul)\n5. Edit Configuration Runs > impl_1 = config_1 (parent), child_0_impl_1 = config_2\n6. Open synthesized design > Draw Pblock on math_rp_inst > Pblock properties: SNAPPING_MODE ON > save constraints\n7. Generate Bitstream (runs parent then children; partials in the run directories)",
+      "notes": "Every RM must implement identical ports; port mismatches are caught at link_design of the child configuration. Block-design DFX uses Block Design Containers with ENABLE_DFX instead of the source-based Partition Definitions.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Dynamic-Function-eXchange-Wizard"
+    },
+    {
+      "name": "DFX floorplanning rules (SNAPPING_MODE, RESET_AFTER_RECONFIG, HD.RECONFIGURABLE Pblocks, partition pins, HD.PARTPIN_RANGE)",
+      "kind": "reference",
+      "description": "Physical rules for a reconfigurable partition: the RP is a hierarchical cell with HD.RECONFIGURABLE TRUE assigned to a Pblock that must contain every resource type the RMs need (SLICE, RAMB, DSP, URAM, IOLOGIC only if the RP owns I/O, clock buffers not allowed inside on 7 series) and, with SNAPPING_MODE ON, is snapped to legal reconfigurable-frame boundaries (whole clock-region height on 7 series, finer on UltraScale+); RESET_AFTER_RECONFIG TRUE (7 series/UltraScale, Pblock aligned to clock regions) applies GSR to the RP after loading so registers start in their INIT state; partition pins (the interface nodes between static and RP) are placed automatically or constrained with HD.PARTPIN_RANGE / HD.PARTPIN_LOCS; static logic must not be placed inside the Pblock (EXCLUDE_PLACEMENT is implied) and routing containment applies to both static and RP routing; global clocks used by the RP must be driven from static logic (the RP may not contain BUFG/MMCM on 7 series, allowed on UltraScale+ with restrictions); RP ports should be registered on both sides; DRCs HDPR-* check all of this.",
+      "usage": "set_property HD.RECONFIGURABLE TRUE [get_cells u_rp0]\ncreate_pblock pb_rp0\nadd_cells_to_pblock [get_pblocks pb_rp0] [get_cells u_rp0]\nresize_pblock [get_pblocks pb_rp0] -add {SLICE_X40Y120:SLICE_X79Y179 RAMB36_X4Y24:RAMB36_X6Y35 DSP48E2_X8Y48:DSP48E2_X11Y71}\nset_property SNAPPING_MODE ON [get_pblocks pb_rp0]\nset_property RESET_AFTER_RECONFIG TRUE [get_pblocks pb_rp0]      ;# 7 series / UltraScale\nset_property HD.PARTPIN_RANGE {SLICE_X39Y120:SLICE_X39Y179} [get_pins u_rp0/*]   ;# optional\nreport_drc -checks [get_drc_checks HDPR*]",
+      "parameters": [
+        {"name": "SNAPPING_MODE", "description": "ON / FINE_GRAINED / OFF: legalise the Pblock to reconfigurable-frame boundaries automatically."},
+        {"name": "RESET_AFTER_RECONFIG", "description": "GSR to the RP after partial reconfiguration (7 series/UltraScale only; UltraScale+ handles it via the Decoupler/RM reset)."},
+        {"name": "HD.PARTPIN_RANGE / HD.PARTPIN_LOCS", "description": "Constrain partition pin placement to sites/nodes."},
+        {"name": "Static/RP separation", "description": "The RP Pblock is exclusive; static cells inside it are an error, RP cells outside are an error; both routings are contained."}
+      ],
+      "example": "# Check the footprint and what the RP will get\nget_dfx_footprint -of_objects [get_pblocks pb_rp0]\nreport_utilization -pblocks [get_pblocks pb_rp0]\nreport_pr_configuration_analysis -cell u_rp0 -dcps [glob ./synth/rm_*.dcp] -complexity",
+      "notes": "Leave margin: the RP Pblock should have 20-30% headroom over the largest RM and its shape should avoid narrow columns. Versal DFX uses the same properties with NoC/AIE-specific rules (UG909 Versal chapter).",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Design-Considerations-and-Guidelines"
+    },
+    {
+      "name": "ICAP / PCAP / MCAP partial-bitstream loading paths",
+      "kind": "reference",
+      "description": "The ways a partial bitstream (.bin) reaches the configuration engine at run time: ICAP (Internal Configuration Access Port, ICAPE2/ICAPE3 primitive) from fabric logic through the DFX Controller, AXI HWICAP or custom logic at up to 100-200 MHz x 32 bits; PCAP (Processor Configuration Access Port) on Zynq-7000 and Zynq UltraScale+ where the PS loads the bitstream through the devcfg (xdevcfg / FPGA manager in Linux, XDcfg/XFsbl/XilFPGA in bare metal) with no fabric resources and DMA speed; MCAP (Media Configuration Access Port) on UltraScale/UltraScale+ where a PCIe host writes the bitstream through the PCIe block's extended capability (used by Vitis/Alveo for dynamic regions and by the MCAP driver); JTAG via the Hardware Manager for lab use; and on Versal the PLM loads partial PDIs through the PMC (xilfpga/xilloader, or Linux fpga-manager with the versal driver). Each path needs the RP quiesced (Shutdown Manager/Decoupler) and, after loading, the RM reset released.",
+      "usage": "# Zynq-7000 Linux (fpga-manager)\necho 1 > /sys/class/fpga_manager/fpga0/flags        # partial\necho rm_mul_partial.bin > /sys/class/fpga_manager/fpga0/firmware\n# Zynq UltraScale+ bare metal (xilfpga)\nXFpga_PL_BitStream_Load(&XFpgaInstance, (UINTPTR)bitstream_addr, size, XFPGA_PARTIAL_EN);\n# UltraScale+ from a PCIe host (MCAP, Alveo)\nmcap -x <device_id> -p rm_partial.bin\n# Pure FPGA: DFX Controller trigger register write, or AXI HWICAP driver XHwIcap_DeviceWrite()\n# Lab: Hardware Manager program_hw_devices with the partial .bit (PROGRAM.FILE set to the partial)",
+      "parameters": [
+        {"name": "Bitstream format", "description": "ICAP/PCAP need the .bin (write_bitstream -bin_file); PCAP on Zynq-7000 additionally byte-swaps (bootgen -process_bitstream bin handled it in older flows)."},
+        {"name": "Compression", "description": "BITSTREAM.GENERAL.COMPRESS reduces partial size and load time on all paths."},
+        {"name": "Per-frame CRC / clearing bitstreams", "description": "UltraScale requires loading a clearing bitstream for the RP before a new RM (the DFX Controller handles CLEAR entries)."}
+      ],
+      "example": "# Hardware Manager quick test of a partial bitstream\nset_property PROGRAM.FILE ./bit/rm_mul_partial.bit [current_hw_device]\nprogram_hw_devices [current_hw_device]      ;# device stays configured; only the RP changes",
+      "notes": "Only one client may drive the ICAP (SEM conflicts). The full bitstream must have been loaded first with the matching static design; loading a partial from a different static design corrupts the device until a full reconfiguration.",
+      "docs": "https://docs.amd.com/r/en-US/ug909-vivado-partial-reconfiguration/Configuring-the-Device"
+    },
+    {
+      "name": "read_checkpoint -incremental / -auto_incremental (incremental implementation flow)",
+      "kind": "tcl-command",
+      "description": "Incremental implementation re-uses placement and routing from a previous routed checkpoint of a similar design so small RTL/constraint changes implement faster and with more predictable timing: after synthesis and before opt_design (or after opt_design in some flows) read_checkpoint -incremental <reference.dcp> loads the reference, matches cells/nets by name (and by content with -auto_incremental, which decides automatically whether reuse is worthwhile and how much), and the subsequent place_design/route_design keep the matched parts fixed and implement only the changes. -directive RuntimeOptimized|TimingClosure|Quick sets the trade-off; -fix_objects lets the reuse be restricted; report_incremental_reuse shows the reuse percentages. In Project Mode the same is INCREMENTAL_CHECKPOINT / AUTO_INCREMENTAL_CHECKPOINT on the run.",
+      "usage": "read_checkpoint -incremental [-auto_incremental] [-directive RuntimeOptimized|TimingClosure|Quick] [-only_reuse <cells>] [-fix_objects <objects>] [-reuse_objects <objects>] [-quiet] <reference_routed.dcp>\n# project mode\nset_property INCREMENTAL_CHECKPOINT ./ref/impl_1_routed.dcp [get_runs impl_1]\nset_property AUTO_INCREMENTAL_CHECKPOINT 1 [get_runs impl_1]",
+      "parameters": [
+        {"name": "<reference_routed.dcp>", "description": "A fully routed checkpoint of the previous implementation (same part)."},
+        {"name": "-auto_incremental", "description": "Compare the designs and skip incremental reuse when the change is too large (<~ 5% similarity threshold)."},
+        {"name": "-directive", "description": "RuntimeOptimized (default, reuse as much as possible), TimingClosure (re-optimise timing-critical logic), Quick (fastest, for low-effort changes)."},
+        {"name": "-reuse_objects / -fix_objects", "description": "Limit reuse to a set of cells or pin down objects."}
+      ],
+      "example": "synth_design -top top -part xcku5p-ffvb676-2-e\nopt_design\nread_checkpoint -incremental -directive TimingClosure ./ref/post_route_ref.dcp\nplace_design\nphys_opt_design\nroute_design\nreport_incremental_reuse -file inc_reuse.rpt\nwrite_checkpoint -force ./post_route.dcp   ;# becomes the next reference",
+      "notes": "Reuse is highest when synthesis names are stable (same synthesis options, no -flatten_hierarchy changes) and the reference met timing. Very small changes can also use the ECO flow instead. Incremental synthesis (set_property INCREMENTAL_SYNTHESIS / synth_design -incremental) is a separate feature reusing synthesis results per hierarchy.",
+      "docs": "https://docs.amd.com/r/en-US/ug904-vivado-implementation/Incremental-Implementation-Flows"
+    },
+    {
+      "name": "Intelligent Design Runs (IDR) / create_rqs_runs / ML strategies",
+      "kind": "tcl-command",
+      "description": "Intelligent Design Runs (Vivado ML, 2021.1+) automate timing closure in Project Mode: an IDR is a special implementation run that first runs the design with a default strategy, then applies the QoR suggestions from report_qor_suggestions (RQS) automatically, and finally runs up to three ML-predicted strategies (from the RQS ML strategy suggestions) in parallel, keeping the best result; the whole sequence appears as one run (impl_1 with stages) in the Design Runs window. In Tcl, create_rqs_runs creates the implementation runs for the strategies contained in an .rqs file produced by write_qor_suggestions -strategy_dir, and launch_runs starts them.",
+      "usage": "# GUI: Design Runs > right-click impl run > Create Intelligent Design Run (creates impl_1_1? child stages) ; or\ncreate_run impl_idr -flow {Vivado IDR Flow 2024} -parent_run synth_1\nlaunch_runs impl_idr -to_step write_bitstream -jobs 8\n# strategy runs from an RQS file\nread_qor_suggestions ./rqs/impl_1_post_route.rqs\ncreate_rqs_runs -rqs_files ./rqs/impl_1_post_route.rqs [-run_type impl] [-strategy_id <list>]? see help\nlaunch_runs [get_runs impl_1_ml_strategy*] -jobs 12",
+      "parameters": [
+        {"name": "IDR stages", "description": "Stage 1 default implementation + RQS generation, Stage 2 implementation with RQS applied (and optional user RQS), Stage 3 up to three ML strategy runs; the best stage's results are used."},
+        {"name": "create_rqs_runs", "description": "Create runs named <impl>_ml_strategy_<n> from the strategies stored in the RQS file (2021.2+; option names per release: run create_rqs_runs -help)."},
+        {"name": "Run properties", "description": "RQS_FILES on a run applies suggestions; IDR-related properties are visible in report_property [get_runs impl_idr]."}
+      ],
+      "example": "# Two-step manual equivalent of an IDR\nopen_run impl_1\nreport_qor_suggestions -max_strategies 3\nwrite_qor_suggestions -strategy_dir ./rqs/strategies -force ./rqs/impl_1.rqs\ncreate_rqs_runs -rqs_files ./rqs/impl_1.rqs\nlaunch_runs [get_runs -filter {NAME =~ *ml_strategy*}] -to_step route_design -jobs 12",
+      "notes": "ML strategies are generated only from a routed design that is close to closure (e.g. WNS > -0.5 ns); for large negative slack, fix RQS design suggestions first. IDR requires Vivado ML (Standard or Enterprise) 2021.1+.",
+      "docs": "https://docs.amd.com/r/en-US/ug904-vivado-implementation/Intelligent-Design-Runs"
+    },
+    {
+      "name": "Implementation strategies (Performance_Explore, Performance_ExplorePostRoutePhysOpt, Performance_NetDelay_high/low, Performance_Retiming, Performance_ExtraTimingOpt, Performance_RefinePlacement, Performance_SpreadSLLs, Performance_BalanceSLLs, Performance_HighUtilSLRs, Congestion_SpreadLogic_high/medium/low, Congestion_SSI_SpreadLogic_high/low, Area_Explore, Area_ExploreSequential, Area_ExploreWithRemap, Power_DefaultOpt, Power_ExploreArea, Flow_RunPhysOpt, Flow_RunPostRoutePhysOpt, Flow_RuntimeOptimized, Flow_Quick)",
+      "kind": "reference",
+      "description": "Named presets of the implementation step options, selectable with set_property strategy on an implementation run (or Settings > Implementation > Strategy) and viewable in Tools > Settings > Strategies: Vivado Implementation Defaults (balanced), Performance_* (Explore enables opt/place/phys_opt/route Explore directives; ExplorePostRoutePhysOpt adds post-route phys_opt; NetDelay_high/low adjust the placer's net-delay pessimism; Retiming adds phys_opt retiming; ExtraTimingOpt and RefinePlacement use additional phys_opt and placer directives; SpreadSLLs/BalanceSLLs/HighUtilSLRs are for SSI devices), Congestion_* (SpreadLogic variants for congested designs, SSI variants for multi-SLR), Area_* (area-oriented opt_design remap/resynth_area/sequential optimisations), Power_* (power_opt_design enabled with power directives) and Flow_* (RunPhysOpt/RunPostRoutePhysOpt add phys_opt steps; RuntimeOptimized and Quick trade QoR for run time). Each strategy is only a bundle of STEPS.*.ARGS.DIRECTIVE / IS_ENABLED / MORE OPTIONS values that can be overridden individually.",
+      "usage": "set_property strategy Performance_ExplorePostRoutePhysOpt [get_runs impl_1]\nreport_property [get_runs impl_1] STEPS.*\n# equivalent explicit settings\nset_property STEPS.OPT_DESIGN.ARGS.DIRECTIVE Explore [get_runs impl_1]\nset_property STEPS.PLACE_DESIGN.ARGS.DIRECTIVE Explore [get_runs impl_1]\nset_property STEPS.PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]\nset_property STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE Explore [get_runs impl_1]\nset_property STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE Explore [get_runs impl_1]\nset_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]\nset_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE Explore [get_runs impl_1]",
+      "parameters": [
+        {"name": "Performance_Explore", "description": "First strategy to try for timing; run time roughly 1.5-2x default."},
+        {"name": "Congestion_SpreadLogic_high", "description": "For designs with routing congestion (report_design_analysis -congestion); spreads logic at the cost of longer nets."},
+        {"name": "Area_Explore / Area_ExploreWithRemap", "description": "Reduce LUT count via opt_design -resynth_area / -remap."},
+        {"name": "Flow_Quick", "description": "Quick placer/router directives for functional bring-up; do not use for timing sign-off."},
+        {"name": "Custom strategies", "description": "Tools > Settings > Strategies > + creates user strategies saved in the user settings directory and usable in set_property strategy."}
+      ],
+      "example": "# Explore several strategies in parallel with copies of the run\nforeach s {Performance_Explore Performance_NetDelay_high Congestion_SpreadLogic_high Performance_ExtraTimingOpt} {\n  copy_run -name impl_$s [get_runs impl_1]\n  set_property strategy $s [get_runs impl_$s]\n}\nlaunch_runs [get_runs impl_Performance*] [get_runs impl_Congestion*] -jobs 16\n# compare: report_property per run WNS via get_property STATS.WNS [get_runs impl_X]",
+      "notes": "Strategy names carry the release year (the flow is 'Vivado Implementation 2024'); older strategies may be renamed or dropped. The run's STATS.WNS/STATS.TNS/STATS.WHS properties give quick results after each run for scripts. See also the synthesis strategies and the report_qor_suggestions ML strategies.",
+      "docs": "https://docs.amd.com/r/en-US/ug904-vivado-implementation/Implementation-Strategy-Descriptions"
+    },
+    {
+      "name": "Synthesis strategies (Flow_AreaOptimized_high/medium, Flow_AreaMultThresholdDSP, Flow_AlternateRoutability, Flow_PerfOptimized_high, Flow_PerfThresholdCarry, Flow_RuntimeOptimized) and synth_design directives",
+      "kind": "reference",
+      "description": "Preset bundles of synth_design options for a synthesis run (set_property strategy on synth_1): Vivado Synthesis Defaults (-directive Default), Flow_AreaOptimized_high / _medium (-directive AreaOptimized_high/medium: fewer LUTs via resource sharing, control-set threshold changes), Flow_AreaMultThresholdDSP (map smaller multipliers to DSPs, -directive AreaMultThresholdDSP), Flow_AlternateRoutability (-directive AlternateRoutability: fewer MUXF/carry structures for routability, no LUT combining), Flow_PerfOptimized_high (-directive PerformanceOptimized: keep fanout low via -fanout_limit 400, -fsm_extraction one_hot, -keep_equivalent_registers, -resource_sharing off, -no_lc, -shreg_min_size 5), Flow_PerfThresholdCarry (-directive PerformanceOptimized with carry-chain thresholds) and Flow_RuntimeOptimized (-directive RuntimeOptimized: fewer optimisations, no retiming). synth_design also accepts -directive values directly in non-project flows, together with -retiming, -fsm_extraction, -flatten_hierarchy, -resource_sharing, -control_set_opt_threshold, -shreg_min_size, -no_lc, -fanout_limit, -max_bram/-max_dsp/-max_uram, -keep_equivalent_registers and -bufg.",
+      "usage": "set_property strategy Flow_PerfOptimized_high [get_runs synth_1]\nreport_property [get_runs synth_1] STEPS.SYNTH_DESIGN.ARGS.*\n# non-project\nsynth_design -top top -part xcvu9p-flga2104-2L-e -directive PerformanceOptimized -retiming -fanout_limit 400 -keep_equivalent_registers -shreg_min_size 5 -control_set_opt_threshold 4",
+      "parameters": [
+        {"name": "-directive", "description": "Default, RuntimeOptimized, AreaOptimized_high, AreaOptimized_medium, AlternateRoutability, AreaMultThresholdDSP, AreaMapLargeShiftRegToBRAM, PerformanceOptimized, LogicCompaction? (release dependent: run synth_design -help)."},
+        {"name": "-retiming", "description": "Global forward/backward register retiming for timing (2019.1+)."},
+        {"name": "-fanout_limit / MAX_FANOUT", "description": "Global replication threshold vs per-object attribute."},
+        {"name": "-control_set_opt_threshold", "description": "Fanout below which enables/resets are folded into LUTs (reduces control sets)."},
+        {"name": "-shreg_min_size / -no_srlextract", "description": "SRL inference thresholds."},
+        {"name": "-max_bram / -max_dsp / -max_uram", "description": "Caps for inference of block resources."}
+      ],
+      "example": "# Project mode extras on top of a strategy\nset_property STEPS.SYNTH_DESIGN.ARGS.MORE\\ OPTIONS {-max_dsp 400 -verilog_define BOARD=ZCU104} [get_runs synth_1]\nset_property STEPS.SYNTH_DESIGN.ARGS.RETIMING true [get_runs synth_1]\nreset_run synth_1; launch_runs synth_1 -jobs 8",
+      "notes": "Synthesis strategies interact with implementation: PerformanceOptimized designs are larger (less sharing) and can congest. Retiming moves registers across logic and changes names, which hurts incremental flows and debug-core insertion constraints.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/Vivado-Synthesis-Directives"
+    },
+    {
+      "name": "Out-of-context (OOC) synthesis of hierarchical modules (synth_design -mode out_of_context, OOC XDC, HD.* properties)",
+      "kind": "reference",
+      "description": "Synthesizing a sub-module separately from the top so its netlist (DCP) is reused without re-synthesis and can be locked for hierarchical/team design or DFX: synth_design -mode out_of_context -top <module> prevents I/O buffer insertion and treats the module ports as internal; an OOC XDC (read_xdc -mode out_of_context, or set_property USED_IN out_of_context on the file) defines clocks on the module's clock ports for standalone timing; the resulting DCP is linked into the top with read_checkpoint -cell (non-project) or, in Project Mode, by creating an OOC module run (right-click hierarchy > Set as Out-of-Context for Synthesis, which creates <module>_synth_1 and marks the instance a black box in the top synthesis). Timing constraints inside the OOC module must be scoped (current_instance) when re-applied in the top design.",
+      "usage": "# OOC synthesis of a sub-module\nread_verilog [glob ./rtl/dsp_core/*.v]\nread_xdc -mode out_of_context ./constrs/dsp_core_ooc.xdc\nsynth_design -top dsp_core -part xcku5p-ffvb676-2-e -mode out_of_context\nwrite_checkpoint -force ./ooc/dsp_core.dcp\n# top-level link\nread_verilog ./rtl/top.v\nread_checkpoint -cell u_dsp_core ./ooc/dsp_core.dcp\nsynth_design -top top -part xcku5p-ffvb676-2-e   ;# u_dsp_core stays a black box during synthesis, netlist linked afterwards\n# project mode\nset_property USED_IN {synthesis implementation out_of_context} [get_files dsp_core_ooc.xdc]\ncreate_fileset -blockset dsp_core ; # or GUI: Set as Out-Of-Context for Synthesis",
+      "parameters": [
+        {"name": "-mode out_of_context", "description": "No IOBUF insertion, ports treated as internal pins, top-level clock constraints from the OOC XDC."},
+        {"name": "read_xdc -mode out_of_context", "description": "Marks the file's constraints as OOC-only (not applied when linked into the top)."},
+        {"name": "read_checkpoint -cell", "description": "Populate a black-box instance with a synthesized (or implemented) DCP."},
+        {"name": "HD.PARTITION / HD.RECONFIGURABLE", "description": "Properties marking a cell as a (reconfigurable) partition for the hierarchical/DFX flows so its content is not optimised across the boundary."}
+      ],
+      "example": "# Project mode OOC module run via Tcl\ncreate_fileset -blockset -define_from u_dsp_core dsp_core\nset_property top dsp_core [get_filesets dsp_core]\ncreate_run dsp_core_synth_1 -flow {Vivado Synthesis 2024} -srcset dsp_core\nlaunch_runs dsp_core_synth_1 ; wait_on_run dsp_core_synth_1\nlaunch_runs synth_1   ;# top synthesis uses the OOC DCP",
+      "notes": "OOC modules cannot be optimised across their boundary (no constant propagation into them), and their ports become hierarchy pins in timing paths. IP is synthesized OOC by default (generate_synth_checkpoint), which is where most designs meet this flow.",
+      "docs": "https://docs.amd.com/r/en-US/ug949-vivado-design-methodology/Out-of-Context-Synthesis"
+    },
+    {
+      "name": "Hierarchical / team design: read_checkpoint -cell, lock_design, update_design -cell -black_box",
+      "kind": "tcl-command",
+      "description": "Building a design from separately implemented pieces: read_checkpoint -cell <cell> <dcp> imports a synthesized, placed or routed checkpoint into a black-box instance of an open design (the basis of DFX, Abstract Shell and team flows); lock_design -level logical|placement|routing freezes the imported (or whole) design so later opt/place/route steps cannot modify it (routing lock is used on the static part of DFX designs and on reused blocks); update_design -cells <cell> -black_box removes a cell's contents to turn it back into a black box (or -from_file / -buffer_ports to replace it with another netlist or an empty buffered shell); -strict on read_checkpoint enforces exact interface matching. These form the 'Hierarchical Design' (UG905) module-reuse and preservation flows.",
+      "usage": "read_checkpoint -cell <hier_cell> [-strict] [-dcp_cell_list? see help] <module.dcp>\nlock_design [-level logical|placement|routing] [-unlock] [-export] [-cell <cell>] [-quiet]\nupdate_design -cells <cells> (-black_box | -from_file <netlist> | -from_cell <cell> | -buffer_ports) [-strict] [-quiet]\nwrite_checkpoint -cell <cell> [-force] <cell_only.dcp>",
+      "parameters": [
+        {"name": "read_checkpoint -cell", "description": "Import into an existing black box; the DCP's top must match the cell's ports (names, widths)."},
+        {"name": "lock_design -level", "description": "logical (netlist), placement (adds LOC fixed), routing (adds fixed routes); -unlock releases; -export writes the corresponding constraints? use write_xdc -add_netlist_placement."},
+        {"name": "update_design -black_box / -buffer_ports", "description": "Empty the cell; buffer_ports inserts LUT1 buffers so nets stay routable (greybox)."},
+        {"name": "write_checkpoint -cell", "description": "Write a checkpoint of one hierarchy for re-use elsewhere."}
+      ],
+      "example": "# Reuse an implemented block with its placement and routing preserved\nopen_checkpoint ./top_synth.dcp\nread_checkpoint -cell u_pcie_block ./blocks/pcie_block_routed.dcp\nlock_design -level routing -cell u_pcie_block\nopt_design; place_design; route_design    ;# only the rest of the design moves\n# DFX static with a black-box RP\nopen_checkpoint ./config1_routed.dcp\nupdate_design -cell u_rp0 -black_box\nlock_design -level routing\nwrite_checkpoint -force ./static_routed.dcp",
+      "notes": "Preserving placement of a block requires that the block was implemented in the same device location context (same Pblock/site ranges); use Pblocks for the block in both flows. Import of routed blocks needs CONTAIN_ROUTING on their Pblock in the original implementation.",
+      "docs": "https://docs.amd.com/r/en-US/ug905-vivado-hierarchical-design"
+    },
+    {
+      "name": "create_cell / create_net / create_pin / create_port (ECO netlist editing)",
+      "kind": "tcl-command",
+      "description": "Netlist-creation commands of the ECO flow (on a synthesized or implemented checkpoint, usually post-route): create_cell -reference <primitive_or_module> adds a new instance (LUT, FDRE, BUFG, ... or a hierarchical module already in the design), create_net creates nets (-from/-to for buses), create_pin adds pins to hierarchical cells so a net can cross a hierarchy, and create_port adds top-level ports (rarely used after implementation because a new port needs a package pin and buffer). Together with connect_net/disconnect_net they let you fix a bug or add debug logic without re-running synthesis, followed by place_cell and route_design -nets on the affected nets and write_bitstream.",
+      "usage": "create_cell -reference <ref> [-black_box] [-quiet] <cell_names>\ncreate_net [-from <n> -to <m>] [-quiet] <net_names>\ncreate_pin -direction IN|OUT|INOUT [-from <n> -to <m>] [-quiet] <hier_cell/pin_names>\ncreate_port -direction IN|OUT|INOUT [-from <n> -to <m>] [-diff_pair] [-interface <intf>] [-quiet] <port_names>\nrename_cell / rename_net / rename_pin / rename_port [-quiet] -to <new_name> <object>",
+      "parameters": [
+        {"name": "-reference", "description": "Library primitive (LUT2, FDRE, BUFGCE, CARRY8 ...) or a module already present in the design (for hierarchical copies)."},
+        {"name": "-from / -to", "description": "Bus index range for nets, pins and ports."},
+        {"name": "-black_box", "description": "Create an empty cell whose contents come later (read_checkpoint -cell)."}
+      ],
+      "example": "open_checkpoint ./post_route.dcp\n# Invert a control signal: insert a LUT1 inverter between the driver and the load\nset load_pin [get_pins u_ctrl/state_reg[0]/CE]\nset net [get_nets -of_objects $load_pin]\ncreate_cell -reference LUT1 u_ctrl/eco_inv\nset_property INIT 2'h1 [get_cells u_ctrl/eco_inv]\ncreate_net u_ctrl/eco_inv_out\ndisconnect_net -net $net -objects $load_pin\nconnect_net -net $net -objects [get_pins u_ctrl/eco_inv/I0]\nconnect_net -net [get_nets u_ctrl/eco_inv_out] -objects [list [get_pins u_ctrl/eco_inv/O] $load_pin]\nplace_cell u_ctrl/eco_inv SLICE_X30Y50/A6LUT\nroute_design -nets [get_nets {u_ctrl/eco_inv_out}]\nroute_design -nets $net\nreport_route_status\nwrite_checkpoint -force ./post_route_eco.dcp\nwrite_bitstream -force ./top_eco.bit",
+      "notes": "ECO changes are not reflected in the RTL or the project's runs; record them in a script and re-apply after the next full implementation, and update the RTL. The ECO Navigator GUI provides the same operations with automatic net/pin creation. Timing must be re-checked (report_timing_summary) after routing the modified nets.",
+      "docs": "https://docs.amd.com/r/en-US/ug904-vivado-implementation/Vivado-ECO-Flow"
+    },
+    {
+      "name": "connect_net / disconnect_net",
+      "kind": "tcl-command",
+      "description": "Connect pins/ports to a net (connect_net -net <net> -objects <pins/ports>, with -hierarchical to automatically create hierarchy pins and net segments when the objects are in different hierarchies, and -net_object_list for bulk connections) or remove specific pins/ports from a net (disconnect_net -net <net> -objects <pins>, or -prune to delete the net if nothing remains). They are the core ECO rewiring commands, also used in scripts that stitch imported netlists or add debug signals before implement_debug_core.",
+      "usage": "connect_net [-hierarchical] [-basename <name>] [-net <net>] [-objects <pins_or_ports>] [-net_object_list <list>] [-dict <net pins ...>] [-quiet]\ndisconnect_net [-prune] [-net <net>] [-objects <pins_or_ports>] [-pinlist? see help] [-quiet]",
+      "parameters": [
+        {"name": "-hierarchical", "description": "Create the pins and intermediate nets needed to route through hierarchy levels (names based on -basename)."},
+        {"name": "-net / -objects", "description": "The net and the pins/ports to (dis)connect."},
+        {"name": "-prune", "description": "Delete the net when it becomes unconnected."},
+        {"name": "-net_object_list / -dict", "description": "Batch form: list of net/objects pairs."}
+      ],
+      "example": "# Route an internal net to an unused top-level port for probing (port must have a package pin and OBUF)\ncreate_port -direction OUT dbg_out\nset_property PACKAGE_PIN K17 [get_ports dbg_out]\nset_property IOSTANDARD LVCMOS33 [get_ports dbg_out]\ncreate_cell -reference OBUF dbg_obuf\nconnect_net -hierarchical -basename dbg_probe -net [get_nets u_core/u_fsm/error_flag] -objects [get_pins dbg_obuf/I]\ncreate_net dbg_out_net\nconnect_net -net dbg_out_net -objects [list [get_pins dbg_obuf/O] [get_ports dbg_out]]\nplace_design ; route_design -nets [get_nets {dbg_out_net u_core/u_fsm/error_flag}]",
+      "notes": "A pin may belong to only one net; disconnect first. Connecting across hierarchy without -hierarchical fails with 'objects in different hierarchy'. After ECO connections, unrouted nets appear in report_route_status until route_design -nets is run.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/connect_net"
+    },
+    {
+      "name": "remove_cell / remove_net / remove_pin / remove_port",
+      "kind": "tcl-command",
+      "description": "Deletion commands of the ECO flow: remove_cell deletes cells (leaf or hierarchical, with their contents), remove_net deletes nets (-prune also removes dangling driver/loads created by the removal), remove_pin removes pins from hierarchical cells and remove_port removes top-level ports. Used to strip debug cores or unused logic from a checkpoint, to replace a cell with a different primitive (remove then create), and to clean up after disconnect_net.",
+      "usage": "remove_cell [-quiet] <cells>\nremove_net [-prune] [-quiet] <nets>\nremove_pin [-quiet] <pins>\nremove_port [-quiet] <ports>",
+      "parameters": [
+        {"name": "-prune (remove_net)", "description": "Also delete pins/cells left without connections."}
+      ],
+      "example": "# Delete an ILA core from a routed checkpoint (alternative: delete_debug_core in the insertion flow)\nremove_cell [get_cells -hier -filter {REF_NAME =~ *ila_v6*}]\nremove_net -prune [get_nets -hier -filter {ROUTE_STATUS == NOLOADS || ROUTE_STATUS == NODRIVER}]\nreport_route_status",
+      "notes": "Removing a cell leaves its nets with missing driver/loads (NODRIVER/NOLOADS in report_route_status); either connect them or remove_net -prune. Cells with DONT_TOUCH can still be removed by ECO commands.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/remove_cell"
+    },
+    {
+      "name": "place_cell / unplace_cell / swap_locs",
+      "kind": "tcl-command",
+      "description": "Manual placement: place_cell puts a cell on a site (and BEL) specified as SITE or SITE/BEL, or -force? moves an already placed one; unplace_cell removes the placement of cells so place_design can re-place them (typical after ECO changes to cells that no longer fit, or to un-fix a hand placement); swap_locs exchanges the placement of two cells or ports of compatible type (e.g. two IO ports to try alternate pinouts, or two registers to test a placement hypothesis). All work on placed or routed designs and leave connected nets unrouted where necessary.",
+      "usage": "place_cell [-quiet] <cell1 site1[/bel1] cell2 site2 ...>\nunplace_cell [-quiet] <cells>\nswap_locs [-quiet] <object1> <object2>",
+      "parameters": [
+        {"name": "<cell> <site>[/<bel>]", "description": "Pairs of cell and location, e.g. u_eco_reg SLICE_X20Y30/AFF, u_bufg BUFGCE_X0Y10, u_ram RAMB36_X2Y10."},
+        {"name": "swap_locs objects", "description": "Two cells, or two ports (package pins), of the same kind."}
+      ],
+      "example": "place_cell u_ctrl/eco_reg SLICE_X31Y50/BFF u_ctrl/eco_lut SLICE_X31Y50/B6LUT\nroute_design -nets [get_nets -of_objects [get_cells {u_ctrl/eco_reg u_ctrl/eco_lut}]]\n# move a block RAM and re-route its nets\nunplace_cell [get_cells u_buf/mem_reg_0]\nplace_cell u_buf/mem_reg_0 RAMB36_X3Y12\nroute_design -nets [get_nets -of_objects [get_pins -of_objects [get_cells u_buf/mem_reg_0]]]\n# try a different pin assignment quickly\nswap_locs [get_ports led0] [get_ports led1]",
+      "notes": "place_cell fails if the site is occupied or the BEL is illegal for the cell type; get_bels -of_objects [get_sites X] lists candidates. Placed cells from place_cell are marked IS_LOC_FIXED so later place_design does not move them (reset with set_property IS_LOC_FIXED 0).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/place_cell"
+    },
+    {
+      "name": "route_design -nets / -pins / -unroute / -preserve / -physical_nets (ECO and incremental routing)",
+      "kind": "tcl-command",
+      "description": "Routing options for partial re-routing after ECO or manual changes: -nets routes only the given nets (leaving everything else untouched), -pins routes only to specific load pins, -unroute removes routing (of the whole design or the listed nets), -preserve keeps existing routing on nets that are already routed and only completes the rest, -physical_nets routes the physical (power/ground? no: nets with fixed routes? see notes) subset, -re_route? (release dependent) re-routes to improve timing, and -delay/-auto_delay/-no_timing_driven select timing-driven vs. fastest routing for the subset. Combined with report_route_status they close an ECO without disturbing the rest of the routed design.",
+      "usage": "route_design -nets <nets> [-delay | -no_timing_driven] [-preserve] [-quiet]\nroute_design -pins <pins> [-quiet]\nroute_design -unroute [-nets <nets>]\nroute_design -preserve                    ;# route only unrouted/partially routed nets, keep the rest\nroute_design -physical_nets\nreport_route_status -show_all",
+      "parameters": [
+        {"name": "-nets", "description": "Restrict routing to these nets (from get_nets), as after ECO edits."},
+        {"name": "-pins", "description": "Route only the connections to the given pins."},
+        {"name": "-unroute", "description": "Remove routing of the design or of -nets."},
+        {"name": "-preserve", "description": "Do not rip up existing routes; complete unrouted ones only."},
+        {"name": "-delay", "description": "Route the subset for minimum delay (timing-driven); -no_timing_driven for speed."},
+        {"name": "-physical_nets", "description": "Route only the global/physical nets (e.g. after adding a BUFG)."}
+      ],
+      "example": "# after ECO cell insertion\nroute_design -nets [get_nets {u_ctrl/eco_inv_out u_ctrl/eco_in}] -delay\nreport_route_status -show_all\nreport_timing -through [get_pins u_ctrl/eco_inv/O] -max_paths 2\n# rip up and re-route one problematic net\nroute_design -unroute -nets [get_nets long_net]\nroute_design -nets [get_nets long_net] -delay",
+      "notes": "Partially routed designs cannot produce a bitstream (write_bitstream checks for unrouted nets). The ECO Navigator's 'Route Design' button runs route_design -preserve for the changed nets. Fixed routes (IS_ROUTE_FIXED) are never touched.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/route_design"
+    },
+    {
+      "name": "ECO Navigator (Layouts > ECO)",
+      "kind": "panel",
+      "description": "The GUI for the ECO flow, available when a routed (or placed) checkpoint is opened with open_checkpoint (not from a run): the ECO Navigator panel groups Edit (Create Cell, Create Net, Create Port, Create Pin, Connect Net, Disconnect Net, Replace Debug Probes, Remove Cell/Net/Pin/Port), Run (Check ECO, Optimize Logical Design, Place Design, Optimize Physical Design, Route Design), Report (Report Timing Summary, Report Route Status, Report DRC, ...) and Program (Write Bitstream, Write Debug Probes, Write Checkpoint), with a Scratch Pad window tracking the changed objects and their placement/routing status. Every button issues the corresponding Tcl (create_cell, connect_net, place_design -? incremental, route_design -preserve ...), echoed to the console so the ECO can be scripted for re-application.",
+      "usage": "open_checkpoint ./impl_1/top_routed.dcp  (File > Checkpoint > Open); Layouts > ECO; ECO Navigator: Edit > Create Cell / Connect Net ... ; Run > Check ECO > Place Design > Route Design; Program > Write Bitstream",
+      "parameters": [
+        {"name": "Scratch Pad", "description": "Lists objects touched by the ECO with 'Con' (connected), 'Plc' (placed), 'Rte' (routed) check boxes; selecting them cross-probes the Device/Schematic windows."},
+        {"name": "Replace Debug Probes", "description": "Change the nets connected to existing ILA probes without re-implementation (modify_debug_ports), then Write Debug Probes for a new .ltx."},
+        {"name": "Check ECO", "description": "Runs design-rule checks on the modified netlist before placement."},
+        {"name": "Optimize Logical / Physical Design", "description": "Runs opt_design / phys_opt_design restricted to the changed objects."}
+      ],
+      "example": "1. File > Checkpoint > Open > impl_1/top_routed.dcp\n2. Layouts > ECO; in the Schematic, select the net driving the wrong polarity\n3. ECO Navigator > Create Cell (LUT1) > set INIT 2'h1 in Cell Properties; Disconnect Net at the load pin; Connect Net through the new LUT\n4. Run > Check ECO > Place Design > Route Design; Report > Report Timing Summary\n5. Program > Write Bitstream > top_eco.bit; File > Checkpoint > Write > top_routed_eco.dcp",
+      "notes": "The ECO flow is meant for small changes late in the schedule; document them and merge back into the RTL. Replacing debug probes is the most common ECO (no re-implementation for a new set of probed nets, provided the nets exist in the routed netlist).",
+      "docs": "https://docs.amd.com/r/en-US/ug904-vivado-implementation/Vivado-ECO-Flow"
+    },
+    {
+      "name": "modify_debug_ports (Replace Debug Probes ECO)",
+      "kind": "tcl-command",
+      "description": "Re-assign the nets probed by an existing ILA core in a placed/routed design without changing the core, then route the new probe connections and write a new .ltx and bitstream: the ECO equivalent of editing the debug probes, letting you move a probe from one signal to another when the originally probed net turned out to be the wrong one. Only nets that exist in the implemented netlist (and are not absorbed into LUTs) can be probed.",
+      "usage": "modify_debug_ports -probes {{<core>/probeN <bit> <new_net>} ...} [-quiet]\nroute_design -preserve\nwrite_debug_probes -force ./new.ltx\nwrite_bitstream -force ./top_newprobes.bit",
+      "parameters": [
+        {"name": "-probes", "description": "List of {port bit_index net} triples describing the new connections (bit index within the probe port)."}
+      ],
+      "example": "open_checkpoint ./impl_1/top_routed.dcp\nmodify_debug_ports -probes {{u_ila_0/probe0 0 u_core/u_fsm/state_reg[0]} {u_ila_0/probe0 1 u_core/u_fsm/state_reg[1]}}\nroute_design -preserve\nreport_route_status\nwrite_debug_probes -force ./debug/top_eco.ltx\nwrite_bitstream -force ./bit/top_eco.bit",
+      "notes": "Probe widths cannot change; a wider signal needs a re-implementation with a larger probe. MARK_DEBUG on candidate nets keeps them available for this ECO by preventing optimisation.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/modify_debug_ports"
+    },
+    {
+      "name": "write_iphys_opt_tcl / read_iphys_opt_tcl (interactive physical optimization replay)",
+      "kind": "tcl-command",
+      "description": "Capture the netlist changes made by phys_opt_design (register replication, retiming, hold fixing, placement moves, BRAM/DSP register pushes) as a Tcl script with write_iphys_opt_tcl, and replay them on a later implementation with read_iphys_opt_tcl (typically right after place_design, or with -place to also apply placement), so that hard-won phys_opt results are reproduced deterministically in subsequent runs or in the incremental flow. -include_skipped_optimizations and -only_place? control which optimizations are written and applied.",
+      "usage": "write_iphys_opt_tcl [-place] [-include_skipped_optimizations] [-force] [-quiet] <file.tcl>\nread_iphys_opt_tcl [-fanout_opt] [-critical_cell_opt] [-placement_opt] [-rewire] [-dsp_register_opt] [-bram_register_opt] [-uram_register_opt] [-shift_register_opt] [-auto_pipeline] [-hold_fix] [-critical_pin_opt] [-include_skipped_optimizations] [-place] [-quiet] <file.tcl>",
+      "parameters": [
+        {"name": "-place", "description": "Include/apply placement of the new or moved cells."},
+        {"name": "Optimization selectors (read)", "description": "Replay only the chosen categories (-fanout_opt, -rewire, -hold_fix ...)."},
+        {"name": "-include_skipped_optimizations", "description": "Also write the optimizations phys_opt considered but did not apply."}
+      ],
+      "example": "# Reference run\nplace_design; phys_opt_design -directive AggressiveExplore\nwrite_iphys_opt_tcl -place -force ./iphys_opt.tcl\nroute_design\n# Next run with changed RTL elsewhere\nplace_design\nread_iphys_opt_tcl -place ./iphys_opt.tcl\nroute_design",
+      "notes": "Optimizations referencing cells that no longer exist are skipped with warnings. Part of the 'interactive design optimization' features of UG904; useful with incremental compile and in team flows.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_iphys_opt_tcl"
+    },
+    {
+      "name": "create_macro / update_macro / delete_macros (relatively placed macros)",
+      "kind": "tcl-command",
+      "description": "Define a Relatively Placed Macro (RPM) from Tcl: create_macro names the macro and update_macro assigns member cells with their relative locations (RLOC-style X/Y offsets and BELs), so the placer keeps the group's shape and internal alignment (e.g. a hand-optimised adder tree, a synchronizer pair in one slice, or a repeated DSP+register structure) while choosing the absolute location; delete_macros removes them and get_macros lists them. The RTL equivalents are the RLOC/RPM_GRID/U_SET attributes and the RLOC_ORIGIN/LOC fix on the macro.",
+      "usage": "create_macro [-quiet] <macro_name>\nupdate_macro [-absolute_grid] [-quiet] <macro_name> {<cell1> <rloc1> <cell2> <rloc2> ...}\nget_macros [-regexp] [-filter <expr>] [<patterns>]\ndelete_macros [-quiet] <macros>\nset_property LOC SLICE_X10Y20 [get_macros <macro>]   ;# fix the origin",
+      "parameters": [
+        {"name": "<rloc>", "description": "Relative location string X<n>Y<m> (optionally with BEL: X0Y0/AFF? use the site-relative form documented in UG903)."},
+        {"name": "-absolute_grid", "description": "Interpret RLOCs on the absolute device grid (RPM_GRID)."}
+      ],
+      "example": "create_macro sync_pair\nupdate_macro sync_pair {u_sync/meta_reg X0Y0 u_sync/sync_reg X0Y0}\nset_property BEL AFF [get_cells u_sync/meta_reg]\nset_property BEL BFF [get_cells u_sync/sync_reg]\n# RTL alternative\n(* RLOC = \"X0Y0\" *) FDRE meta (...); (* RLOC = \"X0Y0\" *) FDRE sync (...);",
+      "notes": "Macros constrain placement only; timing paths through them are unaffected. Prefer Pblocks or USER_SLR_ASSIGNMENT for coarse control; RPMs are for small, structural, repeated blocks.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/update_macro"
+    },
+    {
+      "name": "create_drc_check / create_drc_ruledeck / add_drc_checks / report_drc -ruledecks (custom DRCs)",
+      "kind": "tcl-command",
+      "description": "User-defined design rule checks: create_drc_check registers a check with an ID, name, severity and a Tcl procedure that inspects the design and creates violations with create_drc_violation; create_drc_ruledeck groups checks (built-in or user) into a named deck and add_drc_checks / remove_drc_checks populate it; report_drc -ruledecks <deck> or -checks <list> runs it. Built-in decks: default, bitstream, opt_checks, placer_checks, router_checks, timing_checks, incr_eco_checks, eco_checks, abs_checks. Companies use custom checks to enforce naming, reset, CDC or pin rules in CI.",
+      "usage": "create_drc_check [-hiername <h>] -name <ID> [-desc <text>] [-msg <text>] [-severity Advisory|Warning|Critical\\ Warning|Error|Fatal] -rule_body <tcl_proc_name>\ncreate_drc_violation -name <ID> [-msg <text>] [-severity <s>] [<objects>]\ncreate_drc_ruledeck [-quiet] <deck_name>\nadd_drc_checks -ruledeck <deck> [-of_objects <checks>] [-filter <expr>] [<check_patterns>]\nremove_drc_checks -ruledeck <deck> [<check_patterns>]\nreport_drc [-ruledecks <decks>] [-checks <checks>] [-name <win>] [-file <f>] [-upgrade_cw] [-quiet]\nget_drc_checks [-ruledecks <decks>] [-filter <expr>] [<patterns>]",
+      "parameters": [
+        {"name": "-rule_body", "description": "Name of a Tcl proc that runs the analysis and calls create_drc_violation for each finding."},
+        {"name": "-severity", "description": "Advisory, Warning, Critical Warning, Error, Fatal."},
+        {"name": "-upgrade_cw", "description": "Treat critical warnings as errors for the report (CI gate)."}
+      ],
+      "example": "proc check_async_reg_names {} {\n  foreach c [get_cells -hier -filter {ASYNC_REG == 1}] {\n    if {![string match *sync* [get_property NAME $c]]} {\n      create_drc_violation -name MYCO-1 -msg \"ASYNC_REG cell $c not named *sync*\" $c\n    }\n  }\n}\ncreate_drc_check -name MYCO-1 -hiername MyCompany -desc \"Synchronizer naming\" -severity Warning -rule_body check_async_reg_names\ncreate_drc_ruledeck myco_rules\nadd_drc_checks -ruledeck myco_rules MYCO-1 TIMING-* PLHOLDVIO-*\nreport_drc -ruledecks myco_rules -file myco_drc.rpt",
+      "notes": "Custom checks live only in the session; source their definition in a start-up script (Vivado_init.tcl) or the build script. report_methodology has its own fixed checks and cannot be extended.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_drc_check"
+    },
+    {
+      "name": "config_timing_analysis / config_timing_corners / set_delay_model",
+      "kind": "tcl-command",
+      "description": "Global timing-analysis settings: config_timing_analysis sets analysis behaviour such as -enable_input_delay_default_clock, -enable_preset_clear_arcs (recovery/removal on async set/reset), -disable_flight_delays, -ignore_io_paths, -timing_early_launch_at_borrowing_latches, -enable_recovery_removal? and -multi_corner? options (release dependent); config_timing_corners -corner Slow|Fast -delay_type min|max|min_max|none selects which corners/delay types are analysed (e.g. skip Fast corner during early iterations for run time); set_delay_model? is not typically used in Vivado (delay model is fixed) but exists for SDC compatibility. report_timing_summary and the Timing Summary GUI honour these settings; they are stored in the checkpoint.",
+      "usage": "config_timing_analysis [-enable_input_delay_default_clock true|false] [-enable_preset_clear_arcs true|false] [-disable_flight_delays true|false] [-ignore_io_paths true|false] [-timing_early_launch_at_borrowing_latches true|false] [-quiet]\nconfig_timing_corners -corner Slow|Fast [-delay_type min|max|min_max|none] [-quiet]\nreport_timing_summary   ;# reflects the configuration (e.g. only Slow corner max)",
+      "parameters": [
+        {"name": "-enable_preset_clear_arcs", "description": "Time asynchronous set/clear pins as timing arcs (recovery/removal checks are separate); default false."},
+        {"name": "-enable_input_delay_default_clock", "description": "Give input delays without -clock a default clock (SDC compatibility)."},
+        {"name": "-ignore_io_paths", "description": "Skip I/O paths (design without board constraints yet)."},
+        {"name": "config_timing_corners", "description": "Per corner: min, max, min_max (default) or none."}
+      ],
+      "example": "# Faster iterations: only worst-case setup during floorplanning\nconfig_timing_corners -corner Fast -delay_type none\nconfig_timing_corners -corner Slow -delay_type max\nreport_timing_summary -max_paths 5\n# restore sign-off analysis\nconfig_timing_corners -corner Fast -delay_type min_max\nconfig_timing_corners -corner Slow -delay_type min_max",
+      "notes": "Sign-off requires all corners with min_max (the default). Options and defaults are listed by config_timing_analysis -help; the Vivado timing engine has no user-selectable delay model beyond corners.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/config_timing_analysis"
+    },
+    {
+      "name": "copy_run / delete_runs / reset_runs (run management for design-space exploration)",
+      "kind": "tcl-command",
+      "description": "Duplicate an existing synthesis or implementation run with all its settings (copy_run -name <new> <run>, optionally -parent_run to attach to another synthesis run) so alternative strategies, directives or constraint sets can be explored in parallel; delete_runs removes runs and their directories; reset_runs (plural) resets several runs at once. Combined with launch_runs -jobs this is the manual form of strategy exploration that IDR automates.",
+      "usage": "copy_run [-parent_run <run>] [-verbose] -name <new_run_name> [-quiet] <run_to_copy>\ndelete_runs [-noclean_dir] [-quiet] <runs>\nreset_runs [-prev_step] [-from_step <step>] [-quiet] <runs>",
+      "parameters": [
+        {"name": "-parent_run", "description": "Synthesis run the copied implementation run should depend on."},
+        {"name": "-noclean_dir", "description": "Keep the run directory on disk when deleting the run object."},
+        {"name": "-from_step", "description": "Reset only from a given implementation step (e.g. route_design) onward."}
+      ],
+      "example": "foreach cs {constrs_1 constrs_2} {\n  copy_run -name impl_$cs [get_runs impl_1]\n  set_property constrset $cs [get_runs impl_$cs]\n}\nlaunch_runs impl_constrs_1 impl_constrs_2 -jobs 8\nwait_on_run impl_constrs_2\nforeach r [get_runs impl_constrs*] { puts \"$r WNS=[get_property STATS.WNS $r]\" }\ndelete_runs [get_runs impl_constrs_2]",
+      "notes": "Copied runs share the parent synthesis results; a change to synthesis settings needs a new synthesis run (copy_run on synth_1 plus -parent_run on the implementations).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/copy_run"
+    },
+    {
+      "name": "Timing closure techniques (pipelining, retiming, phys_opt directives, clock uncertainty over-constraint, MAX_FANOUT, placement directives, hold fixing)",
+      "kind": "reference",
+      "description": "The UG949-ordered checklist when timing fails. 1) Fix constraints first: check_timing, report_exceptions, report_clock_interaction (unsafe/asynchronous crossings without exceptions), report_methodology TIMING-* warnings. 2) Design analysis: report_design_analysis -timing -congestion -complexity shows logic levels, net delay share, congestion levels (>=5 is a problem) and Rent exponents; report_qor_assessment/report_qor_suggestions propose fixes. 3) RTL fixes: add pipeline stages on paths with many logic levels (a rule of thumb: LUT levels <= period/(~0.5 ns) on UltraScale+), reduce fanout (MAX_FANOUT, register duplication), enable synth -retiming or RETIMING_FORWARD/BACKWARD on specific registers, register BRAM/URAM/DSP outputs (DOA_REG, MREG/PREG), avoid asynchronous resets and reset on large fanout, keep control sets low, use one-hot FSMs. 4) Implementation: opt_design -directive Explore, place_design -directive (ExtraNetDelay_high, ExtraPostPlacementOpt, AltSpreadLogic_high, SSI_SpreadLogic_high, EarlyBlockPlacement), phys_opt_design -directive AggressiveExplore / AlternateReplication / AggressiveFanoutOpt / AlternateFlowWithRetiming plus post-route phys_opt, route_design -directive Explore / NoTimingRelaxation, and over-constraining with set_clock_uncertainty (0.1-0.3 ns) during place so route has margin (remove before sign-off). 5) Physical: floorplan Pblocks for the critical block near its I/O or memory, USER_SLR_ASSIGNMENT / SLR crossing registers, clock root placement (USER_CLOCK_ROOT), BUFGCE_DIV instead of MMCM outputs for related clocks, CLOCK_DELAY_GROUP. 6) Hold: normally fixed by the router; large hold violations (report_timing -hold) indicate clock skew problems (missing CLOCK_DELAY_GROUP, unsafe clock muxing) or wrong set_input_delay -min.",
+      "usage": "report_timing_summary -delay_type min_max -report_unconstrained -max_paths 10 -input_pins -routable_nets -file tsum.rpt\nreport_design_analysis -timing -max_paths 20 -congestion -complexity -file da.rpt\nreport_qor_suggestions -file rqs.rpt\nset_property STEPS.PLACE_DESIGN.ARGS.DIRECTIVE ExtraNetDelay_high [get_runs impl_1]\nset_property STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE AggressiveExplore [get_runs impl_1]\nset_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true [get_runs impl_1]\nset_clock_uncertainty -setup 0.2 [get_clocks clk_300]   ;# temporary over-constraint in an implementation-only XDC",
+      "parameters": [
+        {"name": "Logic levels", "description": "report_design_analysis 'Logic Level Distribution'; paths above the recommended levels need pipelining."},
+        {"name": "Net delay vs logic delay", "description": "High net-delay percentage indicates placement/congestion or SLR crossings rather than logic depth."},
+        {"name": "Congestion", "description": "report_design_analysis -congestion levels per direction (N/S/E/W); >= 5 needs spreading (Congestion_* strategies, Pblocks, reducing MUXF/LUT combining with -no_lc, AlternateRoutability)."},
+        {"name": "Directives", "description": "Each step's -directive list: run <step> -help; Explore family costs run time."}
+      ],
+      "example": "# Typical iteration script (non-project)\nopt_design -directive Explore\nplace_design -directive ExtraNetDelay_high\nphys_opt_design -directive AggressiveExplore\nroute_design -directive Explore\nphys_opt_design -directive AggressiveExplore   ;# post-route\nreport_timing_summary -file post_route_tsum.rpt\nreport_design_analysis -timing -max_paths 10 -file post_route_da.rpt",
+      "notes": "Timing closure without RTL changes is limited; UG949's 'Timing Closure' chapter and the Design Analysis report are the references. Keep a log of WNS/TNS per experiment (get_property STATS.WNS on runs) and change one thing at a time.",
+      "docs": "https://docs.amd.com/r/en-US/ug949-vivado-design-methodology/Timing-Closure"
+    },
+    {
+      "name": "CDC methodology (report_cdc rules CDC-1..CDC-15, synchronizer guidelines, ASYNC_REG, XPM_CDC, set_max_delay -datapath_only vs set_false_path)",
+      "kind": "reference",
+      "description": "Vivado's clock-domain-crossing rules: report_cdc classifies every crossing between asynchronous (or unrelated) clocks into structures and flags problems: CDC-1 (1-bit unknown CDC), CDC-2 (1-bit synchronized with ASYNC_REG), CDC-3 (1-bit with missing ASYNC_REG), CDC-4 (multi-bit unknown), CDC-5 (multi-bit synchronized), CDC-6 (multi-bit with missing ASYNC_REG), CDC-7 (asynchronous reset unsafe), CDC-8 (asynchronous reset synchronized), CDC-9 (asynchronous reset with missing ASYNC_REG), CDC-10 (combinational logic before synchronizer), CDC-11 (fan-out from launch flop to destination clock), CDC-12 (multi-clock fan-in to destination), CDC-13 (1-bit CDC through a MUX / CE / reset), CDC-14 (multi-bit through MUX), CDC-15 (clock enable controlled CDC). Recommended structures: 2-3 stage synchronizers with ASYNC_REG (XPM_CDC_SINGLE), gray-coded or handshake multi-bit transfers (XPM_CDC_GRAY/HANDSHAKE), asynchronous FIFOs for data, reset synchronizers (XPM_CDC_ASYNC_RST/SYNC_RST); constraints: set_clock_groups -asynchronous between unrelated clocks plus set_max_delay -datapath_only on the synchronizer inputs (bounds skew/latency) rather than blanket set_false_path which hides multi-bit skew problems; set_bus_skew for multi-bit CDC buses. report_synchronizer_mtbf quantifies the synchronizers on UltraScale+.",
+      "usage": "report_cdc -details -file cdc.rpt\nreport_cdc -severity Critical -file cdc_crit.rpt\n# constraints pattern\nset_clock_groups -asynchronous -group [get_clocks clk_a] -group [get_clocks clk_b]\nset_max_delay -datapath_only -from [get_cells src_reg] -to [get_cells sync_meta_reg] 4.0\nset_bus_skew -from [get_cells gray_ptr_reg[*]] -to [get_cells sync_ptr_reg[*]] 3.3\nset_property ASYNC_REG true [get_cells {sync_meta_reg sync_reg}]",
+      "parameters": [
+        {"name": "report_cdc options", "description": "-details (per crossing), -severity Info|Warning|Critical, -from/-to clocks, -waived, -no_waiver? (see help), -name for the GUI table with cross-probing."},
+        {"name": "Waivers", "description": "create_waiver -type CDC -id CDC-1 -from <pin> -to <pin> -description ... for crossings verified safe by design."},
+        {"name": "ASYNC_REG", "description": "Keeps synchronizer flops adjacent (same slice), prevents SRL inference and marks the chain for report_cdc/MTBF."}
+      ],
+      "example": "# Find unsafe crossings and the cells involved\nreport_cdc -details -severity Critical\nforeach v [get_cdc_violations -filter {CHECK == CDC-1 || CHECK == CDC-4}] {\n  puts \"[get_property CHECK $v]: [get_property DESCRIPTION $v]\"\n}",
+      "notes": "report_cdc requires clocks to be defined and clock groups declared; undeclared relationships appear as timed synchronous paths and are missed. UG949 'Clock Domain Crossing' and UG906 'Report CDC' document each rule with fixes.",
+      "docs": "https://docs.amd.com/r/en-US/ug906-vivado-design-analysis/Report-CDC"
+    },
+    {
+      "name": "SSI (stacked silicon) device design considerations (SLR crossings, Laguna registers, SLL routing, USER_SLR_ASSIGNMENT, SSI placer directives)",
+      "kind": "reference",
+      "description": "Large Virtex-7, Virtex UltraScale(+) and Kintex UltraScale(+) parts (and Versal Premium) are built from several dies (Super Logic Regions) on an interposer; signals between SLRs use a limited number of Super Long Lines (SLLs) with higher delay (~1 ns) and must be registered on both sides, ideally in the dedicated Laguna (TX/RX) flip-flops next to the SLR boundary. Design guidance: partition the design so high-bandwidth blocks stay within an SLR, place I/O-heavy blocks on the SLR that owns the I/O/GT columns they use, give the placer hints with USER_SLR_ASSIGNMENT (group or SLRn) or Pblocks spanning whole SLRs, pipeline SLR crossings (AXI register slices in SLR-crossing mode, or two registers with no logic between), avoid crossing high-fanout resets/enables unsynchronized, use clock roots per SLR (report_clock_utilization), and choose placer directives SSI_SpreadLogic_high/low, SSI_SpreadSLLs, SSI_BalanceSLLs, SSI_BalanceSLRs, SSI_HighUtilSLRs (strategies Performance_SpreadSLLs/BalanceSLLs/HighUtilSLRs, Congestion_SSI_SpreadLogic_*). Analysis: report_utilization -slr, report_design_analysis -complexity (per SLR), report_slr_crossing (where available), report_timing with SLR crossing paths (filter on the path's SLR properties), report_methodology SSI checks (e.g. TIMING-? for unregistered crossings).",
+      "usage": "report_utilization -slr -file util_slr.rpt\nreport_design_analysis -complexity -hierarchical_depth 1 -file cplx.rpt\nset_property USER_SLR_ASSIGNMENT SLR2 [get_cells u_hbm_stack1]\nset_property USER_SLR_ASSIGNMENT grp_dsp [get_cells {u_fir_a u_fir_b}]\nplace_design -directive SSI_SpreadLogic_high\n# AXI register slice configured for SLR crossing in the BD\nset_property -dict [list CONFIG.REG_AW {8} CONFIG.REG_AR {8} CONFIG.REG_W {8} CONFIG.REG_R {8} CONFIG.REG_B {8} CONFIG.NUM_SLR_CROSSINGS {1}] [get_bd_cells axi_register_slice_0]",
+      "parameters": [
+        {"name": "Laguna sites", "description": "LAGUNA_X*Y* with TX_REG/RX_REG BELs; the placer uses them automatically for registered crossings; get_sites -filter {SITE_TYPE == LAGUNA}."},
+        {"name": "SLL count", "description": "Per SLR boundary (thousands); over-subscription shows as routing congestion at the boundary and in report_design_analysis."},
+        {"name": "USER_SLR_ASSIGNMENT", "description": "Soft grouping; USER_CROSSING_SLR (2020.2+) marks nets that are expected to cross so the placer optimises them."}
+      ],
+      "example": "# Find nets crossing SLRs after placement\nset xslr {}\nforeach n [get_nets -hier -filter {FLAT_PIN_COUNT > 1 && TYPE == SIGNAL}] {\n  if {[llength [lsort -unique [get_slrs -of_objects [get_cells -of_objects $n]]]] > 1} { lappend xslr $n }\n}\nputs \"[llength $xslr] SLR-crossing nets\"",
+      "notes": "Configuration and the master SLR: bitstreams configure all SLRs; the master SLR holds configuration logic (IS_MASTER). Vitis platforms for Alveo pre-partition kernels per SLR (--connectivity.slr in v++). UG949 'SSI Technology Considerations' has the detailed guidelines.",
+      "docs": "https://docs.amd.com/r/en-US/ug949-vivado-design-methodology/SSI-Technology-Considerations"
+    },
+    {
+      "name": "Power analysis and optimisation flow (report_power inputs, SAIF, XPE, Power Constraints Advisor, power_opt_design, BRAM/clock gating)",
+      "kind": "reference",
+      "description": "Estimating and reducing power: early estimates come from the Xilinx/AMD Power Estimator spreadsheet (XPE, per family) filled with resource counts, toggle rates and environment, importable/exportable with report_power -xpe (export design data to XPE) and read from XPE via the .xpe file; in Vivado, report_power on an implemented design combines the routed netlist with switching activity from a SAIF (read_saif from post-implementation simulation, most accurate), from set_switching_activity annotations, or from vector-less propagation with defaults (least accurate, typically pessimistic), and the environment from set_operating_conditions; report_power -advisory? the Power Constraints Advisor (report_power in the GUI > Power Constraints Advisor, or the 'Power Constraints Advisor' report) lists the signals whose activity assumptions most affect the result (resets, enables, clocks) so they can be set explicitly. Optimisation: power_opt_design (BRAM enable gating, clock-enable insertion) with set_power_opt scoping, using BRAM_POWER_OPT / cascade options (RAM_DECOMP power), clock gating with BUFGCE for idle blocks, reducing toggle in unused logic, lower I/O drive strengths and termination, DSP/BRAM sleep modes on UltraScale+ (URAM/BRAM SLEEP pins), and processor-side power management on Zynq/Versal. Sign-off: report_power -rpx for the interactive report with per-hierarchy/per-clock breakdown and the thermal margin (junction temperature vs. limit).",
+      "usage": "report_power -file power.rpt -rpx power.rpx -xpe power.xpe -verbose\nread_saif -strip_path tb/dut ./sim/post_route.saif\nset_operating_conditions -process maximum -ambient_temp 50 -airflow 250 -heatsink medium\nreport_power -file power_saif.rpt\nset_switching_activity -deassert_resets\nset_switching_activity -type io_output -toggle_rate 10 -static_probability 0.5 -all\npower_opt_design\nreport_power_opt -file power_opt.rpt\nreport_power -hierarchical_depth 3 -file power_hier.rpt",
+      "parameters": [
+        {"name": "Activity sources (accuracy order)", "description": "Post-implementation SAIF > post-synthesis SAIF > set_switching_activity on key nets + defaults > vector-less defaults."},
+        {"name": "report_power options", "description": "-xpe (export to XPE), -rpx (interactive), -hierarchical_depth, -advisory? see -help, -verbose, -vid (voltage ID on UltraScale+), -no_propagation, -format text|xml."},
+        {"name": "power_opt_design", "description": "Run after opt_design (more freedom) or after place_design (preserves placement); excluded cells via set_power_opt -exclude_cells."},
+        {"name": "Environment", "description": "set_operating_conditions parameters dominate static power via junction temperature; document them with report_operating_conditions."}
+      ],
+      "example": "# Typical sign-off script\nopen_checkpoint ./post_route.dcp\nset_operating_conditions -ambient_temp 55 -airflow 200 -heatsink medium -board medium\nread_saif -strip_path tb_top/dut ./sim/post_route.saif -out_file saif_unmatched.txt\nreport_power -rpx ./power.rpx -file ./power.rpt -hierarchical_depth 2\nreport_switching_activity -type register -all -file activity_regs.rpt",
+      "notes": "Thermal design (heatsink/airflow) is the strongest lever on static power; verify with report_power's 'Junction Temperature' and the 'Thermal Margin'. Power optimisation may add logic on timing-critical enables; check timing after power_opt_design.",
+      "docs": "https://docs.amd.com/r/en-US/ug907-vivado-power-analysis-optimization"
+    },
+    {
+      "name": "Vivado editions and licensing (ML Standard, ML Enterprise, Lab Edition; Vivado HL legacy names)",
+      "kind": "reference",
+      "description": "Vivado ML Standard Edition (formerly WebPACK/HL WebPACK) is free and supports the smaller devices of each family (all Spartan-7, most Artix-7, Zynq-7000 up to XC7Z030? per the device table, Kintex-7 K70T/K160T, UltraScale+ KU3P/KU5P/ZU2-ZU7? etc., and selected Versal parts) with the full tool flow; Vivado ML Enterprise Edition is the licensed edition covering all devices and includes the ML-driven features (Intelligent Design Runs, ML strategies) and the larger UltraScale+/Versal parts; Vivado Lab Edition is free and contains only the Hardware Manager/programming/debug tools. Licenses (node-locked or floating via XILINXD_LICENSE_FILE / LM_LICENSE_FILE, FlexLM license.dat, managed in the Xilinx Product Licensing Site / AMD Account Product Licensing) are needed for Enterprise, for certain licensed IP (Ethernet MACs, HDMI, PCIe DMA in some configurations, etc.) and for evaluation cores whose hardware evaluation license times out; Vitis HLS and the Vitis Unified IDE are free, and many IP cores (AXI infrastructure, MicroBlaze, memory controllers, most DSP) are included without extra license. The Vivado License Manager (Help > Manage License) shows what is available and Tools > Report > Report IP Status flags IP license state.",
+      "usage": "Help > Manage License (Vivado License Manager: set license file/server, view features)\nset XILINXD_LICENSE_FILE=2100@license-server   (or LM_LICENSE_FILE)\nget_ipdefs -filter {NAME =~ *hdmi*}; report_property [get_ipdefs ...] LICENSE? (see notes)\nreport_ip_status   ;# 'Licensed' column",
+      "parameters": [
+        {"name": "Device support matrix", "description": "The Vivado release notes (UG973) table 'Device Support by Edition' lists exactly which parts are in Standard vs Enterprise per release."},
+        {"name": "IP license levels", "description": "Included, Purchase (production license required), Hardware Evaluation (timeout in hardware), Simulation Only; write_bitstream warns when an evaluation core is present."},
+        {"name": "Licensing server", "description": "FlexLM lmgrd with xilinxd daemon; port@host in XILINXD_LICENSE_FILE; 'vivado -mode batch' also needs access."}
+      ],
+      "example": "# Check license features from Tcl\nlist_features? not available; use the License Manager or\nexec lmutil lmstat -a -c 2100@license-server",
+      "notes": "Editions renamed in 2021.1 (Vivado ML); older documents refer to Vivado HL WebPACK/Design/System Edition. Alveo/Vitis acceleration platforms are supported in both ML editions for the corresponding devices.",
+      "docs": "https://www.amd.com/en/products/software/adaptive-socs-and-fpgas/vivado.html"
+    }
+  ]
+}

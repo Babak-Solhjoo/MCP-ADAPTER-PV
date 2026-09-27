@@ -1,0 +1,91 @@
+{
+  "id": "altium",
+  "name": "Altium Designer",
+  "vendor": "Altium",
+  "version_reference": "24/25",
+  "homepage": "https://www.altium.com/altium-designer",
+  "docs_root": "https://www.altium.com/documentation/altium-designer",
+  "description": "Altium Designer is a single-application PCB design environment: schematic capture, mixed-signal simulation, component and library management, PCB layout with a constraint-driven rule system, rigid-flex and multi-board design, 3D MCAD co-design, draughting and the complete manufacturing output flow all run on one unified data model inside one executable (X2.EXE). Designs are organised as projects (.PrjPcb) that bind schematics, PCB documents, libraries, output jobs and Draftsman documents together, and changes move between domains through an engineering-change-order (ECO) mechanism rather than flat netlists. It connects to the Altium 365 cloud workspace for managed components, version control, design reviews, web viewing and manufacturing release, and is extended through a built-in scripting system (DelphiScript, VBScript, JScript, EnableBasic) and a DXP/Delphi/C# SDK for full extensions.",
+  "automation": {
+    "summary": "Altium Designer is automated from inside the application rather than from a rich command line. The primary surface is the built-in Scripting System: script projects (.PrjScr) containing script units in DelphiScript (.pas, the best supported language), VBScript (.vbs), JScript (.js) or EnableBasic (.bas), run from File > Run Script, from the script editor (F9) or from the Scripts panel. Scripts reach the application in two complementary ways. (1) Server processes — every GUI command is a process string such as `PCB:Zoom` or `Sch:PlacePart`, invoked either with `ResetParameters; AddStringParameter(name,value); RunProcess('Server:Command')` or with `Client.SendMessage('Server:Command','param=value | param=value',1024,Nil)`. (2) The object API — `PCBServer` hands out `IPCB_Board` and the `IPCB_*` object interfaces, `SchServer` hands out `ISch_Document` and the `ISch_*` interfaces, and the Workspace Manager API exposes `IProject` and `IDocument`; objects are enumerated with iterators (`Board.BoardIterator_Create`, `SchDoc.SchIterator_Create`) and created with the object factories (`PCBServer.PCBObjectFactory`, `SchServer.SchObjectFactory`). Batch output generation is configured in Output Job files (.OutJob) and can be triggered from a script through the OutputJob processes. Beyond scripting, Altium ships a DXP SDK for compiled extensions (Delphi and C#), and Altium 365 / Altium Enterprise Server expose REST APIs for workspace, component and release data. Altium Designer is launched as `X2.EXE`, optionally with a project or document path.",
+    "cli": [
+      {
+        "command": "X2.EXE",
+        "description": "Launch Altium Designer. The executable lives in the version's program folder (e.g. `C:\\Program Files\\Altium\\AD24\\X2.EXE`); running a second copy from inside Altium is done with the `RunApplication` scripting call."
+      },
+      {
+        "command": "X2.EXE \"D:\\work\\board\\board.PrjPcb\"",
+        "description": "Open a project (or an individual .SchDoc/.PcbDoc) on startup. This is the documented behaviour of the DXP shell handler used by Altium 365's 'Open Project in Altium Designer' link, which is registered as `\"<path>\\X2.exe\" \"%1\"` under HKLM\\SOFTWARE\\Classes\\DXP\\shell\\open\\command."
+      },
+      {
+        "command": "AltiumDesignerXXSetup.exe -Programs:\"C:\\Program Files\\Altium\\ADXX\" -Documents:\"C:\\Users\\Public\\Documents\\Altium\\ADXX\" -UI:None -AutoInstall -InstallAll -User:\"name@example.com\" -Password:\"…\"",
+        "description": "Documented installer switches for silent deployment across multiple machines. These are installer options, not application options."
+      }
+    ],
+    "apis": [
+      {
+        "name": "Scripting System (DelphiScript / VBScript / JScript / EnableBasic)",
+        "description": "The built-in scripting engine. DelphiScript (.pas) is the default and best-supported language and implements a subset of the Delphi RTL plus the Altium API; VBScript (.vbs) and JScript (.js) scripts can also be opened and run, and legacy EnableBasic (.bas) is still supported. Scripts live in a Script Project (.PrjScr) and are run with File > Run Script, with the editor's Run command (F9), or from the Scripts panel. DelphiScript is case-insensitive except inside string literals.",
+        "example": "Procedure HelloWorld;\nBegin\n    ShowMessage('Hello from Altium');\nEnd;"
+      },
+      {
+        "name": "Server processes (RunProcess)",
+        "description": "Every Altium command is a process string of the form `Server:Command` with named parameters. From a script, parameters are pushed with `ResetParameters` followed by `AddStringParameter` (and `AddIntegerParameter`/`AddWordParameter`), and the command is executed with `RunProcess`. This is how a script drives functions that have no object-API equivalent: zooming, selecting, running DRC, generating outputs, opening documents.",
+        "example": "// Refresh the PCB workspace\nResetParameters;\nAddStringParameter('Action', 'Redraw');\nRunProcess('PCB:Zoom');\n\n// Refresh the schematic workspace\nResetParameters;\nAddStringParameter('Action', 'All');\nRunProcess('Sch:Zoom');"
+      },
+      {
+        "name": "Client.SendMessage",
+        "description": "The one-line alternative to ResetParameters/RunProcess: the whole parameter list is passed as a single pipe-separated string. Useful in VBScript and JScript where the parameter-stack helpers are clumsier, and for fire-and-forget commands.",
+        "example": "Client.SendMessage('WorkspaceManager:OpenObject', 'OpenMode=NewFromTemplate | ObjectKind=Project', 1024, Nil);"
+      },
+      {
+        "name": "PCB API (PCBServer / IPCB_* interfaces)",
+        "description": "`PCBServer.GetCurrentPCBBoard` returns the `IPCB_Board` for the active PCB document. Objects are created through `PCBServer.PCBObjectFactory(<object kind>, <dimension kind>, eCreate_Default)` and added with `Board.AddPCBObject`. Existing objects are enumerated with a board iterator (`Board.BoardIterator_Create`, then `AddFilter_ObjectSet`, `AddFilter_LayerSet`, `FirstPCBObject`/`NextPCBObject`, and `BoardIterator_Destroy`). Coordinates are internal units, so use `MilsToCoord`/`CoordToMils` and `MMsToCoord`/`CoordToMMs`. Wrap modifications in `PCBServer.PreProcess` / `PCBServer.PostProcess` so they appear as one undoable transaction.",
+        "example": "Procedure ViaCreation;\nVar\n  Board : IPCB_Board;\n  Via   : IPCB_Via;\nBegin\n  Board := PCBServer.GetCurrentPCBBoard;\n  If Board = Nil Then Exit;\n  Via           := PCBServer.PCBObjectFactory(eViaObject, eNoDimension, eCreate_Default);\n  Via.X         := MilsToCoord(7500);\n  Via.Y         := MilsToCoord(7500);\n  Via.Size      := MilsToCoord(50);\n  Via.HoleSize  := MilsToCoord(20);\n  Via.LowLayer  := eTopLayer;\n  Via.HighLayer := eBottomLayer;\n  Board.AddPCBObject(Via);\nEnd;"
+      },
+      {
+        "name": "Schematic API (SchServer / ISch_* interfaces)",
+        "description": "`SchServer.GetCurrentSchDocument` returns the `ISch_Document` for the active schematic. New objects come from `SchServer.SchObjectFactory(<object id>, eCreate_Default)` and are added with `SchDoc.RegisterSchObjectInContainer`. Existing objects are walked with `SchDoc.SchIterator_Create` plus `AddFilter_ObjectSet`, `FirstSchObject`/`NextSchObject` and `SchIterator_Destroy`. Changes are bracketed with `SchServer.ProcessControl.PreProcess` / `PostProcess` and the view is refreshed with `SchDoc.GraphicallyInvalidate`.",
+        "example": "Var\n  Doc  : ISch_Document;\n  Iter : ISch_Iterator;\n  Cmp  : ISch_Component;\nBegin\n  Doc := SchServer.GetCurrentSchDocument;\n  If Doc = Nil Then Exit;\n  Iter := Doc.SchIterator_Create;\n  Iter.AddFilter_ObjectSet(MkSet(eSchComponent));\n  Cmp := Iter.FirstSchObject;\n  While Cmp <> Nil Do Begin\n    ShowMessage(Cmp.Designator.Text);\n    Cmp := Iter.NextSchObject;\n  End;\n  Doc.SchIterator_Destroy(Iter);\nEnd;"
+      },
+      {
+        "name": "Workspace Manager API (IWorkspace / IProject / IDocument)",
+        "description": "`GetWorkspace` returns the open workspace, from which `DM_FocusedProject` / `DM_Projects(i)` give `IProject` objects and `DM_LogicalDocuments` / `DM_PhysicalDocuments` give the `IDocument` members. It is the API used to walk a project's documents, read compiled hierarchy and nets, and generate netlists — the shipped ScripterProtelNetlist example does exactly that.",
+        "example": "Var\n  WS   : IWorkspace;\n  Prj  : IProject;\n  Doc  : IDocument;\n  i    : Integer;\nBegin\n  WS  := GetWorkspace;\n  Prj := WS.DM_FocusedProject;\n  Prj.DM_Compile;\n  For i := 0 To Prj.DM_LogicalDocumentCount - 1 Do Begin\n    Doc := Prj.DM_LogicalDocuments(i);\n    ShowMessage(Doc.DM_FullPath);\n  End;\nEnd;"
+      },
+      {
+        "name": "ScriptingSystem:RunScript / RunScriptText",
+        "description": "Processes that run a script from elsewhere in Altium — from a custom menu item, a toolbar button, a keyboard shortcut or another script. `RunScript` takes a project file, a unit inside it and a procedure name; `RunScriptText` executes a literal block of script statements.",
+        "example": "Process:   ScriptingSystem:RunScript\nParameters: ProjectName=C:\\Users\\Public\\Documents\\Altium\\DelphiScript Scripts\\General\\HelloWorld.PRJSCR|ProcName=HelloWorld.pas>HelloWorld\n\nProcess:   ScriptingSystem:RunScriptText\nParameters: Text=Begin RunApplication('notepad.exe'); End;"
+      },
+      {
+        "name": "Altium 365 / Altium Enterprise Server APIs",
+        "description": "The managed-content side of Altium exposes web APIs for workspace, component, project and release data, used for ERP/PLM integration and for build systems that need to read released manufacturing packages. Access is authenticated against the Workspace and the exact endpoint set depends on the Workspace edition, so treat any specific endpoint as installation-specific and confirm it against your own Workspace documentation.",
+        "example": "1. Obtain credentials/OAuth token for the Workspace.\n2. Query the component or release endpoints documented for your Workspace edition.\n3. Consume the released manufacturing package rather than re-generating outputs."
+      },
+      {
+        "name": "Altium Designer SDK (DXP extensions)",
+        "description": "For functionality beyond scripting, Altium provides an SDK for building compiled extensions (historically Delphi, with C# support for newer extension types). Extensions register servers, panels, processes and menu items into the DXP platform and are distributed as installable extensions. It is the route for commercial add-ons rather than day-to-day automation.",
+        "example": "1. Obtain the SDK for your Altium Designer version.\n2. Implement the server/extension and its process handlers.\n3. Package as an extension and install via Extensions & Updates."
+      }
+    ],
+    "file_formats": [
+      {"extension": ".PrjPcb", "description": "PCB project file. A text file listing the member documents (schematics, PCB, libraries, OutJobs, Draftsman), the project options, error-reporting and connection-matrix settings, variants, output configurations and version control bindings."},
+      {"extension": ".SchDoc", "description": "Schematic document: one sheet of the design, holding components, wires, buses, net labels, ports, sheet symbols, parameters and directives."},
+      {"extension": ".PcbDoc", "description": "PCB document: the board, its layer stack, design rules, components, tracks, arcs, vias, pads, polygons, regions, 3D bodies and rooms."},
+      {"extension": ".SchLib", "description": "Schematic library of symbols, each with pins, parameters and links to footprint, simulation, signal-integrity and 3D models."},
+      {"extension": ".PcbLib", "description": "PCB library of footprints: pads, primitives, courtyards, 3D bodies and the footprint's own parameters."},
+      {"extension": ".IntLib", "description": "Integrated library: a compiled package containing symbols with their footprints and models in one distributable file. Built from a library package project (.LibPkg) and decompiled when editing is needed."},
+      {"extension": ".DbLib / .SVNDbLib / .DBLink", "description": "Database library files linking schematic symbols to records in an external company database (ODBC/SQL). .DbLib places from the database, .DBLink links existing placed parts to it, .SVNDbLib adds version-controlled models."},
+      {"extension": ".OutJob", "description": "Output Job file: a named, reusable configuration of assembly, fabrication, report, documentation, netlist, validation and export outputs together with their output containers (folder, PDF, print, video)."},
+      {"extension": ".PrjScr", "description": "Script project grouping script units and any script forms; it is what File > Run Script and the ScriptingSystem:RunScript process point at."},
+      {"extension": ".pas / .vbs / .js / .bas", "description": "Script unit source files for DelphiScript, VBScript, JScript and EnableBasic respectively. `.dfm` files hold the associated script forms."},
+      {"extension": ".Harness", "description": "Harness definition file describing a signal harness's constituent signals and buses, used by Harness Connectors on the schematic."},
+      {"extension": ".PrjMbd / .MbaPrj", "description": "Multi-board project and multi-board assembly files that define how several PCB projects connect and fit together as one system."},
+      {"extension": ".DsnWrk", "description": "Design workspace file grouping several projects that are worked on together."},
+      {"extension": ".SchDot / .PcbDot", "description": "Schematic and PCB template files supplying sheet borders, title blocks, default layer sets and default parameters to new documents."},
+      {"extension": ".Drwdot / Draftsman document", "description": "Draftsman drawing (and its template): a live, dimensioned fabrication or assembly drawing that updates from the board rather than being exported as static geometry."},
+      {"extension": ".Annotation / .ECO", "description": "Annotation file recording designator assignments, and the engineering change order log produced when changes are pushed between schematic and PCB."}
+    ]
+  }
+}

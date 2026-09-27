@@ -1,0 +1,506 @@
+{
+  "category": "Computer Vision & Point Cloud Toolboxes II > Point Cloud Processing, Deep Learning Detection & Segmentation, OCR Training & Fiducials",
+  "description": "Point cloud I/O, filtering, model fitting, segmentation, registration, feature matching and SLAM helpers (Point Cloud Toolbox, formerly Lidar Toolbox, and Computer Vision Toolbox), plus deep learning object detection/segmentation training data, evaluation, OCR training and fiducial/marker detection. Complements the basic computer vision entries (pointCloud, pcshow, pcregistericp, ocr, semanticseg, YOLO v4).",
+  "tools": [
+    {
+      "name": "pcread",
+      "kind": "function",
+      "description": "Reads a 3-D point cloud from a PLY or PCD file into a pointCloud object, including colors, normals and intensity when present.",
+      "usage": "ptCloud = pcread(filename)",
+      "parameters": [
+        {"name": "filename", "description": "Path to a .ply or .pcd file."}
+      ],
+      "example": "ptCloud = pcread(\"teapot.ply\");\npcshow(ptCloud)\nptCloud.Count",
+      "notes": "For LAS/LAZ use lasFileReader, for Velodyne PCAP velodyneFileReader, for E57 e57FileReader. pcwrite writes PLY/PCD.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcread.html"
+    },
+    {
+      "name": "pcwrite",
+      "kind": "function",
+      "description": "Writes a pointCloud object to a PLY or PCD file in ASCII, binary or (PCD) compressed encoding.",
+      "usage": "pcwrite(ptCloud, filename)\npcwrite(ptCloud, filename, Encoding=encodingType)",
+      "parameters": [
+        {"name": "Encoding", "description": "\"ascii\" (default), \"binary\" or \"compressed\" (PCD only)."}
+      ],
+      "example": "pc = pointCloud(rand(1000,3));\npcwrite(pc, \"random.pcd\", Encoding=\"binary\");",
+      "notes": "Organized point clouds are preserved in PCD format.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcwrite.html"
+    },
+    {
+      "name": "pcdownsample",
+      "kind": "function",
+      "description": "Downsamples a point cloud by random sampling, grid (voxel) averaging, grid nearest, or nonuniform box sampling, reducing size while preserving structure before registration or meshing.",
+      "usage": "ptCloudOut = pcdownsample(ptCloudIn, \"random\", percentage)\nptCloudOut = pcdownsample(ptCloudIn, \"gridAverage\", gridStep)\nptCloudOut = pcdownsample(ptCloudIn, \"gridNearest\", gridStep)\nptCloudOut = pcdownsample(ptCloudIn, \"nonuniformGridSample\", maxNumPoints)",
+      "parameters": [
+        {"name": "percentage", "description": "Fraction of points to keep for random sampling."},
+        {"name": "gridStep", "description": "Voxel size in world units."},
+        {"name": "maxNumPoints", "description": "Maximum points per box (>= 6) for nonuniform sampling."}
+      ],
+      "example": "pc = pcread(\"teapot.ply\");\npcDown = pcdownsample(pc, \"gridAverage\", 0.1);\nfprintf(\"%d -> %d points\\n\", pc.Count, pcDown.Count)",
+      "notes": "nonuniformGridSample preserves normals quality for ICP plane-to-plane metrics.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcdownsample.html"
+    },
+    {
+      "name": "pcdenoise",
+      "kind": "function",
+      "description": "Removes outlier noise from a point cloud using a statistical filter on the mean distance of each point to its nearest neighbors.",
+      "usage": "ptCloudOut = pcdenoise(ptCloudIn)\n[ptCloudOut, inlierIndices, outlierIndices] = pcdenoise(ptCloudIn, Name=Value)",
+      "parameters": [
+        {"name": "NumNeighbors", "description": "Neighbors used for the mean distance (default 4)."},
+        {"name": "Threshold", "description": "Outlier threshold in standard deviations (default 1.0)."}
+      ],
+      "example": "noisy = pointCloud([rand(2000,3); 5*rand(50,3)]);\n[clean, in, out] = pcdenoise(noisy, NumNeighbors=8, Threshold=1.5);\nnumel(out)",
+      "notes": "pcmedian applies median filtering to coordinates of organized clouds.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcdenoise.html"
+    },
+    {
+      "name": "pcnormals",
+      "kind": "function",
+      "description": "Estimates surface normals of a point cloud by fitting local planes to each point's nearest neighbors. Normals are needed for plane-to-plane ICP, meshing and shading.",
+      "usage": "normals = pcnormals(ptCloud)\nnormals = pcnormals(ptCloud, k)",
+      "parameters": [
+        {"name": "k", "description": "Number of neighbors (default 6)."}
+      ],
+      "example": "pc = pcread(\"teapot.ply\");\nn = pcnormals(pc, 10);\npc.Normal = n;\npcshow(pc); hold on\nquiver3(pc.Location(1:20:end,1), pc.Location(1:20:end,2), pc.Location(1:20:end,3), ...\n        n(1:20:end,1), n(1:20:end,2), n(1:20:end,3))",
+      "notes": "Normal orientation is ambiguous; flip normals toward a viewpoint if needed.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcnormals.html"
+    },
+    {
+      "name": "pcmerge",
+      "kind": "function",
+      "description": "Merges two point clouds into one using a box grid filter of given step so overlapping regions are averaged rather than duplicated; typical when stitching registered scans.",
+      "usage": "ptCloudOut = pcmerge(ptCloudA, ptCloudB, gridStep)",
+      "parameters": [
+        {"name": "gridStep", "description": "Voxel size used to merge points."}
+      ],
+      "example": "tform = pcregistericp(pcMoving, pcFixed);\nmerged = pcmerge(pcFixed, pctransform(pcMoving, tform), 0.01);",
+      "notes": "pccat concatenates without filtering; pcalign aligns and merges arrays of clouds with known poses.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcmerge.html"
+    },
+    {
+      "name": "pctransform",
+      "kind": "function",
+      "description": "Applies a rigid, similarity or affine 3-D transformation (or a per-point displacement field) to a point cloud, returning the transformed cloud with normals updated.",
+      "usage": "ptCloudOut = pctransform(ptCloudIn, tform)\nptCloudOut = pctransform(ptCloudIn, D)",
+      "parameters": [
+        {"name": "tform", "description": "rigidtform3d, simtform3d, affinetform3d (or legacy affine3d/rigid3d)."},
+        {"name": "D", "description": "M-by-3 or M-by-N-by-3 displacement field."}
+      ],
+      "example": "tform = rigidtform3d([0 0 45], [1 0 0]);    % rotation (deg) and translation\npcOut = pctransform(pcread(\"teapot.ply\"), tform);",
+      "notes": "Registration functions return rigidtform3d objects that can be passed directly.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pctransform.html"
+    },
+    {
+      "name": "pcfitplane",
+      "kind": "function",
+      "description": "Fits a plane to a point cloud with MSAC (robust RANSAC variant), optionally constrained to a reference orientation, returning a planeModel plus inlier and outlier indices. Commonly used for ground or table removal.",
+      "usage": "model = pcfitplane(ptCloud, maxDistance)\nmodel = pcfitplane(ptCloud, maxDistance, referenceVector, maxAngularDistance)\n[model, inlierIndices, outlierIndices, meanError] = pcfitplane(___, Name=Value)",
+      "parameters": [
+        {"name": "maxDistance", "description": "Maximum point-to-plane distance for inliers."},
+        {"name": "referenceVector / maxAngularDistance", "description": "Orientation constraint (e.g. [0 0 1], 5 deg)."},
+        {"name": "SampleIndices / MaxNumTrials / Confidence", "description": "RANSAC controls."}
+      ],
+      "example": "pc = pcread(\"sceneWithGround.pcd\");\n[model, ground, rest] = pcfitplane(pc, 0.05, [0 0 1], 5);\nobjects = select(pc, rest);\npcshow(objects)",
+      "notes": "Results are random; set rng for reproducibility. pcfitcylinder, pcfitsphere and pcfitcuboid fit other primitives.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcfitplane.html"
+    },
+    {
+      "name": "pcfitcylinder",
+      "kind": "function",
+      "description": "Fits a cylinder to a point cloud with MSAC, optionally with a reference axis orientation and sample indices, returning a cylinderModel (center, radius, height, orientation) and inliers.",
+      "usage": "model = pcfitcylinder(ptCloud, maxDistance)\nmodel = pcfitcylinder(ptCloud, maxDistance, referenceVector, maxAngularDistance)\n[model, inlierIndices, outlierIndices, meanError] = pcfitcylinder(___, Name=Value)",
+      "parameters": [
+        {"name": "maxDistance", "description": "Inlier distance to the cylinder surface."},
+        {"name": "SampleIndices / MaxNumTrials", "description": "Restrict sampling and iterations."}
+      ],
+      "example": "pc = pcread(\"object3d.ply\");\npc.Normal = pcnormals(pc);\nmodel = pcfitcylinder(pc, 0.01, [0 0 1], 10);\npcshow(pc); hold on; plot(model)",
+      "notes": "Requires normals (computed automatically if absent in newer releases).",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcfitcylinder.html"
+    },
+    {
+      "name": "pcfitsphere",
+      "kind": "function",
+      "description": "Fits a sphere to a point cloud with MSAC and returns a sphereModel with center and radius, along with inlier/outlier indices.",
+      "usage": "model = pcfitsphere(ptCloud, maxDistance)\n[model, inlierIndices, outlierIndices, meanError] = pcfitsphere(___, Name=Value)",
+      "parameters": [
+        {"name": "maxDistance", "description": "Maximum distance from the sphere for inliers."}
+      ],
+      "example": "[x, y, z] = sphere(40);\npc = pointCloud([x(:) y(:) z(:)]*2 + 0.02*randn(numel(x),3));\nmodel = pcfitsphere(pc, 0.05);\nmodel.Radius",
+      "notes": "Use SampleIndices from a region of interest (findNeighborsInRadius) for cluttered scenes.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcfitsphere.html"
+    },
+    {
+      "name": "pcsegdist",
+      "kind": "function",
+      "description": "Segments a point cloud into clusters using Euclidean distance: points closer than a minimum distance belong to the same cluster. A standard step to separate objects after ground removal.",
+      "usage": "labels = pcsegdist(ptCloud, minDistance)\n[labels, numClusters] = pcsegdist(ptCloud, minDistance, Name=Value)",
+      "parameters": [
+        {"name": "minDistance", "description": "Minimum Euclidean distance between clusters."},
+        {"name": "NumClusterPoints", "description": "[min max] points per valid cluster."},
+        {"name": "ParallelNeighborSearch", "description": "Use parallel neighbor search."}
+      ],
+      "example": "[labels, n] = pcsegdist(objects, 0.5, NumClusterPoints=[20 Inf]);\npcshow(objects.Location, labels); colormap(lines(n))",
+      "notes": "pcclusterprops (newer releases) computes cluster properties; segmentLidarData segments organized lidar scans.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcsegdist.html"
+    },
+    {
+      "name": "segmentGroundFromLidarData",
+      "kind": "function",
+      "description": "Segments ground points in an organized lidar point cloud using elevation angle differences between neighboring rows, returning a logical ground mask.",
+      "usage": "groundPtsIdx = segmentGroundFromLidarData(ptCloud)\ngroundPtsIdx = segmentGroundFromLidarData(ptCloud, Name=Value)",
+      "parameters": [
+        {"name": "ptCloud", "description": "Organized point cloud (M-by-N-by-3), e.g. from velodyneFileReader."},
+        {"name": "ElevationAngleDelta / InitialElevationAngle", "description": "Angle thresholds in degrees (defaults 5 and 30)."}
+      ],
+      "example": "veloReader = velodyneFileReader(\"lidarData_ConstructionRoad.pcap\", \"HDL32E\");\npc = readFrame(veloReader, 1);\ng = segmentGroundFromLidarData(pc);\nnonGround = select(pc, ~g, OutputSize=\"full\");",
+      "notes": "For unorganized clouds use pcorganize first, segmentGroundSMRF (aerial data) or pcfitplane.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/segmentgroundfromlidardata.html"
+    },
+    {
+      "name": "pcregisterndt",
+      "kind": "function",
+      "description": "Registers a moving point cloud to a fixed one using the Normal Distributions Transform, which models the fixed cloud as voxelized Gaussians; robust and fast for lidar scan matching.",
+      "usage": "tform = pcregisterndt(moving, fixed, gridStep)\n[tform, movingReg, rmse] = pcregisterndt(___, Name=Value)",
+      "parameters": [
+        {"name": "gridStep", "description": "Voxel size of the NDT grid."},
+        {"name": "InitialTransform / OutlierRatio / MaxIterations / Tolerance", "description": "Initialization and convergence controls."}
+      ],
+      "example": "fixed = pcdownsample(pc1, \"gridAverage\", 0.2);\nmoving = pcdownsample(pc2, \"gridAverage\", 0.2);\n[tform, reg, rmse] = pcregisterndt(moving, fixed, 1.0);\npcshowpair(reg, fixed)",
+      "notes": "Other registration methods: pcregistericp (ICP), pcregistercpd (CPD, nonrigid), pcregisterloam, pcregisterfgr, pcregistercorr.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcregisterndt.html"
+    },
+    {
+      "name": "pcregistercpd",
+      "kind": "function",
+      "description": "Registers two point clouds using the Coherent Point Drift algorithm with rigid, affine or nonrigid transformation models; handles noise, outliers and deformations better than ICP at higher cost.",
+      "usage": "tform = pcregistercpd(moving, fixed)\n[tform, movingReg, rmse] = pcregistercpd(moving, fixed, Name=Value)",
+      "parameters": [
+        {"name": "Transform", "description": "\"Rigid\", \"Affine\" or \"Nonrigid\" (returns a displacement field)."},
+        {"name": "OutlierRatio / MaxIterations / Tolerance / InteractionSigma / SmoothingWeight", "description": "Algorithm settings."}
+      ],
+      "example": "moving = pcdownsample(pcread(\"teapot.ply\"), \"random\", 0.1);\nfixed = pctransform(moving, rigidtform3d([0 0 30], [0.5 0 0]));\n[tform, reg] = pcregistercpd(moving, fixed, Transform=\"Rigid\");",
+      "notes": "Downsample to a few thousand points; nonrigid CPD scales poorly with point count.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcregistercpd.html"
+    },
+    {
+      "name": "extractFPFHFeatures",
+      "kind": "function",
+      "description": "Extracts Fast Point Feature Histogram (FPFH) descriptors describing local geometry around points, used for global (feature-based) registration and place recognition.",
+      "usage": "features = extractFPFHFeatures(ptCloud)\n[features, validIndices] = extractFPFHFeatures(ptCloud, indices, Name=Value)",
+      "parameters": [
+        {"name": "indices", "description": "Point indices at which to compute descriptors (all by default)."},
+        {"name": "NumNeighbors / Radius", "description": "Neighborhood definition (KNN or radius)."}
+      ],
+      "example": "f1 = extractFPFHFeatures(pcFixedDown);\nf2 = extractFPFHFeatures(pcMovingDown);\npairs = pcmatchfeatures(f1, f2, pcFixedDown, pcMovingDown);",
+      "notes": "Estimate a coarse transform from matches with estgeotform3d, then refine with ICP.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/extractfpfhfeatures.html"
+    },
+    {
+      "name": "pcmatchfeatures",
+      "kind": "function",
+      "description": "Finds matching feature pairs between two point clouds from their descriptors (e.g. FPFH), with optional spatial consistency rejection.",
+      "usage": "indexPairs = pcmatchfeatures(features1, features2)\n[indexPairs, scores] = pcmatchfeatures(features1, features2, ptCloud1, ptCloud2, Name=Value)",
+      "parameters": [
+        {"name": "MatchThreshold / RejectRatio", "description": "Distance threshold and ratio test."},
+        {"name": "Method", "description": "\"Exhaustive\" (default) or \"Approximate\"."}
+      ],
+      "example": "[pairs, sc] = pcmatchfeatures(f1, f2, pc1, pc2, RejectRatio=0.9);\nm1 = select(pc1, pairs(:,1)); m2 = select(pc2, pairs(:,2));\ntform = estgeotform3d(m2.Location, m1.Location, \"rigid\");\npcshowMatchedFeatures(pc1, pc2, m1, m2)",
+      "notes": "estgeotform3d uses M-estimator SAC to reject remaining outliers.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcmatchfeatures.html"
+    },
+    {
+      "name": "pcplayer",
+      "kind": "function",
+      "description": "Creates a player for visualizing streaming 3-D point cloud data (e.g. lidar frames) with fixed axis limits, updated efficiently in a loop.",
+      "usage": "player = pcplayer(xlimits, ylimits, zlimits)\nplayer = pcplayer(___, Name=Value)\nview(player, ptCloud)",
+      "parameters": [
+        {"name": "xlimits / ylimits / zlimits", "description": "Axis ranges."},
+        {"name": "MarkerSize / VerticalAxis / VerticalAxisDir", "description": "Display options."}
+      ],
+      "example": "veloReader = velodyneFileReader(\"lidarData_ConstructionRoad.pcap\", \"HDL32E\");\nplayer = pcplayer([-60 60], [-60 60], [-10 10]);\nwhile hasFrame(veloReader) && isOpen(player)\n    view(player, readFrame(veloReader));\nend",
+      "notes": "pcviewer (newer) offers interactive inspection of large point clouds.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcplayer.html"
+    },
+    {
+      "name": "pcshowpair",
+      "kind": "function",
+      "description": "Visualizes the difference between two point clouds by overlaying them in false colors (magenta/green) or blended, typically to check registration quality.",
+      "usage": "pcshowpair(ptCloudA, ptCloudB)\npcshowpair(___, Name=Value)\nax = pcshowpair(___)",
+      "parameters": [
+        {"name": "BlendMode", "description": "\"Falsecolor\" (default) or \"Blend\"."},
+        {"name": "MarkerSize / VerticalAxis / Parent", "description": "Display options."}
+      ],
+      "example": "pcshowpair(movingReg, fixed, VerticalAxis=\"Z\")\ntitle(\"Registration result\")",
+      "notes": "Use pcshowMatchedFeatures to visualize feature correspondences.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcshowpair.html"
+    },
+    {
+      "name": "velodyneFileReader",
+      "kind": "function",
+      "description": "Reads Velodyne lidar packet captures (PCAP) and returns organized point cloud frames with timestamps for supported device models.",
+      "usage": "veloReader = velodyneFileReader(fileName, deviceModel)\nveloReader = velodyneFileReader(___, Name=Value)\nptCloud = readFrame(veloReader, frameNumber)",
+      "parameters": [
+        {"name": "deviceModel", "description": "\"VLP16\", \"PuckLITE\", \"PuckHiRes\", \"VLP32C\", \"HDL32E\", \"HDL64E\", \"VLS128\"."},
+        {"name": "CalibrationFile", "description": "Device calibration XML."}
+      ],
+      "example": "vr = velodyneFileReader(\"lidarData_ConstructionRoad.pcap\", \"HDL32E\");\nvr.NumberOfFrames\npc = readFrame(vr, 10);\npcshow(pc)",
+      "notes": "Similar readers: ousterFileReader, hesaiFileReader, ibeoLidarReader; velodynelidar streams live sensors (support package).",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/velodynefilereader.html"
+    },
+    {
+      "name": "lasFileReader",
+      "kind": "function",
+      "description": "Reads LAS/LAZ aerial lidar files, returning point clouds with optional point attributes (classification, intensity, GPS time, return number) and support for region and class filtering.",
+      "usage": "lasReader = lasFileReader(fileName)\nptCloud = readPointCloud(lasReader)\n[ptCloud, pointAttributes] = readPointCloud(lasReader, Name=Value)",
+      "parameters": [
+        {"name": "ROI", "description": "[xmin xmax ymin ymax zmin zmax] region to read."},
+        {"name": "Classification", "description": "Class codes to read (e.g. 2 = ground)."},
+        {"name": "Attributes", "description": "Point attributes to return, e.g. [\"Classification\" \"GPSTimeStamp\"]."}
+      ],
+      "example": "lr = lasFileReader(\"aerialLidarData.laz\");\n[pc, attr] = readPointCloud(lr, Attributes=\"Classification\");\npcshow(pc.Location, attr.Classification)",
+      "notes": "lasFileWriter writes LAS/LAZ. pc2dem converts point clouds to digital elevation models.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/lasfilereader.html"
+    },
+    {
+      "name": "pcviewset",
+      "kind": "function",
+      "description": "Manages views (point clouds with absolute poses) and connections (relative poses with information matrices) for lidar odometry and SLAM, and builds and optimizes pose graphs.",
+      "usage": "vSet = pcviewset\nvSet = addView(vSet, viewId, absPose, PointCloud=ptCloud)\nvSet = addConnection(vSet, viewId1, viewId2, relPose, infoMat)\nG = createPoseGraph(vSet)\nvSet = optimizePoses(vSet)",
+      "parameters": [
+        {"name": "absPose / relPose", "description": "rigidtform3d objects."},
+        {"name": "infoMat", "description": "6-by-6 information matrix for the connection."}
+      ],
+      "example": "vSet = pcviewset;\nvSet = addView(vSet, 1, rigidtform3d, PointCloud=pc1);\ntform = pcregisterndt(pc2, pc1, 1);\nvSet = addView(vSet, 2, tform, PointCloud=pc2);\nvSet = addConnection(vSet, 1, 2, tform);\nplot(vSet)",
+      "notes": "Use pcalign to build a map from view poses; scanContextLoopDetector detects loop closures.",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pcviewset.html"
+    },
+    {
+      "name": "pointPillarsObjectDetector",
+      "kind": "function",
+      "description": "Creates or wraps a PointPillars deep learning detector that finds 3-D oriented bounding boxes (cuboids) of objects such as cars and pedestrians in lidar point clouds.",
+      "usage": "detector = pointPillarsObjectDetector(pcRange, classNames, anchorBoxes)\ndetector = trainPointPillarsObjectDetector(trainingData, detector, options)\n[bboxes, scores, labels] = detect(detector, ptCloud)",
+      "parameters": [
+        {"name": "pcRange", "description": "[xmin xmax ymin ymax zmin zmax] processed region."},
+        {"name": "classNames / anchorBoxes", "description": "Object classes and per-class anchor boxes."},
+        {"name": "Threshold (detect)", "description": "Detection score threshold."}
+      ],
+      "example": "load(\"pretrainedPointPillarsDetector.mat\", \"detector\");\n[bboxes, scores, labels] = detect(detector, pc, Threshold=0.5);\nshowShape(\"cuboid\", bboxes, Color=\"green\")",
+      "notes": "Training data typically comes from the Lidar Labeler app (combine a fileDatastore of clouds with a boxLabelDatastore of cuboids).",
+      "docs": "https://www.mathworks.com/help/pointcloud/ref/pointpillarsobjectdetector.html"
+    },
+    {
+      "name": "boxLabelDatastore",
+      "kind": "function",
+      "description": "Creates a datastore of bounding box labels (axis-aligned, rotated or cuboid) and class labels, which is combined with an image or point cloud datastore to train object detectors.",
+      "usage": "blds = boxLabelDatastore(tbl1, ..., tblN)\nblds = boxLabelDatastore(___, bSet)",
+      "parameters": [
+        {"name": "tbl", "description": "Table with one column per class of M-by-4 (or M-by-5/M-by-9) boxes, or boxes plus a categorical label column."},
+        {"name": "bSet", "description": "matlab.io.datastore.BlockedImage/blockLocationSet for large images."}
+      ],
+      "example": "data = load(\"vehicleDatasetGroundTruth.mat\");\nimds = imageDatastore(data.vehicleDataset.imageFilename);\nblds = boxLabelDatastore(data.vehicleDataset(:, 2:end));\ntrainingData = combine(imds, blds);",
+      "notes": "countEachLabel summarizes label counts; balanceBoxLabels helps with class imbalance in large images.",
+      "docs": "https://www.mathworks.com/help/vision/ref/boxlabeldatastore.html"
+    },
+    {
+      "name": "objectDetectorTrainingData",
+      "kind": "function",
+      "description": "Creates training datastores (images and box labels) from groundTruth objects exported by the Image Labeler or Video Labeler apps, optionally subsampling video frames.",
+      "usage": "[imds, blds] = objectDetectorTrainingData(gTruth)\n[imds, blds] = objectDetectorTrainingData(gTruth, Name=Value)\ntrainingDataTable = objectDetectorTrainingData(gTruth)",
+      "parameters": [
+        {"name": "gTruth", "description": "groundTruth object or array."},
+        {"name": "SamplingFactor / WriteLocation / NamePrefix", "description": "Frame subsampling and image extraction options for video sources."}
+      ],
+      "example": "[imds, blds] = objectDetectorTrainingData(gTruth, SamplingFactor=5, WriteLocation=\"frames\");\nds = combine(imds, blds);",
+      "notes": "pixelLabelTrainingData is the semantic segmentation counterpart.",
+      "docs": "https://www.mathworks.com/help/vision/ref/objectdetectortrainingdata.html"
+    },
+    {
+      "name": "estimateAnchorBoxes",
+      "kind": "function",
+      "description": "Estimates anchor box sizes for anchor-based detectors (YOLO, SSD, Faster R-CNN) by clustering the widths and heights of labeled boxes with an IoU distance.",
+      "usage": "anchorBoxes = estimateAnchorBoxes(trainingData, numAnchors)\n[anchorBoxes, meanIoU] = estimateAnchorBoxes(___)",
+      "parameters": [
+        {"name": "trainingData", "description": "boxLabelDatastore or combined datastore with boxes."},
+        {"name": "numAnchors", "description": "Number of anchors to estimate."}
+      ],
+      "example": "[anchors, iou] = estimateAnchorBoxes(blds, 6);\nanchors = sortrows(anchors, 1, \"descend\");",
+      "notes": "Higher meanIoU means anchors fit the data better; try several numAnchors values.",
+      "docs": "https://www.mathworks.com/help/vision/ref/estimateanchorboxes.html"
+    },
+    {
+      "name": "evaluateObjectDetection",
+      "kind": "function",
+      "description": "Evaluates object detection results against ground truth, returning an objectDetectionMetrics object with average precision, mAP, precision/recall curves and per-class and per-image statistics at chosen overlap thresholds.",
+      "usage": "metrics = evaluateObjectDetection(detectionResults, groundTruthData)\nmetrics = evaluateObjectDetection(___, threshold, Name=Value)",
+      "parameters": [
+        {"name": "detectionResults", "description": "Table or datastore of boxes, scores and labels from detect."},
+        {"name": "groundTruthData", "description": "boxLabelDatastore or table of ground truth."},
+        {"name": "threshold", "description": "IoU overlap threshold(s), e.g. 0.5 or 0.5:0.05:0.95."}
+      ],
+      "example": "results = detect(detector, testImds, Threshold=0.01);\nmetrics = evaluateObjectDetection(results, testBlds, 0.5);\nsummarize(metrics)",
+      "notes": "Introduced R2023b, superseding evaluateDetectionPrecision. The Object Detector Analyzer app visualizes these metrics.",
+      "docs": "https://www.mathworks.com/help/vision/ref/evaluateobjectdetection.html"
+    },
+    {
+      "name": "selectStrongestBboxMulticlass",
+      "kind": "function",
+      "description": "Performs class-wise non-maximum suppression on multiclass detections, keeping the highest scoring boxes and removing overlapping duplicates.",
+      "usage": "[selectedBboxes, selectedScores, selectedLabels, index] = selectStrongestBboxMulticlass(bboxes, scores, labels, Name=Value)",
+      "parameters": [
+        {"name": "RatioType", "description": "\"Union\" (default) or \"Min\" overlap ratio."},
+        {"name": "OverlapThreshold", "description": "Suppression threshold (default 0.5)."},
+        {"name": "NumStrongest", "description": "Maximum boxes to keep."}
+      ],
+      "example": "[b, s, l] = selectStrongestBboxMulticlass(bboxes, scores, labels, OverlapThreshold=0.4);",
+      "notes": "selectStrongestBbox is the single-class version; bboxOverlapRatio computes IoU matrices.",
+      "docs": "https://www.mathworks.com/help/vision/ref/selectstrongestbboxmulticlass.html"
+    },
+    {
+      "name": "bboxOverlapRatio",
+      "kind": "function",
+      "description": "Computes the overlap ratio (intersection over union, or over the minimum area) between two sets of axis-aligned or rotated bounding boxes.",
+      "usage": "overlapRatio = bboxOverlapRatio(bboxA, bboxB)\noverlapRatio = bboxOverlapRatio(bboxA, bboxB, ratioType)",
+      "parameters": [
+        {"name": "bboxA / bboxB", "description": "M-by-4 [x y w h] (or rotated M-by-5) boxes."},
+        {"name": "ratioType", "description": "\"Union\" (default IoU) or \"Min\"."}
+      ],
+      "example": "iou = bboxOverlapRatio([10 10 50 50], [30 30 50 50])   % 0.2195",
+      "notes": "Returns an M-by-N matrix for all pairs.",
+      "docs": "https://www.mathworks.com/help/vision/ref/bboxoverlapratio.html"
+    },
+    {
+      "name": "pixelLabelDatastore",
+      "kind": "function",
+      "description": "Creates a datastore of pixel label images (categorical masks) for semantic segmentation training and evaluation, from files or groundTruth objects.",
+      "usage": "pxds = pixelLabelDatastore(gTruth)\npxds = pixelLabelDatastore(location, classNames, pixelLabelIDs)\npxds = pixelLabelDatastore(___, Name=Value)",
+      "parameters": [
+        {"name": "classNames / pixelLabelIDs", "description": "Class names and the pixel values (or RGB triplets) that encode them."},
+        {"name": "ReadSize / IncludeSubfolders / FileExtensions", "description": "Datastore options."}
+      ],
+      "example": "classes = [\"sky\" \"road\" \"car\"];\nids = [1 2 3];\npxds = pixelLabelDatastore(\"labels\", classes, ids);\ntbl = countEachLabel(pxds)",
+      "notes": "Combine with an imageDatastore for training (combine(imds, pxds)).",
+      "docs": "https://www.mathworks.com/help/vision/ref/pixellabeldatastore.html"
+    },
+    {
+      "name": "unet",
+      "kind": "function",
+      "description": "Creates a U-Net convolutional network (dlnetwork) for semantic image segmentation with configurable encoder depth and filters. unet3d creates the volumetric variant.",
+      "usage": "net = unet(imageSize, numClasses)\nnet = unet(imageSize, numClasses, Name=Value)",
+      "parameters": [
+        {"name": "imageSize", "description": "[height width channels] of input images."},
+        {"name": "numClasses", "description": "Number of segmentation classes."},
+        {"name": "EncoderDepth / NumFirstEncoderFilters / ConvolutionPadding", "description": "Architecture options."}
+      ],
+      "example": "net = unet([256 256 3], 3, EncoderDepth=4);\nopts = trainingOptions(\"adam\", MaxEpochs=20, MiniBatchSize=8);\nnet = trainnet(combine(imds, pxds), net, \"crossentropy\", opts);\nC = semanticseg(imread(\"test.png\"), net, Classes=[\"sky\" \"road\" \"car\"]);",
+      "notes": "Introduced R2024a (replaces unetLayers). deeplabv3plus provides a pretrained-backbone alternative.",
+      "docs": "https://www.mathworks.com/help/vision/ref/unet.html"
+    },
+    {
+      "name": "deeplabv3plus",
+      "kind": "function",
+      "description": "Creates a DeepLab v3+ semantic segmentation network on top of a pretrained backbone (ResNet-18/50, MobileNet-v2, Xception, Inception-ResNet-v2), typically giving strong accuracy with transfer learning.",
+      "usage": "net = deeplabv3plus(imageSize, numClasses, network)\nnet = deeplabv3plus(___, Name=Value)",
+      "parameters": [
+        {"name": "network", "description": "\"resnet18\", \"resnet50\", \"mobilenetv2\", \"xception\" or \"inceptionresnetv2\"."},
+        {"name": "DownsamplingFactor", "description": "8 or 16 (default)."}
+      ],
+      "example": "net = deeplabv3plus([720 960 3], 11, \"resnet18\");\nnet = trainnet(trainDS, net, \"crossentropy\", trainingOptions(\"sgdm\", MaxEpochs=30));",
+      "notes": "Backbone networks require their pretrained model support packages.",
+      "docs": "https://www.mathworks.com/help/vision/ref/deeplabv3plus.html"
+    },
+    {
+      "name": "evaluateSemanticSegmentation",
+      "kind": "function",
+      "description": "Evaluates semantic segmentation results against ground truth, computing global and class accuracy, IoU, weighted IoU, BF score and confusion matrices for a whole dataset.",
+      "usage": "metrics = evaluateSemanticSegmentation(dsResults, dsTruth)\nmetrics = evaluateSemanticSegmentation(___, Name=Value)",
+      "parameters": [
+        {"name": "dsResults / dsTruth", "description": "Pixel label datastores of predictions and ground truth."},
+        {"name": "Metrics", "description": "\"all\" or subset: \"accuracy\", \"iou\", \"weighted-iou\", \"bfscore\"."}
+      ],
+      "example": "pxdsResults = semanticseg(testImds, net, WriteLocation=tempdir);\nmetrics = evaluateSemanticSegmentation(pxdsResults, pxdsTest);\nmetrics.DataSetMetrics\nmetrics.ClassMetrics",
+      "notes": "dice, jaccard and bfscore compute single-image metrics.",
+      "docs": "https://www.mathworks.com/help/vision/ref/evaluatesemanticsegmentation.html"
+    },
+    {
+      "name": "detectTextCRAFT",
+      "kind": "function",
+      "description": "Detects text regions in natural images using the pretrained CRAFT (Character Region Awareness for Text) deep learning model, returning bounding boxes to feed into ocr.",
+      "usage": "bboxes = detectTextCRAFT(I)\nbboxes = detectTextCRAFT(I, roi)\n[bboxes, score] = detectTextCRAFT(___, Name=Value)",
+      "parameters": [
+        {"name": "CharacterThreshold / LinkThreshold", "description": "Region score thresholds."},
+        {"name": "ExecutionEnvironment", "description": "\"auto\", \"gpu\" or \"cpu\"."}
+      ],
+      "example": "I = imread(\"handicapSign.jpg\");\nbboxes = detectTextCRAFT(I);\nresults = ocr(I, bboxes);\n[results.Words]",
+      "notes": "Requires the Computer Vision Toolbox Model for Text Detection support package.",
+      "docs": "https://www.mathworks.com/help/vision/ref/detecttextcraft.html"
+    },
+    {
+      "name": "trainOCR",
+      "kind": "function",
+      "description": "Trains or fine-tunes an OCR model (for ocr) on labeled word/line images, e.g. for custom fonts, industrial markings or special character sets, starting from a base model.",
+      "usage": "[ocrModel, info] = trainOCR(trainingData, outputModelName, baseModel, trainingOptions)",
+      "parameters": [
+        {"name": "trainingData", "description": "Combined datastore of images, bounding boxes and text (from ocrTrainingData)."},
+        {"name": "outputModelName", "description": "Name of the trained model."},
+        {"name": "baseModel", "description": "Starting model, e.g. \"english\" or \"seven-segment\"."},
+        {"name": "trainingOptions", "description": "ocrTrainingOptions object."}
+      ],
+      "example": "[imds, boxds, txtds] = ocrTrainingData(gTruth, \"Text\", \"Word\");\ncds = combine(imds, boxds, txtds);\nopts = ocrTrainingOptions(MaxEpochs=10, InitialLearnRate=1e-4);\nmodel = trainOCR(cds, \"myModel\", \"english\", opts);\nres = ocr(I, Model=model);",
+      "notes": "Introduced R2023a. Evaluate with evaluateOCR (character and word error rates); quantizeOCR reduces model size.",
+      "docs": "https://www.mathworks.com/help/vision/ref/trainocr.html"
+    },
+    {
+      "name": "evaluateOCR",
+      "kind": "function",
+      "description": "Evaluates OCR results against ground-truth text, returning ocrMetrics with character error rate and word error rate for the dataset and per image.",
+      "usage": "metrics = evaluateOCR(ocrResults, groundTruth)\nmetrics = evaluateOCR(___, Verbose=tf)",
+      "parameters": [
+        {"name": "ocrResults", "description": "ocrText results for the test images."},
+        {"name": "groundTruth", "description": "Datastore or cell array of ground-truth text."}
+      ],
+      "example": "results = ocr(testImds, testBoxes, Model=model);\nm = evaluateOCR(results, testTxtds);\nm.DataSetMetrics",
+      "notes": "Use it to compare base and fine-tuned models.",
+      "docs": "https://www.mathworks.com/help/vision/ref/evaluateocr.html"
+    },
+    {
+      "name": "readArucoMarker",
+      "kind": "function",
+      "description": "Detects and decodes ArUco fiducial markers in an image, returning IDs and corner locations, and optionally their 3-D poses given camera intrinsics and marker size.",
+      "usage": "[ids, locs, detectedFamily] = readArucoMarker(I)\n[ids, locs, detectedFamily] = readArucoMarker(I, markerFamily)\n[ids, locs, detectedFamily, poses] = readArucoMarker(I, markerFamily, intrinsics, markerSize)",
+      "parameters": [
+        {"name": "markerFamily", "description": "E.g. \"DICT_4X4_50\", \"DICT_6X6_250\", \"DICT_ARUCO_ORIGINAL\"."},
+        {"name": "intrinsics / markerSize", "description": "cameraIntrinsics and marker side length for pose estimation."}
+      ],
+      "example": "I = imread(\"arucoMarkersExample.jpg\");\n[ids, locs] = readArucoMarker(I, \"DICT_4X4_1000\");\nI = insertMarker(I, reshape(permute(locs, [1 3 2]), [], 2), \"circle\");\nimshow(I)",
+      "notes": "generateArucoMarker creates marker images for printing. readAprilTag handles AprilTag families similarly.",
+      "docs": "https://www.mathworks.com/help/vision/ref/readarucomarker.html"
+    },
+    {
+      "name": "readAprilTag",
+      "kind": "function",
+      "description": "Detects and decodes AprilTag fiducial markers and, given camera intrinsics and tag size, estimates each tag's 6-DOF pose; widely used for robot localization and camera calibration checks.",
+      "usage": "[id, loc, detectedFamily] = readAprilTag(I)\n[id, loc, detectedFamily] = readAprilTag(I, tagFamily)\n[id, loc, pose, detectedFamily] = readAprilTag(I, tagFamily, intrinsics, tagSize)",
+      "parameters": [
+        {"name": "tagFamily", "description": "\"tag36h11\", \"tag25h9\", \"tag16h5\", \"tagCircle21h7\", \"tagStandard41h12\", ..."},
+        {"name": "intrinsics / tagSize", "description": "cameraIntrinsics and tag size (world units) for pose estimation."}
+      ],
+      "example": "I = imread(\"aprilTag36h11.jpg\");\nintr = cameraIntrinsics([1100 1100], [640 360], size(I, [1 2]));\n[id, loc, pose] = readAprilTag(I, \"tag36h11\", intr, 0.04);\npose(1).Translation",
+      "notes": "Poses are rigidtform3d objects in camera coordinates.",
+      "docs": "https://www.mathworks.com/help/vision/ref/readapriltag.html"
+    },
+    {
+      "name": "groundTruth",
+      "kind": "function",
+      "description": "Stores ground-truth labels (ROI rectangles, polygons, cuboids, pixel labels, scene labels) for image collections, videos or custom data sources, as exported from the labeler apps and used to create training data.",
+      "usage": "gTruth = groundTruth(dataSource, labelDefs, labelData)",
+      "parameters": [
+        {"name": "dataSource", "description": "groundTruthDataSource for images, video or image sequences."},
+        {"name": "labelDefs", "description": "Label definitions table (created with labelDefinitionCreator)."},
+        {"name": "labelData", "description": "Table or timetable of label values."}
+      ],
+      "example": "load(\"gTruthVehicles.mat\")          % gTruth exported from Image Labeler\ngTruth.LabelDefinitions\n[imds, blds] = objectDetectorTrainingData(gTruth);",
+      "notes": "groundTruthLidar and groundTruthMultisignal hold lidar and multi-sensor labels (Automated Driving / Point Cloud toolboxes).",
+      "docs": "https://www.mathworks.com/help/vision/ref/groundtruth.html"
+    }
+  ]
+}

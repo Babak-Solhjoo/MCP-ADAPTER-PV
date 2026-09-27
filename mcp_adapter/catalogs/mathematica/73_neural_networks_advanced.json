@@ -1,0 +1,508 @@
+{
+  "category": "Neural Networks II: Additional Layers, Net Surgery, Encoders/Decoders & NetTrain Options",
+  "description": "The neural-network layers not covered in the basic chunk (shape and sequence layers, normalization variants, function/constant layers, aggregation, extra losses, random and placeholder layers, spatial transformers, augmentation) and the operators that combine them; plus functions that edit and inspect nets, the NetEncoder/NetDecoder types, shared arrays and stateful evaluation, and the NetTrain options for batches, learning rates, losses, validation, stopping, checkpointing, devices and reporting.",
+  "tools": [
+    {
+      "name": "FlattenLayer",
+      "kind": "function",
+      "description": "Flattens an input array into a vector (or flattens only the first n dimensions), the standard bridge from convolutional feature maps to LinearLayer; ReshapeLayer (listed) is the general reshaping form and TransposeLayer permutes dimensions (e.g. to swap channel and sequence axes). These shape layers have no parameters and infer sizes automatically inside NetChain.",
+      "usage": "FlattenLayer[]\nFlattenLayer[n]\nFlattenLayer[-1]\nTransposeLayer[]\nTransposeLayer[{1 <-> 2}]\nTransposeLayer[{3, 1, 2}]",
+      "parameters": [
+        {
+          "name": "n",
+          "description": "Number of leading dimensions to flatten (negative counts from the end)."
+        }
+      ],
+      "example": "NetChain[{ConvolutionLayer[16, 3], Ramp, PoolingLayer[2], FlattenLayer[], LinearLayer[10], SoftmaxLayer[]}, \"Input\" -> NetEncoder[{\"Image\", {28, 28}, \"Grayscale\"}], \"Output\" -> NetDecoder[{\"Class\", Range[0, 9]}]]\nTransposeLayer[{1 <-> 2}][RandomReal[1, {3, 5}]] // Dimensions (* {5, 3} *)",
+      "docs": "https://reference.wolfram.com/language/ref/FlattenLayer.html"
+    },
+    {
+      "name": "PaddingLayer",
+      "kind": "function",
+      "description": "Pads an array with zeros, a fixed value, or by \"Reflected\"/\"Fixed\" extension on each side of each dimension - used for \"same\" convolutions, sequence alignment and making sizes match before CatenateLayer; PartLayer extracts a part (slice) of an array with Span specifications and ExtractLayer extracts elements at a position supplied as a second input (e.g. picking the vector at a given time step).",
+      "usage": "PaddingLayer[{{n1, n2}, {m1, m2}}]\nPaddingLayer[{{1, 1}, {1, 1}}, \"Padding\" -> 0.]\nPaddingLayer[{{0, 0}, {2, 2}}, \"Padding\" -> \"Reflected\"]\nPartLayer[spec]\nPartLayer[2 ;; 5]\nPartLayer[{All, 1}]\nExtractLayer[]",
+      "parameters": [
+        {
+          "name": "{{n1, n2}, ...}",
+          "description": "Padding amounts before/after for each dimension."
+        },
+        {
+          "name": "spec",
+          "description": "Part specification (integers, Span, All)."
+        }
+      ],
+      "example": "NetChain[{PaddingLayer[{{0, 0}, {1, 1}, {1, 1}}], ConvolutionLayer[8, 3]}, \"Input\" -> {3, 32, 32}] (* keeps 32x32 *)\nPartLayer[-1][{{1, 2}, {3, 4}, {5, 6}}] (* {5, 6}: last time step *)",
+      "docs": "https://reference.wolfram.com/language/ref/PaddingLayer.html"
+    },
+    {
+      "name": "ReplicateLayer",
+      "kind": "function",
+      "description": "Replicates an array n times along a new (or specified) dimension - broadcasting a vector to every time step or every pixel so it can be catenated with a sequence or image; AppendLayer / PrependLayer add an element to a sequence, and SequenceReverseLayer, SequenceLastLayer, SequenceMostLayer, SequenceRestLayer and SequenceIndicesLayer are the sequence-editing layers used in encoder-decoder and attention models.",
+      "usage": "ReplicateLayer[n]\nReplicateLayer[n, level]\nReplicateLayer[Automatic] (* match a sequence length *)\nAppendLayer[]\nPrependLayer[]\nSequenceReverseLayer[]\nSequenceLastLayer[]\nSequenceMostLayer[]\nSequenceRestLayer[]\nSequenceIndicesLayer[]",
+      "parameters": [
+        {
+          "name": "n",
+          "description": "Number of copies, or Automatic to infer from another input."
+        },
+        {
+          "name": "level",
+          "description": "Dimension at which to insert the copies."
+        }
+      ],
+      "example": "ReplicateLayer[3][{1, 2}] (* {{1,2},{1,2},{1,2}} *)\nNetGraph[<|\"emb\" -> EmbeddingLayer[16], \"rev\" -> SequenceReverseLayer[], \"last\" -> SequenceLastLayer[], \"cls\" -> LinearLayer[2], \"sm\" -> SoftmaxLayer[]|>, {\"emb\" -> \"rev\" -> \"last\" -> \"cls\" -> \"sm\"}, \"Input\" -> NetEncoder[{\"Tokens\"}]]",
+      "docs": "https://reference.wolfram.com/language/ref/ReplicateLayer.html"
+    },
+    {
+      "name": "AggregationLayer",
+      "kind": "function",
+      "description": "Aggregates an array over specified levels with Mean, Total, Max, Min or StandardDeviation (e.g. global average pooling over spatial dimensions, or mean over a sequence); SummationLayer sums over all dimensions to a scalar, TotalLayer sums several equally shaped inputs elementwise and DotLayer computes dot products (or batched matrix products) of two inputs. These parameter-free reductions are the building blocks of attention scores and pooling heads.",
+      "usage": "AggregationLayer[Mean]\nAggregationLayer[Max, 1]\nAggregationLayer[Mean, {2, 3}] (* global average pooling over H, W *)\nSummationLayer[]\nTotalLayer[]\nDotLayer[]",
+      "parameters": [
+        {
+          "name": "f",
+          "description": "Mean, Total, Max, Min, StandardDeviation, Variance."
+        },
+        {
+          "name": "levels",
+          "description": "Dimension(s) aggregated (default All but the first)."
+        }
+      ],
+      "example": "NetChain[{ConvolutionLayer[64, 3], Ramp, AggregationLayer[Mean, {2, 3}], LinearLayer[10], SoftmaxLayer[]}, \"Input\" -> {3, 32, 32}]\nNetGraph[{DotLayer[], SoftmaxLayer[]}, {{NetPort[\"q\"], NetPort[\"k\"]} -> 1 -> 2}]",
+      "docs": "https://reference.wolfram.com/language/ref/AggregationLayer.html"
+    },
+    {
+      "name": "NormalizationLayer",
+      "kind": "function",
+      "description": "Normalizes activations over specified levels with learnable scale and bias - configurable as layer norm, instance norm or group norm depending on the aggregation levels and \"GroupNumber\" - as used in transformers and style-transfer networks; InstanceNormalizationLayer and LocalResponseNormalizationLayer are the specialised forms, and BatchNormalizationLayer (listed) normalizes over the batch. Choose NormalizationLayer for sequence models and small batches.",
+      "usage": "NormalizationLayer[]\nNormalizationLayer[levels]\nNormalizationLayer[{2, 3}] (* instance norm for {C, H, W} *)\nNormalizationLayer[All, \"Epsilon\" -> 10^-5]\nInstanceNormalizationLayer[]\nLocalResponseNormalizationLayer[r]",
+      "parameters": [
+        {
+          "name": "levels",
+          "description": "Levels over which statistics are computed (default all)."
+        },
+        {
+          "name": "Epsilon",
+          "description": "Stabilizing constant."
+        }
+      ],
+      "example": "block = NetChain[{LinearLayer[256], NormalizationLayer[], ElementwiseLayer[\"GELU\"], LinearLayer[256]}];\nNetChain[{ConvolutionLayer[32, 3], InstanceNormalizationLayer[], Ramp}, \"Input\" -> {3, 64, 64}]",
+      "docs": "https://reference.wolfram.com/language/ref/NormalizationLayer.html"
+    },
+    {
+      "name": "FunctionLayer",
+      "kind": "function",
+      "description": "Wraps an arbitrary Wolfram Language function of arrays (using Map, Dot, Ramp, Sin, Table, Part, etc.) as a differentiable net layer, compiled automatically for training - the escape hatch for custom operations without writing a dedicated layer; CompiledLayer wraps compiled code (FunctionCompile-style typed functions) for maximum speed and ConstantArrayLayer / ConstantPlusLayer / ConstantTimesLayer inject learnable or fixed constants.",
+      "usage": "FunctionLayer[f]\nFunctionLayer[#^2 + 1 &]\nFunctionLayer[Function[{x, y}, x*y + Sin[y]]]\nFunctionLayer[f, \"Input\" -> {3}]\nCompiledLayer[cf]\nConstantArrayLayer[\"Array\" -> arr]\nConstantArrayLayer[{n}] (* learnable *)\nConstantPlusLayer[\"Biases\" -> {1, 2, 3}]\nConstantTimesLayer[\"Scaling\" -> 2]",
+      "parameters": [
+        {
+          "name": "f",
+          "description": "Pure function of one or several array arguments; multi-argument functions create several input ports."
+        }
+      ],
+      "example": "swish = FunctionLayer[# LogisticSigmoid[#] &];\nnet = NetChain[{LinearLayer[64], swish, LinearLayer[1]}, \"Input\" -> 10];\nl2 = FunctionLayer[Function[{a, b}, Total[(a - b)^2]]]; l2[{1, 2}, {1, 1}] (* 1. *)",
+      "notes": "FunctionLayer introduced in 12.2; functions must be expressible in the compilable subset used by the net framework.",
+      "docs": "https://reference.wolfram.com/language/ref/FunctionLayer.html"
+    },
+    {
+      "name": "ParametricRampLayer",
+      "kind": "function",
+      "description": "PReLU: a rectified-linear layer whose negative slope is a learnable parameter (per channel or shared), often improving over Ramp in deep CNNs; ElementwiseLayer (listed) provides the fixed activations (\"ReLU\", \"GELU\", \"ELU\", \"SELU\", \"Swish\", Tanh, LogisticSigmoid, \"SoftSign\", ...). Use ParametricRampLayer when the activation slope should adapt during training.",
+      "usage": "ParametricRampLayer[]\nParametricRampLayer[\"Slope\" -> 0.1]\nParametricRampLayer[\"Slope\" -> Automatic, \"Input\" -> {16, 8, 8}]\nElementwiseLayer[\"GELU\"]\nElementwiseLayer[\"SELU\"]",
+      "parameters": [
+        {
+          "name": "Slope",
+          "description": "Initial negative slope (learned per channel)."
+        }
+      ],
+      "example": "NetChain[{ConvolutionLayer[32, 3], ParametricRampLayer[], PoolingLayer[2], FlattenLayer[], LinearLayer[10], SoftmaxLayer[]}, \"Input\" -> NetEncoder[{\"Image\", 32, \"RGB\"}]]",
+      "docs": "https://reference.wolfram.com/language/ref/ParametricRampLayer.html"
+    },
+    {
+      "name": "DeconvolutionLayer",
+      "kind": "function",
+      "description": "Transposed convolution (upsampling) layer with n output channels and given kernel size, stride and padding - the decoder counterpart of ConvolutionLayer used in autoencoders, U-Nets, segmentation and GAN generators; ResizeLayer instead resizes spatial dimensions by interpolation (\"Nearest\", \"Linear\") without learnable parameters. Supports 1D, 2D and 3D data.",
+      "usage": "DeconvolutionLayer[n, s]\nDeconvolutionLayer[n, {h, w}, \"Stride\" -> 2, \"PaddingSize\" -> 1]\nResizeLayer[{h, w}]\nResizeLayer[{Scaled[2], Scaled[2]}]\nResizeLayer[{h, w}, \"Resampling\" -> \"Nearest\"]",
+      "parameters": [
+        {
+          "name": "n",
+          "description": "Number of output channels."
+        },
+        {
+          "name": "s / {h, w}",
+          "description": "Kernel size."
+        },
+        {
+          "name": "Stride / PaddingSize / Dilation",
+          "description": "Options as for ConvolutionLayer."
+        }
+      ],
+      "example": "decoder = NetChain[{LinearLayer[128*4*4], ReshapeLayer[{128, 4, 4}], DeconvolutionLayer[64, 4, \"Stride\" -> 2, \"PaddingSize\" -> 1], Ramp, DeconvolutionLayer[1, 4, \"Stride\" -> 2, \"PaddingSize\" -> 1], LogisticSigmoid}, \"Input\" -> 32]\nNetChain[{ResizeLayer[{Scaled[2], Scaled[2]}], ConvolutionLayer[16, 3, \"PaddingSize\" -> 1]}]",
+      "docs": "https://reference.wolfram.com/language/ref/DeconvolutionLayer.html"
+    },
+    {
+      "name": "SpatialTransformationLayer",
+      "kind": "function",
+      "description": "Applies an affine transformation (given as a second input of 6 parameters, typically predicted by a small localization net) to an image-like input and resamples it to a given output size - the spatial transformer module that lets networks learn to crop, rotate and rescale their input for invariance.",
+      "usage": "SpatialTransformationLayer[{h, w}]\nSpatialTransformationLayer[{h, w}, \"Input\" -> {c, hin, win}]",
+      "parameters": [
+        {
+          "name": "{h, w}",
+          "description": "Output spatial size."
+        }
+      ],
+      "example": "loc = NetChain[{FlattenLayer[], LinearLayer[32], Ramp, LinearLayer[6]}];\nstn = NetGraph[<|\"loc\" -> loc, \"st\" -> SpatialTransformationLayer[{28, 28}]|>, {NetPort[\"Input\"] -> \"loc\", {NetPort[\"Input\"], \"loc\"} -> \"st\"}, \"Input\" -> {1, 40, 40}]",
+      "docs": "https://reference.wolfram.com/language/ref/SpatialTransformationLayer.html"
+    },
+    {
+      "name": "ImageAugmentationLayer",
+      "kind": "function",
+      "description": "Performs random cropping (to a given size) and optional horizontal/vertical reflection of image inputs during training only (identity at evaluation), a built-in data-augmentation layer that improves generalisation of image classifiers without preprocessing the dataset. Place it right after the image encoder.",
+      "usage": "ImageAugmentationLayer[{h, w}]\nImageAugmentationLayer[{h, w}, \"ReflectionProbabilities\" -> {0.5, 0}]\nImageAugmentationLayer[{h, w}, \"Input\" -> {3, hin, win}]",
+      "parameters": [
+        {
+          "name": "{h, w}",
+          "description": "Size of the random crop."
+        },
+        {
+          "name": "ReflectionProbabilities",
+          "description": "{horizontal, vertical} flip probabilities."
+        }
+      ],
+      "example": "net = NetChain[{ImageAugmentationLayer[{28, 28}, \"ReflectionProbabilities\" -> {0.5, 0}], ConvolutionLayer[32, 3], Ramp, PoolingLayer[2], FlattenLayer[], LinearLayer[10], SoftmaxLayer[]}, \"Input\" -> NetEncoder[{\"Image\", {32, 32}, \"Grayscale\"}]]",
+      "docs": "https://reference.wolfram.com/language/ref/ImageAugmentationLayer.html"
+    },
+    {
+      "name": "OrderingLayer",
+      "kind": "function",
+      "description": "Sorts or gives the ordering of the elements of its input (ascending/descending, optionally the top-k), enabling differentiable-friendly ranking heads and k-max pooling; UnitVectorLayer converts integer class indices into one-hot vectors (the inverse of a Class decoder) for use inside NetGraph, e.g. in sequence-to-sequence teacher forcing.",
+      "usage": "OrderingLayer[]\nOrderingLayer[k]\nOrderingLayer[k, \"Descending\"]\nUnitVectorLayer[n]\nUnitVectorLayer[n, \"Input\" -> \"Integer\"]",
+      "parameters": [
+        {
+          "name": "k",
+          "description": "Number of leading positions to return."
+        },
+        {
+          "name": "n",
+          "description": "Length of the unit vectors (number of classes)."
+        }
+      ],
+      "example": "OrderingLayer[3, \"Descending\"][{0.1, 0.7, 0.2, 0.9}] (* {4, 2, 3} *)\nUnitVectorLayer[5][3] (* {0, 0, 1, 0, 0} *)",
+      "docs": "https://reference.wolfram.com/language/ref/OrderingLayer.html"
+    },
+    {
+      "name": "MeanAbsoluteLossLayer",
+      "kind": "function",
+      "description": "L1 loss between input and target arrays (robust regression), complementing MeanSquaredLossLayer and CrossEntropyLossLayer (listed); ContrastiveLossLayer implements the Siamese-network contrastive loss on pairs with a margin, and CTCLossLayer the connectionist temporal classification loss for unaligned sequence labelling (speech, OCR). Loss layers are attached via the LossFunction option of NetTrain or inside a NetGraph with a \"Loss\" port.",
+      "usage": "MeanAbsoluteLossLayer[]\nContrastiveLossLayer[]\nContrastiveLossLayer[\"Margin\" -> 1.]\nCTCLossLayer[]\nCTCLossLayer[\"Target\" -> NetEncoder[{\"Characters\", chars}]]\nNetTrain[net, data, LossFunction -> MeanAbsoluteLossLayer[]]",
+      "parameters": [
+        {
+          "name": "Margin",
+          "description": "Margin for dissimilar pairs in the contrastive loss."
+        }
+      ],
+      "example": "NetTrain[NetChain[{LinearLayer[32], Ramp, LinearLayer[1]}], data, LossFunction -> MeanAbsoluteLossLayer[]]\nocr = NetGraph[<|\"conv\" -> ..., \"gru\" -> GatedRecurrentLayer[128], \"cls\" -> NetMapOperator[LinearLayer[27]], \"sm\" -> SoftmaxLayer[], \"ctc\" -> CTCLossLayer[\"Target\" -> NetEncoder[{\"Characters\", Alphabet[]}]]|>, {\"conv\" -> \"gru\" -> \"cls\" -> \"sm\" -> \"ctc\", NetPort[\"Target\"] -> \"ctc\"}]",
+      "docs": "https://reference.wolfram.com/language/ref/MeanAbsoluteLossLayer.html"
+    },
+    {
+      "name": "RandomArrayLayer",
+      "kind": "function",
+      "description": "A layer with no input that emits a random array drawn from a distribution (Normal, Uniform, Bernoulli, ...) each time the net is evaluated in training mode - the noise source for variational autoencoders (reparameterization), GAN generators and dropout-like regularization; PlaceholderLayer marks a position in a net whose operation is not yet defined (for incremental net construction) and cannot be evaluated until replaced.",
+      "usage": "RandomArrayLayer[NormalDistribution[], \"Output\" -> {n}]\nRandomArrayLayer[UniformDistribution[{-1, 1}], \"Output\" -> {100}]\nRandomArrayLayer[BernoulliDistribution[0.5], \"Output\" -> {8, 8}]\nPlaceholderLayer[]\nPlaceholderLayer[\"tag\"]\nNetReplacePart[net, \"placeholder\" -> LinearLayer[10]]",
+      "parameters": [
+        {
+          "name": "dist",
+          "description": "Univariate distribution."
+        },
+        {
+          "name": "Output",
+          "description": "Shape of the generated array."
+        }
+      ],
+      "example": "vae = NetGraph[<|\"mean\" -> LinearLayer[2], \"logvar\" -> LinearLayer[2], \"noise\" -> RandomArrayLayer[NormalDistribution[], \"Output\" -> {2}], \"std\" -> ElementwiseLayer[Exp[#/2] &], \"scale\" -> ThreadingLayer[Times], \"z\" -> ThreadingLayer[Plus]|>, {NetPort[\"Input\"] -> \"mean\", NetPort[\"Input\"] -> \"logvar\" -> \"std\", {\"std\", \"noise\"} -> \"scale\", {\"mean\", \"scale\"} -> \"z\"}, \"Input\" -> 32]",
+      "docs": "https://reference.wolfram.com/language/ref/RandomArrayLayer.html"
+    },
+    {
+      "name": "BasicRecurrentLayer",
+      "kind": "function",
+      "description": "The simple (Elman) recurrent layer h_t = Tanh[W x_t + U h_{t-1} + b] with n hidden units, the lightweight alternative to LongShortTermMemoryLayer and GatedRecurrentLayer (listed) for short sequences; all recurrent layers accept variable-length sequence inputs, expose \"State\" ports and can be run in bidirectional form with NetBidirectionalOperator.",
+      "usage": "BasicRecurrentLayer[n]\nBasicRecurrentLayer[n, \"Dropout\" -> 0.2]\nBasicRecurrentLayer[n, \"Input\" -> {\"Varying\", d}]",
+      "parameters": [
+        {
+          "name": "n",
+          "description": "Number of hidden units (output size per step)."
+        }
+      ],
+      "example": "NetChain[{EmbeddingLayer[16], BasicRecurrentLayer[32], SequenceLastLayer[], LinearLayer[2], SoftmaxLayer[]}, \"Input\" -> NetEncoder[{\"Tokens\"}], \"Output\" -> NetDecoder[{\"Class\", {\"neg\", \"pos\"}}]]",
+      "docs": "https://reference.wolfram.com/language/ref/BasicRecurrentLayer.html"
+    },
+    {
+      "name": "NetBidirectionalOperator",
+      "kind": "function",
+      "description": "Runs a recurrent layer (or two different ones) forward and backward over a sequence and combines the outputs (catenation by default, or Plus/Mean), giving bidirectional RNNs for tagging, speech and text classification; NetNestOperator applies a net n times in sequence (weight-shared deep nets, iterative refinement) and NetMapThreadOperator maps a net over several sequences in parallel (the multi-input form of NetMapOperator).",
+      "usage": "NetBidirectionalOperator[LongShortTermMemoryLayer[64]]\nNetBidirectionalOperator[{fwdLayer, bwdLayer}]\nNetBidirectionalOperator[layer, \"Aggregation\" -> Mean]\nNetNestOperator[net, n]\nNetMapThreadOperator[net]",
+      "parameters": [
+        {
+          "name": "layer",
+          "description": "Recurrent layer (LSTM, GRU, BasicRecurrentLayer)."
+        },
+        {
+          "name": "n",
+          "description": "Number of nested applications."
+        }
+      ],
+      "example": "tagger = NetChain[{EmbeddingLayer[64], NetBidirectionalOperator[GatedRecurrentLayer[64]], NetMapOperator[LinearLayer[9]], SoftmaxLayer[]}, \"Input\" -> NetEncoder[{\"Tokens\"}], \"Output\" -> NetDecoder[{\"Class\", tags}]]\nNetNestOperator[NetChain[{LinearLayer[16], Tanh}], 4]",
+      "docs": "https://reference.wolfram.com/language/ref/NetBidirectionalOperator.html"
+    },
+    {
+      "name": "NetGANOperator",
+      "kind": "function",
+      "description": "Combines a generator net and a discriminator (classification) net into a single trainable object implementing generative adversarial training with the standard loss (or \"Wasserstein\" and other loss types); NetTrain then alternates updates automatically and the trained generator is extracted with NetExtract. NetPairEmbeddingOperator similarly wraps a net for Siamese pair-embedding training with ContrastiveLossLayer.",
+      "usage": "gan = NetGANOperator[{generator, discriminator}]\ngan = NetGANOperator[{generator, discriminator}, \"Wasserstein\"]\ntrained = NetTrain[gan, <|\"Sample\" -> realData, \"Latent\" -> RandomVariate[NormalDistribution[], {n, d}]|>]\nNetExtract[trained, \"Generator\"]\nNetPairEmbeddingOperator[net]",
+      "parameters": [
+        {
+          "name": "generator",
+          "description": "Net mapping latent vectors to samples."
+        },
+        {
+          "name": "discriminator",
+          "description": "Net mapping samples to a real/fake score."
+        }
+      ],
+      "example": "gen = NetChain[{LinearLayer[128], Ramp, LinearLayer[784], LogisticSigmoid, ReshapeLayer[{1, 28, 28}]}, \"Input\" -> 32];\ndisc = NetChain[{FlattenLayer[], LinearLayer[128], Ramp, LinearLayer[1]}, \"Input\" -> {1, 28, 28}];\ngan = NetGANOperator[{gen, disc}];\nresult = NetTrain[gan, <|\"Sample\" -> images|>, MaxTrainingRounds -> 20];\nNetExtract[result, \"Generator\"][RandomVariate[NormalDistribution[], 32]]",
+      "notes": "Introduced in 12.1.",
+      "docs": "https://reference.wolfram.com/language/ref/NetGANOperator.html"
+    },
+    {
+      "name": "Transformer encoder block",
+      "kind": "reference",
+      "description": "Idiom for a transformer encoder block built from listed layers: AttentionLayer (multi-head self-attention), ThreadingLayer[Plus] residual connections, NormalizationLayer (layer norm) and a position-wise feed-forward NetMapOperator; NetArrayLayer supplies learned positional embeddings or class tokens (broadcast with ReplicateLayer). Stack blocks with NetNestOperator or NetChain and feed token sequences from a \"SubwordTokens\" or \"Tokens\" encoder.",
+      "usage": "NetArrayLayer[\"Output\" -> {n, d}]\nNetGraph[<|\"pos\" -> NetArrayLayer[\"Output\" -> {32, 64}], \"add\" -> ThreadingLayer[Plus]|>, {{NetPort[\"Input\"], \"pos\"} -> \"add\"}]",
+      "parameters": [],
+      "example": "encoderBlock = NetGraph[<|\"attn\" -> AttentionLayer[\"Dot\", \"MultiHead\" -> True, \"Dimensions\" -> 8], \"add1\" -> ThreadingLayer[Plus], \"norm1\" -> NormalizationLayer[], \"ff\" -> NetMapOperator[NetChain[{LinearLayer[256], ElementwiseLayer[\"GELU\"], LinearLayer[64]}]], \"add2\" -> ThreadingLayer[Plus], \"norm2\" -> NormalizationLayer[]|>,\n  {NetPort[\"Input\"] -> NetPort[\"attn\", \"Query\"], NetPort[\"Input\"] -> NetPort[\"attn\", \"Key\"], NetPort[\"Input\"] -> NetPort[\"attn\", \"Value\"], {NetPort[\"Input\"], \"attn\"} -> \"add1\" -> \"norm1\", \"norm1\" -> \"ff\", {\"norm1\", \"ff\"} -> \"add2\" -> \"norm2\"}, \"Input\" -> {\"Varying\", 64}]",
+      "docs": "https://reference.wolfram.com/language/ref/NetArrayLayer.html"
+    },
+    {
+      "name": "ConvolutionLayer options",
+      "kind": "reference",
+      "description": "ConvolutionLayer and PoolingLayer (listed) take the options that define modern CNN blocks: \"Stride\", \"PaddingSize\" (integer, per-side lists or \"Same\"), \"Dilation\", \"ChannelGroups\" (grouped/depthwise convolutions), \"Interleaving\" (channels-last input), \"Function\" (Max/Mean pooling), and \"Input\"/\"Output\" shape hints; 1D and 3D convolutions are selected by the kernel shape. This entry collects those options.",
+      "usage": "ConvolutionLayer[n, {kh, kw}, \"Stride\" -> 2, \"PaddingSize\" -> 1]\nConvolutionLayer[n, 3, \"PaddingSize\" -> \"Same\"]\nConvolutionLayer[n, 3, \"Dilation\" -> 2]\nConvolutionLayer[n, 3, \"ChannelGroups\" -> n] (* depthwise *)\nConvolutionLayer[n, {3, 3, 3}] (* 3D *)\nPoolingLayer[2, \"Stride\" -> 2, \"Function\" -> Mean]",
+      "parameters": [],
+      "example": "mobileBlock = NetChain[{ConvolutionLayer[32, 3, \"PaddingSize\" -> 1, \"ChannelGroups\" -> 32], BatchNormalizationLayer[], Ramp, ConvolutionLayer[64, 1], BatchNormalizationLayer[], Ramp}, \"Input\" -> {32, 56, 56}]",
+      "docs": "https://reference.wolfram.com/language/ref/ConvolutionLayer.html"
+    },
+    {
+      "name": "NetInsert",
+      "kind": "function",
+      "description": "Net editing functions: NetInsert inserts a layer at a position in a NetChain, NetDelete removes layers, NetAppend/NetPrepend add layers at the ends, NetJoin concatenates chains and NetRename renames layers/ports; NetReplace replaces layers matching a pattern throughout a net (e.g. swap all Ramp for GELU) and NetReplacePart (listed) replaces by position. They allow transfer learning by modifying pretrained NetModel nets.",
+      "usage": "NetInsert[chain, layer, pos]\nNetDelete[chain, pos]\nNetDelete[chain, {pos1, pos2}]\nNetAppend[chain, layer]\nNetAppend[chain, {layer1, layer2}]\nNetPrepend[chain, layer]\nNetJoin[chain1, chain2]\nNetRename[net, {\"old\" -> \"new\"}]\nNetReplace[net, _ElementwiseLayer -> ElementwiseLayer[\"GELU\"]]\nNetReplace[net, {\"name\" -> newLayer}]",
+      "parameters": [
+        {
+          "name": "pos",
+          "description": "Integer position or layer name."
+        }
+      ],
+      "example": "base = NetModel[\"ResNet-50 Trained on ImageNet Competition Data\"];\nfeat = NetDrop[base, -3]; (* remove classifier head *)\nnew = NetAppend[feat, {LinearLayer[5], SoftmaxLayer[]}];\nnew = NetReplacePart[new, \"Output\" -> NetDecoder[{\"Class\", myClasses}]];\ntrained = NetTrain[new, data, LearningRateMultipliers -> {-3 ;; -1 -> 1, _ -> 0}] (* train only the head *)",
+      "docs": "https://reference.wolfram.com/language/ref/NetInsert.html"
+    },
+    {
+      "name": "NetUnfold",
+      "kind": "function",
+      "description": "Produces the elementary (single-step) net of a recurrent layer or folded net, exposing its state ports so that step-by-step evaluation, custom decoding loops and stateful inference are possible; NetStateObject wraps a net to carry recurrent state between successive evaluations (streaming inference), and NetFoldOperator (listed) folds a step net over a sequence. Use these for autoregressive generation and online processing.",
+      "usage": "NetUnfold[net]\nstep = NetUnfold[LongShortTermMemoryLayer[32]]\nstate = NetStateObject[net]\nstate[input1]; state[input2] (* state carried over *)\nNetStateObject[net, initialStates]",
+      "parameters": [
+        {
+          "name": "net",
+          "description": "Recurrent layer or net containing recurrent layers."
+        }
+      ],
+      "example": "lm = NetModel[\"Wolfram English Character-Level Language Model V1\"];\nso = NetStateObject[lm];\ngenerate[n_] := StringJoin[Table[so[\"\"] // First, n]] (* stateful sampling loop *)\nstep = NetUnfold[GatedRecurrentLayer[8]]; NetInformation[step, \"Ports\"]",
+      "docs": "https://reference.wolfram.com/language/ref/NetUnfold.html"
+    },
+    {
+      "name": "NetSharedArray",
+      "kind": "function",
+      "description": "Marks an array parameter as shared between several layers (weight tying, e.g. input and output embeddings of a language model, or Siamese branches) so that they are trained as one; NetInsertSharedArrays converts all arrays of a net into shared arrays with a prefix (making copies of that net share weights when reused in a NetGraph). Shared arrays are listed by NetInformation[net, \"SharedArraysList\"].",
+      "usage": "NetSharedArray[\"name\"]\nLinearLayer[n, \"Weights\" -> NetSharedArray[\"W\"]]\nEmbeddingLayer[d, \"Weights\" -> NetSharedArray[\"emb\"]]\nNetInsertSharedArrays[net]\nNetInsertSharedArrays[net, \"prefix\"]\nNetInformation[net, \"SharedArraysList\"]",
+      "parameters": [
+        {
+          "name": "name",
+          "description": "Identifier of the shared array."
+        }
+      ],
+      "example": "branch = NetInsertSharedArrays[NetChain[{LinearLayer[64], Tanh, LinearLayer[16]}], \"tower\"];\nsiamese = NetGraph[<|\"a\" -> branch, \"b\" -> branch, \"dist\" -> ThreadingLayer[Total[(#1 - #2)^2] &]|>, {NetPort[\"x\"] -> \"a\", NetPort[\"y\"] -> \"b\", {\"a\", \"b\"} -> \"dist\"}]",
+      "docs": "https://reference.wolfram.com/language/ref/NetSharedArray.html"
+    },
+    {
+      "name": "NetPortGradient",
+      "kind": "function",
+      "description": "NetPortGradient[\"port\"] used as a property in net evaluation returns the gradient of the output with respect to an input port or parameter (saliency maps, adversarial examples, custom training loops); NetEvaluationMode -> \"Train\" evaluates a net in training mode (dropout active, batch statistics from the batch) versus \"Test\" (default). NetMeasurements (listed) computes metrics on datasets.",
+      "usage": "net[input, NetPortGradient[\"Input\"]]\nnet[input, NetPortGradient[{\"layer\", \"Weights\"}]]\nnet[input, NetEvaluationMode -> \"Train\"]\nnet[input, {\"Output\", NetPortGradient[\"Input\"]}]",
+      "parameters": [
+        {
+          "name": "port",
+          "description": "Input port name or {layer, parameter} specification."
+        }
+      ],
+      "example": "net = NetModel[\"ResNet-50 Trained on ImageNet Competition Data\"];\nsal = net[img, NetPortGradient[\"Input\"]];\nImage[Abs[Total[sal, {1}]]] // ImageAdjust (* saliency map *)",
+      "docs": "https://reference.wolfram.com/language/ref/NetPortGradient.html"
+    },
+    {
+      "name": "NetEncoder Image",
+      "kind": "api",
+      "description": "NetEncoder[{\"Image\", size, colorspace}] converts images (files, URLs or Image objects) to arrays of a fixed size with options \"MeanImage\"/\"VarianceImage\" normalization, \"Interleaving\" and \"ColorChannels\"; \"Image3D\" handles volumes and \"VideoFrames\" samples frames from videos. It is the input encoder of every image classifier and is attached via the \"Input\" port of NetChain/NetGraph.",
+      "usage": "NetEncoder[{\"Image\", {224, 224}, \"RGB\"}]\nNetEncoder[{\"Image\", 32, \"Grayscale\"}]\nNetEncoder[{\"Image\", {224, 224}, \"ColorSpace\" -> \"RGB\", \"MeanImage\" -> {0.485, 0.456, 0.406}, \"VarianceImage\" -> {0.229, 0.224, 0.225}^2}]\nNetEncoder[{\"Image3D\", {32, 32, 32}}]\nNetEncoder[{\"VideoFrames\", n}]",
+      "parameters": [
+        {
+          "name": "size",
+          "description": "Target {w, h} or single size."
+        },
+        {
+          "name": "colorspace",
+          "description": "\"RGB\", \"Grayscale\", \"CMYK\", ..."
+        }
+      ],
+      "example": "enc = NetEncoder[{\"Image\", {64, 64}, \"Grayscale\"}];\nDimensions[enc[img]] (* {1, 64, 64} *)\nNetChain[{ConvolutionLayer[8, 3], Ramp, FlattenLayer[], LinearLayer[2], SoftmaxLayer[]}, \"Input\" -> enc, \"Output\" -> NetDecoder[{\"Class\", {\"cat\", \"dog\"}}]]",
+      "docs": "https://reference.wolfram.com/language/ref/netencoder/Image.html"
+    },
+    {
+      "name": "NetEncoder Class",
+      "kind": "api",
+      "description": "NetEncoder[{\"Class\", classes}] maps class labels to integer indices (or \"UnitVector\" one-hot form) for classification targets, \"Boolean\" maps True/False to 0/1 and \"Scalar\" encodes numbers (with optional range scaling); the matching NetDecoder[{\"Class\", classes}] returns the most probable class or, with a property (\"Probabilities\", \"TopProbabilities\", \"Entropy\", \"Decision\"), the full distribution. These are the standard target encoders and output decoders of classifiers and regressors.",
+      "usage": "NetEncoder[{\"Class\", {\"a\", \"b\", \"c\"}}]\nNetEncoder[{\"Class\", classes, \"UnitVector\"}]\nNetEncoder[\"Boolean\"]\nNetEncoder[\"Scalar\"]\nNetDecoder[{\"Class\", classes}]\nNetDecoder[{\"Class\", classes, \"InputDepth\" -> 2}] (* per-token classes *)\nNetDecoder[\"Boolean\"]\nNetDecoder[\"Scalar\"]\nnet[input, \"TopProbabilities\" -> 3]",
+      "parameters": [
+        {
+          "name": "classes",
+          "description": "List of class labels."
+        }
+      ],
+      "example": "net = NetTrain[NetChain[{LinearLayer[16], Ramp, LinearLayer[3], SoftmaxLayer[]}, \"Input\" -> 4, \"Output\" -> NetDecoder[{\"Class\", {\"setosa\", \"versicolor\", \"virginica\"}}]], irisData];\nnet[{5.1, 3.5, 1.4, 0.2}, \"Probabilities\"]",
+      "docs": "https://reference.wolfram.com/language/ref/netencoder/Class.html"
+    },
+    {
+      "name": "NetEncoder Tokens",
+      "kind": "api",
+      "description": "Text encoders: NetEncoder[{\"Tokens\", vocab}] splits text into word tokens and maps them to indices (with \"IgnoreCase\", \"TargetLength\"), \"Characters\" encodes character sequences (\"UnitVector\" or \"Index\" forms), \"UTF8\" encodes raw bytes, \"SubwordTokens\" applies BPE/SentencePiece vocabularies used by transformer NetModels, and \"BioSequence\"-style encoders exist via \"Characters\" with custom alphabets; NetDecoder[{\"Characters\", ...}] and NetDecoder[\"Tokens\"] decode back and \"CTCBeamSearch\" decodes CTC outputs.",
+      "usage": "NetEncoder[{\"Tokens\"}] (* built-in English vocabulary *)\nNetEncoder[{\"Tokens\", vocabList, \"IgnoreCase\" -> True}]\nNetEncoder[{\"Characters\", Alphabet[], \"UnitVector\"}]\nNetEncoder[{\"Characters\", chars, \"TargetLength\" -> 100}]\nNetEncoder[\"UTF8\"]\nNetEncoder[{\"SubwordTokens\", vocabFile}]\nNetDecoder[{\"Characters\", chars}]\nNetDecoder[{\"CTCBeamSearch\", chars}]",
+      "parameters": [
+        {
+          "name": "vocab",
+          "description": "List of tokens or characters; unknown tokens map to an extra index."
+        },
+        {
+          "name": "TargetLength",
+          "description": "Pad/truncate sequences to a fixed length."
+        }
+      ],
+      "example": "enc = NetEncoder[{\"Tokens\"}];\nenc[\"the quick brown fox\"] (* {index1, index2, ...} *)\nsentiment = NetChain[{EmbeddingLayer[64], GatedRecurrentLayer[64], SequenceLastLayer[], LinearLayer[2], SoftmaxLayer[]}, \"Input\" -> enc, \"Output\" -> NetDecoder[{\"Class\", {\"neg\", \"pos\"}}]]",
+      "docs": "https://reference.wolfram.com/language/ref/netencoder/Tokens.html"
+    },
+    {
+      "name": "NetEncoder Audio",
+      "kind": "api",
+      "description": "Audio encoders: \"Audio\" produces raw sample arrays (with \"SampleRate\", \"TargetLength\"), \"AudioSpectrogram\", \"AudioSTFT\", \"AudioMelSpectrogram\" and \"AudioMFCC\" produce time-frequency feature sequences (window size, offset, number of filters) - the inputs of speech and sound classification nets such as those in the Neural Net Repository; \"FeatureExtractor\" wraps any FeatureExtraction method and \"Function\" applies a custom function with a declared output shape.",
+      "usage": "NetEncoder[{\"Audio\", \"SampleRate\" -> 16000, \"TargetLength\" -> 16000}]\nNetEncoder[{\"AudioMelSpectrogram\", \"NumberOfFilters\" -> 64, \"WindowSize\" -> 1024, \"Offset\" -> 512}]\nNetEncoder[{\"AudioMFCC\", \"NumberOfCoefficients\" -> 13}]\nNetEncoder[{\"AudioSTFT\"}]\nNetEncoder[{\"FeatureExtractor\", \"ImageFeatures\"}]\nNetEncoder[{\"Function\", f, {n}}]",
+      "parameters": [
+        {
+          "name": "SampleRate / TargetLength",
+          "description": "Resampling rate and fixed length (samples)."
+        },
+        {
+          "name": "NumberOfFilters / WindowSize / Offset",
+          "description": "Spectrogram parameters."
+        }
+      ],
+      "example": "enc = NetEncoder[{\"AudioMelSpectrogram\", \"NumberOfFilters\" -> 40, \"SampleRate\" -> 16000}];\nDimensions[enc[Audio[\"sample.wav\"]]] (* {frames, 40} *)\nclf = NetChain[{GatedRecurrentLayer[64], SequenceLastLayer[], LinearLayer[10], SoftmaxLayer[]}, \"Input\" -> enc, \"Output\" -> NetDecoder[{\"Class\", Range[0, 9]}]]",
+      "docs": "https://reference.wolfram.com/language/ref/netencoder/AudioMelSpectrogram.html"
+    },
+    {
+      "name": "NetDecoder Image",
+      "kind": "api",
+      "description": "NetDecoder[\"Image\"] (and \"Image3D\") converts output arrays back to Image objects (with \"ColorSpace\" and range options) for autoencoders, generators and image-to-image nets; NetDecoder[{\"Function\", f}] applies a custom function to the output array, and NetDecoder[\"Boolean\"]/\"Scalar\" return numbers. Decoders are attached with \"Output\" -> ... and can be overridden per evaluation with net[input, None] to get the raw array.",
+      "usage": "NetDecoder[\"Image\"]\nNetDecoder[{\"Image\", \"ColorSpace\" -> \"Grayscale\"}]\nNetDecoder[\"Image3D\"]\nNetDecoder[{\"Function\", f}]\nnet[input, None] (* raw array *)\nnet[input, \"Output\" -> None]",
+      "parameters": [],
+      "example": "autoenc = NetChain[{FlattenLayer[], LinearLayer[32], Ramp, LinearLayer[784], LogisticSigmoid, ReshapeLayer[{1, 28, 28}]}, \"Input\" -> NetEncoder[{\"Image\", 28, \"Grayscale\"}], \"Output\" -> NetDecoder[\"Image\"]];\ntrained = NetTrain[autoenc, Thread[images -> images]];\ntrained[images[[1]]] (* an Image *)",
+      "docs": "https://reference.wolfram.com/language/ref/netdecoder/Image.html"
+    },
+    {
+      "name": "BatchSize",
+      "kind": "system-variable",
+      "description": "NetTrain option setting the number of examples per gradient step (Automatic chooses by memory; larger batches train faster per epoch but generalise differently); also an option of net evaluation and NetMeasurements for throughput on GPUs. MaxTrainingRounds (epochs, or a time via Quantity) and TimeGoal bound the training length, and TrainingUpdateSchedule selects which parts of the net are updated in each round.",
+      "usage": "NetTrain[net, data, BatchSize -> 64]\nNetTrain[net, data, MaxTrainingRounds -> 30]\nNetTrain[net, data, MaxTrainingRounds -> Quantity[10, \"Minutes\"]]\nNetTrain[net, data, TimeGoal -> 600]\nnet[inputs, BatchSize -> 256]",
+      "parameters": [],
+      "example": "NetTrain[net, trainData, BatchSize -> 128, MaxTrainingRounds -> 20, ValidationSet -> Scaled[0.1]]",
+      "docs": "https://reference.wolfram.com/language/ref/BatchSize.html"
+    },
+    {
+      "name": "LearningRate",
+      "kind": "system-variable",
+      "description": "Sub-option of the NetTrain Method (\"ADAM\", \"SGD\", \"RMSProp\", \"SignSGD\", ...) giving the initial learning rate, with \"LearningRateSchedule\" for decay and \"L2Regularization\"/\"GradientClipping\" as further sub-options; LearningRateMultipliers scales (or freezes with 0) the learning rate of individual layers or parameters - the key option for transfer learning (fine-tune the head, freeze the backbone).",
+      "usage": "NetTrain[net, data, Method -> {\"ADAM\", \"LearningRate\" -> 0.001}]\nNetTrain[net, data, Method -> {\"SGD\", \"LearningRate\" -> 0.01, \"Momentum\" -> 0.9, \"LearningRateSchedule\" -> (0.1^Floor[#Round/10] &)}]\nNetTrain[net, data, Method -> {\"ADAM\", \"L2Regularization\" -> 10^-4, \"GradientClipping\" -> 1}]\nNetTrain[net, data, LearningRateMultipliers -> {\"backbone\" -> 0, \"head\" -> 1}]\nNetTrain[net, data, LearningRateMultipliers -> {-1 -> 1, _ -> 0.1}]",
+      "parameters": [],
+      "example": "NetTrain[new, data, Method -> {\"ADAM\", \"LearningRate\" -> 3*^-4}, LearningRateMultipliers -> {\"features\" -> 0, _ -> 1}, MaxTrainingRounds -> 5]",
+      "docs": "https://reference.wolfram.com/language/ref/LearningRateMultipliers.html"
+    },
+    {
+      "name": "LossFunction",
+      "kind": "system-variable",
+      "description": "NetTrain option choosing the loss: Automatic (cross-entropy for Class outputs, mean-squared for numeric), a loss layer (MeanAbsoluteLossLayer, CrossEntropyLossLayer[\"Index\"], ContrastiveLossLayer, CTCLossLayer), a custom NetGraph with a \"Loss\" port, rules \"port\" -> loss for multi-output nets, or a weighted list. RandomSeeding controls initialisation and shuffling reproducibility.",
+      "usage": "NetTrain[net, data, LossFunction -> MeanAbsoluteLossLayer[]]\nNetTrain[net, data, LossFunction -> CrossEntropyLossLayer[\"Probabilities\"]]\nNetTrain[net, data, LossFunction -> {\"out1\" -> MeanSquaredLossLayer[], \"out2\" -> Scaled[0.5]}]\nNetTrain[net, data, LossFunction -> lossGraph]\nNetTrain[net, data, RandomSeeding -> 1234]",
+      "parameters": [],
+      "example": "huber = FunctionLayer[Function[{y, t}, Mean[If[Abs[y - t] < 1, (y - t)^2/2, Abs[y - t] - 1/2]]]];\nNetTrain[net, data, LossFunction -> NetGraph[<|\"loss\" -> huber|>, {{NetPort[\"Input\"], NetPort[\"Target\"]} -> \"loss\" -> NetPort[\"Loss\"]}]]",
+      "docs": "https://reference.wolfram.com/language/ref/LossFunction.html"
+    },
+    {
+      "name": "ValidationSet",
+      "kind": "system-variable",
+      "description": "NetTrain option supplying held-out data (explicit examples, or Scaled[f] to split off a fraction, with \"Interval\" for evaluation frequency) used to track validation loss/accuracy and to select the best net (\"TrainedNet\" defaults to the lowest validation loss); TrainingStoppingCriterion stops early when a measurement stops improving (\"Criterion\" -> \"Loss\"/\"ErrorRate\", \"Patience\" -> n, \"AbsoluteChange\"/\"RelativeChange\").",
+      "usage": "NetTrain[net, data, ValidationSet -> Scaled[0.2]]\nNetTrain[net, data, ValidationSet -> valData]\nNetTrain[net, data, ValidationSet -> {valData, \"Interval\" -> Quantity[30, \"Seconds\"]}]\nNetTrain[net, data, TrainingStoppingCriterion -> <|\"Criterion\" -> \"Loss\", \"Patience\" -> 5|>]\nNetTrain[net, data, TrainingStoppingCriterion -> <|\"Criterion\" -> \"ErrorRate\", \"AbsoluteChange\" -> 0.001, \"Patience\" -> 3|>]",
+      "parameters": [],
+      "example": "res = NetTrain[net, train, All, ValidationSet -> Scaled[0.15], TrainingStoppingCriterion -> <|\"Criterion\" -> \"Loss\", \"Patience\" -> 10|>, MaxTrainingRounds -> 200];\nres[\"ValidationLossList\"]\nres[\"TrainedNet\"]",
+      "docs": "https://reference.wolfram.com/language/ref/ValidationSet.html"
+    },
+    {
+      "name": "TrainingProgressCheckpointing",
+      "kind": "system-variable",
+      "description": "NetTrain option saving copies of the net during training ({\"File\", path} or {\"Directory\", dir} with \"Interval\" in rounds or time) so that long runs can be resumed or the best intermediate net recovered; NetTrain[net, data, ..., \"TrainedNet\"|All] and NetTrainResultsObject (listed) give access to the final and best nets, loss histories and checkpoints.",
+      "usage": "NetTrain[net, data, TrainingProgressCheckpointing -> {\"Directory\", \"ckpt\", \"Interval\" -> 1}]\nNetTrain[net, data, TrainingProgressCheckpointing -> {\"File\", \"latest.wlnet\", \"Interval\" -> Quantity[10, \"Minutes\"]}]\nNetTrain[Import[\"ckpt/round-5.wlnet\"], data, ...] (* resume *)",
+      "parameters": [],
+      "example": "NetTrain[net, data, MaxTrainingRounds -> 50, TrainingProgressCheckpointing -> {\"Directory\", FileNameJoin[{$HomeDirectory, \"ckpt\"}], \"Interval\" -> 5}]",
+      "docs": "https://reference.wolfram.com/language/ref/TrainingProgressCheckpointing.html"
+    },
+    {
+      "name": "TrainingProgressReporting",
+      "kind": "system-variable",
+      "description": "NetTrain option controlling progress display: \"Panel\" (interactive, default in notebooks), \"Print\" (text lines for scripts/logs), \"ProgressIndicator\", None, or a function receiving the progress association; TrainingProgressFunction runs a callback every round/batch/time interval (logging, custom early stopping via \"StopTraining\"), and TrainingProgressMeasurements requests extra metrics (\"Accuracy\", \"F1Score\", \"ConfusionMatrix\", ...) computed during training.",
+      "usage": "NetTrain[net, data, TrainingProgressReporting -> \"Print\"]\nNetTrain[net, data, TrainingProgressReporting -> None]\nNetTrain[net, data, TrainingProgressFunction -> {Function[Print[#Round, \" \", #RoundLoss]], \"Interval\" -> 1}]\nNetTrain[net, data, TrainingProgressMeasurements -> {\"Accuracy\", \"F1Score\"}]\nNetTrain[net, data, TrainingProgressFunction -> (If[#RoundLoss < 0.01, \"StopTraining\"] &)]",
+      "parameters": [],
+      "example": "NetTrain[net, data, TrainingProgressReporting -> \"Print\", TrainingProgressMeasurements -> {\"Accuracy\", \"ConfusionMatrix\"}, ValidationSet -> Scaled[0.1]]",
+      "docs": "https://reference.wolfram.com/language/ref/TrainingProgressReporting.html"
+    },
+    {
+      "name": "TargetDevice",
+      "kind": "system-variable",
+      "description": "Option of NetTrain, net evaluation, NetMeasurements and NetModel choosing \"CPU\" (default) or \"GPU\" (NVIDIA CUDA; {\"GPU\", n} selects a device) for computation; WorkingPrecision -> \"Real32\" (default), \"Real64\" or \"Mixed\" sets numeric precision. GPU training requires the CUDA paclet resources, downloaded automatically on first use.",
+      "usage": "NetTrain[net, data, TargetDevice -> \"GPU\"]\nNetTrain[net, data, TargetDevice -> {\"GPU\", 2}]\nnet[inputs, TargetDevice -> \"GPU\"]\nNetTrain[net, data, WorkingPrecision -> \"Mixed\"]",
+      "parameters": [],
+      "example": "res = NetTrain[net, data, TargetDevice -> \"GPU\", BatchSize -> 256, MaxTrainingRounds -> 10];\nres[\"TotalTrainingTime\"]",
+      "docs": "https://reference.wolfram.com/language/ref/TargetDevice.html"
+    },
+    {
+      "name": "NetTrainResultsObject properties",
+      "kind": "reference",
+      "description": "NetTrain[net, data, All] returns a NetTrainResultsObject (listed) with properties \"TrainedNet\", \"FinalNet\", \"LossEvolutionPlot\", \"RoundLossList\", \"ValidationLossList\", \"ValidationMeasurementsLists\", \"TotalTrainingTime\", \"BatchesPerRound\", \"CheckpointingFiles\", \"BestValidationRound\", \"ExamplesProcessed\"; NetTrain[net, data, \"prop\"] returns just one. NetMeasurements[net, testData, {\"Accuracy\", \"ConfusionMatrixPlot\", \"ROCCurvePlot\"}] evaluates a trained net on held-out data.",
+      "usage": "res = NetTrain[net, data, All]\nres[\"TrainedNet\"]\nres[\"LossEvolutionPlot\"]\nres[\"ValidationLossList\"]\nNetTrain[net, data, \"RoundLossList\"]\nNetMeasurements[res[\"TrainedNet\"], test, {\"Accuracy\", \"F1Score\", \"ConfusionMatrixPlot\"}]",
+      "parameters": [],
+      "example": "res = NetTrain[net, train, All, ValidationSet -> Scaled[0.2], MaxTrainingRounds -> 30];\nres[\"LossEvolutionPlot\"]\nNetMeasurements[res[\"TrainedNet\"], test, \"ConfusionMatrixPlot\"]\nExport[\"model.wlnet\", res[\"TrainedNet\"]]",
+      "docs": "https://reference.wolfram.com/language/ref/NetTrainResultsObject.html"
+    },
+    {
+      "name": "NetModel repository usage",
+      "kind": "reference",
+      "description": "NetModel (listed) fetches pretrained nets from the Wolfram Neural Net Repository by name, with parameter variants NetModel[{\"name\", \"Size\" -> \"Large\"}], property arguments (\"Properties\", \"ByteArrays\"-free \"UninitializedEvaluationNet\", \"EvaluationNet\", \"TrainingNet\", \"ParametersInformation\", \"ExampleInput\"), and \"NetModel Import\" of ONNX/PyTorch/MXNet models via Import[\"model.onnx\"]. Combine with NetTake/NetDrop for feature extraction and NetReplacePart for new heads.",
+      "usage": "NetModel[\"ResNet-50 Trained on ImageNet Competition Data\"]\nNetModel[{\"BERT Trained on BookCorpus and English Wikipedia Data\", \"Type\" -> \"Base\", \"InputType\" -> \"ListOfStrings\"}]\nNetModel[\"name\", \"ParametersInformation\"]\nNetModel[\"name\", \"UninitializedEvaluationNet\"]\nImport[\"model.onnx\"]\nExport[\"model.onnx\", net]",
+      "parameters": [],
+      "example": "feat = NetTake[NetModel[\"ResNet-50 Trained on ImageNet Competition Data\"], \"flatten_0\"];\nfeatures = feat /@ images;\nclf = Classify[Thread[features -> labels]]",
+      "docs": "https://reference.wolfram.com/language/ref/NetModel.html"
+    }
+  ]
+}

@@ -1,0 +1,82 @@
+{
+  "id": "simulink",
+  "name": "Simulink",
+  "vendor": "MathWorks",
+  "version_reference": "R2025a",
+  "homepage": "https://www.mathworks.com/products/simulink.html",
+  "docs_root": "https://www.mathworks.com/help/simulink/",
+  "description": "Simulink is a block-diagram environment for modelling, simulating and analysing multidomain dynamic systems, built on top of MATLAB. Models are drawn as hierarchical diagrams of blocks connected by signal lines: sources generate stimuli, math and logic blocks transform signals, continuous and discrete blocks provide integrators, transfer functions and delays, and sinks log or display results. A variable-step or fixed-step solver integrates the resulting differential or difference equations over time, with zero-crossing detection for discontinuities. Every element of a model is reachable from MATLAB through the Simulink programmatic API (new_system, add_block, add_line, set_param, get_param, sim), so whole models can be built, parameterised, simulated and post-processed from a script with no GUI interaction. Simulink is the hub for a family of add-ons: Stateflow for state machines and flow charts, Simscape for physical (acausal) networks, Simulink Coder and Embedded Coder for C/C++ generation, HDL Coder for VHDL/Verilog, Simulink Test, Simulink Coverage, Simulink Design Verifier and Simulink Requirements for verification, and Simulink Real-Time for hardware-in-the-loop.",
+  "automation": {
+    "summary": "Simulink has no standalone command line of its own: it is automated from MATLAB, so every automation entry point is a MATLAB one. (1) Run MATLAB headless with `matlab -batch \"sim('model')\"` to load, simulate and exit from a shell or CI job. (2) Inside MATLAB, use the Simulink programmatic API: `new_system`/`open_system`/`load_system` to get a model into memory, `add_block` and `add_line` to build it, `set_param`/`get_param` to read and write every block, line, port and configuration parameter, `find_system` to search the diagram, and `save_system`/`close_system`/`bdclose` to persist and release it. (3) Drive simulations with `sim`, or build a `Simulink.SimulationInput` object (`setVariable`, `setBlockParameter`, `setModelParameter`, `setExternalInput`) and pass an array of them to `sim`, `parsim` (parallel) or `batchsim` (cluster). Results come back as a `Simulink.SimulationOutput` whose `logsout`, `yout` and `tout` fields hold `Simulink.SimulationData.Dataset` objects. (4) From outside MATLAB, use the MATLAB Engine API for Python/C++/Java or Windows COM automation (`Matlab.Application`) to evaluate the same commands. (5) Models can also be compiled to C with `slbuild`, to an executable target with Simulink Coder, or packaged as a FMU for co-simulation.",
+    "cli": [
+      {
+        "command": "matlab -batch \"sim('myModel')\"",
+        "description": "Load and simulate a model headless with no desktop, then exit. Returns exit code 0 on success and non-zero if the simulation errors, which makes it the standard way to run Simulink from a shell script or CI pipeline. Add `-sd <dir>` to set the startup folder so the model is on the path."
+      },
+      {
+        "command": "matlab -batch \"load_system('myModel'); set_param('myModel','StopTime','20'); out = sim('myModel'); save('res.mat','out')\"",
+        "description": "Headless run that overrides a configuration parameter and persists the SimulationOutput to a MAT-file the calling program can read back. Prefer `Simulink.SimulationInput` over `set_param` when you do not want to dirty the saved model."
+      },
+      {
+        "command": "matlab -batch \"parsim(simIn, 'ShowProgress', 'on')\"",
+        "description": "Run an array of `Simulink.SimulationInput` objects in parallel across a local or cluster parallel pool. Requires Parallel Computing Toolbox; falls back to serial `sim` when no pool is available."
+      },
+      {
+        "command": "matlab -batch \"slbuild('myModel')\"",
+        "description": "Generate and compile C code for a model from the command line using Simulink Coder or Embedded Coder, according to the model's system target file (grt.tlc, ert.tlc, ...)."
+      },
+      {
+        "command": "matlab -nodisplay -nosplash -r \"try, sim('myModel'); catch e, disp(e.message); exit(1); end; exit(0)\"",
+        "description": "Legacy headless invocation with explicit error handling and exit codes. `-batch` is preferred in R2019a and later because it sets these semantics automatically."
+      },
+      {
+        "command": "matlab -batch \"rt = sltest.testmanager.run(); sltest.testmanager.report(rt,'report.pdf')\"",
+        "description": "Execute a Simulink Test test file headless and emit a PDF report. Requires Simulink Test."
+      }
+    ],
+    "apis": [
+      {
+        "name": "Simulink programmatic model API",
+        "description": "The core automation surface. Every block, line, port, annotation and configuration setting is an object with named parameters reachable through `get_param` and `set_param`. Models are created with `new_system`, populated with `add_block` and `add_line`, queried with `find_system`, and written back with `save_system`. Because the same parameter names appear in the block dialogs, anything you can do in the GUI you can do in a script.",
+        "example": "mdl = 'demoModel';\nnew_system(mdl);\nopen_system(mdl);\nadd_block('simulink/Sources/Sine Wave', [mdl '/Sine']);\nadd_block('simulink/Math Operations/Gain', [mdl '/Gain']);\nadd_block('simulink/Sinks/Scope', [mdl '/Scope']);\nset_param([mdl '/Sine'], 'Amplitude', '2', 'Frequency', '3');\nset_param([mdl '/Gain'], 'Gain', '0.5');\nadd_line(mdl, 'Sine/1', 'Gain/1', 'autorouting', 'on');\nadd_line(mdl, 'Gain/1', 'Scope/1', 'autorouting', 'on');\nset_param(mdl, 'StopTime', '10', 'Solver', 'ode45');\nsave_system(mdl, 'demoModel.slx');\nout = sim(mdl);\nclose_system(mdl, 0);"
+      },
+      {
+        "name": "Simulink.SimulationInput / sim / parsim",
+        "description": "The recommended way to run parameterised studies without modifying the saved model. Build one `Simulink.SimulationInput` per run, apply variable, block and model overrides to it, then pass the array to `sim` for serial execution, `parsim` for a parallel pool or `batchsim` for an offloaded cluster job. Each result is a `Simulink.SimulationOutput` carrying logged signals, states, outputs, timing metadata and any error message.",
+        "example": "gains = [0.5 1 2 4];\nfor k = numel(gains):-1:1\n    simIn(k) = Simulink.SimulationInput('myModel');\n    simIn(k) = simIn(k).setVariable('Kp', gains(k));\n    simIn(k) = simIn(k).setBlockParameter('myModel/Sine', 'Frequency', '5');\n    simIn(k) = simIn(k).setModelParameter('StopTime', '30');\nend\nsimOut = parsim(simIn, 'ShowSimulationManager', 'on');\ny = simOut(1).logsout.get('y').Values;\nplot(y.Time, y.Data);"
+      },
+      {
+        "name": "MATLAB Engine API for Python",
+        "description": "Drives Simulink from Python by starting a MATLAB process and evaluating Simulink commands in it. Install with `python -m pip install matlabengine` matching your MATLAB release. Use `eng.eval(..., nargout=0)` for statements, and pull results back through the MATLAB workspace or by exporting to a MAT/CSV file, because `Simulink.SimulationOutput` objects do not convert directly to Python types.",
+        "example": "import matlab.engine\neng = matlab.engine.start_matlab()\neng.load_system('myModel', nargout=0)\neng.set_param('myModel', 'StopTime', '15', nargout=0)\neng.eval(\"out = sim('myModel'); y = out.logsout.get('y').Values.Data;\", nargout=0)\ny = eng.workspace['y']\neng.bdclose('all', nargout=0)\neng.quit()"
+      },
+      {
+        "name": "Simulink Compiler / FMU export / Simulink Coder",
+        "description": "Package a model for execution outside MATLAB. Simulink Compiler builds a standalone simulation application from a model; `exportToFMU2CS`/`exportToFMU3CS` produce Functional Mock-up Units for co-simulation in other tools; Simulink Coder and Embedded Coder generate C/C++ from `slbuild` or `rtwbuild`, and HDL Coder generates VHDL/Verilog with `makehdl`.",
+        "example": "slbuild('myModel');                       % C code via Coder\nexportToFMU2CS('myModel', 'CreateModelAfterGeneratingFMU', 'off');\nmakehdl('myModel/HDL_Subsystem', 'TargetLanguage', 'VHDL');"
+      },
+      {
+        "name": "Simulink Data Dictionary and model workspace",
+        "description": "Programmatic management of the data a model depends on. `Simulink.data.dictionary.create`/`.open` create and open `.sldd` files, and the returned section objects let you add, change and delete design data and configurations. The per-model workspace is reached with `get_param(mdl,'ModelWorkspace')` and its `assignin`/`getVariable` methods, keeping parameters out of the base workspace.",
+        "example": "dd = Simulink.data.dictionary.create('params.sldd');\nsec = getSection(dd, 'Design Data');\naddEntry(sec, 'Kp', 4.2);\nsaveChanges(dd);\nset_param('myModel', 'DataDictionary', 'params.sldd');\nmw = get_param('myModel', 'ModelWorkspace');\nassignin(mw, 'Ts', 0.001);"
+      },
+      {
+        "name": "Stateflow API",
+        "description": "Stateflow charts are built and edited from MATLAB through the Stateflow object model. `sfroot` returns the root, from which `find` locates `Stateflow.Chart`, `Stateflow.State`, `Stateflow.Transition`, `Stateflow.Junction` and `Stateflow.Data` objects whose properties mirror the graphical editor.",
+        "example": "sfnew('sfDemo');\nrt = sfroot;\nch = rt.find('-isa', 'Stateflow.Chart');\ns1 = Stateflow.State(ch); s1.Name = 'Off'; s1.Position = [50 50 100 60];\ns2 = Stateflow.State(ch); s2.Name = 'On';  s2.Position = [50 160 100 60];\nt = Stateflow.Transition(ch);\nt.Source = s1; t.Destination = s2; t.LabelString = 'u > 1';"
+      }
+    ],
+    "file_formats": [
+      {"extension": ".slx", "description": "Default Simulink model file since R2012a: a zip (Open Packaging Conventions) container holding the block diagram as compressed XML plus any embedded data. Supports incremental loading and merges far better under source control than the old binary format."},
+      {"extension": ".mdl", "description": "Legacy Simulink model file: a single human-readable text file of nested parameter blocks. Still loadable and savable (`save_system(mdl,'f.mdl')`), and useful when you need a plain-text diff, but new features may require SLX."},
+      {"extension": ".slxp", "description": "Protected model: an obfuscated, optionally simulation- and code-generation-enabled package created with `Simulink.ModelReference.protect`. Lets you ship a referenced model to a supplier without exposing its contents."},
+      {"extension": ".sldd", "description": "Simulink Data Dictionary: a persistent store for design data (parameters, signals, bus objects), configuration sets and enumerations shared by several models. Managed with the `Simulink.data.dictionary` API or Model Explorer."},
+      {"extension": ".slreqx", "description": "Simulink Requirements file holding requirement sets and their links to model elements, tests and code. Created and edited with the Requirements Editor or the `slreq` API."},
+      {"extension": ".mldatx", "description": "Simulink Test test file containing test suites, test cases, inputs, baselines and assessments. Run with `sltest.testmanager.run` or the Test Manager app."},
+      {"extension": ".sfx", "description": "Standalone Stateflow chart file (exported chart), and `.slxc` alongside it stores model build caches. Charts are normally stored inside the parent `.slx`."},
+      {"extension": ".slxc", "description": "Simulink cache file generated beside a model during build. Holds compiled artefacts so rebuilds and referenced-model simulations are much faster; safe to delete and excluded from source control."},
+      {"extension": ".ssc / .sscp", "description": "Simscape component language source and its protected/compiled form. Built into a custom Simscape library with `ssc_build`."},
+      {"extension": ".prj", "description": "Simulink Project (Project) definition file describing the folder structure, path entries, startup/shutdown scripts, source-control integration and shortcuts for a model-based design project."}
+    ]
+  }
+}

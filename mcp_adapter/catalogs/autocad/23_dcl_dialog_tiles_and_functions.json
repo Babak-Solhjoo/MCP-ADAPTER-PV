@@ -1,0 +1,578 @@
+{
+  "category": "DCL Dialog Boxes: Tiles & Dialog Functions",
+  "description": "Dialog Control Language (DCL) for building modal dialog boxes driven by AutoLISP: the programmable dialog functions that open and close dialogs, handle tiles and attributes, fill list boxes and draw image tiles, and the predefined tiles (dialog, buttons, edit boxes, lists, toggles, radio clusters, sliders, images, text, layout clusters and exit-button clusters) declared in .dcl files. DCL is Windows only (plus AutoCAD LT 2024+); load_dialog is listed with the core AutoLISP functions.",
+  "tools": [
+    {
+      "name": "new_dialog",
+      "kind": "function",
+      "description": "Begins a new dialog box from a definition in a DCL file already loaded with load_dialog, and optionally sets a default action and screen position. It must be followed by tile initialisation (set_tile, action_tile, list filling) and then start_dialog to display the dialog.",
+      "usage": "(new_dialog dlgname dcl_id [action [screen-pt]])",
+      "parameters": [
+        {"name": "dlgname", "description": "Name of the dialog definition inside the DCL file (case-sensitive)."},
+        {"name": "dcl_id", "description": "Integer returned by load_dialog."},
+        {"name": "action", "description": "Default action expression string for tiles without their own action; use \"\" when only screen-pt is needed."},
+        {"name": "screen-pt", "description": "2D point (in pixels) for the upper-left corner; '(-1 -1) centres the dialog."}
+      ],
+      "example": "(setq id (load_dialog \"layerpick.dcl\"))\n(if (not (new_dialog \"layerpick\" id \"\" '(-1 -1)))\n  (progn (princ \"\\nDialog definition not found.\") (exit)))\n(action_tile \"accept\" \"(done_dialog 1)\")\n(setq res (start_dialog))\n(unload_dialog id)",
+      "notes": "Returns T on success, nil if the definition is not found. Remembering the position returned by done_dialog and passing it back as screen-pt reopens the dialog where the user left it.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-C971FCB7-F552-455D-AC2B-4DCD8A0ADCC1"
+    },
+    {
+      "name": "start_dialog",
+      "kind": "function",
+      "description": "Displays the dialog box opened by new_dialog and processes user input until done_dialog or term_dialog is called. Returns the status value passed to done_dialog, which the program uses to decide what to do next (OK, Cancel, or a custom button such as Pick Point).",
+      "usage": "(start_dialog)",
+      "parameters": [
+        {"name": "(none)", "description": "Takes no arguments; returns 1 for OK (accept), 0 for Cancel, -1 when all dialogs were closed with term_dialog, or any value > 1 that the program passed to done_dialog."}
+      ],
+      "example": "(setq pt '(-1 -1) go T)\n(while go\n  (new_dialog \"insblk\" id \"\" pt)\n  (action_tile \"pick\" \"(setq pt (done_dialog 2))\")\n  (setq r (start_dialog))\n  (cond ((= r 2) (setq ins (getpoint \"\\nInsertion point: \")))\n        (t (setq go nil))))",
+      "notes": "Dialogs are modal: you cannot call getpoint or (command) while one is open. To let the user pick in the drawing, close with a custom status (done_dialog 2), pick, then reopen the dialog in a loop.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-E4432FB7-6549-4C9B-B5AF-4990050BDBE1"
+    },
+    {
+      "name": "done_dialog",
+      "kind": "function",
+      "description": "Closes the current dialog box, making start_dialog return the given status. It must be called from within an action expression or callback. Returns the dialog's last screen position, which can be reused with new_dialog.",
+      "usage": "(done_dialog [status])",
+      "parameters": [
+        {"name": "status", "description": "Integer returned by start_dialog: 1 conventionally OK, 0 Cancel, values greater than 1 are application-defined."}
+      ],
+      "example": "(action_tile \"accept\" \"(setq *name* (get_tile \\\"name\\\")) (done_dialog 1)\")\n(action_tile \"cancel\" \"(done_dialog 0)\")",
+      "notes": "Read all tile values (get_tile) before calling done_dialog; after it returns, the tiles no longer exist. The default OK/Cancel buttons already call done_dialog if you do not assign actions to them.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A150544E-ACE5-415F-AAB4-930E2715FDC7"
+    },
+    {
+      "name": "term_dialog",
+      "kind": "function",
+      "description": "Terminates all current dialog boxes as if the user had cancelled each one. Mainly used in *error* handlers so that an error during dialog processing does not leave a dialog open.",
+      "usage": "(term_dialog)",
+      "parameters": [
+        {"name": "(none)", "description": "Takes no arguments; always returns nil."}
+      ],
+      "example": "(defun *error* (msg)\n  (term_dialog)\n  (if dcl_id (unload_dialog dcl_id))\n  (princ (strcat \"\\nError: \" msg))\n  (princ))",
+      "notes": "Makes pending start_dialog calls return -1.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-7276E779-2FBA-47A5-AF3D-36927B738671"
+    },
+    {
+      "name": "unload_dialog",
+      "kind": "function",
+      "description": "Unloads a DCL file loaded with load_dialog, freeing its resources. Call it once the dialog has been closed and is no longer needed.",
+      "usage": "(unload_dialog dcl_id)",
+      "parameters": [
+        {"name": "dcl_id", "description": "Identifier returned by load_dialog."}
+      ],
+      "example": "(setq id (load_dialog \"opts.dcl\"))\n(new_dialog \"opts\" id)\n(start_dialog)\n(unload_dialog id)",
+      "notes": "Always returns nil. For dialogs shown repeatedly in a loop, load once, loop over new_dialog/start_dialog, and unload after the loop.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-101DA923-3246-4518-A45E-22B0E4B84192"
+    },
+    {
+      "name": "action_tile",
+      "kind": "function",
+      "description": "Assigns an AutoLISP action expression (as a string) to be evaluated when the user selects or changes a tile. The expression can use the variables $key, $value, $reason, $data, $x and $y describing the event. Overrides the tile's action attribute and the new_dialog default action.",
+      "usage": "(action_tile key action-expression)",
+      "parameters": [
+        {"name": "key", "description": "Tile key string as defined in the DCL."},
+        {"name": "action-expression", "description": "String containing LISP code, e.g. \"(setq *h* $value)\"."}
+      ],
+      "example": "(action_tile \"height\" \"(if (> (atof $value) 0) (setq *h* (atof $value)) (set_tile \\\"error\\\" \\\"Height must be positive\\\"))\")\n(action_tile \"accept\" \"(done_dialog 1)\")",
+      "notes": "Quotes inside the expression must be escaped. For complex handlers, call a defun: (action_tile \"lst\" \"(on-list $value $reason)\"). Action expressions cannot call (command) or interactive get* functions.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A9E2C14E-1352-4C7B-89F0-C86D3A86B19D"
+    },
+    {
+      "name": "set_tile",
+      "kind": "function",
+      "description": "Sets the runtime value of a tile: the text of an edit box or text tile, \"0\"/\"1\" for a toggle, the selected index string for a list or popup, the key of the chosen radio button in a radio cluster, or the position of a slider.",
+      "usage": "(set_tile key value)",
+      "parameters": [
+        {"name": "key", "description": "Tile key."},
+        {"name": "value", "description": "New value as a string."}
+      ],
+      "example": "(set_tile \"height\" (rtos *h* 2 2))\n(set_tile \"bold\" \"1\")\n(set_tile \"units\" \"mm\")     ; radio_column: key of the radio_button to select\n(set_tile \"error\" \"\")        ; clear the error line",
+      "notes": "Values are always strings; numbers must be converted with itoa/rtos. Setting \"error\" writes to the errtile.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-E250DFD4-FA02-47B9-A0BA-C65316E99C17"
+    },
+    {
+      "name": "get_tile",
+      "kind": "function",
+      "description": "Returns the current runtime value of a tile as a string. It is used in OK actions to collect all values before done_dialog closes the dialog.",
+      "usage": "(get_tile key)",
+      "parameters": [
+        {"name": "key", "description": "Tile key."}
+      ],
+      "example": "(action_tile \"accept\"\n  \"(setq *txt* (get_tile \\\"txt\\\") *idx* (atoi (get_tile \\\"style\\\"))) (done_dialog 1)\")",
+      "notes": "For multiple-select list boxes the value is a space-separated list of indexes, e.g. \"0 3 4\"; parse with (read (strcat \"(\" v \")\")).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3BD2F6DF-DCD5-4A00-9BDF-E2C7C7C286F8"
+    },
+    {
+      "name": "mode_tile",
+      "kind": "function",
+      "description": "Changes the mode of a tile: enables or disables it, gives it keyboard focus, selects the contents of an edit box, or toggles image highlighting. Used to grey out options that do not apply to the current choice.",
+      "usage": "(mode_tile key mode)",
+      "parameters": [
+        {"name": "key", "description": "Tile key."},
+        {"name": "mode", "description": "0 enable, 1 disable, 2 set focus, 3 select edit-box contents, 4 flip image highlighting."}
+      ],
+      "example": "(action_tile \"custom\" \"(mode_tile \\\"scale\\\" (if (= $value \\\"1\\\") 0 1))\")",
+      "notes": "Call it after new_dialog and before start_dialog to set the initial state, and from action expressions to update it.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-23ACCF72-9C6F-45C0-A889-9307CC1210C2"
+    },
+    {
+      "name": "get_attr",
+      "kind": "function",
+      "description": "Returns the value of a DCL attribute of a tile as written in the DCL file (its initial value), for example a tile's label, width or list. It does not return runtime changes; use get_tile for the current value.",
+      "usage": "(get_attr key attribute)",
+      "parameters": [
+        {"name": "key", "description": "Tile key."},
+        {"name": "attribute", "description": "Attribute name string such as \"label\" or \"list\"."}
+      ],
+      "example": "(setq opts (get_attr \"units\" \"list\"))  ; e.g. \"mm\\ncm\\nm\"",
+      "notes": "Useful for keeping option lists only in the DCL file.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-AB9100B0-F19E-4C29-B82A-28E8A607BF4E"
+    },
+    {
+      "name": "start_list",
+      "kind": "function",
+      "description": "Starts processing the list of a list_box or popup_list tile. Subsequent add_list calls append, replace or rebuild entries, and end_list finishes the operation.",
+      "usage": "(start_list key [operation [index]])",
+      "parameters": [
+        {"name": "key", "description": "Key of a list_box or popup_list tile."},
+        {"name": "operation", "description": "1 change the item at index, 2 append new items, 3 delete the old list and create a new one (default)."},
+        {"name": "index", "description": "Zero-based item index for operation 1."}
+      ],
+      "example": "(setq names (vl-sort (layer-names) '<))\n(start_list \"layers\")\n(mapcar 'add_list names)\n(end_list)\n(set_tile \"layers\" \"0\")",
+      "notes": "Only add_list may be called between start_list and end_list; calling set_tile there has no effect.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-84FAC8F6-59B1-4FBD-9446-0CB323B3D66D"
+    },
+    {
+      "name": "add_list",
+      "kind": "function",
+      "description": "Adds or replaces a string in the list currently being processed by start_list. Returns the string on success, nil otherwise.",
+      "usage": "(add_list string)",
+      "parameters": [
+        {"name": "string", "description": "Text of the list entry; tabs align columns when the tile has a tabs attribute."}
+      ],
+      "example": "(start_list \"sheets\")\n(foreach s sheets (add_list (strcat (car s) \"\\t\" (cdr s))))\n(end_list)",
+      "notes": "Tab characters (\\t) align with the tabs attribute of the list_box to display columns.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9BF538FC-BB15-4843-9796-DDCDB6D38C8E"
+    },
+    {
+      "name": "end_list",
+      "kind": "function",
+      "description": "Ends processing of the list opened with start_list, making the changes visible in the list_box or popup_list.",
+      "usage": "(end_list)",
+      "parameters": [
+        {"name": "(none)", "description": "Takes no arguments."}
+      ],
+      "example": "(start_list \"styles\" 3)\n(mapcar 'add_list '(\"Standard\" \"ISO\" \"Notes\"))\n(end_list)",
+      "notes": "Forgetting end_list leaves the list empty on screen.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-389C46C7-3E8A-41CA-96B6-8BD63577B763"
+    },
+    {
+      "name": "start_image",
+      "kind": "function",
+      "description": "Starts drawing into an image or image_button tile. It is followed by fill_image, vector_image or slide_image calls and closed with end_image.",
+      "usage": "(start_image key)",
+      "parameters": [
+        {"name": "key", "description": "Key of an image or image_button tile."}
+      ],
+      "example": "(start_image \"preview\")\n(fill_image 0 0 (dimx_tile \"preview\") (dimy_tile \"preview\") -2)\n(slide_image 0 0 (dimx_tile \"preview\") (dimy_tile \"preview\") \"blocks(door)\")\n(end_image)",
+      "notes": "Only image functions may be called between start_image and end_image.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-4CB5C93A-6357-4853-B918-0F3EE375201C"
+    },
+    {
+      "name": "vector_image",
+      "kind": "function",
+      "description": "Draws a line segment in the currently active image tile between two points in tile pixel coordinates using an AutoCAD color number. Used to draw simple previews or indicator graphics.",
+      "usage": "(vector_image x1 y1 x2 y2 color)",
+      "parameters": [
+        {"name": "x1 y1 x2 y2", "description": "Endpoints; origin (0,0) is the upper-left corner of the tile."},
+        {"name": "color", "description": "ACI color 0-255, or special values -2 (graphics background), -15 (dialog background), -16 (dialog foreground), -18 (dialog line color)."}
+      ],
+      "example": "(setq w (dimx_tile \"img\") h (dimy_tile \"img\"))\n(start_image \"img\")\n(vector_image 0 0 w h 1)\n(vector_image 0 h w 0 1)\n(end_image)",
+      "notes": "Y increases downwards, unlike drawing coordinates.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-28CC07ED-CBD2-47EF-9866-1AB31DCEA34F"
+    },
+    {
+      "name": "fill_image",
+      "kind": "function",
+      "description": "Draws a filled rectangle in the currently active image tile, typically to clear it with the background color or to show a color swatch.",
+      "usage": "(fill_image x1 y1 width height color)",
+      "parameters": [
+        {"name": "x1 y1", "description": "Upper-left corner in tile pixels."},
+        {"name": "width height", "description": "Size in pixels; use dimx_tile/dimy_tile for the full tile."},
+        {"name": "color", "description": "ACI color or special negative values (-2 graphics background, -15 dialog background)."}
+      ],
+      "example": "; color swatch for the chosen ACI number\n(start_image \"swatch\")\n(fill_image 0 0 (dimx_tile \"swatch\") (dimy_tile \"swatch\") *aci*)\n(end_image)",
+      "notes": "Clear the tile first when redrawing a preview, otherwise old vectors remain.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-1C95F5E1-C063-4334-A296-40E7E123F66C"
+    },
+    {
+      "name": "slide_image",
+      "kind": "function",
+      "description": "Displays an AutoCAD slide (.sld) or a slide from a slide library (.slb) in the active image tile, scaled to the given rectangle. It is the traditional way to show block or pattern previews in DCL dialogs.",
+      "usage": "(slide_image x1 y1 width height sldname)",
+      "parameters": [
+        {"name": "sldname", "description": "Slide file name, or \"library(slide)\" for a slide inside an .slb library."}
+      ],
+      "example": "(start_image \"pv\")\n(fill_image 0 0 (dimx_tile \"pv\") (dimy_tile \"pv\") -2)\n(slide_image 0 0 (dimx_tile \"pv\") (dimy_tile \"pv\") \"C:/CAD/Slides/valve.sld\")\n(end_image)",
+      "notes": "Create slides with MSLIDE and libraries with the SLIDELIB utility. Slides are vector only; filled areas and colors are simplified.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D5B5A0AF-82BE-4A00-832D-04D496D809D0"
+    },
+    {
+      "name": "end_image",
+      "kind": "function",
+      "description": "Ends creation of the image started with start_image and displays it in the tile.",
+      "usage": "(end_image)",
+      "parameters": [
+        {"name": "(none)", "description": "Takes no arguments."}
+      ],
+      "example": "(start_image \"img\") (fill_image 0 0 40 20 3) (end_image)",
+      "notes": "Always pair start_image with end_image.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-C5DDD271-AA70-4546-9346-09C540979AC2"
+    },
+    {
+      "name": "dimx_tile",
+      "kind": "function",
+      "description": "Returns the width of a tile in dialog-box pixels. Used with image tiles to scale drawing coordinates to the actual tile size, which depends on screen resolution and fonts.",
+      "usage": "(dimx_tile key)\n(dimy_tile key)",
+      "parameters": [
+        {"name": "key", "description": "Tile key."}
+      ],
+      "example": "(setq w (dimx_tile \"img\") h (dimy_tile \"img\"))\n(start_image \"img\") (fill_image 0 0 w h -15) (end_image)",
+      "notes": "Valid coordinates run from 0 to width-1 and height-1. dimy_tile returns the height.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-AE8CC93E-1F87-4023-BC87-80584229B226"
+    },
+    {
+      "name": "dimy_tile",
+      "kind": "function",
+      "description": "Returns the height of a tile in dialog-box pixels, the counterpart of dimx_tile for vertical scaling of image content.",
+      "usage": "(dimy_tile key)",
+      "parameters": [
+        {"name": "key", "description": "Tile key."}
+      ],
+      "example": "(vector_image 0 (/ (dimy_tile \"img\") 2) (dimx_tile \"img\") (/ (dimy_tile \"img\") 2) 7)",
+      "notes": "Call inside or outside a start_image/end_image block.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-FAA2950E-5374-48BF-8BCF-8B1A7C1013D8"
+    },
+    {
+      "name": "client_data_tile",
+      "kind": "function",
+      "description": "Associates application-managed string data with a tile. The data is passed to the tile's action expression as the $data variable, which lets one handler serve many tiles.",
+      "usage": "(client_data_tile key clientdata)",
+      "parameters": [
+        {"name": "key", "description": "Tile key."},
+        {"name": "clientdata", "description": "String data to associate."}
+      ],
+      "example": "(foreach k '(\"b1\" \"b2\" \"b3\")\n  (client_data_tile k (strcat \"BLOCK_\" k))\n  (action_tile k \"(setq *blk* $data) (done_dialog 1)\"))",
+      "notes": "Data must be a string; encode lists with vl-prin1-to-string and decode with read.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9790A095-68BA-40FB-B89E-036F276CCF56"
+    },
+    {
+      "name": "dialog Tile (DCL)",
+      "kind": "reference",
+      "description": "The outermost tile of every dialog box definition. Its name is what new_dialog refers to, its label becomes the title bar text, and it contains all other tiles laid out as a column by default. A DCL file can contain several dialog definitions.",
+      "usage": "name : dialog {\n  label = \"Title\";\n  [initial_focus = \"key\";]\n  ... tiles ...\n}",
+      "parameters": [
+        {"name": "label", "description": "Title bar text."},
+        {"name": "initial_focus", "description": "Key of the tile that has focus when the dialog opens."},
+        {"name": "children_alignment / children_fixed_width", "description": "Default alignment and width behaviour for contained tiles."}
+      ],
+      "example": "rename : dialog {\n  label = \"Rename Layer\";\n  initial_focus = \"newname\";\n  : edit_box { key = \"newname\"; label = \"New name:\"; edit_width = 30; }\n  ok_cancel;\n}",
+      "notes": "Every dialog needs at least one exit button (ok_cancel, ok_only or a button with is_cancel = true) or it cannot be closed.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3D0C8493-DC94-4D05-AC42-C30DB9169A62"
+    },
+    {
+      "name": "button Tile (DCL)",
+      "kind": "reference",
+      "description": "A push button that triggers an action. Buttons are used for OK/Cancel-style exits and for actions such as Pick Point or Browse that close the dialog temporarily with a custom status.",
+      "usage": ": button {\n  key = \"pick\";\n  label = \"Pick <\";\n  [is_default = true;] [is_cancel = true;] [mnemonic = \"P\";]\n}",
+      "parameters": [
+        {"name": "key / label", "description": "Identifier for action_tile and caption text."},
+        {"name": "is_default", "description": "true makes Enter activate the button."},
+        {"name": "is_cancel", "description": "true makes Esc activate the button."},
+        {"name": "fixed_width / width", "description": "Prevent stretching and set a minimum width."}
+      ],
+      "example": ": row {\n  : button { key = \"pick\"; label = \"Pick point <\"; fixed_width = true; }\n  : button { key = \"browse\"; label = \"Browse...\"; }\n}",
+      "notes": "Only one button in a dialog may have is_default and one is_cancel.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-B83960E6-A641-4D5A-A5B3-ADC703E36DA0"
+    },
+    {
+      "name": "edit_box Tile (DCL)",
+      "kind": "reference",
+      "description": "A single-line text entry field with an optional label. Its value is a string, so numbers must be converted with atof or atoi and validated in the action or OK handler.",
+      "usage": ": edit_box {\n  key = \"height\";\n  label = \"Text height:\";\n  edit_width = 10; [edit_limit = 132;] [value = \"2.5\";] [password_char = \"*\";] [allow_accept = true;]\n}",
+      "parameters": [
+        {"name": "edit_width", "description": "Width of the input area in character units."},
+        {"name": "edit_limit", "description": "Maximum characters (default 132, maximum 256)."},
+        {"name": "allow_accept", "description": "true lets Enter in the box trigger the default (OK) button."},
+        {"name": "password_char", "description": "Character shown instead of typed text."}
+      ],
+      "example": ": edit_box { key = \"prefix\"; label = \"Prefix:\"; edit_width = 12; value = \"R-\"; }",
+      "notes": "The action fires with $reason 1 when the user presses Enter (allow_accept) and 2 when the box loses focus after editing; validate on both, and read the final value with get_tile in the OK handler.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-38A11AED-DDF5-4ACA-A8BB-1F7901D0AF50"
+    },
+    {
+      "name": "list_box Tile (DCL)",
+      "kind": "reference",
+      "description": "A scrolling list of text rows allowing single or multiple selection. The list is filled at runtime with start_list/add_list/end_list, and its value is the selected index or a space-separated string of indexes.",
+      "usage": ": list_box {\n  key = \"layers\";\n  label = \"Layers:\";\n  height = 12; width = 30;\n  [multiple_select = true;] [tabs = \"20 30\";] [allow_accept = true;]\n}",
+      "parameters": [
+        {"name": "multiple_select", "description": "true allows selecting several rows."},
+        {"name": "tabs", "description": "Tab stop positions for column-like display."},
+        {"name": "list", "description": "Initial entries separated by \\n."},
+        {"name": "allow_accept", "description": "Double-click accepts the dialog."}
+      ],
+      "example": "(action_tile \"layers\"\n  \"(if (= $reason 4) (progn (setq *sel* $value) (done_dialog 1)))\")\n; $reason 4 = double-click",
+      "notes": "$reason is 1 for a selection and 4 for a double-click. The value refers to indexes in the list you supplied, so keep that list in a variable.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-C01592FC-3A6B-48A2-952C-15307F0DAC5F"
+    },
+    {
+      "name": "popup_list Tile (DCL)",
+      "kind": "reference",
+      "description": "A drop-down list showing one selected item, functionally equivalent to a single-selection list box but compact. Its value is the zero-based index of the selected item as a string.",
+      "usage": ": popup_list {\n  key = \"style\";\n  label = \"Text style:\";\n  edit_width = 20;\n  [list = \"Standard\\nISO\";]\n}",
+      "parameters": [
+        {"name": "edit_width", "description": "Width of the pop-up field."},
+        {"name": "list", "description": "Initial entries separated by \\n; usually filled at runtime."},
+        {"name": "value", "description": "Initially selected index."}
+      ],
+      "example": "(start_list \"style\") (mapcar 'add_list styles) (end_list)\n(set_tile \"style\" (itoa (vl-position (getvar \"TEXTSTYLE\") styles)))",
+      "notes": "Use vl-position to translate the current setting to an index and nth to translate the returned index back.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-EE92EC2B-83BB-4EFE-907A-F413836D78EE"
+    },
+    {
+      "name": "toggle Tile (DCL)",
+      "kind": "reference",
+      "description": "A check box with a label, whose value is \"1\" when checked and \"0\" when cleared. Used for on/off options.",
+      "usage": ": toggle {\n  key = \"purge\";\n  label = \"Purge before saving\";\n  [value = \"1\";]\n}",
+      "parameters": [
+        {"name": "key / label", "description": "Identifier and caption."},
+        {"name": "value", "description": "\"0\" or \"1\" initial state."}
+      ],
+      "example": "(set_tile \"purge\" (if *purge* \"1\" \"0\"))\n(action_tile \"purge\" \"(setq *purge* (= $value \\\"1\\\"))\")",
+      "notes": "Combine with mode_tile to enable dependent options only when the toggle is on.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-379CF682-A5D3-4902-855C-81C146AC173A"
+    },
+    {
+      "name": "radio_button Tile (DCL)",
+      "kind": "reference",
+      "description": "One option button inside a radio_column, radio_row or boxed variant; selecting it deselects the others in the cluster. The cluster's value is the key of the selected radio button.",
+      "usage": ": radio_button { key = \"mm\"; label = \"Millimetres\"; }",
+      "parameters": [
+        {"name": "key", "description": "Returned as the cluster value when selected."},
+        {"name": "label", "description": "Caption."},
+        {"name": "value", "description": "\"1\" to select initially."}
+      ],
+      "example": ": radio_column {\n  key = \"units\";\n  : radio_button { key = \"mm\"; label = \"mm\"; value = \"1\"; }\n  : radio_button { key = \"in\"; label = \"inches\"; }\n}",
+      "notes": "Radio buttons must be inside a radio cluster to be mutually exclusive.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-ACDCCDBE-87D8-4A07-A6DA-1AC57AB598B0"
+    },
+    {
+      "name": "radio_column Tile (DCL)",
+      "kind": "reference",
+      "description": "A vertical cluster of radio_button tiles of which only one can be selected. Its runtime value (get_tile) is the key of the selected button, and set_tile with a button key selects it.",
+      "usage": ": radio_column {\n  key = \"mode\";\n  [label = \"Mode\";]\n  : radio_button { ... }\n}",
+      "parameters": [
+        {"name": "key", "description": "Cluster key used with get_tile/set_tile/action_tile."},
+        {"name": "value", "description": "Key of the initially selected button."}
+      ],
+      "example": "(action_tile \"mode\" \"(setq *mode* $value)\")   ; $value is e.g. \"mm\"",
+      "notes": "boxed_radio_column draws a labelled border around the same cluster.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-72D293EF-7731-40C8-91FF-3A786532A44E"
+    },
+    {
+      "name": "radio_row Tile (DCL)",
+      "kind": "reference",
+      "description": "A horizontal cluster of radio_button tiles with the same exclusive-selection behaviour as radio_column. boxed_radio_row adds a border and label.",
+      "usage": ": radio_row {\n  key = \"just\";\n  : radio_button { key = \"L\"; label = \"Left\"; }\n  : radio_button { key = \"C\"; label = \"Center\"; }\n  : radio_button { key = \"R\"; label = \"Right\"; }\n}",
+      "parameters": [
+        {"name": "key", "description": "Cluster key."},
+        {"name": "value", "description": "Key of the initially selected radio button."}
+      ],
+      "example": "(set_tile \"just\" \"C\")",
+      "notes": "Keep labels short; a radio_row does not wrap.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9218924A-86DB-48EF-A7CE-7C68BA413E82"
+    },
+    {
+      "name": "boxed_column Tile (DCL)",
+      "kind": "reference",
+      "description": "A layout cluster that stacks its child tiles vertically inside a border with an optional label, used to group related controls visually.",
+      "usage": ": boxed_column {\n  label = \"Output\";\n  ... tiles ...\n}",
+      "parameters": [
+        {"name": "label", "description": "Group caption shown on the border; omit or use \"\" for a plain frame."}
+      ],
+      "example": ": boxed_column {\n  label = \"Text\";\n  : edit_box { key = \"ht\"; label = \"Height:\"; }\n  : popup_list { key = \"sty\"; label = \"Style:\"; }\n}",
+      "notes": "column is the borderless equivalent.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-EE94E787-2B4E-4ACB-A690-A62C336C13F6"
+    },
+    {
+      "name": "boxed_row Tile (DCL)",
+      "kind": "reference",
+      "description": "A layout cluster that arranges its child tiles horizontally inside a labelled border.",
+      "usage": ": boxed_row {\n  label = \"Insertion point\";\n  ... tiles ...\n}",
+      "parameters": [
+        {"name": "label", "description": "Group caption on the border."}
+      ],
+      "example": ": boxed_row {\n  label = \"Insertion point\";\n  : edit_box { key = \"x\"; label = \"X:\"; edit_width = 8; }\n  : edit_box { key = \"y\"; label = \"Y:\"; edit_width = 8; }\n}",
+      "notes": "row is the borderless equivalent.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-661DDB71-B7BD-453F-89E3-129F8B4A1EE2"
+    },
+    {
+      "name": "row Tile (DCL)",
+      "kind": "reference",
+      "description": "A borderless cluster arranging tiles side by side, the basic horizontal layout container. A label on a row turns it into a boxed_row.",
+      "usage": ": row { ... tiles ... }",
+      "parameters": [
+        {"name": "alignment / children_alignment", "description": "Vertical alignment of the row and of its children (top, centered, bottom)."}
+      ],
+      "example": ": row {\n  : button { key = \"all\"; label = \"Select all\"; }\n  : button { key = \"none\"; label = \"Clear\"; }\n}",
+      "notes": "Nest rows and columns to build grids.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-716F7306-9E07-4DAE-B5D7-793FCF5F3BF5"
+    },
+    {
+      "name": "column Tile (DCL)",
+      "kind": "reference",
+      "description": "A borderless cluster that stacks tiles vertically, the default layout inside a dialog. Adding a label makes it a boxed_column.",
+      "usage": ": column { ... tiles ... }",
+      "parameters": [
+        {"name": "alignment / children_alignment", "description": "Horizontal alignment (left, centered, right)."}
+      ],
+      "example": ": row {\n  : column { : toggle { key = \"a\"; label = \"A\"; } : toggle { key = \"b\"; label = \"B\"; } }\n  : column { : toggle { key = \"c\"; label = \"C\"; } : toggle { key = \"d\"; label = \"D\"; } }\n}",
+      "notes": "Two columns inside a row give a two-column option grid.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-C9E712A1-1865-4F95-918F-D24ED6124DC8"
+    },
+    {
+      "name": "text Tile (DCL)",
+      "kind": "reference",
+      "description": "Displays a static or runtime-updated text string for captions, instructions or status messages. Give it a key and a width to update it with set_tile.",
+      "usage": ": text {\n  key = \"status\";\n  label = \"Ready\";\n  [width = 40;] [is_bold = true;]\n}",
+      "parameters": [
+        {"name": "label / value", "description": "Displayed text."},
+        {"name": "width", "description": "Reserve width for text set at runtime; otherwise it may be truncated."},
+        {"name": "is_bold", "description": "Bold display."}
+      ],
+      "example": "(set_tile \"status\" (strcat (itoa (sslength ss)) \" objects selected\"))",
+      "notes": "text_part, concatenation and paragraph build multi-part text layouts.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-410906EA-BB9C-4B8F-BE8A-3223F03CAADF"
+    },
+    {
+      "name": "image Tile (DCL)",
+      "kind": "reference",
+      "description": "A rectangular area in which vectors, filled rectangles and slides are drawn by the image functions. Used for previews and color swatches.",
+      "usage": ": image {\n  key = \"preview\";\n  width = 30; aspect_ratio = 0.75;\n  [color = -2;]\n}",
+      "parameters": [
+        {"name": "width / height / aspect_ratio", "description": "Size; specify width plus aspect_ratio or height."},
+        {"name": "color", "description": "Background color (ACI or special negative values)."}
+      ],
+      "example": ": image { key = \"pv\"; width = 25; aspect_ratio = 1; color = -2; }",
+      "notes": "An image tile is not clickable; use image_button for a clickable picture.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-B5F8DF42-D22A-4ACC-B236-F66733DE62D6"
+    },
+    {
+      "name": "image_button Tile (DCL)",
+      "kind": "reference",
+      "description": "A button that shows a graphic instead of a label, for example block or hatch previews the user clicks to choose. The action receives $x and $y with the pick position inside the image.",
+      "usage": ": image_button {\n  key = \"blk1\";\n  width = 12; aspect_ratio = 1;\n  color = -2; [allow_accept = true;]\n}",
+      "parameters": [
+        {"name": "allow_accept", "description": "Double-click activates the default button."},
+        {"name": "color", "description": "Background color."}
+      ],
+      "example": "(action_tile \"blk1\" \"(setq *blk* \\\"VALVE\\\") (done_dialog 1)\")",
+      "notes": "Fill it with start_image/slide_image after new_dialog.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-C1E7FFC9-065F-4975-B356-CF31474B6746"
+    },
+    {
+      "name": "slider Tile (DCL)",
+      "kind": "reference",
+      "description": "A horizontal or vertical slider returning an integer value within a range, as a string. Often paired with an edit box that shows the numeric value.",
+      "usage": ": slider {\n  key = \"trans\";\n  min_value = 0; max_value = 90;\n  small_increment = 1; big_increment = 10;\n  [layout = horizontal;] [value = \"0\";]\n}",
+      "parameters": [
+        {"name": "min_value / max_value", "description": "Range limits (-32768 to 32767)."},
+        {"name": "small_increment / big_increment", "description": "Arrow-key and page step sizes."},
+        {"name": "layout", "description": "horizontal (default) or vertical."}
+      ],
+      "example": "(action_tile \"trans\" \"(set_tile \\\"transval\\\" $value)\")",
+      "notes": "$reason 3 means the user is dragging and 1 means the drag ended; update expensive previews only on 1.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9773EC28-1913-4C7F-BF00-760CB4A7AC20"
+    },
+    {
+      "name": "spacer Tile (DCL)",
+      "kind": "reference",
+      "description": "An invisible tile that adds space between other tiles in a row or column. spacer_0 is a stretchable spacer with no default size and spacer_1 is a spacer of unit size.",
+      "usage": ": spacer { width = 2; height = 1; }\nspacer_1;\nspacer_0;",
+      "parameters": [
+        {"name": "width / height", "description": "Size of the gap in character units."}
+      ],
+      "example": ": row { : button { key = \"a\"; label = \"A\"; } spacer_0; : button { key = \"b\"; label = \"B\"; } }",
+      "notes": "Use sparingly; the DCL layout engine already adds default spacing.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A05B0671-D493-47D7-91DA-53DC50D35915"
+    },
+    {
+      "name": "errtile Tile (DCL)",
+      "kind": "reference",
+      "description": "A text tile with the key \"error\" placed at the bottom of a dialog to show validation messages. Programs write to it with (set_tile \"error\" \"message\") and clear it with an empty string.",
+      "usage": "errtile;",
+      "parameters": [
+        {"name": "key", "description": "Predefined as \"error\"."}
+      ],
+      "example": "(action_tile \"accept\"\n  \"(if (> (atof (get_tile \\\"ht\\\")) 0) (done_dialog 1) (set_tile \\\"error\\\" \\\"Height must be > 0\\\"))\")",
+      "notes": "ok_cancel_help_errtile combines the exit buttons and the error tile.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-38298C0C-1F1C-479E-A72D-F432341EA958"
+    },
+    {
+      "name": "ok_cancel Tile (DCL)",
+      "kind": "reference",
+      "description": "Predefined cluster providing the standard OK and Cancel buttons with keys \"accept\" and \"cancel\". Without explicit actions OK closes with status 1 and Cancel with 0.",
+      "usage": "ok_cancel;",
+      "parameters": [
+        {"name": "accept", "description": "Key of the OK button (is_default)."},
+        {"name": "cancel", "description": "Key of the Cancel button (is_cancel)."}
+      ],
+      "example": "(action_tile \"accept\" \"(save-values) (done_dialog 1)\")",
+      "notes": "Variants: ok_only (key \"accept\"), ok_cancel_help (adds \"help\"), ok_cancel_help_info (adds \"info\"), ok_cancel_help_errtile.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-BA3EADFA-E2D7-4D85-9282-3CBB0D83499E"
+    },
+    {
+      "name": "ok_cancel_help Tile (DCL)",
+      "kind": "reference",
+      "description": "The ok_cancel cluster plus a Help button with the key \"help\". Assign an action to the help key to open your documentation, for example with the help function.",
+      "usage": "ok_cancel_help;",
+      "parameters": [
+        {"name": "help", "description": "Key of the Help button."}
+      ],
+      "example": "(action_tile \"help\" \"(help \\\"C:/CAD/Help/tools.chm\\\" \\\"rename\\\")\")",
+      "notes": "Without an action the Help button does nothing useful.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-DF8DA7C3-7F7E-471C-A6B9-1A5D986CD6E9"
+    },
+    {
+      "name": "Predefined Attributes for Tiles Reference (DCL)",
+      "kind": "reference",
+      "description": "The attributes that configure DCL tiles: identification (key, label, value, mnemonic), layout (width, height, fixed_width, fixed_height, alignment, children_alignment, aspect_ratio), behaviour (action, is_default, is_cancel, is_enabled, is_tab_stop, allow_accept) and tile-specific ones (edit_width, edit_limit, list, multiple_select, tabs, min_value, max_value, color, password_char, initial_focus).",
+      "usage": "attribute = value;\n; strings in double quotes, numbers bare, booleans true/false, keywords bare (e.g. layout = vertical;)",
+      "parameters": [
+        {"name": "key", "description": "Name used by LISP to address the tile; case-sensitive."},
+        {"name": "width / height", "description": "Minimum size in character units; fixed_width/fixed_height stop stretching."},
+        {"name": "is_enabled", "description": "false greys the tile out initially (mode_tile changes it at runtime)."},
+        {"name": "action", "description": "Default action expression string in the DCL itself (action_tile overrides it)."}
+      ],
+      "example": ": edit_box {\n  key = \"ht\"; label = \"&Height:\"; mnemonic = \"H\";\n  edit_width = 8; fixed_width = true; alignment = left;\n  is_enabled = true; allow_accept = true;\n}",
+      "notes": "Attribute names and keys are case-sensitive. Unknown attributes are ignored silently, so typos show up only as missing behaviour.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-5B0C8B10-F968-4A56-B4A5-6A26935B341A"
+    },
+    {
+      "name": "DCL action expression variables ($key $value $reason $data $x $y)",
+      "kind": "reference",
+      "description": "Variables that AutoCAD sets while evaluating a tile's action expression: $key (tile key), $value (tile value string), $reason (why the action fired), $data (client data from client_data_tile), and $x/$y (pick coordinates in an image_button or slider position details). They let one handler serve many tiles.",
+      "usage": "(action_tile \"key\" \"(handler $key $value $reason)\")",
+      "parameters": [
+        {"name": "$reason 1", "description": "User selected the tile (click, Enter)."},
+        {"name": "$reason 2", "description": "Edit box lost focus after editing (not a final selection)."},
+        {"name": "$reason 3", "description": "Slider value changed while dragging (intermediate)."},
+        {"name": "$reason 4", "description": "Double-click in a list box or image button."}
+      ],
+      "example": "(defun on-tile (k v r)\n  (cond ((and (= k \"lst\") (= r 4)) (done_dialog 1))\n        ((= k \"lst\") (set_tile \"status\" (nth (atoi v) *items*)))))\n(action_tile \"lst\" \"(on-tile $key $value $reason)\")",
+      "notes": "These variables exist only while an action expression runs; do not rely on them elsewhere.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A9E2C14E-1352-4C7B-89F0-C86D3A86B19D"
+    }
+  ]
+}

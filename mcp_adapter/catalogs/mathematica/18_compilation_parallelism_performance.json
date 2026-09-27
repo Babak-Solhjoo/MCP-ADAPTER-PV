@@ -1,0 +1,316 @@
+{
+  "category": "Compilation, Parallelism & Performance",
+  "description": "Tools for making Wolfram Language code fast: the Compile and FunctionCompile frameworks that turn numeric code into bytecode or machine code, the parallel computing framework that spreads work across kernels and machines, the packed and raw array types that avoid boxing overhead, and the timing and memory instrumentation used to find bottlenecks.",
+  "tools": [
+    {
+      "name": "Compile",
+      "kind": "function",
+      "description": "Compiles a numeric expression into Wolfram virtual machine bytecode, typically giving a large speedup for loops over machine numbers. Argument types are declared as {x, _Real}, {v, _Real, 1} for a vector and so on, and CompilationTarget -> \"C\" produces native code through an external C compiler. Any operation the compiler does not support causes a callback to the main evaluator, which usually makes the result slower than uncompiled code.",
+      "usage": "Compile[{{x, _Real}}, expr]\nCompile[{{x, _Real}, {y, _Integer}}, expr]\nCompile[{{v, _Real, 1}}, expr]\nCompile[vars, expr, CompilationTarget -> \"C\"]",
+      "parameters": [
+        {"name": "CompilationTarget", "description": "\"WVM\" for bytecode (default) or \"C\" for native code via an installed C compiler."},
+        {"name": "RuntimeAttributes", "description": "Set to {Listable} so the compiled function threads over lists, enabling automatic parallelization."},
+        {"name": "Parallelization", "description": "True together with Listable runtime attributes to use all cores."},
+        {"name": "RuntimeOptions", "description": "\"Speed\" skips runtime checks such as integer overflow detection."}
+      ],
+      "example": "cf = Compile[{{x, _Real}}, x^2 + Sin[x]];\ncf[2.0]\nsumsq = Compile[{{v, _Real, 1}}, Total[v^2]];\nsumsq[RandomReal[1, 1000]]\nfast = Compile[{{x, _Real}}, x^2, RuntimeAttributes -> {Listable}, Parallelization -> True];\nCompile[{{n, _Integer}}, Module[{s = 0.}, Do[s += 1./k, {k, n}]; s]]",
+      "notes": "Use CompilePrint (from the Compile` context) or check for CompiledFunction::cfse messages to find operations that fall back to the evaluator. Symbolic operations, pattern matching and string handling cannot be compiled.",
+      "docs": "https://reference.wolfram.com/language/ref/Compile.html"
+    },
+    {
+      "name": "CompiledFunction",
+      "kind": "function",
+      "description": "The object returned by Compile, holding the argument type declarations and the compiled bytecode or native code pointer. It is applied exactly like an ordinary function and reports its own properties through Information. CompiledFunctionQ tests whether an object is one.",
+      "usage": "cf[args]\nCompiledFunctionQ[cf]\ncf[[1]]\nInformation[cf]",
+      "example": "cf = Compile[{{x, _Real}}, x^3];\nHead[cf]\nCompiledFunctionQ[cf]\ncf[2.]\ncf[[1]]",
+      "notes": "A CompiledFunction automatically falls back to interpreted evaluation for arguments outside its declared types, silently losing the speed advantage.",
+      "docs": "https://reference.wolfram.com/language/ref/CompiledFunction.html"
+    },
+    {
+      "name": "FunctionCompile",
+      "kind": "function",
+      "description": "The modern Wolfram compiler, which compiles a typed pure function to native machine code through LLVM without needing an external C toolchain. Types are declared with Typed, and the compiler supports a much larger part of the language than Compile, including strings, lists, associations and user-defined types. The result is a CompiledCodeFunction that can also be exported as a shared library.",
+      "usage": "FunctionCompile[Function[Typed[x, \"Real64\"], body]]\nFunctionCompile[func, opts]\nFunctionCompileExportLibrary[\"file\", func]",
+      "example": "cf = FunctionCompile[Function[Typed[x, \"Real64\"], x^2 + 1]];\ncf[3.0]\nFunctionCompile[Function[{Typed[v, \"PackedArray\"::[\"Real64\", 1]]}, Total[v]]]\nFunctionCompile[Function[Typed[n, \"MachineInteger\"], Module[{s = 0}, Do[s += k, {k, n}]; s]]]",
+      "notes": "FunctionCompile requires the compiler toolchain, which is downloaded on first use. It is generally preferred over Compile for new code because of its broader language coverage.",
+      "docs": "https://reference.wolfram.com/language/ref/FunctionCompile.html"
+    },
+    {
+      "name": "Typed",
+      "kind": "function",
+      "description": "Declares the compiled type of a variable or expression for the Wolfram compiler. Type names include \"Real64\", \"Integer64\", \"MachineInteger\", \"Boolean\", \"String\" and parametrized types such as \"PackedArray\"::[\"Real64\", 2] and \"ListVector\". Accurate type declarations are what allow FunctionCompile to generate efficient machine code.",
+      "usage": "Typed[x, \"type\"]\nTyped[expr, type]\nFunction[Typed[x, \"Real64\"], body]",
+      "example": "FunctionCompile[Function[Typed[n, \"MachineInteger\"], n^2]]\nFunctionCompile[Function[{Typed[v, \"PackedArray\"::[\"Real64\", 1]]}, Mean[v]]]\nTyped[3, \"Real64\"]\nFunctionCompile[Function[Typed[s, \"String\"], StringLength[s]]]",
+      "docs": "https://reference.wolfram.com/language/ref/Typed.html"
+    },
+    {
+      "name": "KernelFunction",
+      "kind": "function",
+      "description": "Marks a function inside compiled code that should be evaluated by the ordinary Wolfram kernel rather than compiled, letting compiled code call back into the full language. It is the escape hatch for operations the compiler does not support, and requires the result type to be declared. Use it sparingly, since each callback costs far more than compiled operations.",
+      "usage": "KernelFunction[f]\nTyped[KernelFunction[f], type]\nFunctionCompile[Function[..., KernelFunction[Integrate][...]]]",
+      "example": "cf = FunctionCompile[Function[Typed[x, \"Real64\"], Typed[KernelFunction[N], \"Real64\"][Pi] * x]];\ncf[2.0]\nFunctionCompile[Function[Typed[n, \"MachineInteger\"], Typed[KernelFunction[Prime], \"MachineInteger\"][n]]]",
+      "docs": "https://reference.wolfram.com/language/ref/KernelFunction.html"
+    },
+    {
+      "name": "FunctionCompileExportLibrary",
+      "kind": "function",
+      "description": "Compiles a typed function and writes it out as a native shared library (.dll, .so or .dylib) that can be loaded back with LibraryFunctionLoad or called from C. FunctionCompileExport writes object or LLVM code instead. This is how Wolfram Language code is turned into a component usable from other languages.",
+      "usage": "FunctionCompileExportLibrary[\"file\", func]\nFunctionCompileExport[\"file.o\", func]\nLibraryFunctionLoad[lib, \"name\", argtypes, rettype]",
+      "example": "lib = FunctionCompileExportLibrary[\"square\", Function[Typed[x, \"Real64\"], x^2]];\nf = LibraryFunctionLoad[lib, \"square\", {Real}, Real];\nf[3.0]",
+      "docs": "https://reference.wolfram.com/language/ref/FunctionCompileExportLibrary.html"
+    },
+    {
+      "name": "Parallelize",
+      "kind": "function",
+      "description": "Automatically parallelizes an expression across the available parallel kernels, recognizing Map, Table, Do, Select, Cases, Outer and similar constructs. It handles distributing the definitions the computation needs and collecting results in order. When it cannot parallelize an expression it evaluates it sequentially with a message.",
+      "usage": "Parallelize[expr]\nParallelize[expr, Method -> \"method\"]\nParallelize[expr, DistributedContexts -> {\"Global`\"}]",
+      "example": "Parallelize[Table[PrimeQ[2^n - 1], {n, 100, 200}]]\nParallelize[Select[Range[10^5], PrimeQ]]\nParallelize[Map[expensive, data]]\nAbsoluteTiming[Parallelize[Total[Table[N[Zeta[1/2 + I t]], {t, 1, 100, 0.01}]]]]",
+      "notes": "Parallel overhead is significant, so it only pays off when each item takes appreciably longer than the cost of sending it to another kernel. Method -> \"CoarsestGrained\" reduces that overhead for many small items.",
+      "docs": "https://reference.wolfram.com/language/ref/Parallelize.html"
+    },
+    {
+      "name": "ParallelMap",
+      "kind": "function",
+      "description": "Maps a function over a list with the elements distributed across parallel kernels, returning results in the original order. It takes the same level specification as Map and a Method option controlling granularity. Definitions used by the function must be available on the subkernels, normally via DistributeDefinitions.",
+      "usage": "ParallelMap[f, list]\nParallelMap[f, list, levelspec]\nParallelMap[f, list, Method -> \"CoarsestGrained\"]",
+      "example": "ParallelMap[PrimeQ, Range[10^5]]\nParallelMap[expensiveAnalysis, files]\nDistributeDefinitions[myFunc];\nParallelMap[myFunc, data]\nParallelMap[f, list, Method -> \"FinestGrained\"]",
+      "docs": "https://reference.wolfram.com/language/ref/ParallelMap.html"
+    },
+    {
+      "name": "ParallelTable",
+      "kind": "function",
+      "description": "Builds a table with the iterations spread across parallel kernels, using the same iterator syntax as Table. It is the most direct way to parallelize a parameter sweep or Monte Carlo run. Results are returned in the same order as sequential Table would produce.",
+      "usage": "ParallelTable[expr, {i, imax}]\nParallelTable[expr, {i, imin, imax, di}]\nParallelTable[expr, iter, Method -> m]",
+      "example": "ParallelTable[Prime[10^6 + n], {n, 1, 100}]\nParallelTable[NIntegrate[Sin[a x]/x, {x, 0, 50}], {a, 1, 20}]\nParallelTable[simulate[seed], {seed, 1, 1000}]\nAbsoluteTiming[ParallelTable[Pause[0.1], {10}]]",
+      "notes": "Random number streams are made independent per kernel automatically, so Monte Carlo runs do not repeat the same sequence.",
+      "docs": "https://reference.wolfram.com/language/ref/ParallelTable.html"
+    },
+    {
+      "name": "ParallelDo",
+      "kind": "function",
+      "description": "Evaluates an expression repeatedly across parallel kernels for its side effects, returning Null. Because each subkernel has its own variables, side effects such as assignments do not propagate back unless shared variables are used. It is most useful when each iteration writes to a file or a database rather than to memory.",
+      "usage": "ParallelDo[expr, {i, imax}]\nParallelDo[expr, {i, imin, imax}]",
+      "example": "ParallelDo[Export[\"out\" <> ToString[i] <> \".png\", render[i]], {i, 1, 20}]\nSetSharedVariable[results];\nParallelDo[AppendTo[results, compute[i]], {i, 10}]\nParallelDo[Pause[0.1], {8}]",
+      "notes": "Prefer ParallelTable and collect the returned values; shared variables serialize access and can negate the parallel speedup.",
+      "docs": "https://reference.wolfram.com/language/ref/ParallelDo.html"
+    },
+    {
+      "name": "ParallelEvaluate",
+      "kind": "function",
+      "description": "Evaluates the same expression once on every parallel kernel and returns the list of results, one per kernel. It is the way to query or configure the subkernels themselves, for example to set options, load packages or check machine names. The expression is held until it is sent to the kernels.",
+      "usage": "ParallelEvaluate[expr]\nParallelEvaluate[expr, kernels]",
+      "example": "ParallelEvaluate[$KernelID]\nParallelEvaluate[$MachineName]\nParallelEvaluate[Needs[\"MyPackage`\"]]\nParallelEvaluate[SetDirectory[workDir]]\nParallelEvaluate[MemoryInUse[]]",
+      "docs": "https://reference.wolfram.com/language/ref/ParallelEvaluate.html"
+    },
+    {
+      "name": "ParallelSubmit",
+      "kind": "function",
+      "description": "Submits an expression for asynchronous evaluation on a parallel kernel and immediately returns an EvaluationObject, without waiting for the result. WaitAll and WaitNext then collect the results, which allows a producer/consumer pattern and processing results as they arrive. It is the low-level interface underneath the higher-level parallel functions.",
+      "usage": "ParallelSubmit[expr]\nParallelSubmit[vars, expr]\nWaitAll[objs]\nWaitNext[objs]",
+      "example": "jobs = Table[ParallelSubmit[{i}, expensive[i]], {i, 10}];\nWaitAll[jobs]\n{res, obj, rest} = WaitNext[jobs];\nParallelSubmit[Pause[1]; 42]",
+      "notes": "Give the list of local variables as the first argument so their current values are captured, otherwise the subkernel sees them unevaluated.",
+      "docs": "https://reference.wolfram.com/language/ref/ParallelSubmit.html"
+    },
+    {
+      "name": "WaitAll",
+      "kind": "function",
+      "description": "Waits for all submitted parallel evaluations to finish and returns their results in place of the EvaluationObjects, preserving the structure of the original expression. WaitNext instead returns the first result that becomes available, together with the remaining jobs. Together they turn ParallelSubmit into a complete task queue.",
+      "usage": "WaitAll[expr]\nWaitAll[{obj1, obj2, ...}]\nWaitNext[objs]",
+      "example": "jobs = Table[ParallelSubmit[{n}, Prime[n]], {n, 1, 5}];\nWaitAll[jobs]\nWaitAll[{ParallelSubmit[1 + 1], ParallelSubmit[2 + 2]}]\nWhile[jobs =!= {}, {r, o, jobs} = WaitNext[jobs]; Print[r]]",
+      "docs": "https://reference.wolfram.com/language/ref/WaitAll.html"
+    },
+    {
+      "name": "ParallelCombine",
+      "kind": "function",
+      "description": "Evaluates f[h] in parallel by splitting the list h into chunks, applying f on each kernel and combining the partial results with a supplied function. It is the map-reduce pattern for operations that are naturally decomposable, such as Total, Join or Max. The combining function must be associative for the result to be correct.",
+      "usage": "ParallelCombine[f, h]\nParallelCombine[f, h, comb]",
+      "example": "ParallelCombine[Total[#^2] &, Range[10^6], Plus]\nParallelCombine[Select[#, PrimeQ] &, Range[10^5], Join]\nParallelCombine[Max, data, Max]",
+      "docs": "https://reference.wolfram.com/language/ref/ParallelCombine.html"
+    },
+    {
+      "name": "ParallelTry",
+      "kind": "function",
+      "description": "Evaluates a function on several alternatives in parallel and returns the first result that succeeds, aborting the remaining evaluations. It is the pattern for racing several algorithms or starting points against each other when any valid answer will do. A count argument returns the first n successful results.",
+      "usage": "ParallelTry[f, {a1, a2, ...}]\nParallelTry[f, args, k]",
+      "example": "ParallelTry[If[PrimeQ[#], #, $Failed] &, Range[10^6, 10^6 + 20]]\nParallelTry[tryStartingPoint, startPoints]\nParallelTry[f, args, 3]",
+      "docs": "https://reference.wolfram.com/language/ref/ParallelTry.html"
+    },
+    {
+      "name": "DistributeDefinitions",
+      "kind": "function",
+      "description": "Copies the definitions of symbols to all parallel kernels so that user functions and data are available there. Without it, subkernels see undefined symbols and either return them unevaluated or fail. The DistributedContexts option on parallel functions can handle this automatically for a whole context.",
+      "usage": "DistributeDefinitions[s1, s2, ...]\nDistributeDefinitions[\"context`\"]\nSetSharedVariable[x]",
+      "example": "myFunc[x_] := x^2 + 1;\nDistributeDefinitions[myFunc];\nParallelMap[myFunc, Range[10]]\nDistributeDefinitions[\"Global`\"]\ndata = Import[\"big.csv\"]; DistributeDefinitions[data];",
+      "notes": "Distributing large data copies it to every kernel, which multiplies memory use; for very large read-only data consider having each kernel import it from disk instead.",
+      "docs": "https://reference.wolfram.com/language/ref/DistributeDefinitions.html"
+    },
+    {
+      "name": "LaunchKernels",
+      "kind": "function",
+      "description": "Starts parallel subkernels, by default as many as the licence and $ProcessorCount allow. An explicit count launches that many, and a kernel specification launches them on remote machines or through a cluster manager. Parallel functions launch kernels automatically the first time they are used, so explicit calls are mainly for controlling the count.",
+      "usage": "LaunchKernels[]\nLaunchKernels[n]\nLaunchKernels[kernelobject]\n$ProcessorCount",
+      "example": "LaunchKernels[]\nLaunchKernels[4]\n$KernelCount\n$ProcessorCount\nKernels[]",
+      "notes": "Launching kernels takes a second or two each; do it once at the start of a session rather than inside a loop.",
+      "docs": "https://reference.wolfram.com/language/ref/LaunchKernels.html"
+    },
+    {
+      "name": "CloseKernels",
+      "kind": "function",
+      "description": "Terminates parallel subkernels, freeing their memory and licence slots. Called with no arguments it closes all of them; a kernel object or list closes only those. It is good practice at the end of a script that launched many kernels, especially on a shared machine.",
+      "usage": "CloseKernels[]\nCloseKernels[kernel]\nCloseKernels[kernels]",
+      "example": "CloseKernels[]\nCloseKernels[First[Kernels[]]]\nLaunchKernels[8]; ...; CloseKernels[]\n$KernelCount",
+      "docs": "https://reference.wolfram.com/language/ref/CloseKernels.html"
+    },
+    {
+      "name": "$KernelCount",
+      "kind": "system-variable",
+      "description": "The number of parallel subkernels currently running, and 0 before any are launched. $ProcessorCount gives the number of processor cores the machine reports, and $MaxLicenseSubprocesses the licence limit. These are the values to consult when deciding how finely to split a parallel job.",
+      "usage": "$KernelCount\n$ProcessorCount\n$MaxLicenseSubprocesses",
+      "example": "$KernelCount\nLaunchKernels[];\n$KernelCount\n$ProcessorCount\nIf[$KernelCount == 0, LaunchKernels[]]",
+      "docs": "https://reference.wolfram.com/language/ref/$KernelCount.html"
+    },
+    {
+      "name": "Kernels",
+      "kind": "function",
+      "description": "Gives the list of currently running parallel kernel objects, each carrying its machine name and kernel id. The objects can be passed to CloseKernels, ParallelEvaluate and the kernel-specific forms of the parallel functions. It is how you inspect and target individual kernels in a heterogeneous cluster.",
+      "usage": "Kernels[]\nParallelEvaluate[expr, Kernels[]]",
+      "example": "Kernels[]\nLength[Kernels[]]\nParallelEvaluate[$MachineName, Kernels[]]\nCloseKernels[First[Kernels[]]]",
+      "docs": "https://reference.wolfram.com/language/ref/Kernels.html"
+    },
+    {
+      "name": "SetSharedVariable",
+      "kind": "function",
+      "description": "Declares variables whose values are shared between the master kernel and all subkernels, so assignments on one are visible to all. Every access is synchronized through the master kernel, which makes shared variables correct but slow. Use them for small counters and accumulators only, never in inner loops.",
+      "usage": "SetSharedVariable[s1, s2, ...]\nUnsetShared[s]\nSetSharedFunction[f]",
+      "example": "SetSharedVariable[count];\ncount = 0;\nParallelDo[If[PrimeQ[i], count++], {i, 10^4}];\ncount\nUnsetShared[count]",
+      "notes": "Concurrent updates need CriticalSection to be atomic; count++ from several kernels can lose updates without it.",
+      "docs": "https://reference.wolfram.com/language/ref/SetSharedVariable.html"
+    },
+    {
+      "name": "SetSharedFunction",
+      "kind": "function",
+      "description": "Declares that a function's definitions are shared, so that memoized values computed on one kernel become visible to all. It is how a cache built during a parallel computation is kept consistent. Like shared variables, every call is routed through the master kernel, so it is only worthwhile when the function itself is expensive.",
+      "usage": "SetSharedFunction[f1, f2, ...]\nUnsetShared[f]",
+      "example": "SetSharedFunction[memo];\nmemo[n_] := memo[n] = expensive[n];\nParallelMap[memo, Range[20]]\nUnsetShared[memo]",
+      "docs": "https://reference.wolfram.com/language/ref/SetSharedFunction.html"
+    },
+    {
+      "name": "CriticalSection",
+      "kind": "function",
+      "description": "Ensures that a block of code is executed by only one parallel kernel at a time, using a named lock. It is the mutual exclusion primitive needed for correct read-modify-write updates of shared variables. Keep critical sections as short as possible, since they serialize the computation.",
+      "usage": "CriticalSection[{lock}, expr]",
+      "example": "SetSharedVariable[total, lock];\ntotal = 0;\nParallelDo[CriticalSection[{lock}, total += f[i]], {i, 100}];\ntotal",
+      "docs": "https://reference.wolfram.com/language/ref/CriticalSection.html"
+    },
+    {
+      "name": "ByteArray",
+      "kind": "function",
+      "description": "A compact, memory-efficient representation of a sequence of bytes, stored as raw data rather than as a list of integers. It is the natural type for binary file contents, network payloads, compressed data and cryptographic material. Normal converts it to an ordinary list and ByteArrayToString or ImportByteArray interpret it as text or structured data.",
+      "usage": "ByteArray[{b1, b2, ...}]\nByteArray[\"base64\"]\nNormal[ba]\nByteArrayToString[ba]\nStringToByteArray[s]",
+      "example": "ba = ByteArray[{72, 101, 108, 108, 111}];\nByteArrayToString[ba]\nNormal[ba]\nba2 = Import[\"image.png\", \"ByteArray\"];\nLength[ba2]\nHash[ba, \"SHA256\"]",
+      "notes": "ByteArray uses one byte per element instead of a boxed integer, so it is far smaller than the equivalent list for large binary data.",
+      "docs": "https://reference.wolfram.com/language/ref/ByteArray.html"
+    },
+    {
+      "name": "NumericArray",
+      "kind": "function",
+      "description": "Stores a numeric array in an explicitly chosen machine type such as \"Integer8\", \"UnsignedInteger16\", \"Real32\" or \"ComplexReal64\", using far less memory than a general packed array of doubles. It is the interchange type for neural networks, images and external libraries, and NumericArrayQ, NumericArrayType and Normal inspect and convert it. Arithmetic on a NumericArray generally converts back to ordinary numbers, so it is a storage rather than a compute type.",
+      "usage": "NumericArray[data, \"type\"]\nNumericArrayType[na]\nNormal[na]\nNumericArrayQ[expr]",
+      "example": "na = NumericArray[{1, 2, 3}, \"Integer8\"];\nNumericArrayType[na]\nByteCount[na]\nByteCount[{1, 2, 3}]\nNormal[NumericArray[RandomReal[1, 5], \"Real32\"]]",
+      "docs": "https://reference.wolfram.com/language/ref/NumericArray.html"
+    },
+    {
+      "name": "Developer`ToPackedArray",
+      "kind": "function",
+      "description": "Converts a list of uniform machine numbers into a packed array, the internal contiguous representation that makes numeric operations dramatically faster and smaller in memory. Most numeric functions produce packed arrays automatically, but mixing in an exact integer or a symbol silently unpacks them. Use it to re-pack data after such an operation.",
+      "usage": "Developer`ToPackedArray[list]\nDeveloper`ToPackedArray[list, type]\nDeveloper`FromPackedArray[list]",
+      "example": "a = Developer`ToPackedArray[{1., 2., 3.}];\nDeveloper`PackedArrayQ[a]\nByteCount[a]\nByteCount[Developer`FromPackedArray[a]]\nDeveloper`ToPackedArray[Range[1000], \"Real64\"]",
+      "notes": "Set On[\"Packing\"] to be warned whenever an operation unpacks an array, which is the quickest way to find an unexpected performance cliff.",
+      "docs": "https://reference.wolfram.com/language/ref/Developer/ToPackedArray.html"
+    },
+    {
+      "name": "Developer`PackedArrayQ",
+      "kind": "function",
+      "description": "Tests whether a list is stored as a packed array, optionally requiring a specific element type and rank. It is the diagnostic for performance problems caused by accidental unpacking, which typically happens when a symbolic value, an exact rational or a mixed type enters a numeric array. Packed arrays are both faster and much smaller than equivalent general lists.",
+      "usage": "Developer`PackedArrayQ[expr]\nDeveloper`PackedArrayQ[expr, type]\nDeveloper`PackedArrayQ[expr, type, rank]",
+      "example": "Developer`PackedArrayQ[RandomReal[1, 100]]\nDeveloper`PackedArrayQ[{1., 2., x}]\nDeveloper`PackedArrayQ[Range[10], Integer, 1]\nOn[\"Packing\"];\nAppend[RandomReal[1, 5], 1/2]",
+      "docs": "https://reference.wolfram.com/language/ref/Developer/PackedArrayQ.html"
+    },
+    {
+      "name": "MemoryInUse",
+      "kind": "function",
+      "description": "Gives the number of bytes currently in use by the kernel, or by a specified parallel kernel. Comparing it before and after an operation shows how much memory that operation retained. ByteCount gives the size of a single expression instead.",
+      "usage": "MemoryInUse[]\nMemoryInUse[kernel]\nByteCount[expr]",
+      "example": "MemoryInUse[]\nbefore = MemoryInUse[]; data = RandomReal[1, 10^6]; MemoryInUse[] - before\nByteCount[data]\nParallelEvaluate[MemoryInUse[]]\nN[MemoryInUse[]/10^6]",
+      "docs": "https://reference.wolfram.com/language/ref/MemoryInUse.html"
+    },
+    {
+      "name": "MaxMemoryUsed",
+      "kind": "function",
+      "description": "Gives the maximum number of bytes the kernel has used at any point in the session, or the peak while evaluating a given expression. MaxMemoryUsed[expr] is the direct way to measure the peak footprint of a computation including temporaries. It is the memory analogue of AbsoluteTiming.",
+      "usage": "MaxMemoryUsed[]\nMaxMemoryUsed[expr]",
+      "example": "MaxMemoryUsed[]\nMaxMemoryUsed[Table[RandomReal[], {10^6}]]\nN[MaxMemoryUsed[]/10^9]\nMaxMemoryUsed[Inverse[RandomReal[1, {1000, 1000}]]]",
+      "docs": "https://reference.wolfram.com/language/ref/MaxMemoryUsed.html"
+    },
+    {
+      "name": "Timing",
+      "kind": "function",
+      "description": "Evaluates an expression and returns {cpuTimeInSeconds, result}, measuring only CPU time used by the kernel. It excludes time spent in the front end, in parallel subkernels and waiting on I/O, so for parallel or interactive code AbsoluteTiming is the honest measure. It has attribute HoldAll so the expression is timed rather than pre-evaluated.",
+      "usage": "Timing[expr]\nFirst[Timing[expr]]",
+      "example": "Timing[Do[Prime[k], {k, 10^4}]]\nFirst[Timing[Inverse[RandomReal[1, {500, 500}]]]]\nTiming[Pause[1]]\nAbsoluteTiming[Pause[1]]",
+      "notes": "Timing[Pause[1]] reports near zero CPU time; always use AbsoluteTiming for wall-clock measurements.",
+      "docs": "https://reference.wolfram.com/language/ref/Timing.html"
+    },
+    {
+      "name": "AbsoluteTiming",
+      "kind": "function",
+      "description": "Evaluates an expression and returns {wallClockSeconds, result}, measuring real elapsed time including parallel work, I/O and front end activity. It is the measurement that matches what a user experiences. Like Timing it holds its argument.",
+      "usage": "AbsoluteTiming[expr]\nFirst[AbsoluteTiming[expr]]",
+      "example": "AbsoluteTiming[Pause[0.5]]\nAbsoluteTiming[ParallelTable[Prime[10^6 + n], {n, 100}]]\n{t, res} = AbsoluteTiming[longComputation[]];\nt",
+      "docs": "https://reference.wolfram.com/language/ref/AbsoluteTiming.html"
+    },
+    {
+      "name": "RepeatedTiming",
+      "kind": "function",
+      "description": "Evaluates an expression repeatedly for about a second and returns the average wall-clock time per evaluation, which is far more reliable than a single timing for fast operations. It reports {averageSeconds, result}. Use it for micro-benchmarks where one run would be dominated by measurement noise.",
+      "usage": "RepeatedTiming[expr]\nRepeatedTiming[expr, t]",
+      "example": "RepeatedTiming[Total[Range[1000]]]\nRepeatedTiming[Sort[RandomReal[1, 1000]]]\nFirst[RepeatedTiming[cf[2.0]]]\nRepeatedTiming[expr, 5]",
+      "notes": "Repeated evaluation is meaningless for expressions with side effects or memoization, since only the first run does the real work.",
+      "docs": "https://reference.wolfram.com/language/ref/RepeatedTiming.html"
+    },
+    {
+      "name": "MemoryConstrained",
+      "kind": "function",
+      "description": "Evaluates an expression but aborts it if it tries to allocate more than a specified number of bytes, returning $Aborted or an optional failure expression. It is the memory counterpart of TimeConstrained and protects a session from a runaway allocation. Both can be nested around the same expression.",
+      "usage": "MemoryConstrained[expr, b]\nMemoryConstrained[expr, b, failexpr]",
+      "example": "MemoryConstrained[Table[i, {i, 10^9}], 10^8]\nMemoryConstrained[bigComputation[], 2*10^9, \"out of memory\"]\nTimeConstrained[MemoryConstrained[risky[], 10^9], 60]",
+      "docs": "https://reference.wolfram.com/language/ref/MemoryConstrained.html"
+    },
+    {
+      "name": "ClearSystemCache",
+      "kind": "function",
+      "description": "Clears internal caches of previously computed results, which frees memory and makes timing measurements reproducible. A category argument clears only one cache, such as \"Numeric\" or \"Symbolic\". Benchmarks should call it between runs so a cached result does not masquerade as a fast computation.",
+      "usage": "ClearSystemCache[]\nClearSystemCache[\"Numeric\"]\nClearSystemCache[\"Symbolic\"]",
+      "example": "ClearSystemCache[];\nAbsoluteTiming[Integrate[Sin[x]^5, x]]\nAbsoluteTiming[Integrate[Sin[x]^5, x]]\nClearSystemCache[\"Numeric\"]",
+      "docs": "https://reference.wolfram.com/language/ref/ClearSystemCache.html"
+    },
+    {
+      "name": "Share",
+      "kind": "function",
+      "description": "Reduces memory use by finding identical subexpressions and storing them only once, returning the number of bytes saved. It is most effective for large symbolic expressions with much repeated structure. It does not change any values, only their internal representation.",
+      "usage": "Share[]\nShare[expr]",
+      "example": "MemoryInUse[]\nShare[]\nMemoryInUse[]\nShare[bigSymbolicExpression]",
+      "notes": "Share can take a long time on a large session; it is a last resort before increasing memory rather than a routine operation.",
+      "docs": "https://reference.wolfram.com/language/ref/Share.html"
+    },
+    {
+      "name": "$HistoryLength",
+      "kind": "system-variable",
+      "description": "The number of previous input and output lines the kernel keeps in memory, accessible through In[n] and Out[n] or the % shorthand. The default keeps everything, which can retain very large results and exhaust memory in a long session. Setting $HistoryLength = 0 or a small number prevents that, and is standard practice in long-running scripts.",
+      "usage": "$HistoryLength = n\n$HistoryLength = 0\n$HistoryLength = Infinity",
+      "example": "$HistoryLength\n$HistoryLength = 5;\n$HistoryLength = 0;\nOut[3]\n%",
+      "notes": "A common cause of a kernel apparently leaking memory is a large result still referenced by Out[n]; setting $HistoryLength = 0 releases it.",
+      "docs": "https://reference.wolfram.com/language/ref/$HistoryLength.html"
+    }
+  ]
+}

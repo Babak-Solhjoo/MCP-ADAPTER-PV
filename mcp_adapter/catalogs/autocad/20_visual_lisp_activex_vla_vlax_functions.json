@@ -1,0 +1,809 @@
+{
+  "category": "Visual LISP ActiveX Functions (vla- and vlax-)",
+  "description": "AutoLISP access to the AutoCAD ActiveX object model after (vl-load-com): the vla- functions generated from the type library (vla-get-<Property>, vla-put-<Property>, vla-<Method>) and the vlax- helpers for properties, methods, collections, safearrays and variants. Windows only; supported in AutoCAD LT 2024+ except external-application automation and objects LT cannot create.",
+  "tools": [
+    {
+      "name": "vla-get-ActiveDocument",
+      "kind": "function",
+      "description": "Returns the Document VLA-object for the drawing that currently has focus, read from the AutoCAD Application object. It is the entry point for almost every ActiveX routine: ModelSpace, Layers, Blocks, Layouts, SelectionSets, Utility and the undo-mark methods all hang off the document. Cache it in a global at load time rather than re-querying in tight loops.",
+      "usage": "(vla-get-ActiveDocument application-object)",
+      "parameters": [
+        {
+          "name": "application-object",
+          "description": "The AcadApplication VLA-object, normally (vlax-get-acad-object)."
+        }
+      ],
+      "example": "(vl-load-com)\n(setq *acad* (vlax-get-acad-object)\n      *doc*  (vla-get-ActiveDocument *acad*))\n(princ (strcat \"\\nWorking on \" (vla-get-FullName *doc*)))",
+      "notes": "Every vla-get-<Property> function follows this pattern; the generic equivalent is (vlax-get-property *acad* 'ActiveDocument). In an MDI session the value changes when the user switches drawings, so code running from a reactor or a modeless dialog should re-read it. LISP code always executes in the document it was loaded in, even if ActiveDocument has changed.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A0459510-CE7A-4206-9EAA-E25AAB569B20"
+    },
+    {
+      "name": "vla-get-ModelSpace",
+      "kind": "function",
+      "description": "Returns the ModelSpace collection of a document, the container to which the vla-Add* methods append new entities in model space. Iterating it with vlax-for visits every model-space entity in database order, which is a faster alternative to (ssget \"_X\") when you need all objects.",
+      "usage": "(vla-get-ModelSpace document-object)",
+      "parameters": [
+        {
+          "name": "document-object",
+          "description": "A Document VLA-object (active document or one obtained from the Documents collection or ObjectDBX)."
+        }
+      ],
+      "example": "(setq ms (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))\n(princ (strcat \"\\nEntities in model space: \" (itoa (vla-get-Count ms))))\n(vla-AddLine ms (vlax-3d-point 0 0 0) (vlax-3d-point 100 50 0))",
+      "notes": "The collection is a special BlockTableRecord (*Model_Space); (vla-get-Block (vla-Item (vla-get-Layouts doc) \"Model\")) returns the same object. Count is a fast way to test for an empty drawing.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A0459510-CE7A-4206-9EAA-E25AAB569B20"
+    },
+    {
+      "name": "vla-get-PaperSpace",
+      "kind": "function",
+      "description": "Returns the PaperSpace collection of the document, which always refers to the paper-space block of the currently active layout tab. Objects added here appear on that layout. To target a specific layout regardless of which tab is current, use the Block property of the Layout object instead.",
+      "usage": "(vla-get-PaperSpace document-object)\n(vla-get-Block (vla-Item (vla-get-Layouts doc) \"Layout1\"))",
+      "parameters": [
+        {
+          "name": "document-object",
+          "description": "The Document VLA-object."
+        }
+      ],
+      "example": "(setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))\n(setq ps (vla-get-Block (vla-Item (vla-get-Layouts doc) \"A1-Sheet\")))\n(vla-AddText ps \"CHECKED\" (vlax-3d-point 780 20 0) 3.5)",
+      "notes": "Choose the space from the ActiveSpace property (acModelSpace = 1, acPaperSpace = 0) when a routine must draw into whatever space the user is working in; beware that ActiveSpace is paper space while a floating viewport is active on a layout (MSPACE), check MSpace too.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A0459510-CE7A-4206-9EAA-E25AAB569B20"
+    },
+    {
+      "name": "vla-get-Layers",
+      "kind": "function",
+      "description": "Returns the Layers collection (the layer symbol table) of a document. Use vla-Item to fetch a Layer object by name, vla-Add to create one, and vlax-for to iterate all layers for audits such as thawing, unlocking or renaming.",
+      "usage": "(vla-get-Layers document-object)",
+      "parameters": [
+        {
+          "name": "document-object",
+          "description": "The Document VLA-object."
+        }
+      ],
+      "example": "(setq lays (vla-get-Layers (vla-get-ActiveDocument (vlax-get-acad-object))))\n(vlax-for lay lays\n  (if (= (vla-get-Lock lay) :vlax-true)\n    (vla-put-Lock lay :vlax-false)))",
+      "notes": "Boolean properties use the symbols :vlax-true and :vlax-false, not T and nil. You cannot freeze the current layer (Freeze raises an error) or delete layer 0, DEFPOINTS or a layer in use.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D9F62B4B-401E-4AE6-969F-3F7756819EB6"
+    },
+    {
+      "name": "vla-get-Blocks",
+      "kind": "function",
+      "description": "Returns the Blocks collection (the block table) of a document, which contains every block definition including *Model_Space, *Paper_Space layouts, anonymous blocks, xrefs and layouts. Use it to create block definitions with vla-Add, to read definitions with vla-Item, and to iterate definitions for purging, redefining or listing.",
+      "usage": "(vla-get-Blocks document-object)",
+      "parameters": [
+        {
+          "name": "document-object",
+          "description": "The Document VLA-object."
+        }
+      ],
+      "example": "(vlax-for blk (vla-get-Blocks (vla-get-ActiveDocument (vlax-get-acad-object)))\n  (if (and (= (vla-get-IsLayout blk) :vlax-false)\n           (= (vla-get-IsXRef blk) :vlax-false)\n           (/= (substr (vla-get-Name blk) 1 1) \"*\"))\n    (princ (strcat \"\\n\" (vla-get-Name blk)))))",
+      "notes": "Filter IsLayout, IsXRef and names starting with * to get only user block definitions. Each Block object is itself a collection of the entities that make up the definition.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-E77CC5AD-74B8-472C-8270-32FD162D5653"
+    },
+    {
+      "name": "vla-get-Documents",
+      "kind": "function",
+      "description": "Returns the Documents collection of the AutoCAD application, i.e. every drawing currently open in the session. Use vla-Open to open a drawing, vla-Add to create a new one from a template, and vlax-for to iterate open drawings.",
+      "usage": "(vla-get-Documents application-object)\n(vla-Open documents filename [read-only])\n(vla-Add documents [template])",
+      "parameters": [
+        {
+          "name": "application-object",
+          "description": "The object returned by (vlax-get-acad-object)."
+        },
+        {
+          "name": "filename / read-only",
+          "description": "Arguments of the Open method: full path and :vlax-true to open read-only."
+        }
+      ],
+      "example": "(setq docs (vla-get-Documents (vlax-get-acad-object)))\n(setq other (vla-Open docs \"C:/Projects/site.dwg\" :vlax-true))\n(princ (vla-get-Count (vla-get-ModelSpace other)))\n(vla-Close other :vlax-false)",
+      "notes": "LISP stays in the namespace of the drawing it was started from, so you can read and modify another document through its object model but you cannot (command) in it. For batch processing many files without opening them in the editor, use ObjectDBX (vla-GetInterfaceObject \"ObjectDBX.AxDbDocument.25\") or accoreconsole instead. In SDI mode (SDI = 1) opening a second document is not possible.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-2C8C8291-16C9-4A9F-8399-58D5DE4B9589"
+    },
+    {
+      "name": "vla-Item",
+      "kind": "function",
+      "description": "Returns a member of an ActiveX collection by zero-based index or by name. Works on Layers, Blocks, Layouts, TextStyles, Linetypes, Dictionaries, Documents, SelectionSets, ModelSpace (index only) and every other collection. When the name does not exist it raises an ActiveX error rather than returning nil.",
+      "usage": "(vla-Item collection index-or-name)",
+      "parameters": [
+        {
+          "name": "collection",
+          "description": "Any collection VLA-object."
+        },
+        {
+          "name": "index-or-name",
+          "description": "Integer index (0 .. Count-1) or a string key such as a layer or block name (case-insensitive)."
+        }
+      ],
+      "example": "(defun get-item (coll key / r)\n  (if (not (vl-catch-all-error-p\n             (setq r (vl-catch-all-apply 'vla-Item (list coll key)))))\n    r))\n(setq lay (get-item (vla-get-Layers doc) \"A-WALL\"))",
+      "notes": "Wrap vla-Item in vl-catch-all-apply (or test with tblsearch first) whenever the key may be missing, otherwise the routine aborts with 'Automation Error. Key not found'.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A5B6ACC4-DCD8-4FE2-AB06-D3C3C349475B"
+    },
+    {
+      "name": "vla-Add",
+      "kind": "function",
+      "description": "Creates a new member in a collection and returns it. The arguments depend on the collection: a name for Layers, TextStyles, DimStyles, Layouts, SelectionSets and Dictionaries; an insertion point and name for Blocks; an optional template for Documents. If the named item already exists in a symbol-table collection, the existing item is returned.",
+      "usage": "(vla-Add layers \"NAME\")\n(vla-Add blocks insertion-point \"NAME\")\n(vla-Add selectionsets \"NAME\")\n(vla-Add documents [template])",
+      "parameters": [
+        {
+          "name": "collection",
+          "description": "The collection to add to."
+        },
+        {
+          "name": "name",
+          "description": "Name of the new item; must follow symbol-table naming rules (no < > / \\ \" : ; ? * | , = `)."
+        },
+        {
+          "name": "insertion-point",
+          "description": "Blocks only: base point variant, e.g. (vlax-3d-point 0 0 0)."
+        }
+      ],
+      "example": "(setq lay (vla-Add (vla-get-Layers doc) \"E-POWER\"))\n(vla-put-Color lay acRed)\n(setq blk (vla-Add (vla-get-Blocks doc) (vlax-3d-point 0 0 0) \"TAG\"))\n(vla-AddCircle blk (vlax-3d-point 0 0 0) 2.5)",
+      "notes": "For SelectionSets, Add fails if a set with that name already exists, so delete any leftover set first. Adding to Blocks with an existing name returns the existing definition, which then accumulates duplicate geometry if you add entities again.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-6DB6EFDF-C393-4BD0-9E59-A57BCDA3456F"
+    },
+    {
+      "name": "vla-AddLightWeightPolyline",
+      "kind": "function",
+      "description": "Creates a 2D lightweight polyline (LWPOLYLINE) in a model space, paper space or block collection from a flat array of 2D coordinates. Width, bulges, elevation and closure are set afterwards through properties and methods. It is the ActiveX counterpart of drawing with PLINE and the preferred polyline type for 2D work.",
+      "usage": "(vla-AddLightWeightPolyline space vertices-variant)",
+      "parameters": [
+        {
+          "name": "space",
+          "description": "ModelSpace, PaperSpace or Block object."
+        },
+        {
+          "name": "vertices-variant",
+          "description": "Variant holding a safearray of doubles x1 y1 x2 y2 ... (even count, at least 4 values)."
+        }
+      ],
+      "example": "(defun pts->var (lst / sa)\n  (setq sa (vlax-make-safearray vlax-vbDouble (cons 0 (1- (length lst)))))\n  (vlax-make-variant (vlax-safearray-fill sa lst)))\n(setq pl (vla-AddLightWeightPolyline ms (pts->var '(0 0 100 0 100 50 0 50))))\n(vla-put-Closed pl :vlax-true)\n(vla-SetBulge pl 1 0.4142)",
+      "notes": "Coordinates are in OCS of the polyline; with the default normal they equal WCS X/Y and Elevation sets Z. Use SetWidth, SetBulge and the Coordinate/Coordinates properties to edit vertices. The undocumented (vlax-invoke ms 'AddLightWeightPolyline '(0 0 100 0 ...)) accepts a plain list.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-2003E0A1-5FB5-48A7-8CDA-2804F7C61C1C"
+    },
+    {
+      "name": "vla-AddMText",
+      "kind": "function",
+      "description": "Creates a multiline text (MText) object at an insertion point with a given reference-rectangle width and text string. The string may contain MText formatting codes such as \\P for a new paragraph. Height, style, attachment point and rotation are set via properties after creation.",
+      "usage": "(vla-AddMText space insertion-point width text)",
+      "parameters": [
+        {
+          "name": "insertion-point",
+          "description": "Variant 3D point (vlax-3d-point x y z)."
+        },
+        {
+          "name": "width",
+          "description": "Width of the text boundary; 0 means no wrapping."
+        },
+        {
+          "name": "text",
+          "description": "Contents including inline codes (\\P, \\L...\\l, {\\C1;red})."
+        }
+      ],
+      "example": "(setq mt (vla-AddMText ms (vlax-3d-point 10 200 0) 120.0\n            \"GENERAL NOTES\\\\PAll dimensions in mm.\"))\n(vla-put-Height mt 3.5)\n(vla-put-AttachmentPoint mt acAttachmentPointTopLeft)\n(vla-put-StyleName mt \"ISO\")",
+      "notes": "Remember to escape backslashes in AutoLISP strings (\"\\\\P\"). Changing AttachmentPoint keeps InsertionPoint fixed and moves the text around it. Use vla-put-TextString to replace the contents later.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-0A441CDB-21D3-4AA3-A616-7FF4DA8925D2"
+    },
+    {
+      "name": "vla-AddCircle",
+      "kind": "function",
+      "description": "Creates a circle from a center point and radius in model space, paper space or a block definition, returning the Circle VLA-object. The circle takes the current layer, color and linetype, which can be overridden through properties.",
+      "usage": "(vla-AddCircle space center radius)",
+      "parameters": [
+        {
+          "name": "center",
+          "description": "Variant 3D point, (vlax-3d-point x y z) or (vlax-3d-point pt)."
+        },
+        {
+          "name": "radius",
+          "description": "Positive real number."
+        }
+      ],
+      "example": "(foreach p '((0 0) (50 0) (100 0))\n  (setq c (vla-AddCircle ms (vlax-3d-point (append p '(0.0))) 5.0))\n  (vla-put-Layer c \"HOLES\"))",
+      "notes": "A radius of 0 or less raises 'Invalid argument'. Other creation methods follow the same pattern: vla-AddArc (center radius start-angle end-angle in radians), vla-AddEllipse, vla-AddPoint, vla-AddSpline, vla-AddHatch.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-837C702F-91A7-445B-8713-3099B94664BE"
+    },
+    {
+      "name": "vla-InsertBlock",
+      "kind": "function",
+      "description": "Inserts a block reference into a space or block definition, using either the name of a block already defined in the drawing or the full path of a DWG file (which is then defined as a block). Returns the BlockReference object; attributes are created with their default values without prompting.",
+      "usage": "(vla-InsertBlock space insertion-point name x-scale y-scale z-scale rotation [password])",
+      "parameters": [
+        {
+          "name": "name",
+          "description": "Block name, or a drawing path such as \"C:/Blocks/door.dwg\"."
+        },
+        {
+          "name": "x-scale / y-scale / z-scale",
+          "description": "Scale factors (reals); negative values mirror."
+        },
+        {
+          "name": "rotation",
+          "description": "Rotation angle in radians."
+        },
+        {
+          "name": "password",
+          "description": "Optional password for encrypted DWG files."
+        }
+      ],
+      "example": "(setq br (vla-InsertBlock ms (vlax-3d-point 250 120 0) \"TITLE_A3\" 1.0 1.0 1.0 0.0))\n(foreach att (vlax-invoke br 'GetAttributes)\n  (if (= (vla-get-TagString att) \"DWGNO\")\n    (vla-put-TextString att \"A-101\")))",
+      "notes": "Unlike -INSERT, ATTREQ/ATTDIA are ignored, so fill attributes afterwards via GetAttributes. Inserting a file path that has the same name as an existing definition does not redefine it; the existing definition is used.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-17F86FDD-B7FC-4F43-9F16-B4958F73A66D"
+    },
+    {
+      "name": "vla-GetAttributes",
+      "kind": "function",
+      "description": "Returns the non-constant AttributeReference objects attached to a block reference as a variant containing a safearray of objects. Each attribute exposes TagString, TextString, PromptString and geometry properties. Constant attributes are returned separately by vla-GetConstantAttributes.",
+      "usage": "(vla-GetAttributes block-reference)\n(vlax-safearray->list (vlax-variant-value (vla-GetAttributes br)))",
+      "parameters": [
+        {
+          "name": "block-reference",
+          "description": "BlockReference VLA-object whose HasAttributes property is :vlax-true."
+        }
+      ],
+      "example": "(defun att-values (br)\n  (if (= (vla-get-HasAttributes br) :vlax-true)\n    (mapcar '(lambda (a) (cons (vla-get-TagString a) (vla-get-TextString a)))\n            (vlax-safearray->list (vlax-variant-value (vla-GetAttributes br))))))\n(att-values (vlax-ename->vla-object (car (entsel))))",
+      "notes": "Calling it on a block without attributes returns an empty array that makes vlax-safearray->list fail, so test HasAttributes first. (vlax-invoke br 'GetAttributes) returns a plain list directly.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3E8E1756-F45D-4CCE-838B-00FBC0374278"
+    },
+    {
+      "name": "vla-get-EffectiveName",
+      "kind": "function",
+      "description": "Returns the name of the original block definition for a block reference. For dynamic blocks whose properties have been changed, the Name property returns an anonymous definition such as *U23, while EffectiveName still returns the user-facing block name, so it is the correct property for counting or filtering blocks.",
+      "usage": "(vla-get-EffectiveName block-reference)",
+      "parameters": [
+        {
+          "name": "block-reference",
+          "description": "BlockReference VLA-object."
+        }
+      ],
+      "example": "(setq ss (ssget \"_X\" '((0 . \"INSERT\"))) i -1 n 0)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (if (= (strcase (vla-get-EffectiveName (vlax-ename->vla-object e))) \"DOOR\")\n    (setq n (1+ n))))\n(princ (strcat \"\\nDOOR instances: \" (itoa n)))",
+      "notes": "An ssget filter on (2 . \"DOOR\") misses modified dynamic references; filter on (2 . \"DOOR,`*U*\") and then test EffectiveName. For xrefs and static blocks EffectiveName equals Name.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-88EEBCA3-8AF5-4776-9D54-520B05AB9129"
+    },
+    {
+      "name": "vla-put-Layer",
+      "kind": "function",
+      "description": "Sets the Layer property of an entity, moving it to the named layer. It illustrates the generic vla-put-<Property> pattern that exists for every writable ActiveX property (Color, Linetype, Lineweight, TrueColor, Visible, Rotation and so on). The layer must already exist.",
+      "usage": "(vla-put-Layer entity-object \"LAYERNAME\")\n(vla-put-<Property> object value)",
+      "parameters": [
+        {
+          "name": "entity-object",
+          "description": "Any entity VLA-object."
+        },
+        {
+          "name": "value",
+          "description": "Existing layer name as a string."
+        }
+      ],
+      "example": "(vlax-for obj (vla-get-ModelSpace doc)\n  (if (= (vla-get-ObjectName obj) \"AcDbHatch\")\n    (vla-put-Layer obj \"HATCH\")))",
+      "notes": "Setting a property on an object on a locked layer raises 'Automation Error. On locked layer'; test with vlax-write-enabled-p or unlock first. The generic form is (vlax-put-property obj 'Layer \"HATCH\").",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A0459510-CE7A-4206-9EAA-E25AAB569B20"
+    },
+    {
+      "name": "vla-put-TextString",
+      "kind": "function",
+      "description": "Replaces the text content of a Text, MText, AttributeReference or AttributeDefinition object (for MText the string includes formatting codes). Paired with vla-get-TextString it is the standard way to read and edit annotation and attribute values from LISP.",
+      "usage": "(vla-get-TextString text-object)\n(vla-put-TextString text-object \"new text\")",
+      "parameters": [
+        {
+          "name": "text-object",
+          "description": "Text, MText, Attribute or AttributeReference object."
+        },
+        {
+          "name": "new text",
+          "description": "Replacement string."
+        }
+      ],
+      "example": "(vlax-for obj (vla-get-ModelSpace doc)\n  (if (wcmatch (vla-get-ObjectName obj) \"AcDbText,AcDbMText\")\n    (vla-put-TextString obj\n      (vl-string-subst \"REV B\" \"REV A\" (vla-get-TextString obj)))))",
+      "notes": "For MText the returned string contains raw formatting codes; strip them before comparing. Fields are replaced by static text when TextString is overwritten.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A0459510-CE7A-4206-9EAA-E25AAB569B20"
+    },
+    {
+      "name": "vla-Delete",
+      "kind": "function",
+      "description": "Erases an entity or removes a non-graphical object such as a layer, block definition, text style, dictionary or selection set. It is the ActiveX counterpart of entdel, but works for table records and collections as well as entities.",
+      "usage": "(vla-Delete object)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "Entity, table record, dictionary, XRecord or SelectionSet VLA-object."
+        }
+      ],
+      "example": "; remove a leftover named selection set before re-creating it\n(setq sets (vla-get-SelectionSets doc))\n(if (not (vl-catch-all-error-p (setq old (vl-catch-all-apply 'vla-Item (list sets \"MYSET\")))))\n  (vla-Delete old))\n(setq ss (vla-Add sets \"MYSET\"))",
+      "notes": "Deleting a layer, style or block that is still referenced fails with an error; purge-style clean-up should use PurgeAll or check references first. After Delete the VLA-object is erased (vlax-erased-p returns T) and must not be used again.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-167FBA5F-C3F3-4195-A170-02E5E46EC797"
+    },
+    {
+      "name": "vla-Offset",
+      "kind": "function",
+      "description": "Creates a new curve offset by a given distance from an existing line, arc, circle, ellipse, polyline, spline or xline and returns the new objects as a variant array. Positive and negative distances offset to opposite sides; for closed curves a positive value usually offsets outward, but the direction depends on the curve direction.",
+      "usage": "(vla-Offset curve-object distance)",
+      "parameters": [
+        {
+          "name": "curve-object",
+          "description": "Line, Arc, Circle, Ellipse, LWPolyline, Polyline, Spline or XLine."
+        },
+        {
+          "name": "distance",
+          "description": "Offset distance; sign selects the side."
+        }
+      ],
+      "example": "(setq pl (vlax-ename->vla-object (car (entsel \"\\nSelect wall centreline: \"))))\n(foreach d '(100.0 -100.0)\n  (foreach o (vlax-safearray->list (vlax-variant-value (vla-Offset pl d)))\n    (vla-put-Layer o \"A-WALL\")))",
+      "notes": "Offsetting a polyline can return several objects when self-intersections are removed. A failing offset (distance larger than a curve's radius toward its center) raises an error, so wrap it in vl-catch-all-apply for batch work.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-50EF273A-7552-4D6B-8523-BB956334D08A"
+    },
+    {
+      "name": "vla-Explode",
+      "kind": "function",
+      "description": "Explodes a compound object such as a block reference, polyline, region or 3D solid into its component entities and returns them as a variant array. Unlike the EXPLODE command, the method leaves the original object in the drawing, so delete it yourself if you want the same result.",
+      "usage": "(vla-Explode compound-object)",
+      "parameters": [
+        {
+          "name": "compound-object",
+          "description": "BlockReference, LWPolyline, Polyline, Region, 3DSolid, MLine, Dimension or similar."
+        }
+      ],
+      "example": "(setq br  (vlax-ename->vla-object (car (entsel)))\n      new (vlax-safearray->list (vlax-variant-value (vla-Explode br))))\n(vla-Delete br)\n(princ (strcat \"\\nCreated \" (itoa (length new)) \" objects\"))",
+      "notes": "Non-uniformly scaled blocks explode correctly only for some geometry. Attribute references become attribute definitions (tags), not text; use the BURST Express Tool when you need the values as text.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-6D96780F-3EC6-447C-B341-0FE815BE9979"
+    },
+    {
+      "name": "vla-IntersectWith",
+      "kind": "function",
+      "description": "Computes the intersection points between two entities and returns them as a variant of doubles (x1 y1 z1 x2 y2 z2 ...). An extend option controls whether either object is treated as extended to infinity. It is the standard geometric intersection tool in Visual LISP.",
+      "usage": "(vla-IntersectWith object1 object2 extend-option)",
+      "parameters": [
+        {
+          "name": "object2",
+          "description": "The other entity."
+        },
+        {
+          "name": "extend-option",
+          "description": "acExtendNone (0), acExtendThisEntity (1), acExtendOtherEntity (2) or acExtendBoth (3)."
+        }
+      ],
+      "example": "(defun inters (o1 o2 / l r)\n  (setq l (vlax-invoke o1 'IntersectWith o2 acExtendNone))\n  (while l (setq r (cons (list (car l) (cadr l) (caddr l)) r) l (cdddr l)))\n  (reverse r))\n(inters (vlax-ename->vla-object (car (entsel))) (vlax-ename->vla-object (car (entsel))))",
+      "notes": "When there is no intersection the vla- version returns an empty array and vlax-safearray->list errors; the vlax-invoke form returns nil instead. Results are in WCS; objects in different planes only intersect where they truly cross in 3D.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-1243A593-5DAE-4DC3-B539-59FDA990E687"
+    },
+    {
+      "name": "vla-GetBoundingBox",
+      "kind": "function",
+      "description": "Returns the minimum and maximum WCS corner points of the axis-aligned box enclosing an entity. The two points are written into quoted output symbols as safearrays. Useful for extents calculations, zooming to objects and simple clash or overlap checks.",
+      "usage": "(vla-GetBoundingBox object 'min-point 'max-point)",
+      "parameters": [
+        {
+          "name": "'min-point",
+          "description": "Quoted symbol that receives the lower-left safearray."
+        },
+        {
+          "name": "'max-point",
+          "description": "Quoted symbol that receives the upper-right safearray."
+        }
+      ],
+      "example": "(vla-GetBoundingBox obj 'mn 'mx)\n(setq mn (vlax-safearray->list mn)\n      mx (vlax-safearray->list mx))\n(princ (strcat \"\\nWidth: \" (rtos (- (car mx) (car mn)) 2 2)))",
+      "notes": "Text and MText boxes can be slightly larger than the visible glyphs; splines and rotated ellipses are approximated. Empty or infinite objects (XLINE, RAY) raise an error.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A20C361C-BBF0-4EAB-8BE7-709154CEEE09"
+    },
+    {
+      "name": "vla-StartUndoMark",
+      "kind": "function",
+      "description": "Begins an undo group on the document so that every change made until vla-EndUndoMark is undone by a single U. It is the ActiveX equivalent of (command \"_.UNDO\" \"_BEGIN\") and works in contexts where (command) is not allowed, such as reactors and some error handlers.",
+      "usage": "(vla-StartUndoMark document-object)",
+      "parameters": [
+        {
+          "name": "document-object",
+          "description": "The Document VLA-object."
+        }
+      ],
+      "example": "(defun c:RENUM ( / *error* doc)\n  (setq doc (vla-get-ActiveDocument (vlax-get-acad-object)))\n  (defun *error* (m) (vla-EndUndoMark doc) (princ m))\n  (vla-StartUndoMark doc)\n  ; ... edits ...\n  (vla-EndUndoMark doc)\n  (princ))",
+      "notes": "Always pair it with vla-EndUndoMark, including in *error*, or later UNDO operations behave oddly. Nested begin/end pairs are allowed but only the outermost group is visible to the user.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-7C669949-1327-4CFD-96CF-CE65EC38DAA8"
+    },
+    {
+      "name": "vla-EndUndoMark",
+      "kind": "function",
+      "description": "Closes the undo group opened by vla-StartUndoMark. All operations between the two marks are then reverted by one U or UNDO 1. Calling it without a matching start mark does no harm, which makes it safe to call from an error handler.",
+      "usage": "(vla-EndUndoMark document-object)",
+      "parameters": [
+        {
+          "name": "document-object",
+          "description": "The Document VLA-object used for the start mark."
+        }
+      ],
+      "example": "(vla-StartUndoMark doc)\n(vlax-for o (vla-get-ModelSpace doc) (vla-put-Color o acByLayer))\n(vla-EndUndoMark doc)",
+      "notes": "UNDOCTL must have the Control option set to All for grouping to work; if the user has UNDO set to None or One, marks are ignored.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-EAC301EA-ABF7-42DE-AC8B-CD77BC77873F"
+    },
+    {
+      "name": "vla-ZoomExtents",
+      "kind": "function",
+      "description": "Zooms the active viewport to the drawing extents. The zoom methods (ZoomAll, ZoomCenter, ZoomExtents, ZoomPrevious, ZoomScaled, ZoomWindow, ZoomPickWindow) belong to the Application object, not the document, and act on whichever viewport is active.",
+      "usage": "(vla-ZoomExtents application-object)\n(vla-ZoomWindow application-object lower-left upper-right)",
+      "parameters": [
+        {
+          "name": "application-object",
+          "description": "(vlax-get-acad-object)."
+        }
+      ],
+      "example": "(vla-ZoomExtents (vlax-get-acad-object))\n(vla-ZoomWindow (vlax-get-acad-object) (vlax-3d-point 0 0 0) (vlax-3d-point 420 297 0))",
+      "notes": "In accoreconsole there is no display, so zoom methods are meaningless and can fail; they are for interactive sessions and for setting the saved view before QSAVE. Extents may be stale until a regen after large deletions.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-B204BFAA-B774-4C87-86D8-37007F390B5A"
+    },
+    {
+      "name": "vla-SaveAs",
+      "kind": "function",
+      "description": "Saves the document to a new file name and optionally a different format (older DWG release, DXF or template). After SaveAs the document's FullName points to the new file. Use it for version down-saves and DXF export from scripts.",
+      "usage": "(vla-SaveAs document-object filename [save-as-type] [security-params])",
+      "parameters": [
+        {
+          "name": "filename",
+          "description": "Full target path including extension."
+        },
+        {
+          "name": "save-as-type",
+          "description": "AcSaveAsType constant such as ac2018_dwg, ac2013_dwg, ac2010_dwg, ac2018_dxf, ac2018_Template or acNative."
+        },
+        {
+          "name": "security-params",
+          "description": "Optional SecurityParams object for password-protected saves (legacy)."
+        }
+      ],
+      "example": "(vla-SaveAs doc \"C:/Out/plan_R2013.dwg\" ac2013_dwg)\n(vla-SaveAs doc \"C:/Out/plan.dxf\" ac2018_dxf)",
+      "notes": "Saving the active document to DXF changes the document's file to the DXF; save back to DWG or close without saving if that is not intended. Use (vla-Save doc) to save in place. In LT 2024+ SaveAs works but encrypted saves are not supported in recent releases.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-ED0D0B02-25FC-4ED2-9DEE-2B0C9AA9416A"
+    },
+    {
+      "name": "vla-TransformBy",
+      "kind": "function",
+      "description": "Applies a 4x4 transformation matrix to an entity, performing any combination of move, rotate, scale and mirror in one call. The matrix is created with vlax-tmatrix from a list of four rows. It is useful for applying transforms computed from UCS or block-reference geometry.",
+      "usage": "(vla-TransformBy entity-object (vlax-tmatrix matrix-list))",
+      "parameters": [
+        {
+          "name": "matrix-list",
+          "description": "List of four lists of four reals; the last row must be (0 0 0 1)."
+        }
+      ],
+      "example": "; rotate 90 degrees about the origin and move 100 in X\n(vla-TransformBy obj\n  (vlax-tmatrix '((0.0 -1.0 0.0 100.0)\n                  (1.0  0.0 0.0   0.0)\n                  (0.0  0.0 1.0   0.0)\n                  (0.0  0.0 0.0   1.0))))",
+      "notes": "Non-uniform scaling is rejected for circles, arcs, text and most curved entities ('Invalid input'). For simple operations vla-Move, vla-Rotate, vla-ScaleEntity and vla-Mirror are clearer.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-2FAE4C13-06F2-47A2-B213-8A9A6958B799"
+    },
+    {
+      "name": "vlax-get-property",
+      "kind": "function",
+      "description": "Reads a property of a VLA-object by name. It is the generic form behind every vla-get-<Property> function and is required when the property name is only known at run time, or for properties of objects from other type libraries. Returns the value as a LISP type or a variant.",
+      "usage": "(vlax-get-property object property)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "A VLA-object."
+        },
+        {
+          "name": "property",
+          "description": "Property name as a symbol or string, e.g. 'Layer or \"Layer\"."
+        }
+      ],
+      "example": "(foreach p '(Layer Color Linetype Lineweight)\n  (if (vlax-property-available-p obj p)\n    (princ (strcat \"\\n\" (vl-princ-to-string p) \" = \"\n                   (vl-princ-to-string (vlax-get-property obj p))))))",
+      "notes": "Point properties come back as variants; convert with (vlax-safearray->list (vlax-variant-value v)). Indexed properties (e.g. Coordinate) take extra arguments: (vlax-get-property pl 'Coordinate 0).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-B3F22E35-4666-452F-89C8-5BC15B9E9463"
+    },
+    {
+      "name": "vlax-get",
+      "kind": "function",
+      "description": "Undocumented but long-standing Visual LISP function that reads a property and returns it as a native LISP value: points and arrays become lists instead of variants. It is widely used in production code because it removes most variant and safearray conversion boilerplate.",
+      "usage": "(vlax-get object 'PropertyName)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "A VLA-object."
+        },
+        {
+          "name": "'PropertyName",
+          "description": "Quoted property symbol."
+        }
+      ],
+      "example": "(setq ln (vlax-ename->vla-object (car (entsel))))\n(setq sp (vlax-get ln 'StartPoint))   ; -> (0.0 0.0 0.0)\n(setq pts (vlax-get pl 'Coordinates)) ; flat list of x y for an LWPOLYLINE",
+      "notes": "Not in the official reference, so behaviour is not contractually guaranteed, but it is present in every Windows AutoCAD release since 2000 and in LT 2024+. Boolean properties return -1/0 rather than :vlax-true/:vlax-false.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A0459510-CE7A-4206-9EAA-E25AAB569B20"
+    },
+    {
+      "name": "vlax-put",
+      "kind": "function",
+      "description": "Undocumented companion of vlax-get that writes a property from a native LISP value, accepting a list where the vla-put- form would require a variant. Commonly used to set point properties and polyline coordinate arrays.",
+      "usage": "(vlax-put object 'PropertyName value)",
+      "parameters": [
+        {
+          "name": "'PropertyName",
+          "description": "Quoted property symbol."
+        },
+        {
+          "name": "value",
+          "description": "LISP value: string, number, list of reals for points/arrays."
+        }
+      ],
+      "example": "(vlax-put ln 'EndPoint '(200.0 0.0 0.0))\n(vlax-put pl 'Coordinates '(0 0 50 0 50 50 0 50))",
+      "notes": "Undocumented; prefer vlax-put-property in code you distribute to others who may audit against the reference. Values are converted using the property's type-library type.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A0459510-CE7A-4206-9EAA-E25AAB569B20"
+    },
+    {
+      "name": "vlax-invoke",
+      "kind": "function",
+      "description": "Undocumented variant of vlax-invoke-method that passes LISP lists for point and array arguments and returns LISP lists instead of variants. It makes methods such as GetAttributes, IntersectWith, Offset, Explode, AddLightWeightPolyline and Add3DPoly far easier to call.",
+      "usage": "(vlax-invoke object 'MethodName [arg ...])",
+      "parameters": [
+        {
+          "name": "'MethodName",
+          "description": "Quoted method symbol."
+        },
+        {
+          "name": "arg",
+          "description": "Arguments as LISP values (lists for points/arrays)."
+        }
+      ],
+      "example": "(setq atts (vlax-invoke br 'GetAttributes))           ; list of objects\n(setq new  (vlax-invoke pl 'Offset 10.0))            ; list of new curves\n(setq ln   (vlax-invoke ms 'AddLine '(0 0 0) '(10 10 0)))",
+      "notes": "Methods with output arguments (GetBoundingBox) still need quoted symbols and the documented form. Empty results come back as nil, not an empty safearray, which avoids a common error.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A8B097A2-CE86-4B38-B2A9-D6F53EACA8ED"
+    },
+    {
+      "name": "vlax-vla-object->ename",
+      "kind": "function",
+      "description": "Converts a VLA-object into the corresponding AutoLISP entity name so that classic functions such as entget, entmod, ssadd and (command) can work on an object obtained through ActiveX. It is the inverse of vlax-ename->vla-object.",
+      "usage": "(vlax-vla-object->ename vla-object)",
+      "parameters": [
+        {
+          "name": "vla-object",
+          "description": "A VLA-object representing a database-resident entity or object."
+        }
+      ],
+      "example": "(setq c (vla-AddCircle ms (vlax-3d-point 0 0 0) 10.0))\n(setq e (vlax-vla-object->ename c))\n(command \"_.HATCH\" \"_S\" e \"\")",
+      "notes": "Works for non-graphical objects too (layers, dictionaries), returning their entity names for use with entget/dictsearch. The reverse conversion via handles is (vla-HandleToObject doc handle).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9127B839-D275-473F-A166-59BE94AEFACB"
+    },
+    {
+      "name": "vlax-for",
+      "kind": "function",
+      "description": "Iterates over every member of an ActiveX collection, binding a symbol to each VLA-object in turn and evaluating the body expressions. It is the idiomatic way to walk ModelSpace, Blocks, Layers, Layouts, Documents, SelectionSets or a single block definition's entities.",
+      "usage": "(vlax-for symbol collection [expression ...])",
+      "parameters": [
+        {
+          "name": "symbol",
+          "description": "Variable bound to each item; declare it local."
+        },
+        {
+          "name": "collection",
+          "description": "Any collection VLA-object."
+        }
+      ],
+      "example": "(setq n 0)\n(vlax-for obj (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object)))\n  (if (= (vla-get-ObjectName obj) \"AcDbLine\") (setq n (1+ n))))\n(princ (strcat \"\\nLines: \" (itoa n)))",
+      "notes": "Do not add or delete items of the same collection inside the loop; collect them in a list first and act afterwards. Returns the value of the last expression evaluated.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9CB1C7DD-7E25-4F8C-8858-D79FEC043BEC"
+    },
+    {
+      "name": "vlax-map-collection",
+      "kind": "function",
+      "description": "Applies a function to every object in a collection, the functional counterpart of vlax-for. The function receives each VLA-object as its only argument and its return value is discarded; the collection object itself is returned.",
+      "usage": "(vlax-map-collection collection function)",
+      "parameters": [
+        {
+          "name": "collection",
+          "description": "A collection VLA-object."
+        },
+        {
+          "name": "function",
+          "description": "Quoted function symbol or lambda of one argument."
+        }
+      ],
+      "example": "(vlax-map-collection (vla-get-Layers doc)\n  '(lambda (l) (vla-put-LayerOn l :vlax-true)))",
+      "notes": "Use vlax-for when you need to accumulate results or break out early by setting a flag; vlax-map-collection is purely for side effects.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-81247560-E2A7-486E-ABCD-B85E09266FBA"
+    },
+    {
+      "name": "vlax-make-safearray",
+      "kind": "function",
+      "description": "Creates an ActiveX safearray of a given element type and dimension bounds. Safearrays are how ActiveX methods receive coordinate lists, filter arrays and object arrays; they are usually filled with vlax-safearray-fill and wrapped in a variant with vlax-make-variant.",
+      "usage": "(vlax-make-safearray type '(l-bound . u-bound) ['(l-bound . u-bound) ...])",
+      "parameters": [
+        {
+          "name": "type",
+          "description": "vlax-vbInteger (2), vlax-vbLong (3), vlax-vbSingle (4), vlax-vbDouble (5), vlax-vbString (8), vlax-vbObject (9), vlax-vbBoolean (11) or vlax-vbVariant (12)."
+        },
+        {
+          "name": "(l-bound . u-bound)",
+          "description": "Dotted pair of lower and upper index for each dimension (up to 16 dimensions)."
+        }
+      ],
+      "example": "; filter arrays for AcadSelectionSet.Select\n(setq ft (vlax-make-safearray vlax-vbInteger '(0 . 1))\n      fd (vlax-make-safearray vlax-vbVariant '(0 . 1)))\n(vlax-safearray-fill ft '(0 8))\n(vlax-safearray-fill fd '(\"CIRCLE\" \"HOLES\"))\n(vla-Select ss acSelectionSetAll nil nil ft fd)",
+      "notes": "Elements are initialised to 0, \"\" or nil according to type. Filter-type arrays must be vlax-vbInteger and filter-data arrays vlax-vbVariant.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-E0D40331-096B-4A52-A0D7-10204829C4A6"
+    },
+    {
+      "name": "vlax-safearray-fill",
+      "kind": "function",
+      "description": "Stores a list of values into a safearray, filling it element by element, and returns the safearray. For multi-dimensional arrays supply a list of lists, one per row. It is the quickest way to load point or filter data.",
+      "usage": "(vlax-safearray-fill safearray element-values)",
+      "parameters": [
+        {
+          "name": "safearray",
+          "description": "Array created by vlax-make-safearray."
+        },
+        {
+          "name": "element-values",
+          "description": "List of values (or list of lists for 2D arrays) matching the array type."
+        }
+      ],
+      "example": "(setq sa (vlax-make-safearray vlax-vbDouble '(0 . 5)))\n(vlax-safearray-fill sa '(0.0 0.0 0.0 10.0 10.0 0.0))\n(vla-Add3DPoly ms (vlax-make-variant sa))",
+      "notes": "Supplying fewer values than elements leaves the rest untouched; supplying more raises an error. Values are coerced to the array type where possible.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-7C2331B4-1A4D-40FF-B59A-D35F7942936B"
+    },
+    {
+      "name": "vlax-safearray-get-element",
+      "kind": "function",
+      "description": "Returns a single element of a safearray by index, with one index per dimension. Together with vlax-safearray-put-element, vlax-safearray-get-l-bound and vlax-safearray-get-u-bound it allows element-wise work on large arrays without converting them to lists.",
+      "usage": "(vlax-safearray-get-element safearray index [index ...])",
+      "parameters": [
+        {
+          "name": "safearray",
+          "description": "A safearray object."
+        },
+        {
+          "name": "index",
+          "description": "Integer index for each dimension, within the array bounds."
+        }
+      ],
+      "example": "(setq arr (vlax-variant-value (vla-get-Coordinates pl)))\n(setq n (1+ (vlax-safearray-get-u-bound arr 1)))\n(setq x0 (vlax-safearray-get-element arr 0)\n      y0 (vlax-safearray-get-element arr 1))",
+      "notes": "Dimensions are numbered from 1 in get-l-bound/get-u-bound. An empty array has an upper bound of -1, which is the reliable emptiness test before converting.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-09386E77-DBBF-4E4D-8D77-0066D1F11CBA"
+    },
+    {
+      "name": "vlax-make-variant",
+      "kind": "function",
+      "description": "Creates a variant containing a value of an optional explicit type. Many ActiveX methods expect variants (points, arrays, optional arguments), and methods that return variants need vlax-variant-value to unwrap them.",
+      "usage": "(vlax-make-variant [value] [type])",
+      "parameters": [
+        {
+          "name": "value",
+          "description": "Value to wrap; a safearray for array variants. Omitted gives an empty variant."
+        },
+        {
+          "name": "type",
+          "description": "vlax-vbEmpty (0), vlax-vbNull (1), vlax-vbInteger (2), vlax-vbLong (3), vlax-vbDouble (5), vlax-vbString (8), vlax-vbObject (9), vlax-vbBoolean (11), or (+ vlax-vbArray type) for arrays."
+        }
+      ],
+      "example": "(setq v (vlax-make-variant 3.5 vlax-vbDouble))\n(setq pt (vlax-make-variant\n           (vlax-safearray-fill (vlax-make-safearray vlax-vbDouble '(0 . 2)) '(1.0 2.0 0.0))))",
+      "notes": "vlax-3d-point is a shortcut for the most common case (a double array of three values). When type is omitted, it is inferred from the value.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A1B964E3-89B4-4655-9E37-B24401450CDA"
+    },
+    {
+      "name": "vlax-variant-value",
+      "kind": "function",
+      "description": "Returns the value stored in a variant: a number, string, VLA-object or a safearray. It is used after almost every property or method that returns a point, an array or an object list.",
+      "usage": "(vlax-variant-value variant)",
+      "parameters": [
+        {
+          "name": "variant",
+          "description": "A variant returned by an ActiveX property or method."
+        }
+      ],
+      "example": "(setq c (vlax-safearray->list (vlax-variant-value (vla-get-Center circ))))\n(princ (strcat \"\\nCenter: \" (vl-princ-to-string c)))",
+      "notes": "Passing a non-variant raises 'bad argument type: variantp'. Combine with vlax-safearray->list to get a LISP list.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D26E25ED-6D9A-4E0F-B7C3-CC10F95246F9"
+    },
+    {
+      "name": "vlax-variant-type",
+      "kind": "function",
+      "description": "Returns the integer data-type code of a variant. Array variants return 8192 (vlax-vbArray) plus the element type, e.g. 8197 for an array of doubles. Useful to write generic code that handles properties of unknown type.",
+      "usage": "(vlax-variant-type variant)",
+      "parameters": [
+        {
+          "name": "variant",
+          "description": "Any variant."
+        }
+      ],
+      "example": "(setq v (vla-get-InsertionPoint br))\n(if (> (vlax-variant-type v) 8192)\n  (setq v (vlax-safearray->list (vlax-variant-value v))))",
+      "notes": "Test (logand (vlax-variant-type v) 8192) to detect arrays regardless of element type.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-14029CC8-2839-432B-ABFC-F470AFA7606B"
+    },
+    {
+      "name": "vlax-variant-change-type",
+      "kind": "function",
+      "description": "Returns a new variant converted to another data type, for example a double to a string or an integer to a double. The original variant is not modified. Returns nil when the conversion is impossible.",
+      "usage": "(vlax-variant-change-type variant new-type)",
+      "parameters": [
+        {
+          "name": "variant",
+          "description": "Source variant."
+        },
+        {
+          "name": "new-type",
+          "description": "Target vlax-vb* type constant."
+        }
+      ],
+      "example": "(setq v (vlax-make-variant 42))\n(vlax-variant-value (vlax-variant-change-type v vlax-vbString)) ; -> \"42\"",
+      "notes": "Conversions follow COM VariantChangeType rules, so string-to-number conversions honour Windows regional settings (decimal comma issues on some locales).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-64714B92-0662-496E-8C9B-99DFCE7CAFB1"
+    },
+    {
+      "name": "vlax-property-available-p",
+      "kind": "function",
+      "description": "Tests whether an object exposes a property, and optionally whether it can be modified. Use it before reading or writing properties in routines that process mixed object types, to avoid 'ActiveX Server returned the error: unknown name'.",
+      "usage": "(vlax-property-available-p object property [check-modify])",
+      "parameters": [
+        {
+          "name": "property",
+          "description": "Property symbol or string."
+        },
+        {
+          "name": "check-modify",
+          "description": "If T, returns T only if the property exists and is writable."
+        }
+      ],
+      "example": "(vlax-for o (vla-get-ModelSpace doc)\n  (if (vlax-property-available-p o 'TextString T)\n    (vla-put-TextString o (strcase (vla-get-TextString o)))))",
+      "notes": "Returns nil for read-only properties when check-modify is T, e.g. Length on a line.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-E8A5B009-46D6-4BA7-9655-88104F8BE792"
+    },
+    {
+      "name": "vlax-method-applicable-p",
+      "kind": "function",
+      "description": "Tests whether an object supports a given ActiveX method. It lets generic routines call methods such as Offset, Explode or GetAttributes only on objects that implement them.",
+      "usage": "(vlax-method-applicable-p object method)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "A VLA-object."
+        },
+        {
+          "name": "method",
+          "description": "Method name as symbol or string."
+        }
+      ],
+      "example": "(if (vlax-method-applicable-p obj 'Offset)\n  (vla-Offset obj 5.0)\n  (princ \"\\nObject cannot be offset.\"))",
+      "notes": "Some methods exist but still fail for particular states (e.g. Explode on a non-uniformly scaled block of certain entities); combine with vl-catch-all-apply.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-63B81424-11BA-4CB3-A783-514031A2271D"
+    },
+    {
+      "name": "vlax-dump-object",
+      "kind": "function",
+      "description": "Prints all properties of a VLA-object and their current values to the command line, and optionally the list of supported methods. It is the quickest way to discover property names while developing Visual LISP code.",
+      "usage": "(vlax-dump-object object [show-methods])",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "Any VLA-object."
+        },
+        {
+          "name": "show-methods",
+          "description": "T to list methods as well as properties."
+        }
+      ],
+      "example": "(vlax-dump-object (vlax-ename->vla-object (car (entsel))) T)",
+      "notes": "Read-only properties are marked (RO). Output goes to the text window; press F2 to see it all. Returns T on success.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-BCE56B30-54A6-42F9-8910-81AF2B7B9AA8"
+    },
+    {
+      "name": "vlax-release-object",
+      "kind": "function",
+      "description": "Releases a reference to a COM object so the server can free it. Mandatory for objects from other applications (Excel, Word, ObjectDBX documents) created with vlax-get-or-create-object or GetInterfaceObject; otherwise the external process can remain running after your routine ends.",
+      "usage": "(vlax-release-object object)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "VLA-object to release; the variable should be set to nil afterwards."
+        }
+      ],
+      "example": "(setq xl (vlax-get-or-create-object \"Excel.Application\"))\n; ... work ...\n(vlax-invoke-method xl 'Quit)\n(vlax-release-object xl)\n(setq xl nil)\n(gc)",
+      "notes": "AutoCAD drawing objects are released automatically when garbage-collected, so releasing them is optional. Release child objects (workbooks, sheets, ranges) before the application object.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-85FA59E7-9EC9-4690-8CEE-318BF542C0E6"
+    },
+    {
+      "name": "vlax-erased-p",
+      "kind": "function",
+      "description": "Returns T if the database object behind a VLA-object has been erased, nil otherwise. Use it to validate objects kept in global variables or reactor data, since the user may have deleted them since they were stored.",
+      "usage": "(vlax-erased-p object)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "A VLA-object."
+        }
+      ],
+      "example": "(if (and *leader* (not (vlax-erased-p *leader*)))\n  (vla-put-Color *leader* acRed)\n  (princ \"\\nStored leader no longer exists.\"))",
+      "notes": "Related predicates: vlax-read-enabled-p, vlax-write-enabled-p (false for objects on locked layers or open for read) and vlax-object-released-p.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-423F047A-F8B8-4DD0-ABEC-52E3C7B336B5"
+    }
+  ]
+}

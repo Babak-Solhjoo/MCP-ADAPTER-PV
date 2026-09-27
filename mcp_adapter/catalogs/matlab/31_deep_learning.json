@@ -1,0 +1,557 @@
+{
+  "category": "Deep Learning Toolbox > Networks, Layers & Training",
+  "description": "Building and training deep neural networks: network containers, layer constructors, training options, datastores and augmentation, pretrained model import/export, and the custom training loop API built on dlarray.",
+  "tools": [
+    {
+      "name": "dlnetwork",
+      "kind": "script-object",
+      "description": "Create a deep learning network object that supports both built-in training with trainnet and fully custom training loops with automatic differentiation. It is the modern replacement for SeriesNetwork, DAGNetwork and layerGraph. Its Learnables and State tables can be inspected and updated directly, which is what custom loops operate on.",
+      "usage": "net = dlnetwork(layers)\nnet = dlnetwork(layers, X1, ..., XN)\nnet = dlnetwork(___, 'Initialize', tf)\n[Y, state] = forward(net, X)\nY = predict(net, X)",
+      "parameters": [
+        {"name": "layers", "description": "A layer array or layerGraph defining the architecture."},
+        {"name": "X1..XN", "description": "Example dlarray inputs used to determine and initialize learnable sizes."},
+        {"name": "'Initialize'", "description": "Logical; false creates an uninitialized network."}
+      ],
+      "example": "layers = [\n    imageInputLayer([28 28 1], 'Normalization', 'none')\n    convolution2dLayer(3, 16, 'Padding', 'same')\n    batchNormalizationLayer\n    reluLayer\n    maxPooling2dLayer(2, 'Stride', 2)\n    fullyConnectedLayer(10)\n    softmaxLayer];\nnet = dlnetwork(layers);\ndisp(net.Learnables(1:3, :))\nX = dlarray(rand(28,28,1,8,'single'), 'SSCB');\nY = forward(net, X);\nsize(Y)",
+      "notes": "forward tracks gradients and updates state; predict does neither and is what you use at inference time.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/dlnetwork.html"
+    },
+    {
+      "name": "layerGraph",
+      "kind": "script-object",
+      "description": "Build a directed acyclic graph of layers for architectures with skip connections, branches or multiple inputs, which a plain layer array cannot express. Layers are added with addLayers and wired with connectLayers by name. In recent releases dlnetwork accepts the same operations directly, but layerGraph remains common in existing code.",
+      "usage": "lgraph = layerGraph()\nlgraph = layerGraph(layers)\nlgraph = addLayers(lgraph, newLayers)\nlgraph = connectLayers(lgraph, s, d)\nlgraph = removeLayers(lgraph, names)\nplot(lgraph)",
+      "parameters": [
+        {"name": "layers", "description": "A layer array used as the initial linear chain."},
+        {"name": "s, d", "description": "Source and destination layer names (with port suffixes like 'add/in2')."}
+      ],
+      "example": "lgraph = layerGraph([\n    imageInputLayer([32 32 3], 'Name', 'in')\n    convolution2dLayer(3, 16, 'Padding', 'same', 'Name', 'c1')\n    reluLayer('Name', 'r1')\n    additionLayer(2, 'Name', 'add')\n    fullyConnectedLayer(10, 'Name', 'fc')\n    softmaxLayer('Name', 'sm')]);\nlgraph = connectLayers(lgraph, 'in', 'add/in2');\nfigure, plot(lgraph)\nnet = dlnetwork(lgraph);",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layergraph.html"
+    },
+    {
+      "name": "trainnet",
+      "kind": "function",
+      "description": "Train a dlnetwork with a specified loss function, returning the trained network and training information. Unlike the older trainNetwork it takes the loss as an explicit argument instead of requiring an output layer, which makes custom losses far easier. It is the recommended training entry point in current releases.",
+      "usage": "netTrained = trainnet(data, net, lossFcn, options)\nnetTrained = trainnet(X, T, net, lossFcn, options)\n[netTrained, info] = trainnet(___)",
+      "parameters": [
+        {"name": "data", "description": "A datastore, minibatchqueue, table or array of training data."},
+        {"name": "net", "description": "The dlnetwork or layer array to train."},
+        {"name": "lossFcn", "description": "'crossentropy', 'binary-crossentropy', 'mse', 'mae', 'huber', 'index-crossentropy', or a custom function handle."},
+        {"name": "options", "description": "A TrainingOptions object from trainingOptions."}
+      ],
+      "example": "[XTrain, TTrain] = digitTrain4DArrayData;\nlayers = [imageInputLayer([28 28 1])\n          convolution2dLayer(3, 8, 'Padding', 'same')\n          batchNormalizationLayer, reluLayer\n          maxPooling2dLayer(2, 'Stride', 2)\n          fullyConnectedLayer(10), softmaxLayer];\nopts = trainingOptions('adam', 'MaxEpochs', 5, 'MiniBatchSize', 128, ...\n    'Plots', 'training-progress', 'Verbose', false);\n[net, info] = trainnet(XTrain, TTrain, layers, 'crossentropy', opts);\nfprintf('Final loss: %.4f\\n', info.TrainingHistory.Loss(end));",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/trainnet.html"
+    },
+    {
+      "name": "trainNetwork",
+      "kind": "function",
+      "description": "Train a network defined by a layer array or layerGraph that ends in an output layer such as classificationLayer or regressionLayer. This is the classic training function used throughout older code and examples. New work should prefer trainnet, which separates the loss from the architecture.",
+      "usage": "net = trainNetwork(imds, layers, options)\nnet = trainNetwork(X, Y, layers, options)\nnet = trainNetwork(sequences, Y, layers, options)\n[net, info] = trainNetwork(___)",
+      "parameters": [
+        {"name": "imds / X, Y", "description": "An imageDatastore, augmentedImageDatastore, arrays, a table, or a cell array of sequences."},
+        {"name": "layers", "description": "Layer array or layerGraph ending in an output layer."},
+        {"name": "options", "description": "TrainingOptions object."}
+      ],
+      "example": "[XTrain, YTrain] = digitTrain4DArrayData;\nlayers = [imageInputLayer([28 28 1])\n          convolution2dLayer(5, 20), reluLayer\n          maxPooling2dLayer(2, 'Stride', 2)\n          fullyConnectedLayer(10), softmaxLayer, classificationLayer];\nopts = trainingOptions('sgdm', 'MaxEpochs', 4, 'Verbose', false);\nnet = trainNetwork(XTrain, YTrain, layers, opts);\nYPred = classify(net, XTrain(:,:,:,1:10));",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/trainnetwork.html"
+    },
+    {
+      "name": "trainingOptions",
+      "kind": "function",
+      "description": "Create the options object that controls the optimizer, learning-rate schedule, mini-batch size, validation, hardware and monitoring for network training. Almost every practical training decision is expressed here. Display the returned object to review every setting before a long run.",
+      "usage": "options = trainingOptions(solverName)\noptions = trainingOptions(solverName, Name, Value, ...)",
+      "parameters": [
+        {"name": "solverName", "description": "'sgdm', 'adam', 'rmsprop', or 'lbfgs' for full-batch problems."},
+        {"name": "'InitialLearnRate'", "description": "Starting learning rate; the single most important hyperparameter."},
+        {"name": "'MaxEpochs' / 'MiniBatchSize'", "description": "Training length and batch size."},
+        {"name": "'LearnRateSchedule' / 'LearnRateDropFactor' / 'LearnRateDropPeriod'", "description": "Piecewise learning-rate decay."},
+        {"name": "'ValidationData' / 'ValidationFrequency' / 'ValidationPatience'", "description": "Validation set, how often to evaluate, and early stopping."},
+        {"name": "'Shuffle'", "description": "'once', 'never' or 'every-epoch' (recommended)."},
+        {"name": "'ExecutionEnvironment'", "description": "'auto', 'cpu', 'gpu', 'multi-gpu', 'parallel'."},
+        {"name": "'Plots' / 'Verbose'", "description": "'training-progress' live plot and console logging."},
+        {"name": "'L2Regularization' / 'GradientThreshold'", "description": "Weight decay and gradient clipping."}
+      ],
+      "example": "options = trainingOptions('adam', ...\n    'InitialLearnRate', 1e-3, ...\n    'MaxEpochs', 30, ...\n    'MiniBatchSize', 64, ...\n    'Shuffle', 'every-epoch', ...\n    'LearnRateSchedule', 'piecewise', ...\n    'LearnRateDropFactor', 0.2, 'LearnRateDropPeriod', 10, ...\n    'ValidationData', {XVal, YVal}, 'ValidationFrequency', 50, ...\n    'ValidationPatience', 5, ...\n    'ExecutionEnvironment', 'auto', ...\n    'Plots', 'training-progress', 'Verbose', false);",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/trainingoptions.html"
+    },
+    {
+      "name": "imageInputLayer",
+      "kind": "function",
+      "description": "Define the input layer for 2-D image data, specifying the height, width and channel count. It also applies input normalization such as zero-centring or z-scoring, with statistics computed from the training set. Every image network starts with this layer.",
+      "usage": "layer = imageInputLayer(inputSize)\nlayer = imageInputLayer(inputSize, Name, Value)",
+      "parameters": [
+        {"name": "inputSize", "description": "[height width channels] of the input images."},
+        {"name": "'Normalization'", "description": "'zerocenter' (default), 'zscore', 'rescale-symmetric', 'rescale-zero-one', 'none'."},
+        {"name": "'Mean' / 'StandardDeviation'", "description": "Explicit normalization statistics instead of computed ones."},
+        {"name": "'Name'", "description": "Layer name, needed for graph connections."}
+      ],
+      "example": "layer = imageInputLayer([224 224 3], ...\n    'Normalization', 'zscore', 'Name', 'input');\nlayerNoNorm = imageInputLayer([28 28 1], 'Normalization', 'none');",
+      "notes": "image3dInputLayer handles volumes; featureInputLayer handles plain feature vectors.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.imageinputlayer.html"
+    },
+    {
+      "name": "sequenceInputLayer",
+      "kind": "function",
+      "description": "Define the input layer for sequence or time-series data, specifying the number of features per time step. It can also accept sequences of images for video networks by giving a three-element input size. Use it at the head of any LSTM, GRU or temporal convolutional network.",
+      "usage": "layer = sequenceInputLayer(inputSize)\nlayer = sequenceInputLayer(inputSize, Name, Value)",
+      "parameters": [
+        {"name": "inputSize", "description": "Number of features per time step, or [h w c] for sequences of images."},
+        {"name": "'Normalization'", "description": "'none' (default), 'zerocenter', 'zscore', 'rescale-symmetric'."},
+        {"name": "'MinLength'", "description": "Minimum sequence length the network must accept."},
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "numFeatures = 12;\nlayers = [\n    sequenceInputLayer(numFeatures, 'Normalization', 'zscore')\n    lstmLayer(100, 'OutputMode', 'last')\n    dropoutLayer(0.3)\n    fullyConnectedLayer(5)\n    softmaxLayer];",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.sequenceinputlayer.html"
+    },
+    {
+      "name": "featureInputLayer",
+      "kind": "function",
+      "description": "Define an input layer for tabular feature vectors, where each observation is a plain numeric row rather than an image or sequence. It makes it straightforward to build multilayer perceptrons and to combine tabular inputs with image branches. Normalization options match imageInputLayer.",
+      "usage": "layer = featureInputLayer(numFeatures)\nlayer = featureInputLayer(numFeatures, Name, Value)",
+      "parameters": [
+        {"name": "numFeatures", "description": "Number of features per observation."},
+        {"name": "'Normalization'", "description": "'none' (default), 'zerocenter', 'zscore', 'rescale-symmetric', 'rescale-zero-one'."},
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "load fisheriris\nlayers = [\n    featureInputLayer(4, 'Normalization', 'zscore')\n    fullyConnectedLayer(32), reluLayer\n    fullyConnectedLayer(3), softmaxLayer];\nnet = dlnetwork(layers);",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.featureinputlayer.html"
+    },
+    {
+      "name": "convolution2dLayer",
+      "kind": "function",
+      "description": "Create a 2-D convolutional layer with a specified filter size and number of filters. Padding, stride and dilation control the spatial output size and receptive field. It is the fundamental feature-extraction layer of every CNN.",
+      "usage": "layer = convolution2dLayer(filterSize, numFilters)\nlayer = convolution2dLayer(filterSize, numFilters, Name, Value)",
+      "parameters": [
+        {"name": "filterSize", "description": "Scalar or [h w] kernel size."},
+        {"name": "numFilters", "description": "Number of output channels."},
+        {"name": "'Padding'", "description": "'same' (preserve size), 'causal', a scalar, or [t b l r]."},
+        {"name": "'Stride'", "description": "Step between filter applications (default 1)."},
+        {"name": "'DilationFactor'", "description": "Spacing between kernel elements, for dilated convolutions."},
+        {"name": "'WeightsInitializer'", "description": "'glorot' (default), 'he', 'narrow-normal', 'zeros', or a function handle."},
+        {"name": "'NumChannels'", "description": "Input channels; 'auto' infers it."}
+      ],
+      "example": "conv1 = convolution2dLayer(3, 64, 'Padding', 'same', ...\n    'Stride', 1, 'WeightsInitializer', 'he', 'Name', 'conv1');\nconvDown = convolution2dLayer(3, 128, 'Padding', 'same', 'Stride', 2);\nconvDilated = convolution2dLayer(3, 32, 'DilationFactor', 4, 'Padding', 'same');",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.convolution2dlayer.html"
+    },
+    {
+      "name": "batchNormalizationLayer",
+      "kind": "function",
+      "description": "Normalize each channel across a mini-batch, then scale and shift with learnable parameters. It stabilizes and greatly speeds up training, allows higher learning rates, and acts as a mild regularizer. Place it between convolution and the activation function.",
+      "usage": "layer = batchNormalizationLayer\nlayer = batchNormalizationLayer(Name, Value)",
+      "parameters": [
+        {"name": "'Epsilon'", "description": "Constant added to the variance for numerical stability (default 1e-5)."},
+        {"name": "'MeanDecay' / 'VarianceDecay'", "description": "Momentum for the running statistics used at inference."},
+        {"name": "'ScaleLearnRateFactor' / 'OffsetLearnRateFactor'", "description": "Per-parameter learning-rate multipliers."},
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "block = [\n    convolution2dLayer(3, 32, 'Padding', 'same')\n    batchNormalizationLayer('Name', 'bn1')\n    reluLayer\n    maxPooling2dLayer(2, 'Stride', 2)];",
+      "notes": "Batch norm keeps running statistics in the network's State property; update them with the forward function's state output during custom training.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.batchnormalizationlayer.html"
+    },
+    {
+      "name": "reluLayer",
+      "kind": "function",
+      "description": "Apply the rectified linear unit activation, which zeroes negative values and passes positive ones through unchanged. It is cheap, avoids the vanishing-gradient problem and is the default activation for most CNNs. Use leakyReluLayer or eluLayer if dead units become a problem.",
+      "usage": "layer = reluLayer\nlayer = reluLayer('Name', name)",
+      "parameters": [
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "layers = [convolution2dLayer(3, 16, 'Padding', 'same')\n          batchNormalizationLayer\n          reluLayer('Name', 'relu1')];\nleaky = leakyReluLayer(0.1);\nswishAct = swishLayer;",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.relulayer.html"
+    },
+    {
+      "name": "maxPooling2dLayer",
+      "kind": "function",
+      "description": "Downsample feature maps by taking the maximum over each pooling window. It reduces spatial resolution and computation while providing small-translation invariance. The 'HasUnpoolingOutputs' option produces the indices needed by an unpooling layer in encoder-decoder architectures.",
+      "usage": "layer = maxPooling2dLayer(poolSize)\nlayer = maxPooling2dLayer(poolSize, Name, Value)",
+      "parameters": [
+        {"name": "poolSize", "description": "Scalar or [h w] pooling window size."},
+        {"name": "'Stride'", "description": "Step between windows; set equal to poolSize for non-overlapping pooling."},
+        {"name": "'Padding'", "description": "'same', a scalar, or [t b l r]."},
+        {"name": "'HasUnpoolingOutputs'", "description": "Logical; expose indices and size for maxUnpooling2dLayer."}
+      ],
+      "example": "pool = maxPooling2dLayer(2, 'Stride', 2, 'Name', 'pool1');\npoolOverlap = maxPooling2dLayer(3, 'Stride', 2, 'Padding', 'same');\navgpool = averagePooling2dLayer(2, 'Stride', 2);",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.maxpooling2dlayer.html"
+    },
+    {
+      "name": "globalAveragePooling2dLayer",
+      "kind": "function",
+      "description": "Average each feature map over its entire spatial extent, reducing an H-by-W-by-C activation to 1-by-1-by-C. It replaces large flatten-plus-fully-connected heads with far fewer parameters and makes the network accept variable input sizes. Standard in ResNet, Inception and most modern CNN classifiers.",
+      "usage": "layer = globalAveragePooling2dLayer\nlayer = globalAveragePooling2dLayer('Name', name)",
+      "parameters": [
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "head = [\n    convolution2dLayer(3, 256, 'Padding', 'same'), reluLayer\n    globalAveragePooling2dLayer('Name', 'gap')\n    fullyConnectedLayer(10)\n    softmaxLayer];",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.globalaveragepooling2dlayer.html"
+    },
+    {
+      "name": "fullyConnectedLayer",
+      "kind": "function",
+      "description": "Apply a dense (affine) transformation, multiplying the flattened input by a weight matrix and adding a bias. It is the classifier or regressor head of most networks, with the output size equal to the number of classes or targets. Learning-rate and regularization factors can be set per layer, which is how transfer learning speeds up new head layers.",
+      "usage": "layer = fullyConnectedLayer(outputSize)\nlayer = fullyConnectedLayer(outputSize, Name, Value)",
+      "parameters": [
+        {"name": "outputSize", "description": "Number of output neurons."},
+        {"name": "'WeightLearnRateFactor' / 'BiasLearnRateFactor'", "description": "Multipliers on the global learning rate; set high (e.g. 10) for a new head."},
+        {"name": "'WeightL2Factor' / 'BiasL2Factor'", "description": "Per-layer weight-decay multipliers."},
+        {"name": "'WeightsInitializer'", "description": "'glorot' (default), 'he', 'narrow-normal', 'zeros'."}
+      ],
+      "example": "newHead = fullyConnectedLayer(5, ...\n    'WeightLearnRateFactor', 10, 'BiasLearnRateFactor', 10, ...\n    'Name', 'new_fc');",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.fullyconnectedlayer.html"
+    },
+    {
+      "name": "softmaxLayer",
+      "kind": "function",
+      "description": "Apply the softmax function, converting raw scores into a probability distribution over classes that sums to one. It is the final activation of any multiclass classifier. With trainnet it is paired with the 'crossentropy' loss; with trainNetwork it is followed by a classificationLayer.",
+      "usage": "layer = softmaxLayer\nlayer = softmaxLayer('Name', name)",
+      "parameters": [
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "tail = [fullyConnectedLayer(10)\n        softmaxLayer('Name', 'prob')];\n% With trainnet:\n% net = trainnet(X, T, layers, 'crossentropy', options);",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.softmaxlayer.html"
+    },
+    {
+      "name": "dropoutLayer",
+      "kind": "function",
+      "description": "Randomly zero a fraction of the input elements during training, which prevents co-adaptation of units and reduces overfitting. It is inactive at inference time, so predictions are deterministic. Typical probabilities are 0.2 to 0.5, placed before fully connected layers.",
+      "usage": "layer = dropoutLayer\nlayer = dropoutLayer(probability)\nlayer = dropoutLayer(probability, 'Name', name)",
+      "parameters": [
+        {"name": "probability", "description": "Fraction of inputs to zero, between 0 and 1 (default 0.5)."},
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "layers = [\n    fullyConnectedLayer(256), reluLayer\n    dropoutLayer(0.4, 'Name', 'drop1')\n    fullyConnectedLayer(10), softmaxLayer];",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.dropoutlayer.html"
+    },
+    {
+      "name": "lstmLayer",
+      "kind": "function",
+      "description": "Create a long short-term memory recurrent layer that learns long-range dependencies in sequence data through its gated cell state. OutputMode 'last' emits only the final time step for sequence classification, while 'sequence' emits every step for sequence-to-sequence tasks. Stack several layers for deeper temporal models.",
+      "usage": "layer = lstmLayer(numHiddenUnits)\nlayer = lstmLayer(numHiddenUnits, Name, Value)",
+      "parameters": [
+        {"name": "numHiddenUnits", "description": "Size of the hidden state; controls capacity."},
+        {"name": "'OutputMode'", "description": "'sequence' (default) or 'last'."},
+        {"name": "'StateActivationFunction' / 'GateActivationFunction'", "description": "'tanh'/'softsign' and 'sigmoid'/'hard-sigmoid'."},
+        {"name": "'InputWeightsInitializer' / 'RecurrentWeightsInitializer'", "description": "Weight initialization schemes."},
+        {"name": "'HasStateInputs' / 'HasStateOutputs'", "description": "Expose hidden and cell state as layer ports."}
+      ],
+      "example": "layers = [\n    sequenceInputLayer(1)\n    lstmLayer(128, 'OutputMode', 'sequence')\n    dropoutLayer(0.2)\n    lstmLayer(64, 'OutputMode', 'last')\n    fullyConnectedLayer(4)\n    softmaxLayer];\nopts = trainingOptions('adam', 'GradientThreshold', 1, 'MaxEpochs', 60);",
+      "notes": "Always set 'GradientThreshold' when training recurrent networks to avoid exploding gradients.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.lstmlayer.html"
+    },
+    {
+      "name": "gruLayer",
+      "kind": "function",
+      "description": "Create a gated recurrent unit layer, a simpler alternative to LSTM with two gates instead of three and no separate cell state. It trains faster and with fewer parameters, often matching LSTM accuracy on moderate-length sequences. The calling interface mirrors lstmLayer.",
+      "usage": "layer = gruLayer(numHiddenUnits)\nlayer = gruLayer(numHiddenUnits, Name, Value)",
+      "parameters": [
+        {"name": "numHiddenUnits", "description": "Hidden state size."},
+        {"name": "'OutputMode'", "description": "'sequence' (default) or 'last'."},
+        {"name": "'ResetGateMode'", "description": "'after-multiplication' (default), 'before-multiplication', 'recurrent-bias-after-multiplication'."},
+        {"name": "'StateActivationFunction' / 'GateActivationFunction'", "description": "Activation choices."}
+      ],
+      "example": "layers = [\n    sequenceInputLayer(12)\n    gruLayer(100, 'OutputMode', 'last')\n    fullyConnectedLayer(3)\n    softmaxLayer];\nnet = dlnetwork(layers);",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.grulayer.html"
+    },
+    {
+      "name": "classificationLayer",
+      "kind": "function",
+      "description": "Add a cross-entropy classification output layer, required at the end of any network trained with trainNetwork for classification. It can carry class names and per-class weights to handle imbalanced data. Networks built for trainnet do not use it, since the loss is passed as an argument instead.",
+      "usage": "layer = classificationLayer\nlayer = classificationLayer(Name, Value)",
+      "parameters": [
+        {"name": "'Classes'", "description": "Class names, as a categorical, string array or cell array."},
+        {"name": "'ClassWeights'", "description": "Per-class weights for imbalanced datasets."},
+        {"name": "'Name'", "description": "Layer name."}
+      ],
+      "example": "classes = categorical([\"cat\" \"dog\" \"bird\"]);\nw = [1 1 5];    % up-weight the rare class\noutLayer = classificationLayer('Classes', classes, 'ClassWeights', w);\nlayers = [imageInputLayer([64 64 3])\n          convolution2dLayer(3, 16, 'Padding', 'same'), reluLayer\n          globalAveragePooling2dLayer\n          fullyConnectedLayer(3), softmaxLayer, outLayer];",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.classificationoutputlayer.html"
+    },
+    {
+      "name": "regressionLayer",
+      "kind": "function",
+      "description": "Add a half mean-squared-error regression output layer for networks that predict continuous values with trainNetwork. It terminates a regression architecture in place of softmax and classificationLayer. With trainnet use the 'mse' loss argument instead.",
+      "usage": "layer = regressionLayer\nlayer = regressionLayer('Name', name)\nlayer = regressionLayer('ResponseNames', names)",
+      "parameters": [
+        {"name": "'Name'", "description": "Layer name."},
+        {"name": "'ResponseNames'", "description": "Names of the predicted responses."}
+      ],
+      "example": "layers = [imageInputLayer([28 28 1])\n          convolution2dLayer(3, 16, 'Padding', 'same'), reluLayer\n          globalAveragePooling2dLayer\n          fullyConnectedLayer(1)\n          regressionLayer('ResponseNames', {'angle'})];",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/nnet.cnn.layer.regressionoutputlayer.html"
+    },
+    {
+      "name": "analyzeNetwork",
+      "kind": "function",
+      "description": "Open an interactive analysis of a network architecture showing per-layer activation sizes, learnable parameter counts, and any errors or warnings such as dimension mismatches and disconnected layers. Run it before training to catch architecture bugs in seconds instead of after a failed run. It works on layer arrays, layerGraphs and dlnetworks.",
+      "usage": "analyzeNetwork(net)\nanalyzeNetwork(layers)\nanalyzeNetwork(net, X1, ..., XN)\nanalyzeNetwork(___, 'TargetUsage', usage)",
+      "parameters": [
+        {"name": "net / layers", "description": "The network or layer array to analyse."},
+        {"name": "X1..XN", "description": "Example inputs so activation sizes can be computed."},
+        {"name": "'TargetUsage'", "description": "'dlnetwork' (default), 'trainNetwork', or 'none'."}
+      ],
+      "example": "layers = [imageInputLayer([32 32 3])\n          convolution2dLayer(3, 32, 'Padding', 'same'), reluLayer\n          maxPooling2dLayer(2, 'Stride', 2)\n          fullyConnectedLayer(10), softmaxLayer];\nanalyzeNetwork(layers)",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/analyzenetwork.html"
+    },
+    {
+      "name": "classify",
+      "kind": "function",
+      "description": "Classify data with a trained classification network, returning predicted categorical labels and optionally the class scores. It automatically batches the data and runs on the GPU when available. Use it with networks trained by trainNetwork that end in a classification output layer.",
+      "usage": "YPred = classify(net, X)\nYPred = classify(net, imds)\n[YPred, scores] = classify(___)\n[___] = classify(___, Name, Value)",
+      "parameters": [
+        {"name": "net", "description": "A trained SeriesNetwork or DAGNetwork."},
+        {"name": "X / imds", "description": "Numeric array, datastore, table or cell array of sequences."},
+        {"name": "'MiniBatchSize'", "description": "Batch size used for inference (default 128)."},
+        {"name": "'ExecutionEnvironment'", "description": "'auto', 'cpu', 'gpu', 'multi-gpu', 'parallel'."}
+      ],
+      "example": "[XTest, YTest] = digitTest4DArrayData;\n[YPred, scores] = classify(net, XTest, 'MiniBatchSize', 256);\naccuracy = mean(YPred == YTest);\nfprintf('Test accuracy: %.2f%%\\n', 100*accuracy);\nconfusionchart(YTest, YPred)",
+      "notes": "For dlnetwork objects use predict and then scores2label or onehotdecode instead.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/seriesnetwork.classify.html"
+    },
+    {
+      "name": "predict",
+      "kind": "function",
+      "description": "Run a network forward in inference mode, returning raw numeric predictions. Dropout is disabled and batch normalization uses its running statistics, so results are deterministic. For a dlnetwork it takes and returns dlarray objects with data-format labels.",
+      "usage": "Y = predict(net, X)\nY = predict(net, imds)\n[Y1, ..., YN] = predict(net, X1, ..., XM)\nY = predict(___, Name, Value)",
+      "parameters": [
+        {"name": "net", "description": "A trained network or dlnetwork."},
+        {"name": "X", "description": "Input data; a dlarray with a format such as 'SSCB' for a dlnetwork."},
+        {"name": "'MiniBatchSize'", "description": "Inference batch size."},
+        {"name": "'Outputs'", "description": "Names of the dlnetwork outputs to return."},
+        {"name": "'ExecutionEnvironment'", "description": "Hardware selection."}
+      ],
+      "example": "X = dlarray(single(rand(28,28,1,16)), 'SSCB');\nscores = predict(net, X);\nprobs = extractdata(scores);\n[~, idx] = max(probs, [], 1);\nfprintf('Predicted classes: %s\\n', mat2str(idx));",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/dlnetwork.predict.html"
+    },
+    {
+      "name": "activations",
+      "kind": "function",
+      "description": "Extract the activations of a specified intermediate layer for given input data. This is the standard way to use a pretrained CNN as a fixed feature extractor for a classical classifier such as an SVM. The OutputAs option controls whether you get a 4-D array, rows or columns.",
+      "usage": "act = activations(net, X, layer)\nact = activations(net, imds, layer)\nact = activations(___, Name, Value)",
+      "parameters": [
+        {"name": "layer", "description": "Name or index of the layer whose output you want."},
+        {"name": "'OutputAs'", "description": "'channels' (default), 'rows' or 'columns'."},
+        {"name": "'MiniBatchSize'", "description": "Inference batch size."},
+        {"name": "'ExecutionEnvironment'", "description": "Hardware selection."}
+      ],
+      "example": "net = resnet50;\nimds = imageDatastore('photos', 'IncludeSubfolders', true, 'LabelSource', 'foldernames');\naug = augmentedImageDatastore([224 224], imds);\nfeat = activations(net, aug, 'avg_pool', 'OutputAs', 'rows');\nmdl = fitcecoc(feat, imds.Labels);\nfprintf('Feature dimension: %d\\n', size(feat, 2));",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/seriesnetwork.activations.html"
+    },
+    {
+      "name": "imageDatastore",
+      "kind": "script-object",
+      "description": "Create a datastore that reads image files from disk on demand, so datasets far larger than memory can be used for training. Labels can be assigned automatically from folder names, and splitEachLabel produces stratified train/validation splits. It is the standard data source for image workflows.",
+      "usage": "imds = imageDatastore(location)\nimds = imageDatastore(location, Name, Value)\n[imdsTrain, imdsVal] = splitEachLabel(imds, p, 'randomized')\nimg = readimage(imds, k)\ntbl = countEachLabel(imds)",
+      "parameters": [
+        {"name": "location", "description": "Folder path, file list, or a datastore URL."},
+        {"name": "'IncludeSubfolders'", "description": "Logical; recurse into subfolders."},
+        {"name": "'LabelSource'", "description": "'none' (default) or 'foldernames'."},
+        {"name": "'FileExtensions'", "description": "Which extensions to include, e.g. {'.jpg','.png'}."},
+        {"name": "'ReadFcn'", "description": "Custom function handle for reading and preprocessing each file."}
+      ],
+      "example": "imds = imageDatastore('dataset', 'IncludeSubfolders', true, ...\n    'LabelSource', 'foldernames', 'FileExtensions', {'.jpg','.png'});\ndisp(countEachLabel(imds))\n[imdsTrain, imdsVal] = splitEachLabel(imds, 0.8, 'randomized');\nmontage(imdsTrain.Files(1:9))",
+      "docs": "https://www.mathworks.com/help/matlab/ref/matlab.io.datastore.imagedatastore.html"
+    },
+    {
+      "name": "augmentedImageDatastore",
+      "kind": "script-object",
+      "description": "Wrap an image source so that images are resized and randomly augmented on the fly during training. Resizing to the network's input size is its most common use, and augmentation happens once per epoch without storing extra files. Do not apply it to validation data except for resizing.",
+      "usage": "auimds = augmentedImageDatastore(outputSize, imds)\nauimds = augmentedImageDatastore(outputSize, X, Y)\nauimds = augmentedImageDatastore(___, 'DataAugmentation', augmenter)\nauimds = augmentedImageDatastore(___, 'ColorPreprocessing', mode)",
+      "parameters": [
+        {"name": "outputSize", "description": "[height width] to which every image is resized."},
+        {"name": "'DataAugmentation'", "description": "An imageDataAugmenter object, or 'none'."},
+        {"name": "'ColorPreprocessing'", "description": "'none' (default), 'gray2rgb', 'rgb2gray'."},
+        {"name": "'OutputSizeMode'", "description": "'resize' (default), 'centercrop', 'randcrop'."}
+      ],
+      "example": "augmenter = imageDataAugmenter('RandRotation', [-20 20], ...\n    'RandXTranslation', [-5 5], 'RandXReflection', true);\nauTrain = augmentedImageDatastore([224 224], imdsTrain, ...\n    'DataAugmentation', augmenter, 'ColorPreprocessing', 'gray2rgb');\nauVal = augmentedImageDatastore([224 224], imdsVal);   % no augmentation",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/augmentedimagedatastore.html"
+    },
+    {
+      "name": "imageDataAugmenter",
+      "kind": "script-object",
+      "description": "Configure the random geometric and photometric transformations applied by augmentedImageDatastore. Each property takes a range from which a value is drawn independently for every image. Sensible augmentation is often the cheapest way to improve generalization on small datasets.",
+      "usage": "augmenter = imageDataAugmenter\naugmenter = imageDataAugmenter(Name, Value)",
+      "parameters": [
+        {"name": "'RandXReflection' / 'RandYReflection'", "description": "Logical; random mirroring."},
+        {"name": "'RandRotation'", "description": "[min max] rotation range in degrees."},
+        {"name": "'RandScale' / 'RandXScale' / 'RandYScale'", "description": "Scaling ranges."},
+        {"name": "'RandXTranslation' / 'RandYTranslation'", "description": "Translation ranges in pixels."},
+        {"name": "'RandXShear' / 'RandYShear'", "description": "Shear ranges in degrees."},
+        {"name": "'FillValue'", "description": "Value used for pixels outside the original image."}
+      ],
+      "example": "aug = imageDataAugmenter( ...\n    'RandXReflection', true, ...\n    'RandRotation', [-15 15], ...\n    'RandScale', [0.9 1.1], ...\n    'RandXTranslation', [-8 8], 'RandYTranslation', [-8 8], ...\n    'FillValue', 0);\nds = augmentedImageDatastore([64 64 3], imdsTrain, 'DataAugmentation', aug);\npreview(ds)",
+      "notes": "Only apply reflections that preserve label semantics; horizontal flips are wrong for text or digit recognition.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/imagedataaugmenter.html"
+    },
+    {
+      "name": "resnet50",
+      "kind": "function",
+      "description": "Return the 50-layer ResNet convolutional network pretrained on ImageNet, with an input size of 224-by-224-by-3. Its residual connections allow very deep training, and it is a strong default backbone for transfer learning and feature extraction. Requires the Deep Learning Toolbox Model for ResNet-50 support package.",
+      "usage": "net = resnet50\nnet = resnet50('Weights', 'imagenet')\nlgraph = resnet50('Weights', 'none')",
+      "parameters": [
+        {"name": "'Weights'", "description": "'imagenet' (default, pretrained) or 'none' for an untrained architecture."}
+      ],
+      "example": "net = resnet50;\nsz = net.Layers(1).InputSize;\nI = imresize(imread('peppers.png'), sz(1:2));\n[label, scores] = classify(net, I);\nfprintf('%s (%.1f%%)\\n', string(label), 100*max(scores));",
+      "notes": "In recent releases imagePretrainedNetwork('resnet50') provides a unified way to load pretrained models as dlnetwork objects.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/resnet50.html"
+    },
+    {
+      "name": "googlenet",
+      "kind": "function",
+      "description": "Return the GoogLeNet (Inception v1) network pretrained on ImageNet or Places365, with 224-by-224-by-3 input. Its inception modules give good accuracy with far fewer parameters than VGG. Requires the corresponding support package.",
+      "usage": "net = googlenet\nnet = googlenet('Weights', 'imagenet')\nnet = googlenet('Weights', 'places365')\nlgraph = googlenet('Weights', 'none')",
+      "parameters": [
+        {"name": "'Weights'", "description": "'imagenet' (default), 'places365' for scene classification, or 'none'."}
+      ],
+      "example": "net = googlenet;\nlgraph = layerGraph(net);\nnumClasses = 5;\nlgraph = replaceLayer(lgraph, 'loss3-classifier', ...\n    fullyConnectedLayer(numClasses, 'Name', 'new_fc', 'WeightLearnRateFactor', 10));\nlgraph = replaceLayer(lgraph, 'output', classificationLayer('Name', 'new_out'));",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/googlenet.html"
+    },
+    {
+      "name": "alexnet",
+      "kind": "function",
+      "description": "Return the AlexNet network pretrained on ImageNet, with 227-by-227-by-3 input. It is small and fast, which makes it a convenient teaching example and a quick baseline for transfer learning, though modern architectures are considerably more accurate. Requires the AlexNet support package.",
+      "usage": "net = alexnet\nnet = alexnet('Weights', 'imagenet')\nlayers = alexnet('Weights', 'none')",
+      "parameters": [
+        {"name": "'Weights'", "description": "'imagenet' (default) or 'none'."}
+      ],
+      "example": "net = alexnet;\nlayersTransfer = net.Layers(1:end-3);\nnumClasses = 4;\nlayers = [layersTransfer\n          fullyConnectedLayer(numClasses, 'WeightLearnRateFactor', 20, 'BiasLearnRateFactor', 20)\n          softmaxLayer\n          classificationLayer];",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/alexnet.html"
+    },
+    {
+      "name": "importNetworkFromONNX",
+      "kind": "function",
+      "description": "Import a network from an ONNX model file as a MATLAB dlnetwork, enabling models trained in PyTorch, TensorFlow or other frameworks to be used in MATLAB. Unsupported operators become custom layers or placeholders that you can implement yourself. Requires the Deep Learning Toolbox Converter for ONNX Model Format support package.",
+      "usage": "net = importNetworkFromONNX(modelfile)\nnet = importNetworkFromONNX(modelfile, Name, Value)",
+      "parameters": [
+        {"name": "modelfile", "description": "Path to the .onnx file."},
+        {"name": "'InputDataFormats' / 'OutputDataFormats'", "description": "Dimension labels such as 'BCSS' when they cannot be inferred."},
+        {"name": "'PackageName'", "description": "Name of the package created for generated custom layers."},
+        {"name": "'Namespace'", "description": "Namespace for any generated custom layer classes."}
+      ],
+      "example": "net = importNetworkFromONNX('model.onnx', 'InputDataFormats', 'BCSS');\nanalyzeNetwork(net)\nX = dlarray(single(rand(224,224,3,1)), 'SSCB');\nY = predict(net, X);",
+      "notes": "Check for placeholder layers with findPlaceholderLayers before using the imported network.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/importnetworkfromonnx.html"
+    },
+    {
+      "name": "importNetworkFromPyTorch",
+      "kind": "function",
+      "description": "Import a traced PyTorch model (a .pt file created by torch.jit.trace) directly as a MATLAB dlnetwork. It converts supported PyTorch operators into MATLAB layers and generates custom layers for the rest. Requires the Deep Learning Toolbox Converter for PyTorch Models support package.",
+      "usage": "net = importNetworkFromPyTorch(modelfile)\nnet = importNetworkFromPyTorch(modelfile, Name, Value)",
+      "parameters": [
+        {"name": "modelfile", "description": "Path to the traced .pt file."},
+        {"name": "'PyTorchInputSizes'", "description": "Input sizes so the network can be initialized on import."},
+        {"name": "'Namespace'", "description": "Namespace for generated custom layer classes."}
+      ],
+      "example": "net = importNetworkFromPyTorch('traced_resnet.pt', ...\n    'PyTorchInputSizes', {[1 3 224 224]});\nnet = initialize(net);\nX = dlarray(single(rand(224,224,3,1)), 'SSCB');\nscores = predict(net, X);",
+      "notes": "The model must be traced, not just saved with torch.save; scripted models are not supported.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/importnetworkfrompytorch.html"
+    },
+    {
+      "name": "exportONNXNetwork",
+      "kind": "function",
+      "description": "Export a trained MATLAB network to ONNX format so it can be deployed in other frameworks or inference runtimes. You can select the opset version to match the target runtime's capabilities. Requires the ONNX converter support package.",
+      "usage": "exportONNXNetwork(net, filename)\nexportONNXNetwork(net, filename, Name, Value)",
+      "parameters": [
+        {"name": "net", "description": "A trained dlnetwork, SeriesNetwork or DAGNetwork."},
+        {"name": "filename", "description": "Output .onnx file path."},
+        {"name": "'OpsetVersion'", "description": "ONNX operator set version (commonly 9 through 14)."},
+        {"name": "'NetworkName'", "description": "Name stored inside the ONNX file."}
+      ],
+      "example": "exportONNXNetwork(net, 'mymodel.onnx', ...\n    'OpsetVersion', 13, 'NetworkName', 'digitClassifier');\nroundTrip = importNetworkFromONNX('mymodel.onnx');",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/exportonnxnetwork.html"
+    },
+    {
+      "name": "deepNetworkDesigner",
+      "kind": "function",
+      "description": "Open the Deep Network Designer app for building, editing and analysing network architectures by dragging layers on a canvas. It can load pretrained networks for transfer learning, validate the architecture live, and export either a network object or generating MATLAB code. Very useful for adapting a pretrained model's head without hand-editing a layerGraph.",
+      "usage": "deepNetworkDesigner\ndeepNetworkDesigner(net)\ndeepNetworkDesigner(layers)",
+      "parameters": [
+        {"name": "net / layers", "description": "An existing network, layerGraph or layer array to open for editing."}
+      ],
+      "example": "net = resnet50;\ndeepNetworkDesigner(net)\n% Replace the final fully connected and classification layers,\n% then Export > Generate Code to get a reproducible script",
+      "notes": "Requires a display. Use 'Generate Code' so the architecture is reproducible in a script.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/deepnetworkdesigner-app.html"
+    },
+    {
+      "name": "dlarray",
+      "kind": "script-object",
+      "description": "Create a deep learning array that carries dimension labels and supports automatic differentiation. The format string labels each dimension as S (spatial), C (channel), B (batch), T (time) or U (unspecified), so layers know how to interpret the data. It is the data type used throughout custom training loops.",
+      "usage": "dlX = dlarray(X)\ndlX = dlarray(X, fmt)\nX = extractdata(dlX)\nfmt = dims(dlX)\ndlY = stripdims(dlX)",
+      "parameters": [
+        {"name": "X", "description": "Numeric array (single precision is standard for training), or a gpuArray."},
+        {"name": "fmt", "description": "Dimension label string such as 'SSCB', 'CBT', 'CB'."}
+      ],
+      "example": "X = single(rand(28, 28, 1, 32));\ndlX = dlarray(X, 'SSCB');\nfprintf('Format: %s, size: %s\\n', dims(dlX), mat2str(size(dlX)));\ndlXgpu = gpuArray(dlX);\nplain = extractdata(dlX);",
+      "notes": "Use single precision for training; double-precision dlarrays are far slower on GPUs.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/dlarray.html"
+    },
+    {
+      "name": "dlgradient",
+      "kind": "function",
+      "description": "Compute gradients of a scalar loss with respect to specified variables using automatic differentiation. It must be called inside a function that is itself evaluated by dlfeval, which sets up the tracing. Options allow retaining the computation graph and enabling higher-order derivatives.",
+      "usage": "dydx = dlgradient(y, x)\n[dydx1, ..., dydxk] = dlgradient(y, x1, ..., xk)\n[___] = dlgradient(___, 'RetainData', tf, 'EnableHigherDerivatives', tf)",
+      "parameters": [
+        {"name": "y", "description": "Traced scalar dlarray, normally the loss."},
+        {"name": "x1..xk", "description": "Variables (or a table of learnables) to differentiate with respect to."},
+        {"name": "'RetainData'", "description": "Logical; keep intermediate values for further gradient calls."},
+        {"name": "'EnableHigherDerivatives'", "description": "Logical; allow differentiating the gradient again."}
+      ],
+      "example": "function [loss, grads] = modelLoss(net, X, T)\n    Y = forward(net, X);\n    loss = crossentropy(Y, T);\n    grads = dlgradient(loss, net.Learnables);\nend\n% called as: [loss, grads] = dlfeval(@modelLoss, net, dlX, dlT);",
+      "notes": "Calling dlgradient outside dlfeval returns zeros or errors, which is the most common beginner mistake.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/dlarray.dlgradient.html"
+    },
+    {
+      "name": "dlfeval",
+      "kind": "function",
+      "description": "Evaluate a function with automatic differentiation tracing enabled, so any dlgradient calls inside it can compute derivatives. It is the wrapper around every model-loss evaluation in a custom training loop. All dlarray inputs passed through it are traced.",
+      "usage": "[y1, ..., yk] = dlfeval(fun, x1, ..., xn)",
+      "parameters": [
+        {"name": "fun", "description": "Function handle that computes the loss and calls dlgradient."},
+        {"name": "x1..xn", "description": "Arguments to the function, typically the network, inputs and targets."}
+      ],
+      "example": "velocity = [];\nfor epoch = 1:numEpochs\n    for iter = 1:numIterations\n        [X, T] = next(mbq);\n        [loss, grads] = dlfeval(@modelLoss, net, X, T);\n        [net, velocity] = sgdmupdate(net, grads, velocity, 0.01, 0.9);\n    end\nend",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/dlfeval.html"
+    },
+    {
+      "name": "adamupdate",
+      "kind": "function",
+      "description": "Update network learnable parameters with the Adam optimizer, which adapts a per-parameter learning rate from running estimates of the first and second gradient moments. You must carry the two moment estimates and the iteration counter between calls. It is the default choice for custom training loops.",
+      "usage": "[netUpdated, avgGrad, avgSqGrad] = adamupdate(net, grads, avgGrad, avgSqGrad, iteration)\n[___] = adamupdate(___, learnRate, gradDecay, sqGradDecay, epsilon)\n[params, avgGrad, avgSqGrad] = adamupdate(params, grads, ___)",
+      "parameters": [
+        {"name": "grads", "description": "Gradient table or array from dlgradient."},
+        {"name": "avgGrad, avgSqGrad", "description": "Moment estimates; initialize to [] before the loop."},
+        {"name": "iteration", "description": "Global iteration counter, used for bias correction."},
+        {"name": "learnRate", "description": "Learning rate (default 0.001)."},
+        {"name": "gradDecay, sqGradDecay", "description": "Beta1 and beta2 decay rates (defaults 0.9 and 0.999)."}
+      ],
+      "example": "avgGrad = []; avgSqGrad = []; iteration = 0;\nfor epoch = 1:20\n    shuffle(mbq);\n    while hasdata(mbq)\n        iteration = iteration + 1;\n        [X, T] = next(mbq);\n        [loss, grads] = dlfeval(@modelLoss, net, X, T);\n        [net, avgGrad, avgSqGrad] = adamupdate(net, grads, ...\n            avgGrad, avgSqGrad, iteration, 1e-3);\n    end\nend",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/adamupdate.html"
+    },
+    {
+      "name": "sgdmupdate",
+      "kind": "function",
+      "description": "Update learnable parameters with stochastic gradient descent with momentum, carrying a velocity term between iterations. With a well-tuned learning-rate schedule it often generalizes slightly better than Adam on image classification. Initialize the velocity to [] before the training loop.",
+      "usage": "[netUpdated, vel] = sgdmupdate(net, grads, vel)\n[netUpdated, vel] = sgdmupdate(net, grads, vel, learnRate, momentum)\n[params, vel] = sgdmupdate(params, grads, vel, ___)",
+      "parameters": [
+        {"name": "grads", "description": "Gradients from dlgradient."},
+        {"name": "vel", "description": "Velocity state; pass [] on the first call."},
+        {"name": "learnRate", "description": "Learning rate (default 0.01)."},
+        {"name": "momentum", "description": "Momentum factor (default 0.9)."}
+      ],
+      "example": "velocity = [];\nlearnRate = 0.05;\nfor epoch = 1:30\n    learnRate = 0.05 / (1 + 0.01*epoch);\n    while hasdata(mbq)\n        [X, T] = next(mbq);\n        [loss, grads] = dlfeval(@modelLoss, net, X, T);\n        [net, velocity] = sgdmupdate(net, grads, velocity, learnRate, 0.9);\n    end\n    reset(mbq); shuffle(mbq);\nend",
+      "notes": "rmspropupdate and lbfgsupdate are the other built-in update rules for custom loops.",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/sgdmupdate.html"
+    },
+    {
+      "name": "minibatchqueue",
+      "kind": "script-object",
+      "description": "Create an object that produces preprocessed mini-batches of dlarray data from a datastore, handling shuffling, batching, format labelling and GPU transfer. It is the standard data pipeline for custom training loops. A user-supplied MiniBatchFcn performs concatenation, one-hot encoding and any other per-batch preparation.",
+      "usage": "mbq = minibatchqueue(ds)\nmbq = minibatchqueue(ds, numOutputs, Name, Value)\n[X, T] = next(mbq)\nhasdata(mbq); shuffle(mbq); reset(mbq)",
+      "parameters": [
+        {"name": "'MiniBatchSize'", "description": "Observations per batch (default 128)."},
+        {"name": "'MiniBatchFcn'", "description": "Function handle that turns a cell array of observations into batch arrays."},
+        {"name": "'MiniBatchFormat'", "description": "Dimension labels for each output, e.g. {'SSCB','CB'}."},
+        {"name": "'OutputEnvironment'", "description": "'auto' (default), 'gpu' or 'cpu' per output."},
+        {"name": "'PartialMiniBatch'", "description": "'return' (default) or 'discard' for the final short batch."}
+      ],
+      "example": "function [X, T] = preprocess(dataX, dataT)\n    X = cat(4, dataX{:});\n    T = onehotencode(cat(1, dataT{:}), 2)';\nend\nds = combine(arrayDatastore(XTrain, 'IterationDimension', 4), ...\n             arrayDatastore(TTrain));\nmbq = minibatchqueue(ds, 2, 'MiniBatchSize', 64, ...\n    'MiniBatchFcn', @preprocess, 'MiniBatchFormat', {'SSCB','CB'});\n[X, T] = next(mbq);",
+      "docs": "https://www.mathworks.com/help/deeplearning/ref/minibatchqueue.html"
+    }
+  ]
+}

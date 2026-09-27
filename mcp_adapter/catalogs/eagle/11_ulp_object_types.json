@@ -1,0 +1,390 @@
+{
+  "category": "User Language: object types",
+  "description": "The UL_ object types through which a ULP reads EAGLE libraries, schematics and boards: every object with its data members, loop members, related constants and an example fragment, plus the object hierarchy. Coordinates and sizes are int internal units (1/320000 mm). Source: EAGLE 9.6.0 built-in help (User Language, Object Types).",
+  "tools": [
+    {
+      "name": "Object types: data members, loop members and hierarchy",
+      "kind": "reference",
+      "description": "EAGLE designs are hierarchies of objects that a ULP reaches through the builtin statements library(L), schematic(S) and board(B). Data members (obj.member) return a value or another object immediately; loop members (obj.items(X) statement) run the statement once for every contained object, which is available as X inside it. Loop members process named objects in alphanumerical order, and the loop variable's scope is the statement following the call.",
+      "usage": "obj.datamember                   e.g. B.name, B.grid.distance, E.footprint.name\nobj.loopmember(Var) statement     e.g. B.elements(E) { ... E.name ... }\n\nLibrary:   LIBRARY > GRID, LAYER, DEVICESET(DEVICE, GATE), FOOTPRINT(CONTACT(PAD, SMD), CIRCLE, HOLE,\n           RECTANGLE, FRAME, DIMENSION, TEXT, WIRE, POLYGON(WIRE)), PACKAGE3D, SYMBOL(PIN, CIRCLE,\n           RECTANGLE, FRAME, DIMENSION, TEXT, WIRE, POLYGON(WIRE))\nSchematic: SCHEMATIC > GRID, LAYER, LIBRARY, ATTRIBUTE, VARIANTDEF, PART(ATTRIBUTE, VARIANT),\n           SHEET(CIRCLE, RECTANGLE, FRAME, DIMENSION, TEXT, WIRE, POLYGON(WIRE), INSTANCE(ATTRIBUTE),\n           MODULEINST, BUS(SEGMENT(LABEL(TEXT, WIRE), WIRE)),\n           NET(SEGMENT(JUNCTION, PINREF, PORTREF, TEXT, WIRE))), MODULE(PORT, PART, SHEET(...))\nBoard:     BOARD > GRID, LAYER, LIBRARY, ATTRIBUTE, VARIANTDEF, CIRCLE, HOLE, RECTANGLE, FRAME, DIMENSION,\n           TEXT, WIRE, POLYGON(WIRE), ELEMENT(ATTRIBUTE, VARIANT), SIGNAL(CONTACTREF, POLYGON(WIRE), VIA, WIRE)",
+      "example": "board(MyBoard) {\n  output(\"elements.txt\", \"wt\") {\n    printf(\"Grid: %f\\n\", MyBoard.grid.distance);          // data member returning an object\n    MyBoard.elements(TheElement)                           // loop member\n      printf(\"%-8s %-8s\\n\", TheElement.name, TheElement.value);\n    }\n  }",
+      "notes": "Since version 6 an instance belongs to the sheet (not to the part) and parts belong to the schematic (not to a sheet); the old access paths still work, but object functions such as ingroup() follow the new hierarchy. Coordinates and sizes are int internal units (1/320000 mm): convert with u2mm()/u2mil(). Objects are read-only. Optional object members (W.arc, C.pad, E.package3d...) are tested with if (...)."
+    },
+    {
+      "name": "UL_ARC",
+      "kind": "script-object",
+      "description": "Describes the geometry of a curved wire: start and end angle, radius, center, end points, width, layer and cap style. You reach it through the arc data member of a UL_WIRE, which is valid only when the wire is actually an arc. Use it when you need the true shape, for example to export arcs to DXF or compute their length.",
+      "usage": "UL_ARC data members: angle1 real (start angle, 0.0...359.9), angle2 real (end angle, 0.0...719.9),\ncap int (CAP_...), layer int, radius int, width int, x1, y1 int (start point), x2, y2 int (end point),\nxc, yc int (center point). No loop members. Reached via UL_WIRE.arc.",
+      "example": "board(B) output(\"arcs.txt\", \"wt\") {\n  B.wires(W) {\n    if (W.arc) {\n       real len = u2mm(W.arc.radius) * (W.arc.angle2 - W.arc.angle1) * PI / 180;\n       printf(\"layer %d centre (%.3f %.3f) r=%.3f mm, %.1f..%.1f deg, length %.3f mm\\n\",\n              W.arc.layer, u2mm(W.arc.xc), u2mm(W.arc.yc), u2mm(W.arc.radius),\n              W.arc.angle1, W.arc.angle2, len);\n       }\n    }\n  }",
+      "notes": "Constants: CAP_FLAT (flat arc ends), CAP_ROUND (round arc ends). Angles run counterclockwise with angle1 < angle2; to guarantee this, start and end point may be swapped compared to the UL_WIRE the arc came from."
+    },
+    {
+      "name": "UL_AREA",
+      "kind": "script-object",
+      "description": "Abstract bounding box returned by the area member of UL_BOARD, UL_DEVICE, UL_DEVICESET, UL_FOOTPRINT, UL_SHEET, UL_SYMBOL and UL_ERROR. For a footprint or symbol reached through an element or instance, the area is in absolute drawing coordinates, including the element/instance offset and texts moved after smashing.",
+      "usage": "UL_AREA data members: x1, y1 int (lower left corner), x2, y2 int (upper right corner). No loop members.",
+      "example": "board(B) {\n  string s;\n  sprintf(s, \"Drawing extent: (%.2f %.2f) - (%.2f %.2f) mm, %.2f x %.2f mm\",\n          u2mm(B.area.x1), u2mm(B.area.y1), u2mm(B.area.x2), u2mm(B.area.y2),\n          u2mm(B.area.x2 - B.area.x1), u2mm(B.area.y2 - B.area.y1));\n  dlgMessageBox(s);\n  }",
+      "notes": "The area covers the objects of the drawing, so it is not necessarily the board outline; for the outline evaluate the wires in LAYER_DIMENSION."
+    },
+    {
+      "name": "UL_ATTRIBUTE",
+      "kind": "script-object",
+      "description": "An attribute defined for a device in the library, assigned to a part/element, or a global attribute of the schematic or board. It provides the name, current value, library default value, whether it may be overwritten and how it is displayed. Loop over attributes() of UL_PART, UL_ELEMENT, UL_INSTANCE, UL_DEVICE, UL_BOARD or UL_SCHEMATIC to read them.",
+      "usage": "UL_ATTRIBUTE data members: constant int (0=variable/overwritable, 1=constant), defaultvalue string,\ndisplay int (ATTRIBUTE_DISPLAY_FLAG_...), name string, text UL_TEXT, value string. No loop members.",
+      "example": "schematic(SCH) output(\"attributes.txt\", \"wt\") {\n  SCH.attributes(A) printf(\"global %s = %s\\n\", A.name, A.value);\n  SCH.parts(P) {\n    P.attributes(A) printf(\"%s: %s = %s\\n\", P.name, A.name, A.value);\n    }\n  }",
+      "notes": "Constants: ATTRIBUTE_DISPLAY_FLAG_OFF, ATTRIBUTE_DISPLAY_FLAG_VALUE, ATTRIBUTE_DISPLAY_FLAG_NAME (display is a bitwise OR, valid only in a UL_INSTANCE or UL_ELEMENT context). text is only defined in instance/element context. In an element context constant and defaultvalue only return real values while forward/back annotation is active. Global attributes only define name and value. To read one value directly use P.attribute[\"MPN\"] or E.attribute[\"MPN\"]."
+    },
+    {
+      "name": "UL_BOARD",
+      "kind": "script-object",
+      "description": "The board drawing, created by the board() statement. It gives the file name, extent, grid, description and DRC status, and loop members for all board-level objects: elements (placed parts), signals, classes, layers, libraries, DRC errors, variants, global attributes and the non-signal drawing objects.",
+      "usage": "UL_BOARD data members: alwaysvectorfont int (ALWAYS_VECTOR_FONT_...), area UL_AREA, checked int,\ndescription string, grid UL_GRID, headline string, name string, verticaltext int (VERTICAL_TEXT_...).\nLoop members: attributes() UL_ATTRIBUTE, circles() UL_CIRCLE, classes() UL_CLASS, dimensions() UL_DIMENSION,\nelements() UL_ELEMENT, errors() UL_ERROR, frames() UL_FRAME, holes() UL_HOLE, layers() UL_LAYER,\nlibraries() UL_LIBRARY, polygons() UL_POLYGON, rectangles() UL_RECTANGLE, signals() UL_SIGNAL,\ntexts() UL_TEXT, variantdefs() UL_VARIANTDEF, wires() UL_WIRE.",
+      "example": "if (board) board(B) {\n   int ne = 0, ns = 0, nv = 0;\n   B.elements(E) ++ne;\n   B.signals(S) { ++ns; S.vias(V) ++nv; }\n   output(filesetext(B.name, \".stat\"), \"wt\")\n     printf(\"%s\\nelements %d, signals %d, vias %d, DRC run: %s\\n\",\n            B.name, ne, ns, nv, B.checked ? \"yes\" : \"no\");\n   }",
+      "notes": "Constants: ALWAYS_VECTOR_FONT_GUI, ALWAYS_VECTOR_FONT_PERSISTENT, VERTICAL_TEXT_UP, VERTICAL_TEXT_DOWN. alwaysvectorfont works as a boolean or masked with the constants to see where it was set. checked is only set after a recent DRC. name is the full path of the .brd. attributes() returns the global attributes. Copper tracks, vias and signal polygons are under signals(); the board-level wires()/polygons()/texts() return the objects that belong to no signal. There is no arcs() loop: arcs are wires with W.arc set."
+    },
+    {
+      "name": "UL_BUS",
+      "kind": "script-object",
+      "description": "A bus on a schematic sheet, reached through UL_SHEET.busses(). It provides the bus name and its segments, each with labels and wires.",
+      "usage": "UL_BUS data members: name string (BUS_NAME_LENGTH). Loop members: segments() UL_SEGMENT.",
+      "example": "schematic(SCH) output(\"busses.txt\", \"wt\") {\n  SCH.sheets(SH) {\n    SH.busses(BUS) {\n      int n = 0;\n      BUS.segments(SEG) ++n;\n      printf(\"sheet %d: bus %s, %d segment(s)\\n\", SH.number, BUS.name, n);\n      }\n    }\n  }",
+      "notes": "Constant BUS_NAME_LENGTH is obsolete: since version 4 bus names can have any length. Bus labels never report xref."
+    },
+    {
+      "name": "UL_CIRCLE",
+      "kind": "script-object",
+      "description": "A circle drawing object with center, radius, line width and layer. Circles are returned by the circles() loop of UL_BOARD, UL_FOOTPRINT, UL_SHEET, UL_SYMBOL and UL_PIN.",
+      "usage": "UL_CIRCLE data members: layer int, radius int, width int, x, y int (center point). No loop members.",
+      "example": "board(B) output(\"circles.txt\", \"wt\") {\n  B.circles(C)\n    printf(\"layer %d: centre (%.3f %.3f) r=%.3f w=%.3f mm%s\\n\", C.layer,\n           u2mm(C.x), u2mm(C.y), u2mm(C.radius), u2mm(C.width), C.width == 0 ? \" (filled)\" : \"\");\n  }",
+      "notes": "A circle with width 0 is drawn filled (CIRCLE command). All values are internal units."
+    },
+    {
+      "name": "UL_CLASS",
+      "kind": "script-object",
+      "description": "A net class with its number, name, minimum width, drill and clearance values. Obtain it from UL_SIGNAL.class or UL_NET.class, or loop over UL_BOARD.classes() / UL_SCHEMATIC.classes(). The clearance member can also return the class-to-class clearance for another class number.",
+      "usage": "UL_CLASS data members: clearance[number] int, drill int, name string, number int, width int.\nNo loop members.",
+      "example": "board(B) output(\"classes.txt\", \"wt\") {\n  B.classes(CL)\n    if (CL.name)\n       printf(\"%d %-10s width %.3f drill %.3f clearance %.3f mm\\n\", CL.number, CL.name,\n              u2mm(CL.width), u2mm(CL.drill), u2mm(CL.clearance));\n  B.signals(S) printf(\"%-12s class %d (%s)\\n\", S.name, S.class.number, S.class.name);\n  }",
+      "notes": "clearance without an index is the class's own clearance; clearance[n] is the clearance between this class and class n, where n must be between 0 and this class's number. An empty name means the class is not defined and not used."
+    },
+    {
+      "name": "UL_CONTACT",
+      "kind": "script-object",
+      "description": "A connectable copper contact of a footprint: either a through-hole pad or an SMD. It gives the contact name, position, the connected signal (board context) and the UL_PAD or UL_SMD with the details. Loop over UL_FOOTPRINT.contacts() or reach it via UL_CONTACTREF.contact and UL_PIN.contacts().",
+      "usage": "UL_CONTACT data members: name string (CONTACT_NAME_LENGTH), pad UL_PAD, signal string, smd UL_SMD,\nx, y int (center point). Loop members: polygons() UL_POLYGON, wires() UL_WIRE (of arbitrary pad shapes).",
+      "example": "board(B) output(\"contacts.csv\", \"wt\") {\n  B.elements(E) E.footprint.contacts(C)\n    printf(\"%s;%s;%s;%s;%.3f;%.3f\\n\", E.name, C.name, C.pad ? \"THT\" : \"SMD\",\n           C.signal, u2mm(C.x), u2mm(C.y));\n  }",
+      "notes": "Constant: CONTACT_NAME_LENGTH (recommended maximum for formatted output). signal is only available in a board context. Coordinates are as drawn in the footprint when coming from a UL_LIBRARY context, otherwise the actual board positions. Exactly one of pad/smd is valid: test with if (C.pad) / if (C.smd)."
+    },
+    {
+      "name": "UL_CONTACTREF",
+      "kind": "script-object",
+      "description": "A reference from a board signal to one contact of an element, i.e. one node of the board netlist. It gives the element, the contact and the routing requirement for pins connected to several pads. Loop over UL_SIGNAL.contactrefs().",
+      "usage": "UL_CONTACTREF data members: contact UL_CONTACT, element UL_ELEMENT, route int (CONTACT_ROUTE_...),\nroutetag string. No loop members.",
+      "example": "board(B) output(filesetext(B.name, \".net\"), \"wt\") {\n  B.signals(S) {\n    printf(\"%s:\", S.name);\n    S.contactrefs(CR) printf(\" %s.%s\", CR.element.name, CR.contact.name);\n    printf(\"\\n\");\n    }\n  }",
+      "notes": "Constants: CONTACT_ROUTE_ALL (all contacts must be routed explicitly), CONTACT_ROUTE_ANY (routing to any contact is enough). With CONTACT_ROUTE_ANY, routetag identifies the group of contactrefs that belong to the same pin."
+    },
+    {
+      "name": "UL_DEVICE",
+      "kind": "script-object",
+      "description": "One package variant (with technologies) of a device set: its footprint, 3D packages, gates, prefix, technologies and attributes. Reach it through UL_DEVICESET.devices(), UL_LIBRARY.devices() (all variants of all device sets) or UL_PART.device.",
+      "usage": "UL_DEVICE data members: activetechnology string, area UL_AREA, description string, headline string,\nlibrary string, libraryurn string, libraryversion int, name string (DEVICE_NAME_LENGTH),\nfootprint UL_FOOTPRINT (9.1+, alias package), prefix string (DEVICE_PREFIX_LENGTH), technologies string,\nvalue string (\"On\" or \"Off\").\nLoop members: attributes() UL_ATTRIBUTE (takes a technology argument), gates() UL_GATE, packages3d() UL_PACKAGE3D.",
+      "example": "library(L) output(\"devices.txt\", \"wt\") {\n  L.devicesets(DS) DS.devices(D) {\n    string t[];\n    int n = strsplit(t, D.technologies, ' ');\n    for (int i = 0; i < n; ++i) {\n        printf(\"%s%s [%s] -> %s\\n\", DS.name, D.name, t[i], D.footprint ? D.footprint.name : \"-\");\n        D.attributes(A, t[i]) printf(\"   %s = %s\\n\", A.name, A.value);\n        }\n    }\n  }",
+      "notes": "Constants: DEVICE_NAME_LENGTH, DEVICE_PREFIX_LENGTH. name is the package variant name set with the PACKAGE command; all other members except technologies return the values of the owning device set. technologies lists all technologies separated by blanks (from a device set) or only the part's technology (from a UL_PART); activetechnology is the TECHNOLOGY in the library editor or the part's technology, else empty. footprint can be tested as a boolean. libraryurn is empty and libraryversion -1 for non-managed libraries. description may contain newlines."
+    },
+    {
+      "name": "UL_DEVICESET",
+      "kind": "script-object",
+      "description": "A device set of a library: the logical component with gates, its package variants (devices), prefix, description and managed-library identifiers. Loop over UL_LIBRARY.devicesets(), use UL_PART.deviceset, or open the one being edited with the deviceset() statement.",
+      "usage": "UL_DEVICESET data members: activedevice UL_DEVICE, area UL_AREA, description string, headline string,\nlibrary string, libraryurn string, libraryversion int, locallymodified int, librarylocallymodified int,\nname string (DEVICE_NAME_LENGTH), prefix string (DEVICE_PREFIX_LENGTH), urn string, value string (\"On\"/\"Off\").\nLoop members: devices() UL_DEVICE, gates() UL_GATE.",
+      "example": "library(L) output(\"devicesets.txt\", \"wt\") {\n  L.devicesets(DS) {\n    printf(\"%s  prefix=%s  %s\\n\", DS.name, DS.prefix, DS.headline);\n    DS.gates(G) printf(\"   gate %s: %s\\n\", G.name, G.symbol.name);\n    }\n  }",
+      "notes": "Constants: DEVICE_NAME_LENGTH, DEVICE_PREFIX_LENGTH. activedevice is only valid while the device set is edited in the library editor (test with if (DS.activedevice)). description is the full DESCRIPTION text, headline its first line without HTML tags. urn looks like urn:adsk.eagle:component:123/4 (use urnbase()/ urnversion()); locallymodified/librarylocallymodified are 0 or 1."
+    },
+    {
+      "name": "UL_DIMENSION",
+      "kind": "script-object",
+      "description": "A dimension (measurement) object with its type, reference points, text size, precision and unit. Loop over dimensions() of UL_BOARD, UL_FOOTPRINT, UL_SHEET or UL_SYMBOL; its texts() and wires() give the graphical pieces it is drawn with.",
+      "usage": "UL_DIMENSION data members: dtype int (DIMENSION_...), layer int, extlength int, extoffset int, extwidth int,\nprecision int, ratio int, size int, unit int (GRID_UNIT_...), visible int (unit, 0=off, 1=on), width int,\nx1, y1 int (first reference point), x2, y2 int (second reference point), x3, y3 int (alignment point).\nLoop members: texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "board(B) output(\"dimensions.txt\", \"wt\") {\n  B.dimensions(D) {\n    if (D.dtype == DIMENSION_HORIZONTAL)\n       printf(\"horizontal: %.3f mm\\n\", u2mm(abs(D.x2 - D.x1)));\n    D.texts(T) printf(\"  shows '%s'\\n\", T.value);\n    }\n  }",
+      "notes": "Constants: DIMENSION_PARALLEL, DIMENSION_HORIZONTAL, DIMENSION_VERTICAL, DIMENSION_RADIUS, DIMENSION_DIAMETER, DIMENSION_ANGLE, DIMENSION_LEADER. visible tells whether the unit is shown."
+    },
+    {
+      "name": "UL_ELEMENT",
+      "kind": "script-object",
+      "description": "A part placed on the board: name, value, position, rotation, side, footprint, 3D package, lock and populate state, frame location and attributes. It is the main object for pick-and-place, BOM and placement scripts; loop over UL_BOARD.elements() or reach it via UL_CONTACTREF.element.",
+      "usage": "UL_ELEMENT data members: angle real (0.0...359.9), attribute[] string, column string, locked int, mirror int,\nname string (ELEMENT_NAME_LENGTH), footprint UL_FOOTPRINT (9.1+, alias package), package3d UL_PACKAGE3D,\npopulate int (0=do not populate, 1=populate), row string, smashed int, spin int,\nvalue string (ELEMENT_VALUE_LENGTH), x, y int (origin point).\nLoop members: attributes() UL_ATTRIBUTE, texts() UL_TEXT.",
+      "example": "board(B) output(filesetext(B.name, \"_xy.csv\"), \"wt\") {\n  printf(\"Ref;Value;Package;X;Y;Rot;Side;MPN\\n\");\n  B.elements(E) {\n    if (E.populate)\n       printf(\"%s;%s;%s;%.3f;%.3f;%.0f;%s;%s\\n\", E.name, E.value, E.footprint.name,\n              u2mm(E.x), u2mm(E.y), E.angle, E.mirror ? \"Bottom\" : \"Top\", E.attribute[\"MPN\"]);\n    }\n  }",
+      "notes": "Constants: ELEMENT_NAME_LENGTH, ELEMENT_VALUE_LENGTH. mirror is non-zero for elements on the bottom side; angle is the counterclockwise rotation about the origin. attribute[\"NAME\"] is empty if the attribute is missing or empty. texts() only returns texts detached with SMASH/REPOSITION and visible attribute texts; to draw all texts also loop over E.footprint.texts(). smashed[\"VALUE\"] (or \"NAME\", or an attribute name) tells whether that text is detached. column/row give the frame location or '?'. package3d can be tested as a boolean. The element origin is not necessarily the component centroid."
+    },
+    {
+      "name": "UL_ERROR",
+      "kind": "script-object",
+      "description": "A DRC (board) or ERC (schematic) error or warning with its code, description, state, type, position and signature. Loop over UL_BOARD.errors() or UL_SCHEMATIC.errors(); the list reflects the last check, so test B.checked / SCH.checked first.",
+      "usage": "UL_ERROR data members: area UL_AREA, area2 UL_AREA, code int, description string, layer int,\nmodulename string, s1, s2, s3, s4, s5, s6 string, sheet int, signature string, state int (ERROR_STATE_...),\ntype int (ERROR_TYPE_...), x, y int (center point). Loop members: contours() UL_WIRE.",
+      "example": "board(B) {\n  if (!B.checked) { dlgMessageBox(\"!Run DRC first.\"); exit(1); }\n  output(filesetext(B.name, \".drc.txt\"), \"wt\")\n    B.errors(ER)\n      if (ER.state == ERROR_STATE_ACTIVE)\n         printf(\"%d\\t%s\\tlayer %d\\t(%.3f %.3f)\\n\", ER.code, ER.description, ER.layer,\n                u2mm(ER.x), u2mm(ER.y));\n  }",
+      "notes": "Constants: ERROR_STATE_ACTIVE, ERROR_STATE_APPROVED, ERROR_STATE_PROCESSED; ERROR_TYPE_NONE, ERROR_TYPE_WARNING, ERROR_TYPE_ERROR, ERROR_TYPE_CONSISTENCY. layer and contours() (outline wires of the DRC error polygon) exist only in board context; area2 (corresponding board area), modulename, s1..s6 (ERC-specific strings such as names) and sheet only in schematic context."
+    },
+    {
+      "name": "UL_FRAME",
+      "kind": "script-object",
+      "description": "A drawing frame with its corner coordinates, number of columns and rows, visible borders and layer. Loop over frames() of UL_BOARD, UL_FOOTPRINT, UL_SHEET or UL_SYMBOL; texts() and wires() return the graphics the frame consists of.",
+      "usage": "UL_FRAME data members: columns int (-127...127), rows int (-26...26), border int (FRAME_BORDER_...),\nlayer int, x1, y1 int (lower left corner), x2, y2 int (upper right corner).\nLoop members: texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "schematic(SCH) output(\"frames.txt\", \"wt\") {\n  SCH.sheets(SH) SH.frames(F)\n    printf(\"sheet %d: %d x %d fields, %.1f x %.1f mm, left border %s\\n\", SH.number, F.columns, F.rows,\n           u2mm(F.x2 - F.x1), u2mm(F.y2 - F.y1), (F.border & FRAME_BORDER_LEFT) ? \"on\" : \"off\");\n  }",
+      "notes": "Constants: FRAME_BORDER_BOTTOM, FRAME_BORDER_RIGHT, FRAME_BORDER_TOP, FRAME_BORDER_LEFT (border is a bitwise OR of these). The frame defines the column/row values reported by elements, instances and nets."
+    },
+    {
+      "name": "UL_GATE",
+      "kind": "script-object",
+      "description": "A gate of a device set: its name, symbol, add level, swap level and position within the device. Loop over UL_DEVICESET.gates() or UL_DEVICE.gates(), or use UL_INSTANCE.gate.",
+      "usage": "UL_GATE data members: addlevel int (GATE_ADDLEVEL_...), name string (GATE_NAME_LENGTH), swaplevel int,\nsymbol UL_SYMBOL, x, y int (origin point). No loop members.",
+      "example": "library(L) output(\"gates.txt\", \"wt\") {\n  L.devicesets(DS) DS.gates(G)\n    printf(\"%s.%s symbol=%s swaplevel=%d%s\\n\", DS.name, G.name, G.symbol.name, G.swaplevel,\n           G.addlevel == GATE_ADDLEVEL_REQUEST ? \" (request)\" : \"\");\n  }",
+      "notes": "Constants: GATE_ADDLEVEL_MUST, GATE_ADDLEVEL_CAN, GATE_ADDLEVEL_NEXT, GATE_ADDLEVEL_REQUEST, GATE_ADDLEVEL_ALWAYS, GATE_NAME_LENGTH. x/y are always the gate's position inside the device, even when the gate is reached through an instance."
+    },
+    {
+      "name": "UL_GRID",
+      "kind": "script-object",
+      "description": "The grid settings of a board, schematic or library: grid distance, display style, multiple, on/off state and the units used. Read it through the grid data member of UL_BOARD, UL_SCHEMATIC or UL_LIBRARY.",
+      "usage": "UL_GRID data members: distance real, dots int (0=lines, 1=dots), multiple int, on int (0=off, 1=on),\nunit int (GRID_UNIT_...), unitdist int (GRID_UNIT_...). No loop members.",
+      "example": "string UnitName(int u)\n{\n  switch (u) {\n    case GRID_UNIT_MIC:  return \"mic\";\n    case GRID_UNIT_MM:   return \"mm\";\n    case GRID_UNIT_MIL:  return \"mil\";\n    case GRID_UNIT_INCH: return \"inch\";\n    }\n  return \"?\";\n}\nboard(B) {\n  string s;\n  sprintf(s, \"Grid %g %s (display unit %s)\", B.grid.distance, UnitName(B.grid.unitdist), UnitName(B.grid.unit));\n  dlgMessageBox(s);\n  }",
+      "notes": "Constants: GRID_UNIT_MIC, GRID_UNIT_MM, GRID_UNIT_MIL, GRID_UNIT_INCH. distance is expressed in unitdist, the unit used to define the grid size, while unit is the unit used to display values and interpret input."
+    },
+    {
+      "name": "UL_HOLE",
+      "kind": "script-object",
+      "description": "A non-plated drill hole with its position, drill diameter, drill symbol and solder stop diameter. Loop over UL_BOARD.holes() (free holes) or UL_FOOTPRINT.holes() (holes of a package).",
+      "usage": "UL_HOLE data members: diameter[layer] int, drill int, drillsymbol int, x, y int (center point).\nNo loop members.",
+      "example": "board(B) output(\"holes.txt\", \"wt\") {\n  B.holes(H)\n    printf(\"hole (%.3f %.3f) drill %.2f mm, stop %.2f mm\\n\", u2mm(H.x), u2mm(H.y),\n           u2mm(H.drill), u2mm(H.diameter[LAYER_TSTOP]));\n  B.elements(E) E.footprint.holes(H)\n    printf(\"%s: hole drill %.2f mm\\n\", E.name, u2mm(H.drill));\n  }",
+      "notes": "diameter[] is only defined for LAYER_TSTOP and LAYER_BSTOP and returns the solder stop mask diameter. drillsymbol is the number of the drill symbol assigned to this diameter (0 = none)."
+    },
+    {
+      "name": "UL_INSTANCE",
+      "kind": "script-object",
+      "description": "A gate of a part placed on a schematic sheet: name, gate, part, position, rotation, mirror, sheet number, frame location and attached texts/attributes. Loop over UL_SHEET.instances() or UL_PART.instances(), or reach it via UL_PINREF.instance.",
+      "usage": "UL_INSTANCE data members: angle real (0, 90, 180, 270), column string, gate UL_GATE, mirror int,\nname string (INSTANCE_NAME_LENGTH), part UL_PART, row string, sheet int (0=unused, >0=sheet number),\nsmashed int, value string (PART_VALUE_LENGTH), x, y int (origin point).\nLoop members: attributes() UL_ATTRIBUTE, texts() UL_TEXT, xrefs() UL_GATE.",
+      "example": "schematic(SCH) output(\"instances.txt\", \"wt\") {\n  SCH.sheets(SH) SH.instances(I)\n    printf(\"%-10s sheet %d field %s%s  (%.2f %.2f)\\n\", I.name, SH.number, I.column, I.row,\n           u2inch(I.x), u2inch(I.y));\n  }",
+      "notes": "Constants: INSTANCE_NAME_LENGTH, PART_VALUE_LENGTH (instances have no value of their own). attributes() only returns attributes explicitly assigned to this instance (including smashed ones); texts() only detached texts and visible attribute texts, so also loop over I.gate.symbol.texts() when drawing. column/row need a sheet context and return '?' without a frame. smashed[\"NAME\"|\"VALUE\"|\"PART\"|\"GATE\"|attribute] tests detached texts. xrefs() loops the contact cross-reference gates (only needed when drawing, e.g. DXF export)."
+    },
+    {
+      "name": "UL_JUNCTION",
+      "kind": "script-object",
+      "description": "A net junction dot on a schematic sheet with its position and diameter. It is available through UL_SEGMENT.junctions() of net segments in a sheet context.",
+      "usage": "UL_JUNCTION data members: diameter int, x, y int (center point). No loop members.",
+      "example": "schematic(SCH) output(\"junctions.txt\", \"wt\") {\n  SCH.sheets(SH) SH.nets(N) N.segments(SEG) SEG.junctions(J)\n    printf(\"sheet %d net %s: junction (%.2f %.2f) inch\\n\", SH.number, N.name, u2inch(J.x), u2inch(J.y));\n  }",
+      "notes": "Only net segments have junctions; bus segments do not."
+    },
+    {
+      "name": "UL_LABEL",
+      "kind": "script-object",
+      "description": "A net or bus label on a schematic sheet: position, angle, layer, mirror/spin, the UL_TEXT with the displayed name, and whether it is a cross-reference label. Loop over UL_SEGMENT.labels().",
+      "usage": "UL_LABEL data members: angle real (0.0...359.9), layer int, mirror int, spin int, text UL_TEXT,\nx, y int (origin point), xref int (0=plain, 1=cross-reference). Loop members: wires() UL_WIRE.",
+      "example": "schematic(SCH) output(\"labels.txt\", \"wt\") {\n  SCH.sheets(SH) SH.nets(N) N.segments(SEG) SEG.labels(L)\n    printf(\"sheet %d: '%s'%s at (%.2f %.2f)\\n\", SH.number, L.text.value, L.xref ? \" [xref]\" : \"\",\n           u2inch(L.x), u2inch(L.y));\n  }",
+      "notes": "wires() returns the wires forming the flag of a cross-reference label, otherwise it is empty. angle, layer, mirror and spin equal those of the text; the text's x/y are slightly offset for xref labels. xref is always 0 for bus labels. Use labels() instead of the deprecated UL_SEGMENT.texts()."
+    },
+    {
+      "name": "UL_LAYER",
+      "kind": "script-object",
+      "description": "A drawing layer with its number, name, color, fill style and used/visible flags. Loop over layers() of UL_BOARD, UL_SCHEMATIC or UL_LIBRARY; the LAYER_... constants give the numbers of the predefined layers for comparisons with the layer member of drawing objects.",
+      "usage": "UL_LAYER data members: color int, fill int, name string (LAYER_NAME_LENGTH), number int,\nused int (0=unused, 1=used), visible int (0=off, 1=on). No loop members.",
+      "example": "board(B) output(\"layers.txt\", \"wt\") {\n  B.layers(L)\n    if (L.used) printf(\"%3d %-12s %s\\n\", L.number, L.name, L.visible ? \"visible\" : \"hidden\");\n  }",
+      "notes": "Constants: LAYER_NAME_LENGTH; layer numbers LAYER_TOP, LAYER_BOTTOM, LAYER_PADS, LAYER_VIAS, LAYER_UNROUTED, LAYER_DIMENSION, LAYER_TPLACE, LAYER_BPLACE, LAYER_TORIGINS, LAYER_BORIGINS, LAYER_TNAMES, LAYER_BNAMES, LAYER_TVALUES, LAYER_BVALUES, LAYER_TSTOP, LAYER_BSTOP, LAYER_TCREAM, LAYER_BCREAM, LAYER_TFINISH, LAYER_BFINISH, LAYER_TGLUE, LAYER_BGLUE, LAYER_TTEST, LAYER_BTEST, LAYER_TKEEPOUT, LAYER_BKEEPOUT, LAYER_TRESTRICT, LAYER_BRESTRICT, LAYER_VRESTRICT, LAYER_DRILLS, LAYER_HOLES, LAYER_MILLING, LAYER_MEASURES, LAYER_DOCUMENT, LAYER_REFERENCE, LAYER_TDOCU, LAYER_BDOCU, LAYER_NETS, LAYER_BUSSES, LAYER_PINS, LAYER_SYMBOLS, LAYER_NAMES, LAYER_VALUES, LAYER_INFO, LAYER_GUIDE, LAYER_USER (100, lowest user-defined layer)."
+    },
+    {
+      "name": "UL_LIBRARY",
+      "kind": "script-object",
+      "description": "A library: the drawing opened with library(), or one of the libraries used by a board or schematic (libraries() loop). It gives name, description, grid and loops over device sets, devices, footprints, 3D packages, symbols and layers.",
+      "usage": "UL_LIBRARY data members: editable int, description string, grid UL_GRID, headline string, id string,\nname string (LIBRARY_NAME_LENGTH).\nLoop members: devices() UL_DEVICE, devicesets() UL_DEVICESET, layers() UL_LAYER,\nfootprints() UL_FOOTPRINT (9.1+, alias packages()), packages3d() UL_PACKAGE3D, symbols() UL_SYMBOL.",
+      "example": "schematic(SCH) output(\"used-libs.txt\", \"wt\") {\n  SCH.libraries(L) {\n    int n = 0;\n    L.devicesets(DS) ++n;\n    printf(\"%-20s %d device sets used\\n\", L.name, n);\n    }\n  }",
+      "notes": "Constant: LIBRARY_NAME_LENGTH. devices() visits every package variant and technology of every device set, devicesets() only the device sets. description/headline exist only in a library drawing. From a board or schematic, name is the bare library name; in a library window it is the full file name. id is only set for managed libraries; editable is 1 if the user owns the library."
+    },
+    {
+      "name": "UL_MODULE",
+      "kind": "script-object",
+      "description": "A module (hierarchical sub-circuit) of a schematic with its size, description, prefix, parts, ports, sheets and variant definitions. Loop over UL_SCHEMATIC.modules(), use UL_MODULEINST.module or UL_PART.module, or open the module being edited with module().",
+      "usage": "UL_MODULE data members: dx, dy int (size), description string, headline string, name string,\nprefix string. Loop members: parts() UL_PART, ports() UL_PORT, sheets() UL_SHEET, variantdefs() UL_VARIANTDEF.",
+      "example": "schematic(SCH) output(\"modules.txt\", \"wt\") {\n  SCH.modules(M) {\n    printf(\"module %s (prefix %s)\\n\", M.name, M.prefix);\n    M.ports(P) printf(\"   port %s\\n\", P.name);\n    M.parts(P) printf(\"   part %s %s\\n\", P.name, P.value);\n    }\n  }",
+      "notes": "Parts in M.parts() are the module's own (real) parts; the virtual copies created by each module instance appear in UL_SCHEMATIC.allparts()."
+    },
+    {
+      "name": "UL_MODULEINST",
+      "kind": "script-object",
+      "description": "An instance of a module placed on a sheet: name, referenced module, selected module variant, part name offset, position, rotation, sheet and frame location. Loop over UL_SHEET.moduleinsts() or reach it via UL_PORTREF.moduleinst.",
+      "usage": "UL_MODULEINST data members: angle real (0, 90, 180, 270), column string, mirror int, module UL_MODULE,\nmodulevariant string (selected variantdef of the module), name string (INSTANCE_NAME_LENGTH), offset int,\nrow string, sheet int (sheet number), smashed int, x, y int (origin point).\nLoop members: texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "schematic(SCH) output(\"module-instances.txt\", \"wt\") {\n  SCH.sheets(SH) SH.moduleinsts(MI)\n    printf(\"%s -> module %s, sheet %d, variant '%s', offset %d\\n\",\n           MI.name, MI.module.name, MI.sheet, MI.modulevariant, MI.offset);\n  }",
+      "notes": "Constant: INSTANCE_NAME_LENGTH. texts() returns all texts of the instance, smashed or not; smashed[\"NAME\"] tells whether the name text is detached. column/row only work in a sheet context and return '?' without a frame."
+    },
+    {
+      "name": "UL_NET",
+      "kind": "script-object",
+      "description": "A schematic net with its name, net class, pin and port references and (in a sheet context) the segments with wires, labels and junctions. Loop over UL_SCHEMATIC.nets() / allnets() for connectivity or UL_SHEET.nets() for the drawing.",
+      "usage": "UL_NET data members: class UL_CLASS, column string, name string (NET_NAME_LENGTH), row string.\nLoop members: portrefs() UL_PORTREF, pinrefs() UL_PINREF, segments() UL_SEGMENT.",
+      "example": "schematic(SCH) output(filesetext(SCH.name, \".netlist\"), \"wt\") {\n  SCH.allnets(N) {                    // includes virtual nets of module instances\n    printf(\"%s:\", N.name);\n    N.pinrefs(P) printf(\" %s-%s\", P.part.name, P.pin.name);\n    printf(\"\\n\");\n    }\n  }",
+      "notes": "Constant: NET_NAME_LENGTH. pinrefs() only works in a schematic context (also returns virtual pinrefs from module instances); segments() only in a sheet context (SH.nets(N) N.segments(...)), not via SCH.nets(). column/row return two blank-separated values (leftmost/rightmost column, top/bottom row) or '?' and need a sheet context. For nets from allnets() only name, class and pinrefs() are valid."
+    },
+    {
+      "name": "UL_FOOTPRINT",
+      "kind": "script-object",
+      "description": "A footprint (package) of a library, or the footprint of a board element: contacts (pads/SMDs), holes and the drawing objects, plus description and managed-library identifiers. Loop over UL_LIBRARY.footprints(), use UL_ELEMENT.footprint or UL_DEVICE.footprint, or open the one being edited with footprint(). New name in EAGLE 9.1; UL_PACKAGE remains as an alias.",
+      "usage": "UL_FOOTPRINT data members: area UL_AREA, description string, headline string, library string,\nlibraryurn string, libraryversion int, locallymodified int, librarylocallymodified int,\nname string (PACKAGE_NAME_LENGTH), urn string.\nLoop members: circles() UL_CIRCLE, contacts() UL_CONTACT, dimensions() UL_DIMENSION, frames() UL_FRAME,\nholes() UL_HOLE, polygons() UL_POLYGON, rectangles() UL_RECTANGLE, texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "library(L) output(\"footprints.txt\", \"wt\") {\n  L.footprints(F) {\n    int n = 0;\n    F.contacts(C) ++n;\n    printf(\"%-20s %3d contacts  %s\\n\", F.name, n, F.headline);\n    }\n  }",
+      "notes": "Constant: PACKAGE_NAME_LENGTH. Reached from an element, texts() only returns the non-detached texts, and the polygons/wires of arbitrary pad shapes are only available through each contact's polygons()/wires(). urn has the form urn:adsk.eagle:footprint:123/4. Use #require 9.0100 when relying on the new names."
+    },
+    {
+      "name": "UL_PACKAGE3D",
+      "kind": "script-object",
+      "description": "A 3D package (3D model reference) of a managed library, with name, description and URN. Loop over UL_LIBRARY.packages3d() or UL_DEVICE.packages3d(), or use UL_ELEMENT.package3d / UL_PART.package3d, which are invalid when no 3D model is assigned.",
+      "usage": "UL_PACKAGE3D data members: description string, headline string, library string, libraryurn string,\nlibraryversion int, name string, urn string. No loop members.",
+      "example": "board(B) output(\"3d-models.txt\", \"wt\") {\n  B.elements(E) {\n    if (E.package3d)\n       printf(\"%s: %s (%s, version %d)\\n\", E.name, E.package3d.name,\n              urnbase(E.package3d.urn), urnversion(E.package3d.urn));\n    else\n       printf(\"%s: no 3D package\\n\", E.name);\n    }\n  }",
+      "notes": "urn has the form urn:adsk.eagle:package:123/4; libraryurn is empty and libraryversion -1 for non-managed libraries. description may contain newlines; headline is its first line without HTML."
+    },
+    {
+      "name": "UL_PAD",
+      "kind": "script-object",
+      "description": "A through-hole pad of a footprint: position, rotation, drill, per-layer diameter and shape as resolved by the design rules, elongation, flags and connected signal. Reach it through UL_CONTACT.pad.",
+      "usage": "UL_PAD data members: angle real (0.0...359.9), diameter[layer] int, drill int, drillsymbol int,\nelongation int, flags int (PAD_FLAG_...), name string (PAD_NAME_LENGTH), shape[layer] int (PAD_SHAPE_...),\nsignal string, x, y int (center point). No loop members.",
+      "example": "board(B) output(\"drills.txt\", \"wt\") {\n  B.elements(E) E.footprint.contacts(C) {\n    if (C.pad)\n       printf(\"%s.%s drill %.2f  top %.2f  bottom %.2f mm%s\\n\", E.name, C.name,\n              u2mm(C.pad.drill), u2mm(C.pad.diameter[LAYER_TOP]), u2mm(C.pad.diameter[LAYER_BOTTOM]),\n              C.pad.shape[LAYER_TOP] == PAD_SHAPE_SQUARE ? \" square\" : \"\");\n    }\n  }",
+      "notes": "Constants: PAD_FLAG_STOP, PAD_FLAG_THERMALS, PAD_FLAG_FIRST; PAD_SHAPE_SQUARE, PAD_SHAPE_ROUND, PAD_SHAPE_OCTAGON, PAD_SHAPE_LONG, PAD_SHAPE_OFFSET; PAD_NAME_LENGTH (same as CONTACT_NAME_LENGTH). diameter[]/shape[] with LAYER_TOP... LAYER_BOTTOM, LAYER_TSTOP or LAYER_BSTOP are computed by the design rules; LAYER_PADS returns the raw library value. elongation (percent) only applies to LONG/OFFSET shapes. Test flags with (flags & PAD_FLAG_...) - only needed when generating library scripts. From a library context x/y/angle are as drawn in the footprint."
+    },
+    {
+      "name": "UL_PART",
+      "kind": "script-object",
+      "description": "A part of the schematic (or of a module): name, value, device and device set, populate state, 3D package, attributes, assembly variants and its gate instances. Loop over UL_SCHEMATIC.parts(), allparts() (including virtual parts from module instances), UL_MODULE.parts() or reach it via UL_PINREF.part / UL_INSTANCE.part.",
+      "usage": "UL_PART data members: attribute[] string, device UL_DEVICE, deviceset UL_DEVICESET, module UL_MODULE,\nmodulepart UL_PART, modulepath string, name string (PART_NAME_LENGTH), package3d UL_PACKAGE3D,\npopulate int (0=do not populate, 1=populate), value string (PART_VALUE_LENGTH).\nLoop members: attributes() UL_ATTRIBUTE, instances() UL_INSTANCE, variants() UL_VARIANT.",
+      "example": "schematic(SCH) output(filesetext(SCH.name, \"_bom.csv\"), \"wt\") {\n  printf(\"Part;Value;DeviceSet;Variant;Package;MPN\\n\");\n  SCH.allparts(P) {\n    if (P.device.footprint)                     // skip frames, supply symbols\n       printf(\"%s;%s;%s;%s;%s;%s\\n\", P.name, P.value, P.deviceset.name, P.device.name,\n              P.device.footprint.name, P.attribute[\"MPN\"]);\n    }\n  }",
+      "notes": "Constants: PART_NAME_LENGTH, PART_VALUE_LENGTH. attribute[\"NAME\"] is empty when missing. In attributes() only name, value, defaultvalue and constant are valid. variants() lists only real variants (not the default one). In a sheet context instances() only returns the instances on that sheet; for virtual parts it is empty. For virtual parts module is the source module, modulepart the real part in it and modulepath the ':'-separated module instance path (e.g. 'MAIN:SUB1' for 'MAIN:SUB1:C5'); for main-schematic parts module/modulepart are null."
+    },
+    {
+      "name": "UL_PIN",
+      "kind": "script-object",
+      "description": "A pin of a symbol: name, position, direction, function (dot/clock), length, visibility, swap level, the connected net (schematic) and the pads it is connected to in a device. Loop over UL_SYMBOL.pins() or reach it via UL_PINREF.pin.",
+      "usage": "UL_PIN data members: angle real (0, 90, 180, 270), contact UL_CONTACT (deprecated), direction int\n(PIN_DIRECTION_...), function int (PIN_FUNCTION_FLAG_...), length int (PIN_LENGTH_...), name string\n(PIN_NAME_LENGTH), net string, route int (CONTACT_ROUTE_...), swaplevel int, visible int (PIN_VISIBLE_FLAG_...),\nx, y int (connection point).\nLoop members: circles() UL_CIRCLE, contacts() UL_CONTACT, texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "schematic(SCH) output(\"pin-pad.txt\", \"wt\") {\n  SCH.nets(N) N.pinrefs(PR) {\n    printf(\"%-10s %s.%s pads:\", N.name, PR.part.name, PR.pin.name);\n    PR.pin.contacts(C) printf(\" %s\", C.name);\n    printf(\"%s\\n\", PR.pin.direction == PIN_DIRECTION_PWR ? \" (pwr)\" : \"\");\n    }\n  }",
+      "notes": "Constants: PIN_DIRECTION_NC (not connected), PIN_DIRECTION_IN, PIN_DIRECTION_OUT (totem-pole), PIN_DIRECTION_IO (bidirectional), PIN_DIRECTION_OC (open collector), PIN_DIRECTION_PWR (power input), PIN_DIRECTION_PAS (passive), PIN_DIRECTION_HIZ (high-impedance output), PIN_DIRECTION_SUP (supply); PIN_FUNCTION_FLAG_NONE, PIN_FUNCTION_FLAG_DOT (inverter), PIN_FUNCTION_FLAG_CLK (clock); PIN_LENGTH_POINT, PIN_LENGTH_SHORT (0.1 inch), PIN_LENGTH_MIDDLE (0.2 inch), PIN_LENGTH_LONG (0.3 inch); PIN_VISIBLE_FLAG_OFF, PIN_VISIBLE_FLAG_PAD, PIN_VISIBLE_FLAG_PIN; PIN_NAME_LENGTH; CONTACT_ROUTE_ALL, CONTACT_ROUTE_ANY. function and visible are flag values: test with (PIN.function & PIN_FUNCTION_FLAG_DOT). contacts() is only filled in a device context or via UL_PINREF (not via UL_LIBRARY.symbols()). The deprecated contact member fails at run time for pins connected to more than one pad. name keeps any '@' suffix; texts() returns the name as displayed. net is only available in a schematic context."
+    },
+    {
+      "name": "UL_PINREF",
+      "kind": "script-object",
+      "description": "A reference from a schematic net segment to one pin of a part instance: the part, the instance (gate) and the pin. Loop over UL_SEGMENT.pinrefs() (sheet context) or UL_NET.pinrefs() (schematic context) to build netlists.",
+      "usage": "UL_PINREF data members: instance UL_INSTANCE, part UL_PART, pin UL_PIN. No loop members.",
+      "example": "schematic(SCH) output(\"connections.txt\", \"wt\") {\n  SCH.sheets(SH) SH.nets(N) N.segments(SEG) SEG.pinrefs(PR)\n    printf(\"sheet %d  %-10s %s/%s.%s\\n\", SH.number, N.name, PR.part.name, PR.instance.name, PR.pin.name);\n  }",
+      "notes": "Board-side counterpart: UL_CONTACTREF."
+    },
+    {
+      "name": "UL_POLYGON",
+      "kind": "script-object",
+      "description": "A polygon: its outline as drawn, and for calculated signal polygons the resulting contour and fill wires, plus pour type, isolation, rank, spacing, thermals and orphans settings. Loop over polygons() of UL_BOARD, UL_SIGNAL, UL_FOOTPRINT, UL_SHEET or UL_SYMBOL.",
+      "usage": "UL_POLYGON data members: isolate int, layer int, orphans int (0=off, 1=on), pour int (POLYGON_POUR_...),\nrank int, spacing int, thermals int (0=off, 1=on), width int.\nLoop members: contours() UL_WIRE (optional int index), fillings() UL_WIRE, wires() UL_WIRE.",
+      "example": "board(B) output(\"pours.txt\", \"wt\") {\n  B.signals(S) S.polygons(P) {\n    int n = 0;\n    P.wires(W) ++n;\n    printf(\"%s layer %d rank %d isolate %.3f mm, %d outline wires%s\\n\", S.name, P.layer, P.rank,\n           u2mm(P.isolate), n, P.pour == POLYGON_POUR_HATCH ? \" (hatch)\" : \"\");\n    }\n  }",
+      "notes": "Constants: POLYGON_POUR_SOLID, POLYGON_POUR_HATCH, POLYGON_POUR_CUTOUT. wires() always returns the outline as drawn by the user; contours()/fillings() return the calculated result only after RATSNEST has computed a signal polygon (otherwise contours() equals wires() and fillings() is empty). contours(W, i) with i > 0 visits positive partial polygon i, i < 0 negative ones; contour wires keep the inside on the right. Filling a solid polygon of width 0 generates enormous amounts of data."
+    },
+    {
+      "name": "UL_PORT",
+      "kind": "script-object",
+      "description": "A port of a module: the connection point on the module border with its name, direction, position and, in a module instance context, the connected net or bus. Loop over UL_MODULE.ports() or reach it via UL_PORTREF.port.",
+      "usage": "UL_PORT data members: border int (MODULE_BORDER_...), bus string, direction int (PIN_DIRECTION_...),\nname string (PORT_NAME_LENGTH), net string, x, y int (connection point).\nLoop members: nets() UL_NET, texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "schematic(SCH) output(\"ports.txt\", \"wt\") {\n  SCH.modules(M) M.ports(P)\n    printf(\"%s.%s dir=%d %s\\n\", M.name, P.name, P.direction,\n           P.border == MODULE_BORDER_LEFT ? \"left\" : \"other side\");\n  }",
+      "notes": "Constants: MODULE_BORDER_BOTTOM, MODULE_BORDER_RIGHT, MODULE_BORDER_TOP, MODULE_BORDER_LEFT, PORT_NAME_LENGTH. direction uses the PIN_DIRECTION_... values except PIN_DIRECTION_SUP. bus, net and the nets() loop are only available in a UL_MODULEINST context."
+    },
+    {
+      "name": "UL_PORTREF",
+      "kind": "script-object",
+      "description": "A reference from a net segment to a port of a module instance, i.e. where a net enters a hierarchical block. Loop over UL_SEGMENT.portrefs() or UL_NET.portrefs().",
+      "usage": "UL_PORTREF data members: moduleinst UL_MODULEINST, port UL_PORT. No loop members.",
+      "example": "schematic(SCH) output(\"portrefs.txt\", \"wt\") {\n  SCH.sheets(SH) SH.nets(N) N.segments(SEG) SEG.portrefs(PR)\n    printf(\"net %s -> %s.%s\\n\", N.name, PR.moduleinst.name, PR.port.name);\n  }",
+      "notes": "Hierarchical counterpart of UL_PINREF."
+    },
+    {
+      "name": "UL_RECTANGLE",
+      "kind": "script-object",
+      "description": "A rectangle drawing object with its layer, two corner points and rotation. Loop over rectangles() of UL_BOARD, UL_FOOTPRINT, UL_SHEET or UL_SYMBOL.",
+      "usage": "UL_RECTANGLE data members: angle real (0.0...359.9), layer int, x1, y1 int (lower left corner),\nx2, y2 int (upper right corner). No loop members.",
+      "example": "library(L) output(\"rects.txt\", \"wt\") {\n  L.footprints(F) F.rectangles(R)\n    printf(\"%s: layer %d centre (%.3f %.3f) %.3f x %.3f mm, %.0f deg\\n\", F.name, R.layer,\n           u2mm((R.x1 + R.x2) / 2), u2mm((R.y1 + R.y2) / 2),\n           u2mm(R.x2 - R.x1), u2mm(R.y2 - R.y1), R.angle);\n  }",
+      "notes": "The corners always refer to the unrotated rectangle; angle is a counterclockwise rotation about the center ((x1+x2)/2, (y1+y2)/2)."
+    },
+    {
+      "name": "UL_SCHEMATIC",
+      "kind": "script-object",
+      "description": "The schematic drawing, created by the schematic() statement. It gives file name, grid, description, ERC status and cross-reference formats, and loop members for parts, nets (with and without virtual ones), sheets, modules, classes, layers, libraries, ERC errors, variants and global attributes.",
+      "usage": "UL_SCHEMATIC data members: alwaysvectorfont int (ALWAYS_VECTOR_FONT_...), checked int, description string,\ngrid UL_GRID, headline string, name string, verticaltext int (VERTICAL_TEXT_...), xreflabel string,\nxrefpart string.\nLoop members: allnets() UL_NET, allparts() UL_PART, attributes() UL_ATTRIBUTE, classes() UL_CLASS,\nerrors() UL_ERROR, layers() UL_LAYER, libraries() UL_LIBRARY, modules() UL_MODULE, nets() UL_NET,\nparts() UL_PART, sheets() UL_SHEET, variantdefs() UL_VARIANTDEF.",
+      "example": "if (schematic) schematic(SCH) {\n   int np = 0, nn = 0, ns = 0;\n   SCH.allparts(P) ++np;\n   SCH.allnets(N) ++nn;\n   SCH.sheets(SH) ++ns;\n   string s;\n   sprintf(s, \"%s\\n%d parts, %d nets, %d sheets, ERC run: %s\", SCH.name, np, nn, ns, SCH.checked ? \"yes\" : \"no\");\n   dlgMessageBox(s);\n   }",
+      "notes": "Constants: ALWAYS_VECTOR_FONT_GUI, ALWAYS_VECTOR_FONT_PERSISTENT, VERTICAL_TEXT_UP, VERTICAL_TEXT_DOWN. name is the full .sch path; checked is only set after a recent ERC; xreflabel/xrefpart are the display format strings of cross-reference labels and part cross-references. allparts()/allnets() add the virtual parts/nets generated by module instances (one per board element) - use them for BOMs and netlists of hierarchical designs."
+    },
+    {
+      "name": "UL_SEGMENT",
+      "kind": "script-object",
+      "description": "A connected piece of a net or bus on one sheet. It has no data members; its loop members return the wires, labels, junctions and the pin and port references of the segment. Reach it through UL_NET.segments() or UL_BUS.segments() in a sheet context.",
+      "usage": "UL_SEGMENT loop members: junctions() UL_JUNCTION, labels() UL_LABEL, pinrefs() UL_PINREF,\nportrefs() UL_PORTREF, texts() UL_TEXT (deprecated), wires() UL_WIRE. No data members.",
+      "example": "schematic(SCH) output(\"segments.txt\", \"wt\") {\n  SCH.sheets(SH) SH.nets(N) {\n    int seg = 0;\n    N.segments(SEG) {\n      int w = 0, p = 0;\n      SEG.wires(W) ++w;\n      SEG.pinrefs(PR) ++p;\n      printf(\"sheet %d %s segment %d: %d wires, %d pins\\n\", SH.number, N.name, ++seg, w, p);\n      }\n    }\n  }",
+      "notes": "junctions() and pinrefs() only exist for net segments. texts() is only kept for compatibility and misplaces cross-reference labels; use labels()."
+    },
+    {
+      "name": "UL_SHEET",
+      "kind": "script-object",
+      "description": "One sheet of a schematic or module with its number, description and area, and loop members for the placed instances, module instances, nets, busses and drawing objects. Loop over UL_SCHEMATIC.sheets() / UL_MODULE.sheets() or open the current sheet with sheet().",
+      "usage": "UL_SHEET data members: area UL_AREA, description string, headline string, number int.\nLoop members: busses() UL_BUS, circles() UL_CIRCLE, dimensions() UL_DIMENSION, frames() UL_FRAME,\ninstances() UL_INSTANCE, moduleinsts() UL_MODULEINST, nets() UL_NET, polygons() UL_POLYGON,\nrectangles() UL_RECTANGLE, texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "schematic(SCH) output(\"sheets.txt\", \"wt\") {\n  SCH.sheets(SH) {\n    int ni = 0;\n    SH.instances(I) ++ni;\n    printf(\"sheet %d: %s (%d gates)\\n\", SH.number, SH.headline, ni);\n    }\n  }",
+      "notes": "Net segments (wires, labels, junctions) are only reachable through UL_SHEET.nets(), not UL_SCHEMATIC.nets()."
+    },
+    {
+      "name": "UL_SIGNAL",
+      "kind": "script-object",
+      "description": "A board signal (the board-side net) with its name, net class, airwire visibility, the connected element contacts and its routed copper: wires, vias and polygons. Loop over UL_BOARD.signals().",
+      "usage": "UL_SIGNAL data members: airwireshidden int, class UL_CLASS, name string (SIGNAL_NAME_LENGTH).\nLoop members: contactrefs() UL_CONTACTREF, polygons() UL_POLYGON, vias() UL_VIA, wires() UL_WIRE.",
+      "example": "board(B) output(filesetext(B.name, \".routing.txt\"), \"wt\") {\n  B.signals(S) {\n    real len = 0;\n    int airwires = 0, vias = 0;\n    S.wires(W) {\n      if (W.layer == LAYER_UNROUTED) ++airwires;\n      else {\n         real dx = u2mm(W.x2 - W.x1), dy = u2mm(W.y2 - W.y1);\n         len += sqrt(dx * dx + dy * dy);\n         }\n      }\n    S.vias(V) ++vias;\n    printf(\"%-12s %8.2f mm  %d vias  %d airwires\\n\", S.name, len, vias, airwires);\n    }\n  }",
+      "notes": "Constant: SIGNAL_NAME_LENGTH. Unrouted connections (airwires) are wires in LAYER_UNROUTED (19), so filter by layer when measuring copper. Arc wires need W.arc for their true length."
+    },
+    {
+      "name": "UL_SMD",
+      "kind": "script-object",
+      "description": "An SMD pad of a footprint: position, rotation, layer, per-layer size as resolved by the design rules, roundness, flags and connected signal. Reach it through UL_CONTACT.smd.",
+      "usage": "UL_SMD data members: angle real (0.0...359.9), dx[layer], dy[layer] int (size), flags int (SMD_FLAG_...),\nlayer int, name string (SMD_NAME_LENGTH), roundness int, signal string, x, y int (center point).\nNo loop members.",
+      "example": "board(B) output(\"smd-pads.txt\", \"wt\") {\n  B.elements(E) E.footprint.contacts(C) {\n    if (C.smd)\n       printf(\"%s.%s layer %d  %.3f x %.3f mm  cream %.3f x %.3f\\n\", E.name, C.name, C.smd.layer,\n              u2mm(C.smd.dx), u2mm(C.smd.dy),\n              u2mm(C.smd.dx[C.smd.layer == LAYER_TOP ? LAYER_TCREAM : LAYER_BCREAM]),\n              u2mm(C.smd.dy[C.smd.layer == LAYER_TOP ? LAYER_TCREAM : LAYER_BCREAM]));\n    }\n  }",
+      "notes": "Constants: SMD_FLAG_STOP, SMD_FLAG_THERMALS, SMD_FLAG_CREAM, SMD_NAME_LENGTH (same as CONTACT_NAME_LENGTH). dx/dy with a layer index return design-rule values: LAYER_TOP, LAYER_TSTOP, LAYER_TCREAM for top SMDs, LAYER_BOTTOM, LAYER_BSTOP, LAYER_BCREAM for bottom SMDs (0 if e.g. the stop flag is off). From a library context x/y, angle, layer and roundness are as drawn in the footprint; on a board they are the actual values (a mirrored element's SMDs are on the bottom)."
+    },
+    {
+      "name": "UL_SYMBOL",
+      "kind": "script-object",
+      "description": "A schematic symbol of a library with its pins and drawing objects, description and managed-library identifiers. Loop over UL_LIBRARY.symbols(), use UL_GATE.symbol (e.g. I.gate.symbol for a placed gate) or open the one being edited with symbol().",
+      "usage": "UL_SYMBOL data members: area UL_AREA, description string, headline string, library string,\nlibraryurn string, libraryversion int, locallymodified int, librarylocallymodified int,\nname string (SYMBOL_NAME_LENGTH), urn string.\nLoop members: circles() UL_CIRCLE, dimensions() UL_DIMENSION, frames() UL_FRAME, rectangles() UL_RECTANGLE,\npins() UL_PIN, polygons() UL_POLYGON, texts() UL_TEXT, wires() UL_WIRE.",
+      "example": "library(L) output(\"symbols.txt\", \"wt\") {\n  L.symbols(S) {\n    int n = 0;\n    S.pins(P) ++n;\n    printf(\"%-20s %d pins\\n\", S.name, n);\n    }\n  }",
+      "notes": "Constant: SYMBOL_NAME_LENGTH. Reached from an instance, texts() only returns the non-detached texts. urn has the form urn:adsk.eagle:symbol:123/4."
+    },
+    {
+      "name": "UL_TEXT",
+      "kind": "script-object",
+      "description": "A text object: the string, position, size, ratio, font, alignment, rotation, mirror/spin and layer, with wires() giving the vector strokes it is drawn with. Loop over texts() of drawings and objects, or use UL_LABEL.text / UL_ATTRIBUTE.text.",
+      "usage": "UL_TEXT data members: align int (ALIGN_...), angle real (0.0...359.9), font int (FONT_...), layer int,\nlinedistance int, mirror int, ratio int, size int, spin int, value string, x, y int (origin point).\nLoop members: wires() UL_WIRE.",
+      "example": "board(B) output(\"silk-texts.txt\", \"wt\") {\n  B.texts(T)\n    if (T.layer == LAYER_TPLACE)\n       printf(\"'%s' at (%.2f %.2f) size %.2f mm%s\\n\", T.value, u2mm(T.x), u2mm(T.y), u2mm(T.size),\n              T.font == FONT_VECTOR ? \"\" : \" (not vector font)\");\n  B.elements(E) E.texts(T)                  // smashed name/value texts\n    printf(\"%s: '%s' layer %d\\n\", E.name, T.value, T.layer);\n  }",
+      "notes": "Constants: FONT_VECTOR, FONT_PROPORTIONAL, FONT_FIXED; ALIGN_BOTTOM_LEFT, ALIGN_BOTTOM_CENTER, ALIGN_BOTTOM_RIGHT, ALIGN_CENTER_LEFT, ALIGN_CENTER, ALIGN_CENTER_RIGHT, ALIGN_TOP_LEFT, ALIGN_TOP_CENTER, ALIGN_TOP_RIGHT. wires() always returns vector-font strokes, even if another font is set. Texts reached from an element or instance report their actual position in the drawing; value is the text as displayed (e.g. the element name instead of >NAME)."
+    },
+    {
+      "name": "UL_VARIANTDEF",
+      "kind": "script-object",
+      "description": "An assembly variant defined in the schematic, board or module; it only carries the variant name. Loop over variantdefs() of UL_SCHEMATIC, UL_BOARD or UL_MODULE, then use setvariant() to evaluate parts in that variant or UL_PART.variants() for per-part differences.",
+      "usage": "UL_VARIANTDEF data members: name string. No loop members.",
+      "example": "schematic(SCH) {\n  string Names[];\n  int n = 0;\n  SCH.variantdefs(VD) Names[n++] = VD.name;\n  output(filesetext(SCH.name, \"_variants.txt\"), \"wt\")\n    for (int i = 0; i < n; ++i) {\n        setvariant(Names[i]);\n        printf(\"[%s]\\n\", Names[i]);\n        SCH.parts(P) if (!P.populate) printf(\"  %s not populated\\n\", P.name);\n        }\n  }",
+      "notes": "The default variant is not listed. setvariant() only lasts until the ULP ends; variant() returns the current one."
+    },
+    {
+      "name": "UL_VARIANT",
+      "kind": "script-object",
+      "description": "The data of one part in one assembly variant: whether it is populated, its value and technology in that variant, and the variant definition. Loop over UL_PART.variants(), which only lists variants that differ from the default.",
+      "usage": "UL_VARIANT data members: populate int (0=do not populate, 1=populate), value string, technology string,\nvariantdef UL_VARIANTDEF. No loop members.",
+      "example": "schematic(SCH) output(\"variant-diff.txt\", \"wt\") {\n  printf(\"Part\\tVariant\\tValue\\tTechn.\\tPopulated\\n\");\n  SCH.parts(P) P.variants(V)\n    printf(\"%s\\t%s\\t%s\\t%s\\t%s\\n\", P.name, V.variantdef.name, V.value, V.technology,\n           V.populate ? \"yes\" : \"no\");\n  }",
+      "notes": "The default assembly variant is not included, so the loop is empty for parts without variants."
+    },
+    {
+      "name": "UL_VIA",
+      "kind": "script-object",
+      "description": "A via of a signal with position, drill, start and end layer, per-layer diameter and shape as resolved by the design rules, and flags. Loop over UL_SIGNAL.vias().",
+      "usage": "UL_VIA data members: diameter[layer] int, drill int, drillsymbol int, end int, flags int (VIA_FLAG_...),\nshape[layer] int (VIA_SHAPE_...), start int, x, y int (center point). No loop members.",
+      "example": "board(B) output(\"vias.csv\", \"wt\") {\n  printf(\"Signal;X;Y;Drill;Diameter;Layers\\n\");\n  B.signals(S) S.vias(V)\n    printf(\"%s;%.3f;%.3f;%.3f;%.3f;%d-%d\\n\", S.name, u2mm(V.x), u2mm(V.y), u2mm(V.drill),\n           u2mm(V.diameter[LAYER_TOP]), V.start, V.end);\n  }",
+      "notes": "Constants: VIA_FLAG_STOP (always generate stop mask), VIA_SHAPE_SQUARE, VIA_SHAPE_ROUND, VIA_SHAPE_OCTAGON. diameter[]/shape[] with LAYER_TOP...LAYER_BOTTOM, LAYER_TSTOP or LAYER_BSTOP are computed by the design rules (even for layers the via does not span); LAYER_VIAS returns the via's raw value. start < end are the layer numbers of a (blind/buried) via's span."
+    },
+    {
+      "name": "UL_WIRE",
+      "kind": "script-object",
+      "description": "A wire (line or arc segment) with end points, width, layer, line style, curvature and cap. Wires are the tracks of signals, the outlines of polygons and the lines of symbols, footprints, frames and net/bus segments. Curved wires expose their arc geometry through the arc member.",
+      "usage": "UL_WIRE data members: arc UL_ARC, cap int (CAP_...), curve real, layer int, style int (WIRE_STYLE_...),\nwidth int, x1, y1 int (start point), x2, y2 int (end point).\nLoop members: pieces() UL_WIRE.",
+      "example": "board(B) output(\"outline.txt\", \"wt\") {\n  B.wires(W) {\n    if (W.layer == LAYER_DIMENSION) {\n       if (W.arc)\n          printf(\"arc  (%.3f %.3f) r=%.3f %.1f..%.1f deg\\n\", u2mm(W.arc.xc), u2mm(W.arc.yc),\n                 u2mm(W.arc.radius), W.arc.angle1, W.arc.angle2);\n       else\n          printf(\"line (%.3f %.3f) - (%.3f %.3f)\\n\", u2mm(W.x1), u2mm(W.y1), u2mm(W.x2), u2mm(W.y2));\n       }\n    }\n  }",
+      "notes": "Constants: CAP_FLAT, CAP_ROUND; WIRE_STYLE_CONTINUOUS, WIRE_STYLE_LONGDASH, WIRE_STYLE_SHORTDASH, WIRE_STYLE_DASHDOT. curve ranges -360..+360 (degrees of a full circle, positive = counterclockwise, 0 = straight); cap is always CAP_ROUND for straight wires. if (W.arc) tells whether it is an arc. pieces() returns the dash segments of a styled wire (the wire itself for continuous ones) and cannot be called on a piece."
+    }
+  ]
+}

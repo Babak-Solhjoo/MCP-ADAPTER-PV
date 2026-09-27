@@ -1,0 +1,597 @@
+{
+  "category": "AutoLISP Core Functions (Extended)",
+  "description": "The AutoLISP functions not covered by the first LISP chunk: safe command calls and error handlers, entity creation and traversal (entmakex, entdel, entnext, nentsel), selection-set utilities and filter syntax, the remaining user-input functions, symbol-table and dictionary access, control flow and list processing, string and number conversion, geometry helpers, environment and configuration access, graphics-screen primitives, prompt and file I/O functions, file-system functions, loading and namespace functions, symbols and the registry, error objects and the blackboard, plus the conventions for defining commands and arithmetic/comparison operators. Signatures follow the AutoLISP Reference.",
+  "tools": [
+    {
+      "name": "command-s",
+      "kind": "function",
+      "description": "Executes AutoCAD commands like (command) but runs them to completion in a separate context: the command sequence must be complete (no pauses with PAUSE, no partially entered commands) and it may be called from contexts where (command) is not allowed, including *error* handlers and, with restrictions, session-context routines. (vl-cmdf) is a middle ground - it evaluates all its arguments first (so errors in argument expressions surface before the command starts) but otherwise behaves like (command). Use command-s for deterministic, script-like sequences and (command) when the user must interact.",
+      "usage": "(command-s \"cmdname\" [arguments ...])\n(vl-cmdf \"cmdname\" [arguments ...])\nArguments: strings, numbers, points (lists), entity names, selection sets, \"\" for Enter; \"_\" prefix for English names, \".\" prefix to bypass redefinitions",
+      "parameters": [
+        {"name": "restrictions", "description": "command-s cannot contain PAUSE, cannot be used for a command that then waits for input, and cannot be mixed with (command) in the same command sequence; it returns T or raises an error."},
+        {"name": "*error* usage", "description": "command-s is the only command function allowed inside *error* handlers since 2015 - typically to end an undo group or reset a layer."},
+        {"name": "vl-cmdf", "description": "Fails cleanly if an argument evaluation errors (command would have started the command and left it half done)."}
+      ],
+      "example": "(defun c:CLEANUP ( / *error*)\n  (defun *error* (msg)\n    (command-s \"_.UNDO\" \"_E\")\n    (if (not (wcmatch (strcase msg) \"*BREAK*,*CANCEL*,*EXIT*\")) (princ (strcat \"\\nError: \" msg)))\n    (princ))\n  (command-s \"_.UNDO\" \"_BE\")\n  (command-s \"_.-PURGE\" \"_A\" \"*\" \"_N\")\n  (command-s \"_.AUDIT\" \"_Y\")\n  (command-s \"_.UNDO\" \"_E\")\n  (princ))",
+      "notes": "Introduced in AutoCAD 2015 together with the *push-error-using-command* / *push-error-using-stack* functions that declare how a routine's error handler will call commands. In the Core Console all three forms work. AutoCAD LT (2024+) supports them too.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "*error*",
+      "kind": "function",
+      "description": "The user-definable error handler: when an AutoLISP error or Esc occurs, AutoCAD calls the function bound to the symbol *error* with the error message string, instead of printing the default message and unwinding. Defining it locally inside a command function (declared in the / local list) is the standard pattern for restoring system variables, closing files, ending undo groups and cancelling commands cleanly; the previous handler is restored automatically when the function exits because the symbol was local.",
+      "usage": "(defun *error* (msg) ...)   ; msg is a string such as \"Function cancelled\", \"quit / exit abort\", \"bad argument type\"\nInside: restore settings, (command-s \"_.UNDO\" \"_E\"), (princ), and optionally (vl-bt) for a backtrace during development\n*push-error-using-command* / *push-error-using-stack* / *pop-error-mode*: declare (2015+) whether the handler uses (command) (legacy) or command-s/stack mode",
+      "parameters": [
+        {"name": "msg", "description": "Error text; common ones to silence: \"Function cancelled\", \"quit / exit abort\", \"console break\"."},
+        {"name": "local declaration", "description": "(defun c:X ( / *error* oldos) ...) makes the handler local so the global handler returns afterwards."},
+        {"name": "(exit) / (quit)", "description": "Force an error to abort a routine; both invoke *error* with \"quit / exit abort\"."}
+      ],
+      "example": "(defun c:SAFEOFFSET ( / *error* oldos oldcl)\n  (defun *error* (m)\n    (if oldos (setvar \"OSMODE\" oldos))\n    (if oldcl (setvar \"CLAYER\" oldcl))\n    (if (not (member m '(\"Function cancelled\" \"quit / exit abort\")))\n      (princ (strcat \"\\nError: \" m)))\n    (princ))\n  (setq oldos (getvar \"OSMODE\") oldcl (getvar \"CLAYER\"))\n  (setvar \"OSMODE\" 0)\n  (command \"_.OFFSET\" 250 (car (entsel)) pause \"\")\n  (setvar \"OSMODE\" oldos)\n  (princ))",
+      "notes": "Never call (command) inside the handler unless *push-error-using-command* was declared; use command-s. Errors inside reactors do not reach *error* - wrap callbacks in vl-catch-all-apply. vl-bt and vl-catch-all-error-message help diagnose during development.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "entmakex",
+      "kind": "function",
+      "description": "Creates an entity (or non-graphical object) from a DXF association list like entmake, but returns the new entity name instead of the list, and can create objects with no owner (such as an Xrecord or a dictionary object to be added later) - which is why it is the preferred constructor in modern code: the name is immediately available for entmod, xdata or for adding the object to a dictionary. Objects made with no owner must be attached to something or they are dropped on save.",
+      "usage": "(entmakex elist)  -> ename or nil\nelist: '((0 . \"LINE\") (8 . \"WALL\") (10 0.0 0.0 0.0) (11 100.0 0.0 0.0)) - group 0 required, 100 subclass markers optional for most entities, 62/6/370 for colour/linetype/lineweight, 330 owner optional",
+      "parameters": [
+        {"name": "return", "description": "The entity name; nil on failure (invalid list, missing required group)."},
+        {"name": "ownerless objects", "description": "(entmakex '((0 . \"XRECORD\") (100 . \"AcDbXrecord\") (1 . \"data\"))) creates an object to (dictadd) into a dictionary."},
+        {"name": "block definitions", "description": "Sequence BLOCK ... entities ... ENDBLK works with entmake; with entmakex each call returns the names of the parts."}
+      ],
+      "example": "; make a layer-aware circle and immediately attach xdata\n(regapp \"MYAPP\")\n(setq c (entmakex '((0 . \"CIRCLE\") (8 . \"HOLES\") (10 50.0 50.0 0.0) (40 . 6.5))))\n(entmod (append (entget c) '((-3 (\"MYAPP\" (1000 . \"M12 tapped\"))))))",
+      "notes": "Entities are created in the current space (model or paper) unless group 410 (layout) or an owner (330) is given. For text-like entities include the style (7) and height (40); for LWPOLYLINE include 100 \"AcDbPolyline\", 90 (vertex count) and 70 (closed flag) before the 10 groups.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "entdel",
+      "kind": "function",
+      "description": "Deletes an entity, or restores it if it was deleted earlier in the same session (the erase is reversible until the drawing is saved or the session ends) - so calling entdel twice on the same name undeletes it. entupd regenerates the display of a single entity after entmod on a complex object (polyline vertices, attributes of a block) when the screen did not refresh, without a full REGEN.",
+      "usage": "(entdel ename)  -> ename (toggles erased state)\n(entupd ename)  -> ename (redraws the entity and its sub-entities)",
+      "parameters": [
+        {"name": "block components / attributes", "description": "entdel cannot delete sub-entities (ATTRIB, VERTEX) individually; delete the parent."},
+        {"name": "erased test", "description": "(entget e) returns nil for an erased entity; (vlax-erased-p obj) in the ActiveX layer."}
+      ],
+      "example": "; erase every text on layer TEMP\n(if (setq ss (ssget \"_X\" '((0 . \"TEXT\") (8 . \"TEMP\"))))\n  (repeat (setq i (sslength ss))\n    (entdel (ssname ss (setq i (1- i))))))\n\n; update a polyline after editing its vertices with entmod\n(entupd pl)",
+      "notes": "The ActiveX equivalent is (vla-Delete obj), which is not reversible by entdel. OOPS/UNDO restore entdel'ed objects as well. entupd is also needed after entmod of an ATTRIB to refresh the block's display.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "entnext",
+      "kind": "function",
+      "description": "Returns the entity name following a given one in the database (or the first entity in the drawing when called with no argument), walking model and paper space entities in creation order and descending into the sub-entities of old-style polylines (VERTEX) and attributed blocks (ATTRIB) up to the SEQEND. It is how attributes of an INSERT are read and how the whole database is scanned when ssget filters are not enough.",
+      "usage": "(entnext [ename])  -> ename or nil at the end\nPattern to read attributes: (setq e (entnext blkref)) (while (and e (= \"ATTRIB\" (cdr (assoc 0 (entget e))))) ... (setq e (entnext e)))",
+      "parameters": [
+        {"name": "no argument", "description": "First non-deleted entity in the drawing."},
+        {"name": "sub-entities", "description": "After an INSERT with group 66 = 1 come ATTRIB entities then SEQEND; after a POLYLINE come VERTEX entities then SEQEND."},
+        {"name": "entlast", "description": "Returns the last non-deleted main entity (not sub-entities) - typically the object a command just created."}
+      ],
+      "example": "; collect tag/value pairs of a block reference\n(defun getatts (blk / e d out)\n  (setq e (entnext blk))\n  (while (and e (= \"ATTRIB\" (cdr (assoc 0 (setq d (entget e))))))\n    (setq out (cons (cons (cdr (assoc 2 d)) (cdr (assoc 1 d))) out)\n          e   (entnext e)))\n  (reverse out))",
+      "notes": "entnext walks all spaces and blocks' entities are not visited (block definitions are reached via tblobjname). Erased entities are skipped. For speed on large drawings prefer ssget with filters.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "nentsel",
+      "kind": "function",
+      "description": "Like entsel but returns the nested entity under the pick - the line inside a block or xref rather than the INSERT - together with the pick point, a 4x3 transformation matrix from the nested entity's coordinate system to the WCS and the list of containing block references (innermost first). nentselp takes a point instead of prompting and returns a 4x4 matrix. They are the basis of XLIST-style tools, of copying nested geometry and of picking attributes directly.",
+      "usage": "(nentsel [msg])  -> (ename pickpoint) for top-level objects, or (ename pickpoint (matrix 4x3) (container-enames...)) for nested ones\n(nentselp [msg] [pt])  -> (ename pickpoint (matrix 4x4) (container-enames...))\nAttributes: picking an attribute returns the ATTRIB entity name (no matrix)",
+      "parameters": [
+        {"name": "matrix", "description": "Multiply nested-entity coordinates by it (nentselp's 4x4 is convenient for homogeneous transforms) to get WCS points; the list's last container is the outermost INSERT."},
+        {"name": "polyline vertices", "description": "For old-style polylines nentsel returns the VERTEX picked."}
+      ],
+      "example": "(defun c:NLAYER ( / r e d)\n  (if (setq r (nentsel \"\\nSelect nested object: \"))\n    (progn\n      (setq e (car r) d (entget e))\n      (princ (strcat \"\\nType: \" (cdr (assoc 0 d)) \"  Layer: \" (cdr (assoc 8 d))))\n      (if (caddr r) (princ (strcat \"  in block: \" (cdr (assoc 2 (entget (last (cadddr r))))))))))\n  (princ))",
+      "notes": "Objects inside xrefs are returned by name too but cannot be modified with entmod (xref databases are read-only from the host). initget keywords work with nentsel as with entsel.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "ssadd",
+      "kind": "function",
+      "description": "Creates a new empty selection set, or adds an entity to an existing set (returning the set); ssdel removes an entity from a set and ssmemb tests membership. Sets are how LISP hands groups of objects to (command) and how filtered subsets are built by hand when ssget's filter syntax cannot express the condition (e.g. 'circles with radius greater than the average').",
+      "usage": "(ssadd)                -> new empty set\n(ssadd ename [ss])     -> set containing ename (added to ss when given)\n(ssdel ename ss)       -> ss without ename (nil if not a member)\n(ssmemb ename ss)      -> ename if member, nil otherwise",
+      "parameters": [
+        {"name": "limit", "description": "A session may have at most 128 selection sets open; set variables to nil (or reuse) so they are garbage collected."},
+        {"name": "erased entities", "description": "Adding an erased entity is allowed but commands ignore it."}
+      ],
+      "example": "; build a subset of circles larger than 10\n(setq ss (ssget \"_X\" '((0 . \"CIRCLE\"))) big (ssadd) i -1)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (if (> (cdr (assoc 40 (entget e))) 10.0) (ssadd e big)))\n(sssetfirst nil big)",
+      "notes": "ssadd returns the same set object (sets are mutable), so (setq big (ssadd e big)) is unnecessary but harmless. Selection sets cannot be stored between sessions; store handles instead.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "ssnamex",
+      "kind": "function",
+      "description": "Returns detailed selection information for a member of a selection set that was made interactively: how it was selected (pick, window, crossing, fence...), the pick point and the sub-entity/polygon data - including, for a pick, the point picked on the object. It is what tools like 'break at the picked point' or 'offset to the picked side' need after an ssget with user picks.",
+      "usage": "(ssnamex ss [index])  -> list of (ename selection-method-id (pick-data...)) entries; with index, the data for that member only\nSelection method ids: 0 non-graphical, 1 pick, 2 window, 3 window polygon, 4 crossing, 5 crossing polygon, 6 fence",
+      "parameters": [
+        {"name": "pick data", "description": "For a pick: (0 (point) ...) where the point is the pick location in WCS; for window/crossing: the polygon corners are reported as separate entries with negative ids."}
+      ],
+      "example": "(setq ss (ssget \":S\" '((0 . \"LINE\"))))   ; single pick\n(setq info (ssnamex ss 0))\n(setq pt (cadr (caddr (car info))))       ; the picked point on the line\n(command \"_.BREAKATPOINT\" (ssname ss 0) pt)",
+      "notes": "Only meaningful for interactive ssget calls (not \"_X\" or point-list selections). The structure is nested; inspect it with (princ) during development.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "sssetfirst",
+      "kind": "function",
+      "description": "Sets which objects are selected and gripped before a command runs: (sssetfirst nil ss) highlights ss with grips as if the user had picked it (PICKFIRST selection), (sssetfirst nil nil) clears the selection. Routines use it to show their result, to pre-select objects for the next command, and to implement 'select similar' helpers; the first argument (gripped set) is obsolete and always nil.",
+      "usage": "(sssetfirst nil ss)   -> (nil ss) ; ss becomes the current pickfirst selection with grips\n(sssetfirst nil nil)  -> clears selection and grips",
+      "parameters": [
+        {"name": "GRIPOBJLIMIT", "description": "Grips are not shown when the set exceeds this limit, but the objects are still selected."},
+        {"name": "PICKFIRST", "description": "Must be 1 for the next command to use the pre-selected set."}
+      ],
+      "example": "(defun c:SELTEXTLAYER ( / e ss)\n  (if (setq e (car (entsel \"\\nPick a text: \")))\n    (progn\n      (setq ss (ssget \"_X\" (list '(0 . \"TEXT,MTEXT\") (assoc 8 (entget e)))))\n      (sssetfirst nil ss)\n      (princ (strcat \"\\n\" (itoa (sslength ss)) \" text objects selected.\"))))\n  (princ))",
+      "notes": "Calling sssetfirst while a command is active is not allowed. The ActiveX equivalent is (vla-SelectOnScreen) / the PickfirstSelectionSet property.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "getcorner",
+      "kind": "function",
+      "description": "Prompts for the second corner of a rectangle, dragging a rubber-band box from a given base point, and returns the point in the current UCS - the way ZOOM Window-style or region-selection prompts are written. Unlike getpoint it needs the base point as its first argument; initget bits control whether Enter/null is allowed and whether the point may lie outside LIMITS.",
+      "usage": "(getcorner pt [msg])  -> point (list x y z) or nil on Enter\n(initget 1) before it to disallow a null response",
+      "parameters": [
+        {"name": "pt", "description": "Base corner in UCS coordinates (a 2D or 3D list)."},
+        {"name": "msg", "description": "Prompt string; start with \\n for a new line."}
+      ],
+      "example": "(setq p1 (getpoint \"\\nFirst corner: \")\n      p2 (getcorner p1 \"\\nOpposite corner: \"))\n(setq ss (ssget \"_W\" p1 p2))",
+      "notes": "The box is drawn in the UCS plane. Keyboard coordinates typed at the prompt are accepted like at any point prompt (relative @ notation included).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "getdist",
+      "kind": "function",
+      "description": "Prompts for a distance, accepting either a typed real (in the current LUNITS format, so 3'6\" works in architectural drawings) or two picked points (dragging a rubber band from an optional base point) and returns a real number. getreal and getint are the plain numeric prompts (no point picking, no unit parsing for getreal beyond decimal), all three honouring initget bits (1 no null, 2 no zero, 4 no negative) and initget keywords.",
+      "usage": "(getdist [pt] [msg])   -> real or nil\n(getreal [msg])        -> real or nil\n(getint [msg])         -> integer or nil (rejects non-integers with 'Requires an integer value')\n(initget bits [keywords]) beforehand: 1 no null, 2 no zero, 4 no negative, 32 dashed rubber band, 64 ignore Z (2D distance), 128 return arbitrary input",
+      "parameters": [
+        {"name": "pt", "description": "Optional base point: the prompt then shows a rubber band and only one more point is needed."},
+        {"name": "default value", "description": "Not built in - show it in the prompt and substitute when nil is returned: (if (null d) (setq d 250.0))."},
+        {"name": "units", "description": "getdist parses feet/inches and fractions per LUNITS; getreal does not."}
+      ],
+      "example": "(initget 6)   ; no zero, no negative (null allowed for default)\n(setq w (getdist \"\\nWall thickness <250>: \"))\n(if (null w) (setq w 250.0))\n\n(initget 7)\n(setq n (getint \"\\nNumber of copies: \"))",
+      "notes": "getdist returns a 3D distance unless initget 64 is set. The ActiveX counterparts are (vla-GetDistance util pt prompt), GetReal, GetInteger on the Utility object.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "getkword",
+      "kind": "function",
+      "description": "Prompts for a keyword from the list defined by the preceding (initget) call and returns the matching keyword string (the full keyword as listed, whatever abbreviation was typed) or nil on Enter; any other input is rejected with 'Invalid option keyword'. It is how LISP commands present [Option1/Option2] style choices, including dynamic-input menus, and with the localised/global keyword syntax it works in any language version.",
+      "usage": "(initget [bits] \"Keyword1 Keyword2 ...\")\n(getkword [msg])  -> \"Keyword1\" | ... | nil\nKeyword syntax: \"Yes No\" (capitals mark the required abbreviation: \"Yes\" accepts Y or YES); \"LAyer LType\" needs LA / LT; global names: \"Yes No _Yes _No\" (local list, then _ global list)",
+      "parameters": [
+        {"name": "bits", "description": "1 disallows Enter (forces a choice)."},
+        {"name": "prompt format", "description": "Include the options in the prompt yourself: \"\\nKeep original? [Yes/No] <Yes>: \" - the [..] and <..> also feed the dynamic input menu."}
+      ],
+      "example": "(initget \"Yes No\")\n(setq ans (getkword \"\\nErase originals? [Yes/No] <No>: \"))\n(if (= ans \"Yes\") (command \"_.ERASE\" ss \"\"))\n\n; keywords with other get functions\n(initget \"Diameter\" )\n(setq r (getdist \"\\nRadius or [Diameter]: \"))\n(if (= r \"Diameter\") (setq r (/ (getdist \"\\nDiameter: \") 2.0)))",
+      "notes": "Every get* function (getpoint, getdist, getint...) can return a keyword when initget defined one - test for a string result with (= (type r) 'STR). Keywords are case-insensitive; the returned string uses the list's spelling.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "getangle",
+      "kind": "function",
+      "description": "Prompts for an angle, typed in the current AUNITS format or shown by two picked points, and returns it in radians measured counterclockwise from the UCS X axis - it applies ANGBASE but ignores ANGDIR, so it is right for geometric operations (polar). getorient returns the angle including both ANGBASE and ANGDIR, i.e. the value as the user perceives it in a drawing with north-up or clockwise settings, which is what ROTATE-style prompts should use.",
+      "usage": "(getangle [pt] [msg])   -> radians (ANGBASE applied, ANGDIR ignored) or nil\n(getorient [pt] [msg])  -> radians (ANGBASE and ANGDIR applied) or nil\n(initget 1) to force input; keywords allowed",
+      "parameters": [
+        {"name": "pt", "description": "Optional base point for a rubber-band angle."},
+        {"name": "conversion", "description": "(* 180 (/ a pi)) degrees; (angtos a) formats per AUNITS; (angtof \"45d30'\") parses."}
+      ],
+      "example": "(setq a (getangle \"\\nDirection of the wall: \"))\n(setq p2 (polar p1 a 3000.0))\n\n; user-facing rotation in a drawing with ANGDIR 1\n(setq r (getorient \"\\nRotation: \"))\n(command \"_.ROTATE\" ss \"\" p1 (angtos r))",
+      "notes": "In a drawing with default ANGBASE 0 / ANGDIR 0 both functions return the same value. Typed input like 45 is interpreted in degrees (or the current AUNITS), never radians.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "tblnext",
+      "kind": "function",
+      "description": "Iterates the entries of a symbol table (LAYER, LTYPE, STYLE, BLOCK, DIMSTYLE, UCS, VIEW, VPORT, APPID): the first call with rewind = T returns the first entry's DXF list, subsequent calls return the next one, nil at the end. tblobjname returns the entity name of a table entry (so it can be entget/entmod'ed or converted with vlax-ename->vla-object), and tblsearch finds one entry by name. Together they list layers, enumerate blocks or walk text styles without ActiveX.",
+      "usage": "(tblnext \"table-name\" [rewind])  -> DXF list ((0 . \"LAYER\") (2 . \"WALL\") (70 . 0) (62 . 1) (6 . \"Continuous\") ...) or nil\n(tblobjname \"table-name\" \"entry-name\")  -> ename\n(tblsearch \"table-name\" \"entry-name\" [setnext])  -> DXF list or nil",
+      "parameters": [
+        {"name": "rewind", "description": "T restarts from the first entry; omit or nil to continue after the last returned entry (tblsearch with setnext T also positions the iterator)."},
+        {"name": "BLOCK table", "description": "Entries include anonymous (*U, *D, *X) and xref blocks; group 70 bits: 1 anonymous, 2 has attributes, 4 xref, 16 overlay, 64 referenced; group -2 is the first entity of the definition."},
+        {"name": "modifying entries", "description": "(entmod (subst (cons 62 3) (assoc 62 l) (setq l (entget (tblobjname \"LAYER\" \"WALL\"))))) changes a layer's colour."}
+      ],
+      "example": "; list all layer names\n(setq l (tblnext \"LAYER\" T) names nil)\n(while l\n  (setq names (cons (cdr (assoc 2 l)) names)\n        l (tblnext \"LAYER\")))\n(reverse names)\n\n; freeze a layer through its table object\n(setq e (tblobjname \"LAYER\" \"XREF-NOTES\") d (entget e))\n(entmod (subst (cons 70 (logior 1 (cdr (assoc 70 d)))) (assoc 70 d) d))",
+      "notes": "tblnext skips erased entries; deleted layers in the same session may still appear until purged. Layer 0 is always first. The ActiveX collections (vla-get-Layers) are simpler for property changes but tblnext is faster for large enumerations.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "dictsearch",
+      "kind": "function",
+      "description": "Looks up an entry by name in a dictionary object (given its entity name) and returns the entry's DXF list; dictadd adds an object (Xrecord, dictionary, group, layout...) to a dictionary under a key, dictremove removes one, dictnext iterates, dictrename renames, and namedobjdict returns the drawing's root Named Objects Dictionary through which ACAD_GROUP, ACAD_LAYOUT, ACAD_MLINESTYLE, ACAD_PLOTSETTINGS, ACAD_TABLESTYLE and application dictionaries are reached. This is the mechanism for storing custom per-drawing data (Xrecords) and for reading layouts, groups and styles without ActiveX.",
+      "usage": "(namedobjdict)                       -> ename of the root dictionary\n(dictsearch dict-ename \"KEY\" [setnext]) -> DXF list of the entry (group 350/360 handles resolve via (cdr (assoc -1 ...)))\n(dictadd dict-ename \"KEY\" obj-ename)   -> obj-ename\n(dictremove dict-ename \"KEY\")          -> removed ename\n(dictnext dict-ename [rewind])         -> next entry list\n(dictrename dict-ename \"OLD\" \"NEW\")",
+      "parameters": [
+        {"name": "Xrecord", "description": "(entmakex '((0 . \"XRECORD\") (100 . \"AcDbXrecord\") (1 . \"text\") (40 . 1.5) (70 . 2))) - any group codes 1-369 can carry data."},
+        {"name": "extension dictionaries", "description": "Per-object dictionaries: group 360 of an entity with (102 . \"{ACAD_XDICTIONARY\"); create with (entmod) of a new DICTIONARY and attach - or use vlax-ldata-put for simplicity."},
+        {"name": "ACAD_LAYOUT", "description": "Entries are LAYOUT objects; (layoutlist) is the shortcut for names."}
+      ],
+      "example": "; store project data in a custom dictionary\n(defun setproj (key val / nod dict xr)\n  (setq nod (namedobjdict))\n  (if (not (setq dict (dictsearch nod \"MYAPP_DATA\")))\n    (progn\n      (setq dict (entmakex '((0 . \"DICTIONARY\") (100 . \"AcDbDictionary\"))))\n      (dictadd nod \"MYAPP_DATA\" dict))\n    (setq dict (cdr (assoc -1 dict))))\n  (if (dictsearch dict key) (dictremove dict key))\n  (setq xr (entmakex (list '(0 . \"XRECORD\") '(100 . \"AcDbXrecord\") (cons 1 val))))\n  (dictadd dict key xr))\n(setproj \"PROJECT\" \"P-1042\")\n(cdr (assoc 1 (dictsearch (cdr (assoc -1 (dictsearch (namedobjdict) \"MYAPP_DATA\"))) \"PROJECT\")))",
+      "notes": "Dictionary names are case-insensitive, up to 255 characters. Data in the named objects dictionary is preserved by WBLOCK only if the dictionary is referenced; extension dictionaries travel with their objects. vlax-ldata-* functions wrap the same mechanism for LISP data.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "layoutlist",
+      "kind": "function",
+      "description": "Returns the names of all paper-space layouts in the current drawing as a list of strings (Model is not included), in tab order. It is the standard loop driver for batch plotting, for setting CTAB to each layout and for checking whether a layout exists before LAYOUT operations.",
+      "usage": "(layoutlist)  -> (\"Layout1\" \"A1-01\" \"A1-02\")",
+      "parameters": [
+        {"name": "current layout", "description": "(getvar \"CTAB\") returns the active tab (\"Model\" or a layout name); (setvar \"CTAB\" name) switches."},
+        {"name": "ActiveX", "description": "(vla-get-Layouts doc) gives Layout objects with plot settings; (vla-get-ActiveLayout doc)."}
+      ],
+      "example": "(foreach lay (layoutlist)\n  (setvar \"CTAB\" lay)\n  (command \"_.-PLOT\" \"_N\" lay \"DWG To PDF.pc3\" (strcat \"C:/out/\" lay \".pdf\") \"_N\" \"_Y\"))",
+      "notes": "Uninitialised layouts (never activated) are listed too; plotting them may need a page setup. Layout names are case-preserving but compared case-insensitively.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "if",
+      "kind": "function",
+      "description": "Conditional evaluation: (if test then [else]) evaluates the test; a non-nil result evaluates the then-expression, otherwise the optional else-expression. Because each branch takes a single expression, several actions are wrapped in (progn ...), which evaluates its expressions in sequence and returns the last value. cond is the multi-branch alternative and (and)/(or) short-circuit combinations often replace nested ifs.",
+      "usage": "(if testexpr thenexpr [elseexpr])\n(progn expr1 expr2 ...)  -> value of the last expr\n(and e1 e2 ...) -> nil at the first nil, else T ; (or e1 e2 ...) -> first non-nil value",
+      "parameters": [
+        {"name": "truth", "description": "Only nil (and the empty list) is false; 0, \"\" and T are true."},
+        {"name": "return value", "description": "if returns the value of the evaluated branch, nil if there is no else and the test is nil."}
+      ],
+      "example": "(if (setq e (car (entsel)))\n  (progn\n    (setq d (entget e))\n    (princ (strcat \"\\nLayer: \" (cdr (assoc 8 d))))\n    (princ (strcat \"\\nType: \" (cdr (assoc 0 d)))))\n  (princ \"\\nNothing selected.\"))",
+      "notes": "A common bug is forgetting progn and having the second action become the else branch. (if (and a b) ...) is idiomatic; (when)/(unless) do not exist in AutoLISP.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "repeat",
+      "kind": "function",
+      "description": "Evaluates its body a fixed number of times (the count is evaluated once, before the loop) and returns the value of the last expression of the last iteration - the counted loop of AutoLISP, used with a counter variable when the index is needed (repeat n (setq i (1+ i)) ...) or with sslength to walk selection sets. while is the conditional loop and foreach/mapcar the list iterators.",
+      "usage": "(repeat n expr ...)  -> value of the last expr in the last iteration (nil for n = 0)\nn must be a non-negative integer",
+      "parameters": [
+        {"name": "index pattern", "description": "(setq i -1) (repeat (sslength ss) (setq e (ssname ss (setq i (1+ i)))) ...) - the count is read once, so modifying ss inside is safe."}
+      ],
+      "example": "; number 10 labels\n(setq p (getpoint \"\\nStart: \") n 0)\n(repeat 10\n  (setq n (1+ n))\n  (entmakex (list '(0 . \"TEXT\") (cons 10 p) '(40 . 2.5) (cons 1 (itoa n))))\n  (setq p (polar p (* 1.5 pi) 5.0)))",
+      "notes": "Passing a real (10.0) raises 'bad argument type'; use (fix). For very large counts prefer while with an explicit condition for readability.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "lambda",
+      "kind": "function",
+      "description": "Defines an anonymous function for immediate use with mapcar, apply, vl-sort, vl-remove-if and the other higher-order functions, avoiding a named defun for one-off logic; the quote form '(lambda ...) is accepted but (function (lambda ...)) lets the Visual LISP compiler compile it. apply calls a function with a list of arguments, and function/quote control evaluation of symbols and lists.",
+      "usage": "(lambda (args) body ...)                  ; anonymous function\n(mapcar '(lambda (x) (* x 2)) '(1 2 3))    -> (2 4 6)\n(apply 'fn arglist)                        ; (apply '+ '(1 2 3)) -> 6\n(function fn) / (quote expr) / 'expr       ; suppress evaluation; function hints the compiler",
+      "parameters": [
+        {"name": "closures", "description": "AutoLISP has dynamic scope, so a lambda sees variables bound at call time, including locals of the enclosing defun."},
+        {"name": "apply vs mapcar", "description": "apply spreads one list as arguments to one call; mapcar calls the function once per element (with parallel lists for multiple arguments)."}
+      ],
+      "example": "; total length of all lines in a set\n(setq ss (ssget \"_X\" '((0 . \"LINE\"))) i -1 lens nil)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq lens (cons ((lambda (d) (distance (cdr (assoc 10 d)) (cdr (assoc 11 d)))) (entget e)) lens)))\n(apply '+ lens)\n\n; sort points by X\n(vl-sort pts (function (lambda (a b) (< (car a) (car b)))))",
+      "notes": "mapcar with two lists stops at the shorter one. A lambda cannot be referenced later unless assigned with setq (then it behaves like a defun'ed function).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "append",
+      "kind": "function",
+      "description": "Concatenates any number of lists into one new list; together with cons (add to the front), list (build from elements), car/cdr and their combinations (cadr = second, caddr = third, cddr = rest after two), nth (index from 0), last, length, reverse and member these are the list primitives that all AutoLISP data handling - point lists, DXF association lists, selection results - is built on. Association lists are handled with assoc and subst.",
+      "usage": "(append l1 l2 ...)  -> merged list          (cons item list) -> list with item in front ; (cons a b) -> dotted pair\n(list a b c)        -> (a b c)              (car l) first ; (cdr l) rest ; (cadr l) second ; (caddr l) third ; (cddr l) rest after second\n(nth i l)           -> element i (0-based)  (last l) ; (length l) ; (reverse l) ; (member item l) -> tail starting at item or nil\n(vl-list* a b '(c d)) -> (a b c d)          (vl-list-length l) -> length or nil for dotted lists",
+      "parameters": [
+        {"name": "points", "description": "A point is a list (x y [z]); (car p) x, (cadr p) y, (caddr p) z; build with (list x y z)."},
+        {"name": "DXF pairs", "description": "(assoc 10 elist) -> (10 x y z); (cdr ...) gives the point; (cons 8 \"LAYER\") builds a pair for subst/append."},
+        {"name": "cost", "description": "append copies its arguments except the last - building long lists with append in a loop is O(n^2); cons then reverse instead."}
+      ],
+      "example": "(setq pts (list '(0 0) '(10 0) '(10 5)))\n(setq pts (append pts (list '(0 5))))       ; add at the end\n(setq pts (cons '(-5 -5) pts))               ; add at the front\n(nth 2 pts)                                  ; (10 0)\n(length pts)                                 ; 5\n(mapcar 'car pts)                            ; all X values",
+      "notes": "Equality for member/assoc uses equal semantics for numbers within fuzz 0; for points from different calculations compare with (equal a b 1e-6).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "vl-remove",
+      "kind": "function",
+      "description": "Returns a copy of a list without every element equal to the given item; vl-remove-if removes elements for which a predicate returns non-nil and vl-remove-if-not keeps only those (a filter). They are the list-filtering trio of Visual LISP and replace manual while/cons loops for cleaning point lists, layer names or DXF data.",
+      "usage": "(vl-remove item list)          -> list without item\n(vl-remove-if 'pred list)      -> list without elements where (pred x) is non-nil\n(vl-remove-if-not 'pred list)  -> list of elements where (pred x) is non-nil",
+      "parameters": [
+        {"name": "pred", "description": "A function symbol or (lambda (x) ...) taking one argument."},
+        {"name": "equality", "description": "vl-remove compares with equal semantics (numbers by value, lists structurally)."}
+      ],
+      "example": "; layer names that are not xref-dependent\n(vl-remove-if '(lambda (n) (wcmatch n \"*|*\")) names)\n\n; keep only points above y = 0\n(vl-remove-if-not '(lambda (p) (> (cadr p) 0.0)) pts)\n\n; drop nils from mapcar results\n(vl-remove nil (mapcar 'process items))",
+      "notes": "None of them modify the original list. For association lists filtered by key use vl-remove-if with (= (car x) code).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "vl-member-if",
+      "kind": "function",
+      "description": "Returns the tail of a list starting at the first element for which the predicate is non-nil (vl-member-if-not for the first where it is nil); vl-some returns the first non-nil predicate result over one or more lists, vl-every returns T if the predicate holds for every element, and vl-position returns the index of an item. These are the search/test functions that make loops unnecessary for 'is there any', 'do all' and 'where is' questions.",
+      "usage": "(vl-member-if 'pred list)      -> tail from the first match, or nil\n(vl-member-if-not 'pred list)  -> tail from the first non-match\n(vl-some 'pred list [list2 ...]) -> first non-nil result of (pred x) or nil\n(vl-every 'pred list [list2 ...]) -> T if all non-nil\n(vl-position item list)        -> zero-based index or nil",
+      "parameters": [
+        {"name": "multiple lists", "description": "vl-some / vl-every take parallel lists like mapcar: (vl-every '= l1 l2) tests element-wise equality."}
+      ],
+      "example": "; does the drawing have any locked layer?\n(vl-some '(lambda (l) (= 4 (logand 4 (cdr (assoc 70 l))))) layers)\n\n; are all selected objects on layer 0?\n(vl-every '(lambda (e) (= \"0\" (cdr (assoc 8 (entget e))))) enames)\n\n; index of a layout in the tab order\n(vl-position \"A1-02\" (layoutlist))",
+      "notes": "vl-some returns the predicate's value (not the element) - wrap to return the element: (car (vl-member-if ...)). Requires the Visual LISP extensions (always loaded in modern releases; call (vl-load-com) for the vla-/vlax- ActiveX functions only).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "strcase",
+      "kind": "function",
+      "description": "Converts a string to upper case (default) or, with a non-nil second argument, to lower case - essential before comparing user input or layer names, which AutoCAD treats case-insensitively. substr extracts a substring by 1-based start position and length, strlen returns the byte length (character count for ASCII), and wcmatch performs wildcard pattern matching (*, ?, #, @, ., ~, [..], comma-separated alternatives) - the same wildcards ssget filters and layer names accept.",
+      "usage": "(strcase str [lower])   -> \"UPPER\" or \"lower\"\n(substr str start [len]) -> substring; start is 1-based; len omitted = to the end\n(strlen str ...)         -> total length in bytes\n(wcmatch str \"pattern\") -> T or nil  ; patterns: * any, ? one char, # digit, @ letter, . non-alphanumeric, ~ not, [a-z] set, \"A*,B*\" alternatives",
+      "parameters": [
+        {"name": "case-insensitive compare", "description": "(= (strcase a) (strcase b))."},
+        {"name": "wcmatch escaping", "description": "Precede a special character with a backtick to match it literally: \"`*LAYER\"."},
+        {"name": "Unicode", "description": "In LISPSYS 1 (Unicode LISP) strlen counts characters; in classic mode multi-byte characters count as 2 bytes."}
+      ],
+      "example": "(if (wcmatch (strcase (cdr (assoc 8 d))) \"A-WALL*,A-DOOR*\") (princ \"\\nArchitectural\"))\n(substr \"P-1042-A1-01\" 3 4)   ; \"1042\"\n(strcase \"Layer\" T)          ; \"layer\"",
+      "notes": "substr with a start beyond the string returns \"\". wcmatch patterns longer than 500 characters are truncated. For find/replace use vl-string-subst.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "itoa",
+      "kind": "function",
+      "description": "Converts an integer to its decimal string; atoi parses a string to an integer (stopping at the first non-digit, 0 if none) and atof to a real. The unit-aware family handles drawing formats: rtos formats a real per LUNITS/LUPREC or explicit mode and precision (2 decimal, 4 architectural...), distof parses a distance string in a given units mode (returns nil if invalid - the way to validate typed distances), angtos formats an angle in radians per AUNITS (or explicit mode 0 degrees, 1 deg/min/sec, 2 grads, 3 radians, 4 surveyor) and angtof parses one back to radians.",
+      "usage": "(itoa int)                    -> \"12\"\n(atoi \"12abc\")                -> 12 ; (atof \"3.5e2\") -> 350.0\n(rtos real [mode [precision]]) -> \"1'-6 1/2\\\"\" etc.; modes 1 scientific, 2 decimal, 3 engineering, 4 architectural, 5 fractional\n(distof \"1'6\\\"\" 4)            -> 18.0 or nil if unparsable\n(angtos rad [mode [precision]]) -> \"45.00\" ; (angtof \"45d30'\" [mode]) -> radians",
+      "parameters": [
+        {"name": "DIMZIN influence", "description": "rtos suppresses zeros according to DIMZIN (e.g. 8 drops trailing zeros) - set it or pad manually when a fixed format is required."},
+        {"name": "UNITMODE", "description": "1 makes rtos/angtos output in the input format (e.g. 1'6\" as 1'6\")."},
+        {"name": "validation", "description": "(distof s) and (angtof s) return nil on bad input, unlike atof which returns 0.0."}
+      ],
+      "example": "(rtos 1234.5678 2 2)   ; \"1234.57\"\n(rtos 18.5 4 8)        ; \"1'-6 1/2\\\"\"\n(angtos (/ pi 4) 0 1)  ; \"45.0\"\n(setq v (distof (getstring \"\\nLength: \")))\n(if (null v) (alert \"Not a valid distance\"))",
+      "notes": "rtos and angtos results depend on drawing settings unless mode and precision are given explicitly - always give them in library code. itoa on a real errors; use (rtos r 2 0) or (fix).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "read",
+      "kind": "function",
+      "description": "Parses a string as an AutoLISP expression and returns the first object in it - a symbol, number, list or string - which is how data written with prin1 into files or Xrecords is turned back into LISP data, and how a user-typed expression is evaluated with (eval (read s)). vl-prin1-to-string and vl-princ-to-string do the reverse: render any object into a string as prin1 (with quotes/escapes, re-readable) or princ (plain) would print it.",
+      "usage": "(read \"(1 2 3)\")          -> (1 2 3)\n(read \"WALL\")             -> WALL (a symbol) ; (read \"\\\"text\\\"\") -> \"text\"\n(eval (read \"(+ 2 3)\"))   -> 5\n(vl-prin1-to-string obj)  -> \"\\\"abc\\\"\" for a string, \"(1.0 2.0)\" for a list\n(vl-princ-to-string obj)  -> \"abc\", \"(1.0 2.0)\"",
+      "parameters": [
+        {"name": "round trip", "description": "Write with (write-line (vl-prin1-to-string data) f), read back with (read (read-line f)) - strings and nested lists survive."},
+        {"name": "symbols", "description": "read upcases symbols (AutoLISP symbols are case-insensitive) and interns them."}
+      ],
+      "example": "; save a settings list to a file and restore it\n(setq f (open \"C:/tmp/settings.txt\" \"w\"))\n(write-line (vl-prin1-to-string (list 2.5 \"NOTES\" '(0 0 0))) f)\n(close f)\n(setq f (open \"C:/tmp/settings.txt\" \"r\") data (read (read-line f)))\n(close f)\n(cadr data)   ; \"NOTES\"",
+      "notes": "read on user input is a code-injection risk if the string is then eval'ed; validate first. Numbers with a trailing period (1.) are read as reals.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "vl-string-search",
+      "kind": "function",
+      "description": "Finds the position of a substring (0-based, nil if absent) and heads the Visual LISP string toolkit: vl-string-subst replaces the first occurrence of a substring (loop for all), vl-string-translate maps characters one-to-one, vl-string-trim / vl-string-left-trim / vl-string-right-trim strip a set of characters from the ends, vl-string->list and vl-list->string convert between strings and character-code lists, vl-string-elt returns the code at a position, vl-string-position finds a character code, vl-string-mismatch compares prefixes and vl-string-reverse/vl-string-right/vl-string-left do the obvious.",
+      "usage": "(vl-string-search \"pat\" str [start])  -> index or nil\n(vl-string-subst \"new\" \"old\" str [start]) -> str with the first 'old' replaced\n(vl-string-translate \"from\" \"to\" str)  -> char-by-char mapping\n(vl-string-trim \" \\t\" str) ; (vl-string-left-trim \"0\" \"00042\") -> \"42\"\n(vl-string->list \"AB\") -> (65 66) ; (vl-list->string '(65 66)) -> \"AB\"\n(vl-string-elt str pos) -> char code ; (vl-string-position code str) -> index\n(vl-string-right str n) -> last n characters (there is no vl-string-left; use (substr str 1 n))",
+      "parameters": [
+        {"name": "replace all", "description": "(while (vl-string-search old s) (setq s (vl-string-subst new old s))) - guard against new containing old (infinite loop) by using the start argument."},
+        {"name": "case", "description": "All searches are case-sensitive; strcase both sides for insensitive matching."},
+        {"name": "split", "description": "There is no split function; write one with vl-string-search in a loop or use (read) with a quoted list."}
+      ],
+      "example": "; replace all\n(defun str-replace-all (new old s / i)\n  (setq i 0)\n  (while (setq i (vl-string-search old s i))\n    (setq s (vl-string-subst new old s i) i (+ i (strlen new))))\n  s)\n(str-replace-all \"-\" \"_\" \"A_WALL_EXTR\")   ; \"A-WALL-EXTR\"\n\n; split on comma\n(defun str-split (s d / i out)\n  (while (setq i (vl-string-search d s))\n    (setq out (cons (substr s 1 i) out) s (substr s (+ i 1 (strlen d)))))\n  (reverse (cons s out)))",
+      "notes": "Indexes are 0-based unlike substr (1-based). For regular expressions use the VBScript.RegExp COM object via vlax-create-object.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "distance",
+      "kind": "function",
+      "description": "Returns the 3D distance between two points (2D if either has no Z); angle returns the angle in radians of the line from the first to the second point measured counterclockwise from the X axis of the current UCS; inters returns the intersection point of two lines (segments by default, or infinite lines when the optional flag is nil) or nil. With polar they are the everyday geometry helpers of AutoLISP; all take UCS points unless converted with trans.",
+      "usage": "(distance pt1 pt2)        -> real\n(angle pt1 pt2)           -> radians 0..2pi\n(inters p1 p2 p3 p4 [onseg]) -> point or nil ; onseg nil treats both as infinite lines\n(polar pt ang dist)       -> point",
+      "parameters": [
+        {"name": "2D vs 3D", "description": "angle ignores Z; distance uses Z when both points have it - flatten with (list (car p) (cadr p)) for planar checks."},
+        {"name": "coplanarity", "description": "inters requires coplanar lines in 3D; otherwise nil."}
+      ],
+      "example": "; midpoint and length of a picked line\n(setq d (entget (car (entsel))) a (cdr (assoc 10 d)) b (cdr (assoc 11 d)))\n(setq mid (mapcar '(lambda (x y) (/ (+ x y) 2.0)) a b))\n(distance a b)\n(angle a b)\n\n; extend two walls to their corner\n(setq c (inters a b p q nil))",
+      "notes": "angle returns 0 for coincident points. Distances are in drawing units regardless of INSUNITS. For perpendicular distance from a point to a line combine (inters) with a perpendicular direction via (polar pt (+ ang (/ pi 2)) 1).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "osnap",
+      "kind": "function",
+      "description": "Returns the point obtained by applying an object snap mode string (\"_end\", \"_mid\", \"_cen\", \"_int\", \"_per\", \"_nea\", \"_qua\", \"_tan\", \"_nod\", \"_ins\" or combinations \"_end,_int\") to a point - it snaps to the nearest object within the aperture as the cursor would, which is how routines find the true endpoint near a rough point or test 'is there an intersection here'. textbox returns the bounding box (two diagonal points relative to the text insertion, in the text's own coordinate system) of a TEXT or MTEXT entity from its DXF list - the basis for background masks, frames and collision checks.",
+      "usage": "(osnap pt \"_mode[,mode...]\")  -> point or nil (no object within APERTURE)\n(textbox elist)  -> ((xmin ymin 0) (xmax ymax 0)) relative to the insertion point and rotation; elist can be a partial list like '((1 . \"Sample\") (40 . 2.5) (7 . \"STANDARD\"))",
+      "parameters": [
+        {"name": "APERTURE", "description": "Snap search radius in pixels - osnap depends on the current zoom; zoom in or set APERTURE larger in code."},
+        {"name": "textbox for MTEXT", "description": "Works from 2000i on; the box is the paragraph extents, ignoring background mask."},
+        {"name": "rotated text", "description": "Transform the two corners with (polar) by the text rotation (group 50) about the insertion (group 10) to get WCS corners."}
+      ],
+      "example": "; snap a rough point to the nearest endpoint\n(setq p (osnap (getpoint \"\\nNear a corner: \") \"_end\"))\n\n; draw a rectangle around a text\n(setq d (entget (car (entsel))) tb (textbox d) ins (cdr (assoc 10 d)) r (cdr (assoc 50 d)))\n(setq ll (car tb) ur (cadr tb))\n(command \"_.RECTANG\" (polar (polar ins r (car ll)) (+ r (/ pi 2)) (cadr ll)) (polar (polar ins r (car ur)) (+ r (/ pi 2)) (cadr ur)))",
+      "notes": "osnap uses the objects visible on screen; off-screen geometry is not found. For text with justification other than left, group 10 is still the reference for textbox's coordinates (the function accounts for justification internally via group 11 when present).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "cvunit",
+      "kind": "function",
+      "description": "Converts a value (number, or a 2D/3D point list) from one unit of measurement to another using the definitions in acad.unt - lengths (inch, foot, mm, cm, m, km, mile), areas, volumes, angles, mass, time, and many more, including compound units like \"inch/second\". It is the way to write unit-aware routines (e.g. convert a length to the drawing's INSUNITS) without hard-coding factors.",
+      "usage": "(cvunit value \"from\" \"to\")  -> converted value, or nil if the units are unknown or incompatible\nUnit names as in acad.unt: \"inch\" \"in\" \"ft\" \"mm\" \"cm\" \"m\" \"km\" \"mile\" \"sq_m\" \"sq_ft\" \"cu_m\" \"gallon\" \"degree\" \"radian\" \"lb\" \"kg\" \"hour\" ...",
+      "parameters": [
+        {"name": "points", "description": "(cvunit '(1 2 3) \"ft\" \"m\") converts each coordinate."},
+        {"name": "INSUNITS names", "description": "Map INSUNITS codes to unit names yourself: 1 \"inch\", 2 \"ft\", 4 \"mm\", 5 \"cm\", 6 \"m\"."}
+      ],
+      "example": "(cvunit 1.0 \"inch\" \"mm\")     ; 25.4\n(cvunit 100 \"sq_ft\" \"sq_m\")  ; 9.290304\n(cvunit 1 \"acre\" \"sq_m\")     ; 4046.8564\n(cvunit 90 \"degree\" \"radian\") ; 1.5708",
+      "notes": "acad.unt can be extended with custom units (it is a text file on the support path). Temperature scales with offsets are not supported.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "getenv",
+      "kind": "function",
+      "description": "Reads an environment/registry setting by name - Windows environment variables and, more importantly, the AutoCAD configuration values stored in the profile such as \"ACAD\" (support paths), \"PrinterConfigDir\", \"PrinterStyleSheetDir\", \"TemplatePath\", \"MaxHatch\", \"MaxArray\" - and setenv writes them. getcfg/setcfg read and write string values in the AppData section of the acad.cfg-style registry area, the traditional place for per-user application settings before vl-registry-read/write.",
+      "usage": "(getenv \"name\")           -> string or nil\n(setenv \"name\" \"value\")   -> value (creates the entry if missing)\n(getcfg \"AppData/Section/Key\") -> string or nil\n(setcfg \"AppData/Section/Key\" \"value\") -> value\nUseful names: \"ACAD\", \"ACADPLOTTERS\"? - use \"PrinterConfigDir\", \"PrinterDescDir\", \"PrinterStyleSheetDir\", \"TemplatePath\", \"MaxHatch\" (hatch line limit), \"MaxArray\" (array limit), \"TEMP\", \"USERPROFILE\"",
+      "parameters": [
+        {"name": "case", "description": "Names are case-sensitive for AutoCAD settings (\"MaxHatch\" not \"MAXHATCH\")."},
+        {"name": "persistence", "description": "setenv values persist in the current profile; getcfg/setcfg values persist in the registry under the FixedProfile/General AppData key."}
+      ],
+      "example": "(getenv \"PrinterStyleSheetDir\")   ; folder of CTB files\n(setenv \"MaxHatch\" \"1000000\")     ; allow denser hatches (HPMAXLINES is the sysvar equivalent since 2011)\n(setcfg \"AppData/MyTools/LastLayer\" \"A-WALL\")\n(getcfg \"AppData/MyTools/LastLayer\")",
+      "notes": "getenv of a Windows variable returns the process value at startup. For structured or shared settings prefer vl-registry-write or an external config file in ROAMABLEROOTPREFIX.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "grread",
+      "kind": "function",
+      "description": "Reads raw input from the pointing device and keyboard - cursor motion, clicks, keys - without the normal prompt processing, returning a code and data for each event; it is the basis of custom dragging (e.g. showing a rubber-banded rectangle with grvecs while the mouse moves), custom cursor menus and interactive jigs in pure LISP. With tracking enabled it returns every cursor movement; the optional cursor type argument replaces the crosshair.",
+      "usage": "(grread [track] [allkeys] [curtype])  -> (code data)\nCodes: 2 keyboard character (data = ASCII code) ; 3 point picked (data = point) ; 5 cursor moved (data = point, when track is T) ; 6 pull-down/screen menu ; 11 shortcut menu ; 12 second button click ; 25 right-click/Enter (allkeys bit 2) ; 8 ? ...\nallkeys bits: 1 return drag mode coordinates, 2 return all keys (Esc/Enter as codes instead of errors), 4 use curtype, 8 do not display error on Esc\ncurtype: 0 normal crosshair, 1 no cursor, 2 object-selection box",
+      "parameters": [
+        {"name": "Esc handling", "description": "Without allkeys bit 2, Esc raises an error ('Function cancelled') - handle it in *error*."},
+        {"name": "coordinates", "description": "Points are in the current UCS; convert with trans if needed."}
+      ],
+      "example": "; drag a rectangle from p1 until a click\n(defun c:DRAGBOX ( / p1 g p2)\n  (setq p1 (getpoint \"\\nFirst corner: \"))\n  (while (and (setq g (grread T 15 0)) (= 5 (car g)))\n    (redraw)\n    (setq p2 (cadr g))\n    (grvecs (list 7 p1 (list (car p2) (cadr p1)) (list (car p2) (cadr p1)) p2 p2 (list (car p1) (cadr p2)) (list (car p1) (cadr p2)) p1)))\n  (redraw)\n  (if (= 3 (car g)) (command \"_.RECTANG\" p1 (cadr g)))\n  (princ))",
+      "notes": "grread loops must call (redraw) to clear temporary graphics and should exit on code 3 (click) or 2 (key). Dynamic input and osnaps are not active inside grread; implement snapping with (osnap). For robust jigs use .NET EntityJig.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "grvecs",
+      "kind": "function",
+      "description": "Draws temporary vectors (lines) in the current viewport from a list of colour codes and point pairs, optionally transformed by a 4x4 matrix - fast temporary graphics for previews and markers that disappear on the next REDRAW/REGEN; grdraw draws one temporary line with optional highlight, grtext writes text into the status line (or screen menu area, historically), and redraw clears the viewport or highlights/unhighlights one entity (modes 1-4). None of these create database objects.",
+      "usage": "(grvecs vlist [trans])  ; vlist: (color p1 p2 [color] p3 p4 ...) - a colour number applies until the next colour; negative colours are XOR/highlight, -1 = highlight\n(grdraw p1 p2 color [highlight])  ; highlight 1 draws dashed-highlighted\n(grtext [box text [highlight]])   ; (grtext -1 \"Working...\") writes to the status bar; (grtext) restores it\n(redraw [ename [mode]])           ; no args: redraw the current viewport; mode 1 redraw entity, 2 undraw (hide), 3 highlight, 4 unhighlight",
+      "parameters": [
+        {"name": "coordinates", "description": "Points are in the current UCS; with a transformation matrix (list of 4 lists) they are transformed first."},
+        {"name": "persistence", "description": "Temporary graphics vanish on REDRAW, REGEN, zoom or pan; redraw them in grread loops."},
+        {"name": "redraw modes", "description": "(redraw e 3) highlights an entity persistently until (redraw e 4) - used to show what a routine found."}
+      ],
+      "example": "; mark the centres of all circles temporarily\n(setq ss (ssget \"_X\" '((0 . \"CIRCLE\"))) i -1 v nil)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq c (cdr (assoc 10 (entget e))))\n  (setq v (append v (list 1 (polar c 0 5) (polar c pi 5) 1 (polar c (/ pi 2) 5) (polar c (* 1.5 pi) 5)))))\n(grvecs v)\n(grtext -1 (strcat (itoa (sslength ss)) \" circles marked\"))",
+      "notes": "grvecs colours use ACI numbers; the vectors are drawn with the display's XOR semantics in some modes, so drawing twice erases. Not available in the Core Console (no display) - guard with (getvar \"SCREENSIZE\").",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "prompt",
+      "kind": "function",
+      "description": "Displays a message on the command line (in the prompt area) and returns nil - versus princ/prin1/print which print any expression and return it: princ prints strings without quotes (for users), prin1 with quotes and escapes (re-readable, for files), print like prin1 but preceded by a newline and followed by a space. alert shows a modal message box, terpri outputs a newline and (princ) with no argument is the idiom at the end of a command function to suppress the printing of the last return value.",
+      "usage": "(prompt \"text\")                 -> nil ; text shown on the command line\n(princ [expr [file]]) / (prin1 [expr [file]]) / (print [expr [file]])  -> expr\n(alert \"message\")               -> nil ; message box with OK\n(terpri)                        -> nil ; newline\n(princ)                         -> suppresses the trailing nil/value echo at the end of a routine",
+      "parameters": [
+        {"name": "\\n and \\t", "description": "Escape sequences in strings: \\n newline, \\t tab, \\\\ backslash, \\\" quote, \\e escape, \\U+XXXX Unicode."},
+        {"name": "file argument", "description": "A file descriptor from (open ... \"w\") sends the output to the file."},
+        {"name": "NOMUTT", "description": "Set to 1 to suppress command prompts during a routine; prompt/princ output still appears."}
+      ],
+      "example": "(defun c:HELLO ()\n  (prompt \"\\nHello from AutoLISP.\")\n  (princ (strcat \"\\nDrawing: \" (getvar \"DWGNAME\")))\n  (alert \"Done.\")\n  (princ))\n\n; write re-readable data\n(prin1 '(\"a\" 1.5) f)",
+      "notes": "princ of a real prints with the current precision limits (up to 6 significant digits in some cases); use rtos for controlled formatting. In the Core Console all output goes to the console stream.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "read-line",
+      "kind": "function",
+      "description": "Reads one line (without the newline) from a file opened with (open ... \"r\"), returning nil at end of file; write-line writes a string plus newline to a file opened for \"w\" (overwrite) or \"a\" (append); read-char/write-char handle single characters (as ASCII codes) and close releases the handle - forgetting close leaves the file locked until AutoCAD exits. This trio plus open is all of AutoLISP's file I/O and covers CSV import/export, logs, and settings files.",
+      "usage": "(setq f (open \"path\" \"r\" | \"w\" | \"a\"))  -> file descriptor or nil\n(read-line f)         -> string or nil (EOF)\n(write-line \"text\" f) -> \"text\"\n(read-char f) -> code ; (write-char code f)\n(close f)             -> nil",
+      "parameters": [
+        {"name": "paths", "description": "Use forward slashes or doubled backslashes: \"C:/data/list.csv\" or \"C:\\\\data\\\\list.csv\"."},
+        {"name": "encoding", "description": "Files are read as ANSI (system code page) in classic LISP; LISPSYS 1 reads UTF-8 with BOM."},
+        {"name": "binary", "description": "Not supported; use read-char on bytes only for small files (values 0-255)."}
+      ],
+      "example": "; write a CSV of block insert points\n(setq f (open \"C:/out/blocks.csv\" \"w\"))\n(write-line \"Name,X,Y\" f)\n(setq ss (ssget \"_X\" '((0 . \"INSERT\"))) i -1)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq d (entget e) p (cdr (assoc 10 d)))\n  (write-line (strcat (cdr (assoc 2 d)) \",\" (rtos (car p) 2 3) \",\" (rtos (cadr p) 2 3)) f))\n(close f)\n\n; read it back line by line\n(setq f (open \"C:/out/blocks.csv\" \"r\"))\n(read-line f)   ; header\n(while (setq l (read-line f)) (princ (strcat \"\\n\" l)))\n(close f)",
+      "notes": "open returns nil (not an error) when the file cannot be opened - test it. Always close in the *error* handler too. For large files vl-file-* functions give size/existence checks and (vl-directory-files) lists folders.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "findfile",
+      "kind": "function",
+      "description": "Searches for a file on the AutoCAD support path (ACADPREFIX folders, the current drawing folder and the working folder) and returns its full path or nil - the standard existence check before load/open. The Visual LISP file-system functions complete the picture: vl-file-copy, vl-file-delete, vl-file-rename, vl-file-directory-p, vl-file-size, vl-file-systime (modification time), vl-filename-base / vl-filename-directory / vl-filename-extension (path parsing), vl-filename-mktemp (temporary file name), vl-mkdir and vl-directory-files (list a folder with a wildcard and a type filter).",
+      "usage": "(findfile \"name.ext\" | \"full path\")  -> full path or nil\n(vl-file-copy \"src\" \"dst\" [append]) ; (vl-file-delete \"path\") ; (vl-file-rename \"old\" \"new\")\n(vl-file-directory-p \"path\") -> T if a folder ; (vl-file-size \"path\") -> bytes or nil ; (vl-file-systime \"path\") -> (year month dow day hour min sec)\n(vl-filename-base \"C:/a/b.dwg\") -> \"b\" ; (vl-filename-directory ...) -> \"C:/a\" ; (vl-filename-extension ...) -> \".dwg\"\n(vl-filename-mktemp [pattern [dir [ext]]]) -> unique temp path\n(vl-mkdir \"C:/out\") -> T ; (vl-directory-files [\"dir\" [\"*.dwg\" [type]]]) -> list of names ; type -1 folders only, 0 both, 1 files only",
+      "parameters": [
+        {"name": "findfile with a path", "description": "Given an absolute path it simply tests existence; given a bare name it searches the support paths - so library code should pass bare names."},
+        {"name": "wildcards", "description": "vl-directory-files accepts * and ? patterns; results are names without the directory."}
+      ],
+      "example": "; process every DWG in a folder (names only)\n(setq dir \"C:/proj/1042/sheets\")\n(foreach n (vl-directory-files dir \"*.dwg\" 1)\n  (princ (strcat \"\\n\" dir \"/\" n \"  \" (itoa (vl-file-size (strcat dir \"/\" n))) \" bytes\")))\n\n; load a helper only if present\n(if (findfile \"office_lib.lsp\") (load \"office_lib\"))\n\n; backup before overwrite\n(if (findfile out) (vl-file-copy out (strcat out \".bak\")))",
+      "notes": "vl-file-copy fails (nil) if the destination exists unless append is T. vl-file-systime returns nil for missing files. Opening other drawings from LISP is not possible in the same document - use ObjectDBX (vla-GetInterfaceObject \"ObjectDBX.AxDbDocument.25\") or a script for batch work.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "load",
+      "kind": "function",
+      "description": "Loads and evaluates an AutoLISP source (.lsp), compiled (.fas) or application (.vlx) file, searching the support path when no path is given, and returns the value of the last expression (or the optional on-failure value instead of raising an error). autoload registers commands so that typing them loads the file on first use (the mechanism acad.mnl files use for large libraries), and vl-load-all loads a file into every open document. Loading order at startup is acad.rx, acad<ver>.lsp, acad.lsp, acad<ver>doc.lsp, acaddoc.lsp, CUIx .mnl files, then the Startup Suite and bundles.",
+      "usage": "(load \"filename\" [onfailure])  -> last value, or onfailure if the file cannot be loaded (otherwise an error)\n(autoload \"filename\" '(\"CMD1\" \"CMD2\"))  -> nil ; defines stub commands that load the file when invoked\n(vl-load-all \"filename\")  -> loads into all open documents\nSECURELOAD/TRUSTEDPATHS: files outside trusted folders trigger a security prompt or are refused",
+      "parameters": [
+        {"name": "extension resolution", "description": "Without an extension, .vlx then .fas then .lsp are tried."},
+        {"name": "onfailure", "description": "Any value; returning it lets startup files continue when an optional module is missing."},
+        {"name": "per-document loading", "description": "LISP runs per drawing (unless vl-load-all or the session namespace); acaddoc.lsp is the per-drawing hook, acad.lsp the per-session one (ACADLSPASDOC)."}
+      ],
+      "example": "; acaddoc.lsp\n(load \"office_lib\" \"office_lib.lsp not found\")\n(autoload \"bigtools\" '(\"CLEANUP\" \"RENUMBER\" \"XREFFIX\"))\n\n; in code\n(if (not (member \"office_lib\" (mapcar 'strcase (vl-list-loaded-vlx)))) (load \"office_lib\"))",
+      "notes": "load evaluates the whole file, so top-level (command) calls run immediately - keep files to defuns. Since 2014, SECURELOAD 1 blocks loading from untrusted folders and acad.lsp in the drawing's folder unless LEGACYCODESEARCH is 1.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "vl-symbol-name",
+      "kind": "function",
+      "description": "Returns the name of a symbol as a string (vl-symbol-value its current value, vl-symbolp whether an object is a symbol) - the reflection functions used to build symbols dynamically, write settings by variable name, and check whether a function is defined (boundp / (type fn)). set (as opposed to setq) assigns to a symbol computed at run time, and (read) turns a string into a symbol. vl-consp, listp, atom and type classify data; (type x) returns INT, REAL, STR, LIST, SYM, ENAME, PICKSET, FILE, SUBR, USUBR, VLA-OBJECT, VARIANT, SAFEARRAY.",
+      "usage": "(vl-symbol-name 'sym)   -> \"SYM\"\n(vl-symbol-value 'sym)  -> value\n(vl-symbolp obj)        -> T | nil\n(set (read \"NAME\") value) ; assign by computed name\n(type x) -> 'INT 'REAL 'STR 'LIST 'SYM 'ENAME 'PICKSET 'FILE 'SUBR 'USUBR 'VLA-OBJECT ...\n(boundp 'sym) -> T if bound to a non-nil value ; (atom x) ; (listp x) ; (vl-consp x) -> T for a non-empty list",
+      "parameters": [
+        {"name": "function defined?", "description": "(if (member (type c:MYCMD) '(SUBR USUBR EXRXSUBR)) ...) or simply (if c:MYCMD ...) since an unbound symbol is nil."},
+        {"name": "settings by name", "description": "(foreach v '(\"OSMODE\" \"ORTHOMODE\") (set (read (strcat \"old-\" v)) (getvar v))) saves variables into old-OSMODE etc."}
+      ],
+      "example": "; save and restore a list of system variables generically\n(defun save-vars (names) (mapcar '(lambda (n) (cons n (getvar n))) names))\n(defun restore-vars (alist) (foreach p alist (setvar (car p) (cdr p))))\n(setq saved (save-vars '(\"OSMODE\" \"CLAYER\" \"CMDECHO\")))\n(restore-vars saved)\n\n(vl-symbol-name 'c:hello)   ; \"C:HELLO\"",
+      "notes": "Symbols are upcased internally; vl-symbol-name returns the upper-case name. set on a protected symbol (built-in function) is refused when the symbol is protected (vl-symbol protection in the VLIDE / NOMUTT etc.).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "vl-registry-read",
+      "kind": "function",
+      "description": "Reads a value from the Windows registry (a key path and an optional value name; without a value name the default value) and vl-registry-write writes a string or integer, creating keys as needed; vl-registry-delete removes a value or key and vl-registry-descendents lists subkeys or value names. They are used for persistent per-user application settings (under HKEY_CURRENT_USER\\Software\\YourCompany), for reading AutoCAD's own profile keys (HKEY_CURRENT_USER\\Software\\Autodesk\\AutoCAD\\R25.0\\ACAD-8101:409\\Profiles\\...) and for finding installed products.",
+      "usage": "(vl-registry-read \"HKEY_CURRENT_USER\\\\Software\\\\MyCo\\\\Tool\" \"LastLayer\")  -> string/integer or nil\n(vl-registry-write \"HKEY_CURRENT_USER\\\\Software\\\\MyCo\\\\Tool\" \"LastLayer\" \"A-WALL\")\n(vl-registry-delete \"key\" [\"valuename\"])\n(vl-registry-descendents \"key\" [\"\"])  -> subkeys; with \"\" as second arg -> value names\nAutoCAD product key: (strcat \"HKEY_CURRENT_USER\\\\\" (vlax-product-key))",
+      "parameters": [
+        {"name": "hives", "description": "HKEY_CURRENT_USER is writable; HKEY_LOCAL_MACHINE requires elevation and is read-only in practice."},
+        {"name": "types", "description": "Strings and 32-bit integers only; no binary or multi-string values."}
+      ],
+      "example": "(setq key (strcat \"HKEY_CURRENT_USER\\\\Software\\\\MyCo\\\\Renumber\"))\n(vl-registry-write key \"Start\" 100)\n(setq start (vl-registry-read key \"Start\"))\n; where is the current profile?\n(vl-registry-read (strcat \"HKEY_CURRENT_USER\\\\\" (vlax-product-key) \"\\\\Profiles\") \"\")",
+      "notes": "Registry settings do not roam with drawings; for project settings use a file or dictionary. Keep keys under your own company path to avoid interfering with AutoCAD's.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "vl-catch-all-error-p",
+      "kind": "function",
+      "description": "Tests whether the value returned by vl-catch-all-apply is an error object (T) or a normal result (nil); vl-catch-all-error-message extracts the error text from such an object. Together they implement try/catch in AutoLISP: any error inside the protected call (ActiveX failures, bad data, nil entities) is captured instead of aborting the routine, so the code can report, skip the object and continue - mandatory inside reactor callbacks and batch loops.",
+      "usage": "(setq r (vl-catch-all-apply 'fn (list arg1 arg2 ...)))\n(if (vl-catch-all-error-p r)\n    (princ (strcat \"\\nError: \" (vl-catch-all-error-message r)))\n    ;; use r\n)",
+      "parameters": [
+        {"name": "error object", "description": "Type VL-CATCH-ALL-APPLY-ERROR; print it with vl-catch-all-error-message; it carries no code number."},
+        {"name": "Esc", "description": "A user cancel (Esc) inside the protected call is also caught - test the message for 'Function cancelled' if it must propagate."}
+      ],
+      "example": "; robustly explode every block, skipping those that refuse\n(vl-load-com)\n(setq ss (ssget \"_X\" '((0 . \"INSERT\"))) i -1 bad 0)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq r (vl-catch-all-apply 'vla-Explode (list (vlax-ename->vla-object e))))\n  (if (vl-catch-all-error-p r)\n    (progn (setq bad (1+ bad)) (princ (strcat \"\\nSkipped: \" (vl-catch-all-error-message r))))))\n(princ (strcat \"\\n\" (itoa bad) \" blocks could not be exploded.\"))",
+      "notes": "vl-catch-all-apply takes a function symbol (or lambda) and an argument list, not a form. It does not catch ObjectARX fatal errors or AutoCAD crashes.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "vl-bb-ref",
+      "kind": "function",
+      "description": "Reads a variable from the blackboard - a namespace shared by all open drawings and the session - and vl-bb-set writes one; because AutoLISP variables normally live per document, the blackboard (and vl-propagate, which copies a variable's current value into every open document and the blackboard) is how settings are shared across drawings. vl-doc-export makes a function visible to the document from a separate-namespace VLX, vl-doc-ref / vl-doc-set read and write document variables from such a VLX, and vl-arx-import imports ObjectARX-defined functions into a VLX namespace.",
+      "usage": "(vl-bb-set 'symbol value)  -> value ; (vl-bb-ref 'symbol) -> value or nil\n(vl-propagate 'symbol)     -> copies the current value to all documents and the blackboard\n(vl-doc-export 'fn)        ; in a separate-namespace VLX: expose fn (usually c:commands) to the document\n(vl-doc-ref 'symbol) / (vl-doc-set 'symbol value)  ; access document variables from the VLX namespace\n(vl-arx-import 'fn | \"app.arx\")  ; make ARX-defined LISP functions callable inside the VLX",
+      "parameters": [
+        {"name": "per-document scope", "description": "A setq in one drawing is invisible in another; new drawings start with a fresh namespace unless acaddoc.lsp or vl-propagate provides values."},
+        {"name": "MDI-aware apps", "description": "Store counters, licences and user choices on the blackboard; store drawing-specific state in the document or a dictionary."}
+      ],
+      "example": "; remember the last scale chosen across drawings\n(defun c:SETSCALE ( / s)\n  (initget 6)\n  (setq s (getreal (strcat \"\\nScale <\" (rtos (cond ((vl-bb-ref 'myapp:scale)) (100.0)) 2 0) \">: \")))\n  (if s (vl-bb-set 'myapp:scale s))\n  (princ))\n\n; in another drawing\n(vl-bb-ref 'myapp:scale)",
+      "notes": "The blackboard is cleared when AutoCAD exits. Values must be plain LISP data (no entity names, which are per-drawing). Separate-namespace VLX files are created with MAKELISPAPP / the Make Application wizard with 'Separate namespace' checked.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "c: prefix (defining commands)",
+      "kind": "reference",
+      "description": "Conventions for turning a LISP function into an AutoCAD command: (defun c:NAME () ...) defines command NAME (typed without the c:), it takes no arguments, is called from the command line, menus and scripts, and normally ends with (princ) to avoid echoing a value. Local variables and the *error* handler are declared after a slash in the parameter list; system variables that the command changes are saved and restored; (vl-load-com) is called once when ActiveX functions are used; and command names should avoid clashing with built-ins (test with (getcname) or check acad.pgp aliases). Functions without c: are ordinary subroutines callable from other LISP or with (command \"(myfunc)\") is not possible - use (c:NAME) or the -function form from menus.",
+      "usage": "(defun c:NAME ( / local1 local2 *error*)\n  (defun *error* (m) ... (princ))\n  ;; save state, do work, restore state\n  (princ))\n\nCall from a CUI macro: ^C^C_NAME  or  ^C^C(c:NAME)\nCall from a script: NAME (then its prompts)\nCall from LISP: (c:NAME)\nUndefine/redefine built-ins: UNDEFINE / REDEFINE commands; (command \"_.NAME\") always runs the built-in",
+      "parameters": [
+        {"name": "arguments", "description": "Commands take none; read input with get* functions. Helper functions with arguments are plain defuns."},
+        {"name": "return value", "description": "Whatever the last expression returns is printed unless it is (princ); from menus use (c:NAME) to get the value."},
+        {"name": "localisation", "description": "Use \"_.COMMAND\" and \"_Option\" inside (command) so the routine works on non-English AutoCAD."},
+        {"name": "Core Console", "description": "c: commands work; avoid dialogs and grread/grvecs. Load the file with (load) in the script or via acaddoc.lsp."}
+      ],
+      "example": "(vl-load-com)\n(defun c:ZE ( / ) (command \"_.ZOOM\" \"_E\") (princ))          ; tiny alias\n\n(defun c:LAYFIX ( / *error* cl ss)\n  (defun *error* (m) (if cl (setvar \"CLAYER\" cl)) (princ))\n  (setq cl (getvar \"CLAYER\"))\n  (if (setq ss (ssget '((0 . \"TEXT,MTEXT\"))))\n    (command \"_.CHPROP\" ss \"\" \"_LA\" \"A-ANNO-TEXT\" \"\"))\n  (setvar \"CLAYER\" cl)\n  (princ))",
+      "notes": "A c: function defined in acaddoc.lsp exists in every drawing; one defined interactively exists only in that drawing. Names longer than 31 characters and names with spaces are not usable as commands. In AutoCAD LT (2024+) LISP commands work the same way.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "rem",
+      "kind": "function",
+      "description": "Returns the remainder of a division; part of the arithmetic set: + - * / (integer arithmetic when all arguments are integers - (/ 7 2) is 3, so write 2.0), 1+ and 1-, expt (power), sqrt, abs, min, max, fix (truncate to integer), float, gcd, exp/log (natural), sin/cos/atan (radians; (atan y x) two-argument form gives the full-circle angle), and the bit functions logand, logior, lsh (shift) and boole. There is no round function - use (fix (+ x 0.5)) or rtos - and no tan (use sin/cos).",
+      "usage": "(rem 7 2) -> 1 ; (rem 7.5 2) -> 1.5\n(/ 7 2) -> 3 (integer!) ; (/ 7 2.0) -> 3.5\n(expt 2 10) -> 1024 ; (sqrt 2) -> 1.41421 ; (abs -3) -> 3 ; (min 1 2 3) ; (max ...)\n(fix 3.7) -> 3 ; (float 3) -> 3.0 ; (gcd 12 18) -> 6\n(sin a) (cos a) (atan y x) (exp x) (log x)\n(logand 4133 1) ; (logior 1 2) ; (lsh 1 3) -> 8\npi = 3.14159265...",
+      "parameters": [
+        {"name": "rounding", "description": "(defun round (x prec) (* prec (fix (+ 0.5 (/ x (float prec)))))) rounds to a precision; watch negative numbers."},
+        {"name": "overflow", "description": "Integers are 32-bit; large products silently become reals or overflow - use reals for coordinates."},
+        {"name": "OSMODE bits", "description": "(logand (getvar \"OSMODE\") 16384) tests the 'osnap off' bit; (logior) adds modes."}
+      ],
+      "example": "(setq n (fix (/ 1000.0 250)))        ; 4 modules\n(setq deg (* 180.0 (/ ang pi)))       ; radians to degrees\n(setq a (atan (- y2 y1) (- x2 x1)))   ; direction angle, all quadrants\n(setq r (* 0.01 (fix (+ 0.5 (* 100 x)))))  ; round to 2 decimals",
+      "notes": "Integer division and integer overflow are the two classic numeric bugs in AutoLISP. Comparisons of reals should use (equal a b fuzz).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "=",
+      "kind": "function",
+      "description": "Numeric/string equality that accepts any number of arguments (all equal) and is complemented by /= (not equal), < > <= >= (monotonic comparisons over any number of arguments), eq (same object - identical list or symbol, not just equal contents), equal (structural equality with an optional fuzz tolerance for reals and points), and the logical functions and/or/not/null (null and not are the same test for nil), zerop, minusp, numberp, listp, atom, boundp. Choosing the right one matters: = on lists compares only whether both are nil-ish, so points must be compared with equal.",
+      "usage": "(= a b ...) -> T if all numbers/strings are equal\n(/= a b) ; (< a b c) ; (> a b) ; (<= a b) ; (>= a b)\n(eq a b)          -> T only for the same object (symbols, identical bindings)\n(equal a b [fuzz]) -> T for structurally equal values; (equal 1.0000001 1.0 1e-6) -> T\n(and ...) (or ...) (not x) (null x) (zerop n) (minusp n) (numberp x) (listp x) (atom x) (boundp 'sym)",
+      "parameters": [
+        {"name": "strings", "description": "= on strings is case-sensitive; strcase first for names."},
+        {"name": "points", "description": "(equal p1 p2 1e-8) - never = ; coordinates from different calculations differ in the last bits."},
+        {"name": "wcmatch", "description": "Pattern-based string comparison for names with wildcards."}
+      ],
+      "example": "(if (equal (cdr (assoc 10 d1)) (cdr (assoc 10 d2)) 1e-6) (princ \"\\nSame start point\"))\n(if (and ss (> (sslength ss) 0)) ...)\n(cond ((= ans \"Yes\") ...) ((= ans \"No\") ...) (T ...))",
+      "notes": "(= '(1 2) '(1 2)) returns T only because both are non-nil equal atoms? No - = on two lists compares them as objects and returns T only when they are the same list; use equal. (and) with no arguments returns T, (or) returns nil.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    },
+    {
+      "name": "ssget filter lists (-4 relational tests)",
+      "kind": "reference",
+      "description": "The filter-list syntax of (ssget): an association list of DXF group codes and values that every selected entity must match, with wildcards in string values, relational operators introduced by (-4 . \"<\") style pairs, and logical grouping with (-4 . \"<AND\") ... (-4 . \"AND>\"), \"<OR\", \"<NOT\", \"<XOR\". Combined with the selection modes (\"_X\" all, \"_W\"/\"_C\" window/crossing with two points, \"_P\" previous, \"_L\" last, \"_I\" implied/pickfirst, \"_F\" fence, \"_WP\"/\"_CP\" polygons, \":S\" single, \":L\" no locked layers, \":E\" everything in the aperture, \"_A\" all including frozen? no - \"_X\" scans the database and includes frozen/off layers) it is the fastest way to find objects by property.",
+      "usage": "(ssget [mode] [pts] [filter])\nFilter pairs: (0 . \"LINE,ARC\") type ; (8 . \"A-*\") layer wildcard ; (62 . 1) colour ; (2 . \"DOOR*\") block name ; (410 . \"Model\") space ; (67 . 1) paper space ; (-3 (\"APPNAME\")) has xdata of app\nRelational: (-4 . \"<\") (40 . 5.0) radius less than 5 ; operators = /= < <= > >= * (wildcard bit test for integers: \"&\" bitwise AND, \"&=\" bit set, \"*\" any)\nLogical: (-4 . \"<OR\") (8 . \"A\") (8 . \"B\") (-4 . \"OR>\") ; (-4 . \"<NOT\") (0 . \"INSERT\") (-4 . \"NOT>\") ; nest freely\nPoints: (-4 . \">,>,*\") (10 100.0 50.0 0.0) tests X > 100 and Y > 50 (per-coordinate operators separated by commas)",
+      "parameters": [
+        {"name": "wildcards", "description": "Layer/block/style names accept wcmatch patterns: \"A-WALL*,A-DOOR*\", \"~*|*\" (not xref-dependent)."},
+        {"name": "frozen/off layers", "description": "\"_X\" returns objects on frozen/off layers too; interactive modes do not. Filter with (-4 . \"<NOT\") ... or check the layer table."},
+        {"name": "dynamic blocks", "description": "(2 . \"DOOR\") misses anonymous *U references; use (2 . \"`*U*,DOOR\") and check EffectiveName, or select by the AcDbBlockRepBTag."},
+        {"name": "annotative / nested", "description": "Filters see only top-level entities; nested block geometry needs nentsel or a block table walk."}
+      ],
+      "example": "; all circles smaller than r=3 on layers starting with HOLE, in model space\n(ssget \"_X\" '((0 . \"CIRCLE\") (8 . \"HOLE*\") (410 . \"Model\") (-4 . \"<\") (40 . 3.0)))\n\n; text or mtext that is not on layer 0 and lies inside a window\n(ssget \"_W\" '(0 0) '(1000 500) '((0 . \"TEXT,MTEXT\") (-4 . \"<NOT\") (8 . \"0\") (-4 . \"NOT>\")))\n\n; objects with xdata from MYAPP\n(ssget \"_X\" '((-3 (\"MYAPP\"))))",
+      "notes": "Window selections in LISP require the window to be on screen for interactive modes but \"_X\" with point tests (-4 . \">=,>=\") works regardless of the view. Filter values must have the right type (reals for 40, integers for 62/70). Relational tests on string groups support only = and /= (use wildcards instead).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/"
+    }
+  ]
+}

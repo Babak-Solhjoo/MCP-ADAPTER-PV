@@ -1,0 +1,533 @@
+{
+  "category": "Automation II: COMSOL API for Java, MPh Python, Application Builder built-in methods & command line",
+  "description": "The programmatic surface not covered in the first automation chunk: ModelUtil session management (remove, tags, clear, connect/disconnect, progress), the model-tree accessors (geom, mesh, physics, multiphysics, material, coordSystem, common, func, selection, cpl, probe, sol, batch, result datasets/tables/exports), generic feature methods (set/get*, selection(), label, active, properties), history and metadata, running Java/class files; the MPh Python wrapper (Client, Model and Node methods, tree/inspect); the Application Builder built-in method library (dialogs, progress, graphics, files, time, debugging); and the comsol command-line options for batch, server/client, licences and compilation.",
+  "tools": [
+    {
+      "name": "ModelUtil.remove / ModelUtil.tags / ModelUtil.clear",
+      "kind": "api",
+      "description": "Static ModelUtil methods that manage the models held by the COMSOL process (stand-alone or server): remove(tag) unloads one model and frees its memory, tags() lists the tags of all loaded models, clear() removes all of them, and model(tag) returns the Model object for a tag. Essential in loops that create many models (parameter studies from scripts) because every created or loaded model stays in memory until removed.",
+      "usage": "ModelUtil.remove(\"Model\"); String[] tags = ModelUtil.tags(); ModelUtil.clear(); Model m = ModelUtil.model(\"Model2\")",
+      "parameters": [
+        {"name": "tag", "description": "Model tag given at ModelUtil.create(tag) or by load(tag, file)."}
+      ],
+      "example": "import com.comsol.model.*;\nimport com.comsol.model.util.*;\n\nfor (int k = 0; k < 10; k++) {\n  Model model = ModelUtil.create(\"Model\");\n  // ... build and solve ...\n  model.save(\"C:/out/run_\" + k + \".mph\");\n  ModelUtil.remove(\"Model\");\n}\nSystem.out.println(ModelUtil.tags().length);   // 0",
+      "notes": "In LiveLink for MATLAB the same calls are ModelUtil.remove('Model') after import com.comsol.model.util.*; MPh wraps them as client.remove(model) and client.clear(). ModelUtil.create with an existing tag throws - remove first or use a unique tag (ModelUtil.uniquetag(\"Model\")).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_general.47.15.html"
+    },
+    {
+      "name": "ModelUtil.connect / ModelUtil.disconnect / ModelUtil.showProgress",
+      "kind": "api",
+      "description": "Client-server and utility methods of ModelUtil: connect() (or connect(host, port), connect(host, port, user, password)) connects a Java/MATLAB client to a running COMSOL Multiphysics Server, disconnect() ends the session (optionally keeping the server alive), initStandalone(boolean) starts the API in stand-alone mode without a server, showProgress(true) prints solver/mesh progress to the console (or a file with showProgress(String path)), and setServerBusyHandler defines what to do while the server is busy. Also: ModelUtil.getPreference/setPreference for preferences and ModelUtil.loadCopy to duplicate a model.",
+      "usage": "ModelUtil.connect(\"localhost\", 2036); ... ModelUtil.disconnect(); ModelUtil.initStandalone(false); ModelUtil.showProgress(true)",
+      "parameters": [
+        {"name": "host / port", "description": "Server address and TCP port (default 2036)."},
+        {"name": "user / password", "description": "Credentials when the server requires login (-login force)."},
+        {"name": "showProgress(boolean | String)", "description": "Console progress or progress written to a file."}
+      ],
+      "example": "import com.comsol.model.*;\nimport com.comsol.model.util.*;\n\npublic class Run {\n  public static void main(String[] a) throws Exception {\n    ModelUtil.connect(\"localhost\", 2036);\n    ModelUtil.showProgress(true);\n    Model model = ModelUtil.load(\"Model\", \"C:/models/busbar.mph\");\n    model.study(\"std1\").run();\n    model.save(\"C:/models/busbar_out.mph\");\n    ModelUtil.remove(\"Model\");\n    ModelUtil.disconnect();\n  }\n}\n// compile & run: comsol compile Run.java  then  comsol batch -inputfile Run.class (or java with the COMSOL jars on the classpath)",
+      "notes": "Start the server first with comsol mphserver (or 'COMSOL Multiphysics Server' on Windows). Standalone Java programs need plugins/*.jar from the COMSOL installation on the classpath and the native library path; running through comsol batch -inputfile avoids this.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_general.47.15.html"
+    },
+    {
+      "name": "model.geom() / model.component(\"comp1\").geom()",
+      "kind": "api",
+      "description": "Accessor for geometry sequences: geom().create(tag, sdim) creates a geometry of space dimension 0-3 in a component, geom(tag) returns the GeomSequence whose create(ftag, type)/feature(ftag)/run()/measure()/export() methods build and query it (see the Geometry chunks for feature types), geom().tags() lists geometries, and geom(tag).lengthUnit(unit)/geomRep(\"cadps\"|\"comsol\")/repairTol() set global geometry settings. getNDomains(), getNBoundaries(), getNEdges(), getNVertices() give entity counts after building.",
+      "usage": "GeomSequence g = model.component(\"comp1\").geom().create(\"geom1\", 3); g.create(\"blk1\", \"Block\"); g.feature(\"blk1\").set(\"size\", new String[]{\"1\",\"1\",\"1\"}); g.run(); int n = g.getNDomains()",
+      "parameters": [
+        {"name": "create(tag, sdim)", "description": "New geometry sequence with space dimension."},
+        {"name": "feature(ftag)", "description": "Access a feature to set properties or selections."},
+        {"name": "run() / run(ftag) / runPre(ftag)", "description": "Build all / build to feature / build preceding."},
+        {"name": "lengthUnit / geomRep / scaleUnitValue", "description": "Length unit, kernel representation, unit scaling behaviour."}
+      ],
+      "example": "model.component(\"comp1\").geom().create(\"geom1\", 2);\nGeomSequence g = model.component(\"comp1\").geom(\"geom1\");\ng.lengthUnit(\"mm\");\ng.create(\"r1\", \"Rectangle\");\ng.feature(\"r1\").set(\"size\", new String[]{\"20\", \"10\"});\ng.create(\"c1\", \"Circle\");\ng.feature(\"c1\").set(\"r\", \"3\");\ng.feature(\"c1\").set(\"pos\", new String[]{\"10\", \"5\"});\ng.create(\"dif1\", \"Difference\");\ng.feature(\"dif1\").selection(\"input\").set(\"r1\");\ng.feature(\"dif1\").selection(\"input2\").set(\"c1\");\ng.run();",
+      "notes": "Geometry features are documented in the Programming Reference chapter 'Geometry' (comsol_api_geom.48.*). In older code model.geom(\"geom1\") without component() still works for the first component.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ProgrammingReferenceManual.html"
+    },
+    {
+      "name": "model.mesh() / model.physics() / model.multiphysics()",
+      "kind": "api",
+      "description": "Component accessors for meshing and physics: mesh().create(tag) creates a mesh sequence (mesh(tag).create(ftag, type) adds Size/FreeTet/... features, autoMeshSize(n) sets the predefined size 1-9, run() builds, stat() returns statistics such as getNumElem/getMinQuality), physics().create(tag, type, gtag) adds a physics interface on a geometry (physics(tag).create(ftag, type, dim) adds features; prop(name).set(...) sets interface properties; selection() sets the interface's domain selection; label(), active(), tags()), and multiphysics().create(tag, type, dim) adds coupling nodes (ThermalExpansion, ElectromagneticHeating, NonIsothermalFlow, FluidStructureInteraction, PiezoelectricEffect, AcousticStructureBoundary...) whose selection() and set(\"Fluid_physics\"/\"Heat_physics\"...) link the interfaces.",
+      "usage": "model.component(\"comp1\").mesh().create(\"mesh1\"); model.component(\"comp1\").mesh(\"mesh1\").autoMeshSize(5); .run(); model.component(\"comp1\").physics().create(\"solid\", \"SolidMechanics\", \"geom1\"); model.component(\"comp1\").physics(\"solid\").create(\"fix1\", \"Fixed\", 2); model.component(\"comp1\").multiphysics().create(\"te1\", \"ThermalExpansion\", 3)",
+      "parameters": [
+        {"name": "physics().create(tag, type, geom)", "description": "Interface type names: Electrostatics, ElectricCurrents, MagneticFields, HeatTransfer, HeatTransferInFluids, SolidMechanics, Shell, LaminarFlow, PressureAcoustics, DilutedSpecies, CoefficientFormPDE, ... (the GUI's Save As Java shows the exact name)."},
+        {"name": "physics(tag).create(ftag, type, dim)", "description": "Feature type and geometric entity dimension (3 domain, 2 boundary, 1 edge, 0 point, -1 global)."},
+        {"name": "prop(name).set(...)", "description": "Interface-level settings (e.g. prop(\"ShapeProperty\").set(\"order_temperature\", 1))."},
+        {"name": "mesh(tag).stat()", "description": "MeshStat object: getNumElem(\"tet\"), getMinQuality(), getMeanQuality()."}
+      ],
+      "example": "model.component(\"comp1\").physics().create(\"ht\", \"HeatTransfer\", \"geom1\");\nmodel.component(\"comp1\").physics(\"ht\").create(\"temp1\", \"TemperatureBoundary\", 2);\nmodel.component(\"comp1\").physics(\"ht\").feature(\"temp1\").selection().set(new int[]{1});\nmodel.component(\"comp1\").physics(\"ht\").feature(\"temp1\").set(\"T0\", \"350[K]\");\nmodel.component(\"comp1\").physics(\"ht\").prop(\"ShapeProperty\").set(\"order_temperature\", 1);\nmodel.component(\"comp1\").mesh().create(\"mesh1\");\nmodel.component(\"comp1\").mesh(\"mesh1\").autoMeshSize(4);\nmodel.component(\"comp1\").mesh(\"mesh1\").run();\nSystem.out.println(model.component(\"comp1\").mesh(\"mesh1\").stat().getNumElem());",
+      "notes": "Feature type names differ from GUI labels (TemperatureBoundary for Temperature, HeatFluxBoundary for Heat Flux, Fixed for Fixed Constraint, InletBoundary for Inlet); record a GUI session as Java to obtain them. The 'model.component().create' and 'model.mesh().run()' entries in earlier chunks cover component creation and mesh sizing.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ProgrammingReferenceManual.html"
+    },
+    {
+      "name": "model.material() / model.component(\"comp1\").material()",
+      "kind": "api",
+      "description": "Accessor for materials: material().create(tag, \"Common\") creates a material in a component (or globally under Global Definitions when called on model), material(tag).propertyGroup(\"def\").set(\"thermalconductivity\", value) sets properties in property groups (def = Basic; others like Enu, ThermalExpansion, MurnaghanTwoParameters, RefractiveIndex are created with propertyGroup().create), selection().set(...) assigns domains (or boundaries/edges with selection().geom(\"geom1\", 2)), and material().create(tag, \"Link\") / \"Switch\" / \"LayeredMaterial\" / \"LayeredMaterialLink\" / \"External\" create the other material node types. Material library entries are added with model.material().create(tag, \"Common\") plus the library's property values (the GUI's Add Material generates the code).",
+      "usage": "model.component(\"comp1\").material().create(\"mat1\", \"Common\"); mat1.label(\"Copper\"); mat1.propertyGroup(\"def\").set(\"electricconductivity\", new String[]{\"5.998e7[S/m]\"}); mat1.propertyGroup(\"def\").set(\"thermalconductivity\", new String[]{\"400[W/(m*K)]\"}); mat1.selection().set(new int[]{1})",
+      "parameters": [
+        {"name": "propertyGroup(name)", "description": "def (Basic), Enu (Young's modulus and Poisson's ratio), ThermalExpansion, RefractiveIndex, etc.; set(property, value) with strings including units."},
+        {"name": "func().create(tag, \"Interpolation\"|\"Piecewise\"|\"Analytic\")", "description": "Material functions (temperature dependence) inside a property group, referenced as mat1.def.k(T)."},
+        {"name": "selection()", "description": "Entities the material applies to; geom(gtag, dim) chooses the level."},
+        {"name": "Types: Common | Link | Switch | LayeredMaterial | LayeredMaterialLink | LayeredMaterialStack | External", "description": "Material node types."}
+      ],
+      "example": "model.component(\"comp1\").material().create(\"mat1\", \"Common\");\nmodel.component(\"comp1\").material(\"mat1\").label(\"Steel AISI 4340\");\nmodel.component(\"comp1\").material(\"mat1\").propertyGroup(\"def\").set(\"density\", new String[]{\"7850[kg/m^3]\"});\nmodel.component(\"comp1\").material(\"mat1\").propertyGroup().create(\"Enu\", \"Young's modulus and Poisson's ratio\");\nmodel.component(\"comp1\").material(\"mat1\").propertyGroup(\"Enu\").set(\"E\", new String[]{\"205e9[Pa]\"});\nmodel.component(\"comp1\").material(\"mat1\").propertyGroup(\"Enu\").set(\"nu\", new String[]{\"0.28\"});\nmodel.component(\"comp1\").material(\"mat1\").selection().all();",
+      "notes": "Anisotropic properties take 9-component arrays; temperature-dependent properties use functions defined in the property group with the property set to the function call (e.g. \"k(T[1/K])[W/(m*K)]\"). Materials from the Material Library are easiest added in the GUI and then copied from the Java output.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ProgrammingReferenceManual.html"
+    },
+    {
+      "name": "model.sol() (solver sequences: create, createAutoSequence, runAll, runFromTo, copySolution)",
+      "kind": "api",
+      "description": "Accessor for solver sequences: sol().create(tag) creates an empty sequence, sol().createAutoSequence(studytag) (or study(tag).createAutoSequences()) generates the default sequence for a study exactly as 'Show Default Solver' does, sol(tag).runAll() / run() executes it, runFromTo(ftag1, ftag2) runs part of it, sol(tag).feature(ftag).set(...) edits solver nodes (see the solver chunks for tags s1/t1/e1/fc1/d1/i1/p1...), sol(tag).clearSolution() frees the solution, copySolution(newtag) duplicates a stored solution, and sol(tag).getPVals()/getPNames() return the parameter values of a parametric solution. sol().tags() lists sequences.",
+      "usage": "model.sol().createAutoSequence(\"std1\"); model.sol(\"sol1\").feature(\"t1\").set(\"rtol\", 1e-4); model.sol(\"sol1\").runAll(); double[] p = model.sol(\"sol1\").getPVals()",
+      "parameters": [
+        {"name": "createAutoSequence(studytag)", "description": "Generate the default solver configuration for a study (returns the sequence tag)."},
+        {"name": "runAll() / run() / runFromTo(a, b)", "description": "Execute the whole sequence or a sub-range of features."},
+        {"name": "feature(ftag)", "description": "Solver nodes: StudyStep (st1), Variables (v1), Stationary (s1), Time (t1), Eigenvalue (e1), with attribute children fc1, d1, i1, p1, se1, mg1..."},
+        {"name": "clearSolution() / copySolution(tag) / getPVals()", "description": "Solution management and parameter values."}
+      ],
+      "example": "model.study().create(\"std1\");\nmodel.study(\"std1\").create(\"time\", \"Transient\");\nmodel.study(\"std1\").feature(\"time\").set(\"tlist\", \"range(0,0.1,10)\");\nmodel.sol().createAutoSequence(\"std1\");\nmodel.sol(\"sol1\").feature(\"t1\").set(\"timemethod\", \"genalpha\");\nmodel.sol(\"sol1\").feature(\"t1\").set(\"tstepsgenalpha\", \"strict\");\nmodel.sol(\"sol1\").runAll();",
+      "notes": "model.study(\"std1\").run() regenerates the default sequence unless the study's solver settings are locked; edit the solver after createAutoSequence and then call sol(\"sol1\").runAll() (not study.run()) to keep manual changes. The 'Solution (sol)' and 'Compute' entries in the first studies chunk introduce the sequence object.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_general.47.58.html"
+    },
+    {
+      "name": "model.func() / model.selection() / model.cpl() / model.probe()",
+      "kind": "api",
+      "description": "Accessors for Definitions nodes: model.func().create(tag, type) creates global functions (Analytic, Interpolation, Piecewise, Step, Ramp, GaussianPulse...) with set(\"funcname\", name), set(\"expr\"/\"table\"/\"filename\", ...), importData() and createPlot(); model.component(\"comp1\").selection().create(tag, type) creates Explicit/Box/Ball/Adjacent/Union... selections (set(\"entitydim\", d), set(\"input\", ...), all()); cpl().create(tag, type, gtag) creates coupling operators (Integration, Average, Maximum, Minimum, GeneralExtrusion, LinearExtrusion, GeneralProjection, LinearProjection, BoundarySimilarity, IdentityMapping) with selection() and set(\"opname\", name); probe().create(tag, type) creates probes (Domain, Boundary, Edge, DomainPoint, BoundaryPoint, GlobalVariable) with set(\"expr\", ...), set(\"type\", \"integral\"...) and getReal() after solving. Similar accessors: model.variable() (Variables nodes), model.coordSystem(), model.pair(), model.massProp(), model.common() (moving mesh/optimization definitions).",
+      "usage": "model.func().create(\"int1\", \"Interpolation\"); model.func(\"int1\").set(\"source\", \"file\"); model.func(\"int1\").set(\"filename\", \"C:/data/k.txt\"); model.func(\"int1\").importData(); model.component(\"comp1\").cpl().create(\"intop1\", \"Integration\", \"geom1\"); model.component(\"comp1\").cpl(\"intop1\").selection().all(); model.component(\"comp1\").probe().create(\"dom1\", \"Domain\")",
+      "parameters": [
+        {"name": "func().create(tag, type)", "description": "Function types as listed in the Definitions chunks; set(\"funcname\", ...) names the callable function."},
+        {"name": "selection().create(tag, type)", "description": "Selection types: Explicit, Box, Ball, Cylinder, Disk, Adjacent, Complement, Union, Intersection, Difference."},
+        {"name": "cpl().create(tag, type, gtag)", "description": "Coupling operators with selection() and set(\"opname\", name)."},
+        {"name": "probe().create(tag, type)", "description": "Probe types: Domain, Boundary, Edge, DomainPoint, BoundaryPoint, GlobalVariable; getReal() returns probe values."},
+        {"name": "variable().create(tag)", "description": "Variables node: set(\"name\", \"expr\") pairs, selection() for local scope."}
+      ],
+      "example": "model.component(\"comp1\").variable().create(\"var1\");\nmodel.component(\"comp1\").variable(\"var1\").set(\"P_loss\", \"intop1(ec.Qh)\", \"Total loss\");\nmodel.component(\"comp1\").probe().create(\"var1\", \"GlobalVariable\");\nmodel.component(\"comp1\").probe(\"var1\").set(\"expr\", \"P_loss\");\nmodel.study(\"std1\").run();\ndouble[] loss = model.component(\"comp1\").probe(\"var1\").getReal();",
+      "notes": "Global (model-level) versus component-level nodes: functions, parameters and global materials live on model; selections, couplings, probes, variables and coordinate systems normally on model.component(\"comp1\"). The first Definitions chunk covers the individual node types.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_general.47.34.html"
+    },
+    {
+      "name": "model.batch() (job configurations) / model.study().create sweeps",
+      "kind": "api",
+      "description": "Programmatic control of sweeps and jobs: parametric sweeps are study features (study(tag).create(\"param\", \"Parametric\") with set(\"pname\", ...), set(\"plistarr\", ...), set(\"punit\", ...)) whose execution creates Job Configurations under model.batch() - batch().create(tag, \"Parametric\") (parametric job), \"Batch\" (external batch process), \"Cluster\" (cluster job), \"Sensitivity\" etc. - with methods run(), set(\"batchdir\"/\"batchfile\"/\"nn\"/\"np\"...), and model.batch(tag).feature(...) for the solution storage (Solutions, Parameters, Accumulated probe table). Scripts normally only need study.run() after configuring the sweep; batch() is used to tune batch/cluster settings or to launch jobs headless.",
+      "usage": "model.study(\"std1\").create(\"param\", \"Parametric\"); param.setIndex(\"pname\", \"L\", 0); param.setIndex(\"plistarr\", \"range(1,1,5)\", 0); param.setIndex(\"punit\", \"cm\", 0); model.study(\"std1\").run(); // or: model.batch().create(\"p1\", \"Parametric\"); model.batch(\"p1\").run()",
+      "parameters": [
+        {"name": "study.create(tag, \"Parametric\"|\"BatchSweep\"|\"ClusterSweep\"|\"FunctionSweep\"|\"MaterialSweep\")", "description": "Sweep types (study extension steps)."},
+        {"name": "pname / plistarr / punit / sweeptype", "description": "Parameter names, value lists (space-separated or range()), units, all combinations vs specified."},
+        {"name": "batch().create(tag, type)", "description": "Job configuration types: Parametric, Batch, Cluster, Sensitivity, Optimization, ..."},
+        {"name": "batch(tag).run() / set(...)", "description": "Run a job configuration; settings such as batchdir, batchfile, nn, np, scheduler."}
+      ],
+      "example": "model.study(\"std1\").create(\"param\", \"Parametric\");\nmodel.study(\"std1\").feature(\"param\").setIndex(\"pname\", \"Vtot\", 0);\nmodel.study(\"std1\").feature(\"param\").setIndex(\"plistarr\", \"10 20 30 40\", 0);\nmodel.study(\"std1\").feature(\"param\").setIndex(\"punit\", \"mV\", 0);\nmodel.study(\"std1\").run();\n// evaluate the probe for all parameter values\ndouble[][] tbl = model.result().table(\"tbl1\").getReal();",
+      "notes": "The Parametric Sweep entry in the first studies chunk describes the study node; in batch runs use comsol batch -job <jobtag> to run a configured job. Multi-parameter sweeps set several rows via setIndex with increasing index.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_solver.51.74.html"
+    },
+    {
+      "name": "model.result().dataset() / model.result().table() / model.result().report()",
+      "kind": "api",
+      "description": "Results accessors beyond plot groups and numerical evaluation: result().dataset().create(tag, type) creates datasets (Solution, CutPlane, CutLine3D, CutPoint3D, Revolve2D, Surface, Edge3D, Mirror3D, Array3D, Sector3D, Join, Isosurface, Contour, Grid3D, Mesh, Particle, Ray...) configured with set(...) and selection(); result().table().create(tag, \"Table\") makes tables with addRow(), setTableData(), getReal(), getColumnHeaders(), clearTableData(), save(file); result().report().create(tag, \"ReportGenerator\") builds reports; result().evaluationGroup().create(tag, \"EvaluationGroup\") groups evaluations; result().param() holds results parameters; and result().export() / numerical() / create(tag, \"PlotGroup3D\") are covered in the first Results chunk.",
+      "usage": "model.result().dataset().create(\"cpl1\", \"CutPlane\"); model.result().dataset(\"cpl1\").set(\"quickplane\", \"xz\"); model.result().dataset(\"cpl1\").set(\"quicky\", 0.01); model.result().table().create(\"tbl1\", \"Table\"); model.result().numerical(\"gev1\").set(\"table\", \"tbl1\"); model.result().numerical(\"gev1\").setResult(); double[][] v = model.result().table(\"tbl1\").getReal()",
+      "parameters": [
+        {"name": "dataset().create(tag, type)", "description": "Dataset types; set(\"data\", parent) links to a source dataset; set(\"solnum\"/\"time\"/\"innerinput\") selects solutions."},
+        {"name": "table(tag) methods", "description": "addRow(double[]), setTableData(double[][]), getReal(), getImag(), getColumnHeaders(), getRowCount(), save(filename), clearTableData()."},
+        {"name": "report().create(tag, \"ReportGenerator\")", "description": "Report with set(\"format\", \"html\"|\"docx\"), set(\"filename\", ...), run()."},
+        {"name": "evaluationGroup()", "description": "Evaluation Group nodes holding several numerical features with one table."}
+      ],
+      "example": "model.result().dataset().create(\"cln1\", \"CutLine3D\");\nmodel.result().dataset(\"cln1\").set(\"genpoints\", new String[][]{{\"0\",\"0\",\"0\"},{\"0.1\",\"0\",\"0\"}});\nmodel.result().numerical().create(\"int1\", \"IntLine\");\nmodel.result().numerical(\"int1\").set(\"data\", \"cln1\");\nmodel.result().numerical(\"int1\").set(\"expr\", new String[]{\"T\"});\nmodel.result().table().create(\"tbl1\", \"Table\");\nmodel.result().numerical(\"int1\").set(\"table\", \"tbl1\");\nmodel.result().numerical(\"int1\").setResult();\nSystem.out.println(model.result().table(\"tbl1\").getReal()[0][0]);",
+      "notes": "numerical(tag).getReal() also returns values directly without a table (getReal()[row][col]); for parametric solutions rows correspond to solution numbers. Dataset types are listed in the Results chunks.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_results.37.041.html"
+    },
+    {
+      "name": "Feature methods: set / setIndex / getString / getDouble / getDoubleArray / getStringArray / properties / getType",
+      "kind": "api",
+      "description": "Generic methods available on every model node (physics features, geometry features, solver nodes, datasets, plots): set(property, value) accepts strings (with units), numbers, booleans, string/double arrays and 2D arrays; setIndex(property, value, i[, j]) changes one element of an array property; getString / getDouble / getInt / getBoolean / getDoubleArray / getStringArray / getDoubleMatrix / getStringMatrix read properties back; properties() lists property names, getType(property) the value type, getAllowedPropertyValues(property) the enum options; label(text)/name() set and get the display label, tag() the tag, active(boolean) enables/disables the node, getContainer() returns the parent, and comments(text) attaches a comment. selection() gives the selection object with set(int...), named(seltag), all(), geom(gtag, dim), inherit(true) and entities()/geom()/dimension() getters.",
+      "usage": "node.set(\"T0\", \"350[K]\"); node.setIndex(\"c0\", \"1[mol/m^3]\", 0); node.getString(\"T0\"); node.getDoubleArray(\"size\"); node.properties(); node.getAllowedPropertyValues(\"HeatFluxType\"); node.active(false); node.selection().named(\"box1\"); int[] ents = node.selection().entities(2)",
+      "parameters": [
+        {"name": "set(name, value)", "description": "Value types: String, double, int, boolean, String[], double[], String[][], double[][]."},
+        {"name": "setIndex(name, value, index[, index2])", "description": "Single element of an array/matrix property."},
+        {"name": "get*(name)", "description": "Typed getters; getString returns the expression as entered."},
+        {"name": "properties() / getAllowedPropertyValues(name) / getType(name)", "description": "Introspection of a node's settings."},
+        {"name": "selection().set/named/all/geom/entities", "description": "Selection handling; entities(dim) returns the entity numbers."},
+        {"name": "label / tag / active / comments / getContainer", "description": "Node metadata."}
+      ],
+      "example": "PhysicsFeature hf = model.component(\"comp1\").physics(\"ht\").feature(\"hf1\");\nfor (String p : hf.properties()) System.out.println(p + \" = \" + hf.getString(p));\nString[] opts = hf.getAllowedPropertyValues(\"HeatFluxType\");\nhf.set(\"HeatFluxType\", \"ConvectiveHeatFlux\");\nhf.set(\"h\", 15);\nhf.set(\"Text\", \"293.15[K]\");\nhf.active(true);\nint[] bnds = hf.selection().entities(2);",
+      "notes": "Property names are the API names, not GUI labels; properties() combined with getString is the quickest way to discover them. In MATLAB and Python the same methods are called on the wrapped objects (mphgetproperties / node.properties()).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ProgrammingReferenceManual.html"
+    },
+    {
+      "name": "model.hist() / model.resetHist() / model.title() / model.description() / model.modelPath()",
+      "kind": "api",
+      "description": "Model metadata and history: hist() returns the recorded model history (the sequence of API calls that built the model, which Save As Java/M exports) and hist().disable()/enable() pauses recording; resetHist() compacts the history to the current state (equivalent to File > Compact History, keeping files small after long sessions); title(String), description(String), author(), created(), modified() and version() hold document metadata; modelPath() and modelFile() give the saved location; thumbnail() manages the preview image. model.param() (global parameters), model.paramCase(), model.unitSystem() and model.modelNode() (top-level component list) are the remaining root accessors.",
+      "usage": "model.resetHist(); model.title(\"Busbar\"); String p = model.modelPath(); model.hist().disable(); ... model.hist().enable()",
+      "parameters": [
+        {"name": "hist() / resetHist()", "description": "Access, pause or compact the model history."},
+        {"name": "title / description / author", "description": "Document properties shown in the root node settings."},
+        {"name": "modelPath / modelFile", "description": "Directory and filename of the saved .mph."},
+        {"name": "unitSystem(name)", "description": "Root unit system (SI default, CGS, MPa, ...)."}
+      ],
+      "example": "Model model = ModelUtil.load(\"Model\", \"C:/models/large.mph\");\nmodel.hist().disable();          // do not record a scripted loop\nfor (double w = 1; w <= 5; w++) {\n  model.param().set(\"w\", w + \"[mm]\");\n  model.study(\"std1\").run();\n}\nmodel.hist().enable();\nmodel.resetHist();\nmodel.title(\"Width sweep\");\nmodel.save(\"C:/models/large_sweep.mph\");",
+      "notes": "Long GUI sessions accumulate history that makes .java exports huge; resetHist before Save As Java gives a clean rebuild script. The 'Compact History' entry in the first chunk covers the GUI side.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ProgrammingReferenceManual.html"
+    },
+    {
+      "name": "Running Java model files and classes (comsol compile / comsol batch -inputfile .java/.class)",
+      "kind": "command",
+      "description": "A COMSOL Java model file (from File > Save As > Model File for Java, or written by hand) is a class with a static run() (and main()) method returning a Model; comsol compile file.java compiles it against the COMSOL jars into file.class, and comsol batch -inputfile file.class (or directly -inputfile file.java, which compiles first) executes it headless, saving output with -outputfile or with model.save() inside the code. Application methods can also be exported as Java and run the same way. This is the standard path for fully scripted, GUI-free model generation on workstations and clusters.",
+      "usage": "comsol compile [-jdkroot <path>] [-classpathadd <cp>] Model.java; comsol batch -inputfile Model.class [-outputfile out.mph] [-np 8] [-batchlog log.txt]; comsol batch -inputfile Model.java -outputfile out.mph",
+      "parameters": [
+        {"name": "-jdkroot", "description": "JDK to use for compilation (COMSOL ships one; needed if not found automatically)."},
+        {"name": "-classpathadd", "description": "Extra jars for the compiled class (e.g. your own libraries)."},
+        {"name": "-inputfile", "description": ".java, .class or .mph."},
+        {"name": "-outputfile", "description": "Where the resulting model is saved (if the code does not save itself)."},
+        {"name": "-dev", "description": "Additional JAR with classes used by the model (batch option)."}
+      ],
+      "example": "// Model.java\nimport com.comsol.model.*;\nimport com.comsol.model.util.*;\npublic class Model {\n  public static Model run() {\n    Model model = ModelUtil.create(\"Model\");\n    model.param().set(\"L\", \"0.1[m]\");\n    model.component().create(\"comp1\", true);\n    model.component(\"comp1\").geom().create(\"geom1\", 3);\n    // ... geometry, physics, mesh, study ...\n    return model;\n  }\n  public static void main(String[] args) { run(); }\n}\n// shell:\ncomsol compile Model.java\ncomsol batch -inputfile Model.class -outputfile Model_out.mph -batchlog Model.log",
+      "notes": "The class name must match the file name; compile errors reference COMSOL API signatures (check the Programming Reference). On Windows the command is comsolbatch.exe or comsol.exe from the installation's bin/win64 directory (add it to PATH). Java files from newer versions may not run in older COMSOL versions.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.31.html"
+    },
+    {
+      "name": "mph.Client / mph.start (session management)",
+      "kind": "api",
+      "description": "MPh entry points: mph.start(cores=None, version=None, port=None, host='localhost') starts a stand-alone COMSOL session in the Python process (or connects to a server when port is given) and returns the singleton mph.Client; Client exposes models(), names(), files(), modules() (licensed products), load(file), create(name), remove(model), clear(), caching(state), connect(port, host), disconnect() and the properties version, standalone, port, host, cores and java (the underlying ModelUtil). Only one client per process is possible because of the JVM; run several processes for parallel jobs.",
+      "usage": "import mph; client = mph.start(cores=4); model = client.load('busbar.mph'); ...; client.remove(model); client.clear()",
+      "parameters": [
+        {"name": "cores", "description": "Number of processor cores for the session (default: all)."},
+        {"name": "version", "description": "COMSOL version to use when several are installed (e.g. '6.3')."},
+        {"name": "port / host", "description": "Connect to a running COMSOL server instead of stand-alone."},
+        {"name": "client.load(file) / create(name)", "description": "Load an .mph (path or Model Manager URI) or create an empty model, returning mph.Model."},
+        {"name": "client.modules()", "description": "Names of licensed modules available to the session."}
+      ],
+      "example": "import mph\n\nclient = mph.start(cores=2, version='6.3')\nprint(client.version, client.modules())\nmodel = client.load('models/busbar.mph')\nprint(client.names())\nclient.remove(model)\nclient.disconnect()",
+      "notes": "MPh is a third-party package (pip install mph) built on JPype; it needs a local COMSOL installation and licence. mph.config() options (e.g. 'classkit', 'session') and mph.Server (to start a server process) complete the session tools. The 'mph.start', 'client.load', 'model.solve', 'model.evaluate' entries in the first automation chunk cover the basics.",
+      "docs": "https://mph.readthedocs.io/en/stable/api/mph.Client.html"
+    },
+    {
+      "name": "model.build() / model.mesh() / model.clear() / model.reset() (MPh)",
+      "kind": "api",
+      "description": "MPh Model methods for the build pipeline: build(geometry=None) builds the named or all geometries, mesh(mesh=None) runs the named or all mesh sequences, solve(study=None) (first chunk) solves, clear() removes solutions, meshes and plots from memory (smaller files, forces rebuild), reset() clears the modeling history, and the listing methods components(), geometries(), selections(), physics(), multiphysics(), materials(), meshes(), studies(), solutions(), datasets(), plots(), exports(), functions() return the names of nodes in each branch; problems() returns errors/warnings reported by nodes, modules() the required licensed products, version() the COMSOL release that saved the model, file() the path and name()/rename() the model name.",
+      "usage": "model.build(); model.mesh('Mesh 1'); model.solve('Study 1'); print(model.physics(), model.studies()); model.clear(); model.reset()",
+      "parameters": [
+        {"name": "build(geometry=None)", "description": "Geometry name (as shown in the Model Builder) or all."},
+        {"name": "mesh(mesh=None)", "description": "Mesh sequence name or all."},
+        {"name": "components() ... exports()", "description": "Lists of node names per branch."},
+        {"name": "problems()", "description": "List of (node, message) error/warning entries."},
+        {"name": "clear() / reset()", "description": "Drop cached results / clear history."}
+      ],
+      "example": "import mph\nclient = mph.start()\nmodel = client.load('heat_sink.mph')\nmodel.parameter('h_fin', '25[mm]')\nmodel.build()\nmodel.mesh()\nmodel.solve()\nfor name in model.datasets():\n    print(name)\nprint(model.problems())\nmodel.save('heat_sink_25mm.mph')",
+      "notes": "MPh identifies nodes by their display names, not tags; rename nodes in the GUI to stable names before scripting. Building/meshing explicitly is optional because solve() triggers them when needed.",
+      "docs": "https://mph.readthedocs.io/en/stable/api/mph.Model.html"
+    },
+    {
+      "name": "model.parameter() / model.parameters() / model.description() (MPh)",
+      "kind": "api",
+      "description": "MPh access to global parameters: parameter(name, value=None, evaluate=False) reads (returning the expression string, or the evaluated number with evaluate=True) or sets one parameter, parameters(evaluate=False) returns all as a dictionary, description(name, text=None) reads/sets the parameter description and descriptions() returns all. Values are strings with units exactly as typed in the Parameters table, so '25[mm]' style strings are the natural form; numbers are converted with their SI unit.",
+      "usage": "model.parameter('L', '0.2[m]'); L = model.parameter('L'); Lval = model.parameter('L', evaluate=True); params = model.parameters(evaluate=True)",
+      "parameters": [
+        {"name": "name / value", "description": "Parameter name and expression with units."},
+        {"name": "evaluate", "description": "True returns numeric values in SI units instead of expression strings."},
+        {"name": "description(name, text)", "description": "Parameter description column."}
+      ],
+      "example": "import mph, numpy as np\nclient = mph.start()\nmodel = client.load('busbar.mph')\nfor V in np.linspace(10, 40, 4):\n    model.parameter('Vtot', f'{V}[mV]')\n    model.solve('Study 1')\n    Tmax = model.evaluate('T', 'K', dataset='Study 1//Solution 1').max()\n    print(V, Tmax)",
+      "notes": "Parameters in Parameter Cases and component-level Variables are not covered by parameter(); use model.property() on the Variables node for those.",
+      "docs": "https://mph.readthedocs.io/en/stable/api/mph.Model.html"
+    },
+    {
+      "name": "model.export() / model.save() (MPh)",
+      "kind": "api",
+      "description": "MPh output methods: export(node=None, file=None) runs one export node (by name) or all export nodes, optionally overriding the output file, so images, data, animations and tables defined in Results > Export are produced from Python; save(path=None, format=None) writes the model as .mph (default), or as 'java', 'matlab' or 'vba' model files when format is given, and with a path argument to a new location. import_(node, file) is the counterpart for importing data/CAD into a node.",
+      "usage": "model.export('Image 1', 'temperature.png'); model.export(); model.save(); model.save('copy.mph'); model.save('model.java', format='java')",
+      "parameters": [
+        {"name": "node", "description": "Export node name (from model.exports()); None runs all."},
+        {"name": "file", "description": "Override the export's output file name."},
+        {"name": "path / format", "description": "Save location and format (mph | java | matlab | vba)."}
+      ],
+      "example": "import mph\nclient = mph.start()\nmodel = client.load('antenna.mph')\nmodel.solve()\nmodel.export('S-parameters', 'sparams.txt')\nmodel.export('Radiation pattern image', 'pattern.png')\nmodel.save('antenna_solved.mph')",
+      "notes": "Image exports require the session to have graphics support (stand-alone sessions do; some server setups need -graphics). Export node names must match the Results > Export labels.",
+      "docs": "https://mph.readthedocs.io/en/stable/api/mph.Model.html"
+    },
+    {
+      "name": "model.property() / model.properties() / model.create() / model.remove() (MPh node editing)",
+      "kind": "api",
+      "description": "MPh generic node manipulation: property(node, name, value=None) reads or sets any node property by its API name (as in Java set/get, with Python types converted automatically), properties(node) returns them all as a dictionary, create(node, *arguments) creates a feature (arguments as in Java create: type and dimension) under a parent node, remove(node) deletes one, and nodes are addressed either by path strings ('physics/Heat Transfer in Solids/Temperature 1') or by mph.Node objects obtained through the / operator (model/'physics'/'Heat Transfer in Solids'). This is how MPh scripts change boundary conditions, mesh sizes and solver settings without touching Java.",
+      "usage": "model.property('physics/Heat Transfer in Solids/Temperature 1', 'T0', '350[K]'); props = model.properties('meshes/Mesh 1/Size'); node = model.create('physics/Heat Transfer in Solids', 'HeatFluxBoundary', 2, name='Convection'); model.remove(node)",
+      "parameters": [
+        {"name": "node", "description": "Path string or Node object."},
+        {"name": "name / value", "description": "Property name and value (str, float, bool, list, nested list)."},
+        {"name": "create(parent, *args, name=None)", "description": "Feature type and entity dimension, optional display name."}
+      ],
+      "example": "import mph\nclient = mph.start()\nmodel = client.load('plate.mph')\nsize = model/'meshes'/'Mesh 1'/'Size'\nsize.property('hauto', 3)          # finer predefined size\nsize.property('custom', False)\ntemp = model/'physics'/'Heat Transfer in Solids'/'Temperature 1'\ntemp.property('T0', '400[K]')\ntemp.select([1, 2])               # boundaries 1 and 2\nmodel.solve()",
+      "notes": "Property names are the Java API names; use properties() or the Java documentation to find them. Node.select(entities) and Node.selection() set and read selections, Node.toggle() enables/disables and Node.run() executes runnable nodes (geometry, mesh, plots).",
+      "docs": "https://mph.readthedocs.io/en/stable/api/mph.Node.html"
+    },
+    {
+      "name": "model.java / mph.tree / mph.inspect (MPh escape hatches)",
+      "kind": "api",
+      "description": "Bridges between MPh and the raw Java API: model.java (and node.java, client.java) return the underlying com.comsol.model objects so any method from the Programming Reference can be called with Java-style arguments through JPype (e.g. model.java.study('std1').run()), mph.tree(model) prints the whole model tree with node names for orientation, and mph.inspect(java_object) lists the methods and properties of a Java node object for exploration in an interactive session. Together they make every COMSOL API feature reachable even when MPh has no convenience wrapper.",
+      "usage": "j = model.java; j.sol('sol1').feature('t1').set('rtol', 1e-4); mph.tree(model); mph.inspect(model.java.physics('ht'))",
+      "parameters": [
+        {"name": "model.java / node.java", "description": "Raw Java Model / ModelNode object."},
+        {"name": "mph.tree(model, max_depth=None)", "description": "Console tree of the model."},
+        {"name": "mph.inspect(java_object)", "description": "Introspection helper printing tags, properties and methods."}
+      ],
+      "example": "import mph\nfrom jpype import JArray, JInt\nclient = mph.start()\nmodel = client.load('busbar.mph')\nmph.tree(model)\nj = model.java\nj.component('comp1').physics('ec').create('term2', 'Terminal', 2)\nj.component('comp1').physics('ec').feature('term2').selection().set(JArray(JInt)([5]))\nj.component('comp1').physics('ec').feature('term2').set('TerminalType', 'Current')\nj.component('comp1').physics('ec').feature('term2').set('I0', '2[A]')\nmodel.solve()",
+      "notes": "Java arrays must be passed as JPype JArray objects (or Python lists which JPype converts for many signatures); strings and numbers convert automatically. Exceptions from COMSOL surface as Java exceptions with the COMSOL error message.",
+      "docs": "https://mph.readthedocs.io/en/stable/api/mph.Model.html"
+    },
+    {
+      "name": "alert() / confirm() / request() (Application Builder dialog methods)",
+      "kind": "api",
+      "description": "Built-in methods of the Application Builder method library for user interaction: alert(message[, title]) shows a message box, confirm(message, title, ok-text, cancel-text) shows a yes/no dialog and returns a boolean (also variants with three options returning an index), and request(message, title, default) opens an input dialog returning the entered string (or null when cancelled). Used in app methods to validate inputs, ask before long computations and collect ad-hoc values; in Model Methods run from the Model Builder they appear as ordinary dialogs.",
+      "usage": "alert(\"Mesh is coarse\"); if (confirm(\"Run the sweep now?\", \"Sweep\", \"Yes\", \"No\")) { ... }; String s = request(\"Enter the flow rate [L/min]\", \"Input\", \"5\");",
+      "parameters": [
+        {"name": "message / title", "description": "Dialog text and window title."},
+        {"name": "button labels", "description": "Custom texts for confirm buttons."},
+        {"name": "default (request)", "description": "Pre-filled value; null returned on Cancel."}
+      ],
+      "example": "// Application method: validate an input field before computing\ndouble w = model.param().evaluate(\"w\");\nif (w <= 0) {\n  alert(\"Width must be positive\", \"Invalid input\");\n  return;\n}\nif (confirm(\"Solving may take several minutes. Continue?\", \"Compute\", \"Continue\", \"Cancel\")) {\n  model.study(\"std1\").run();\n}",
+      "notes": "Dialogs need a GUI (COMSOL Desktop, COMSOL Server web client or a compiled app); in batch -methodcall runs they are skipped or logged. The full list is in the Application Programming Guide, Appendix E (Built-In Method Library).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ApplicationProgrammingGuide.html"
+    },
+    {
+      "name": "setProgress() / startProgress() / closeProgress() / setProgressInterval() (progress methods)",
+      "kind": "api",
+      "description": "Application Builder methods that drive the progress bar (a Progress Bar form object or the built-in progress dialog): startProgress(\"name\") opens a progress dialog with a cancel button, setProgress(value[, message]) sets 0-100 percent (or setProgress(\"name\", value, message) for a named bar), setProgressInterval(min, max) maps subsequent model progress into a sub-range, and closeProgress() ends the dialog; model.study(...).run() reports its own progress automatically when a progress bar is active. Combined with a loop over parameters they give users feedback during sweeps in apps.",
+      "usage": "startProgress(\"Sweep\"); for (int i = 0; i < n; i++) { setProgress((100*i)/n, \"Case \" + i); ... } closeProgress();",
+      "parameters": [
+        {"name": "name", "description": "Progress bar name (form object) or dialog title."},
+        {"name": "value / message", "description": "Percent complete and status text."},
+        {"name": "setProgressInterval(a, b)", "description": "Sub-interval for nested progress (e.g. one study of several)."}
+      ],
+      "example": "startProgress(\"Parameter sweep\");\ndouble[] widths = {1, 2, 3, 4, 5};\nfor (int i = 0; i < widths.length; i++) {\n  setProgress((int)(100.0*i/widths.length), \"Solving width = \" + widths[i] + \" mm\");\n  model.param().set(\"w\", widths[i] + \"[mm]\");\n  model.study(\"std1\").run();\n  if (isCancelled()) break;\n}\ncloseProgress();",
+      "notes": "isCancelled() returns true when the user pressed Cancel in the progress dialog. In Model Methods (Model Builder) the progress appears in the Progress window.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ApplicationProgrammingGuide.html"
+    },
+    {
+      "name": "with() / endwith() / useGraphics() / zoomExtents() / useView() (model-editing and graphics helpers)",
+      "kind": "api",
+      "description": "Application Builder method-library helpers: with(node) ... endwith() is a Java-language extension of the Method Editor that scopes a block of set() calls to one model node (with(model.component(\"comp1\").physics(\"ht\").feature(\"hf1\")); set(\"h\", 10); endwith();), the form the code-recording tool produces; useGraphics(node, \"graphics1\") shows a plot group, geometry or mesh in a Graphics form object (or the main graphics), zoomExtents(\"graphics1\") fits the view, useView(view, graphics) applies a stored view, and plotting methods such as model.result(\"pg1\").run() drive what is displayed. In Model Methods, useGraphics(model.result(\"pg1\"), \"main\") targets the Model Builder graphics window.",
+      "usage": "with(model.component(\"comp1\").physics(\"ht\").feature(\"hf1\")); set(\"h\", \"12\"); set(\"Text\", \"295[K]\"); endwith(); useGraphics(model.result(\"pg1\"), \"graphics1\"); zoomExtents(\"graphics1\");",
+      "parameters": [
+        {"name": "with(node) / endwith()", "description": "Scoped block; set/get inside refer to the node."},
+        {"name": "useGraphics(node, graphicsName)", "description": "Plot group, geometry, mesh or dataset to show, and the target Graphics object name (\"main\" in the Model Builder)."},
+        {"name": "zoomExtents(graphicsName)", "description": "Reset the camera to fit."}
+      ],
+      "example": "// Method called by a 'Compute' button\nmodel.study(\"std1\").run();\nwith(model.result(\"pg1\").feature(\"surf1\"));\n  set(\"expr\", \"T\");\n  set(\"unit\", \"degC\");\nendwith();\nmodel.result(\"pg1\").run();\nuseGraphics(model.result(\"pg1\"), \"graphics1\");\nzoomExtents(\"graphics1\");",
+      "notes": "with/endwith is not valid Java outside the Method Editor; when exporting methods to plain Java the editor expands them. Images of a plot group are produced by running a Results > Export > Image node (model.result().export(\"img1\").run()); the Application Programming Guide's Appendix E lists the remaining graphics helpers for the installed version.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ApplicationProgrammingGuide.html"
+    },
+    {
+      "name": "message() / debugLog() / timeStamp() / sleep() / error() (utility methods)",
+      "kind": "api",
+      "description": "Miscellaneous Application Builder built-ins: message(text) writes to the Messages window (Model Builder) or the app's message log form object, debugLog(text) writes to the Debug Log window of the Method Editor (for developer tracing without user-visible output), timeStamp() returns the current time as a string (also getTime/formatting helpers for elapsed-time reporting), sleep(ms) pauses execution, error(text) throws an exception that aborts the method with a message, and exit() closes the application. Together with String/Double utility functions (toString, toDouble, unit conversions with model.param().evaluate(expr, unit)) they cover most scripting needs inside apps.",
+      "usage": "message(\"Solved in \" + timeStamp()); debugLog(\"value = \" + x); sleep(500); if (x < 0) error(\"Negative value\");",
+      "parameters": [
+        {"name": "text", "description": "String to log or show."},
+        {"name": "ms (sleep)", "description": "Milliseconds to pause."}
+      ],
+      "example": "long t0 = System.currentTimeMillis();\nmodel.study(\"std1\").run();\ndouble secs = (System.currentTimeMillis() - t0)/1000.0;\nmessage(\"Study 1 finished at \" + timeStamp() + \" in \" + secs + \" s\");\ndouble Tmax = model.result().numerical(\"max1\").getReal()[0][0];\ndebugLog(\"Tmax = \" + Tmax);\nif (Tmax > 400) alert(\"Temperature limit exceeded\");",
+      "notes": "Standard Java (System.out, java.util, java.io) is available in methods as well; COMSOL additionally provides file helpers (importFile, openFile, saveFile and the readFile/writeFile family in the 'File' section of the library), e-mail sending through an Email declaration, and web/OS helpers such as openURL. Consult Appendix E of the Application Programming Guide for the exact signatures in the installed version.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_ApplicationProgrammingGuide.html"
+    },
+    {
+      "name": "comsol batch -study / -pname -plist / -paramfile / -pindex",
+      "kind": "command",
+      "description": "Batch options selecting what to compute: -study <tag> runs only that study (tags std1, std2... visible in the study node's Properties or via model.study().tags()), -pname and -plist override global parameters with comma-separated names and values (with units), -paramfile <file> reads many parameter sets from a text table (one row per set, columns per parameter, first line names) so a sweep can be scripted without a Parametric Sweep node, and -pindex picks rows of that table. Combined with -outputfile patterns this drives external design-of-experiments loops.",
+      "usage": "comsol batch -inputfile m.mph -outputfile out.mph -study std2 -pname L,w -plist 2[cm],3[cm]; comsol batch -inputfile m.mph -paramfile params.txt -pindex 1,2 -outputfile out.mph",
+      "parameters": [
+        {"name": "-study", "description": "Study tag to compute (default: all studies)."},
+        {"name": "-pname / -plist", "description": "Parameter names and values (comma separated; units in brackets)."},
+        {"name": "-paramfile", "description": "Table file with parameter names on the first line and one value set per subsequent line."},
+        {"name": "-pindex", "description": "Comma-separated indices of parameter sets to run from the file."},
+        {"name": "-job", "description": "Run a Job Configuration (batch sweep/cluster job) by tag instead of a study."}
+      ],
+      "example": "rem params.txt:\nrem L w\nrem 1[cm] 2[mm]\nrem 2[cm] 2[mm]\ncomsolbatch -inputfile bracket.mph -outputfile bracket_out.mph -study std1 -paramfile params.txt -batchlog bracket.log",
+      "notes": "Parameter overrides apply before solving and are saved in the output model. The 'comsol batch' entry in the first automation chunk covers -inputfile/-outputfile and the meta.json lists the common invocations.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.08.html"
+    },
+    {
+      "name": "comsol batch -np / -nn / -nnhost / -f / -mpi / -clustersimple",
+      "kind": "command",
+      "description": "Parallelism options: -np <n> sets the number of shared-memory cores (threads) per process, -nn <n> the number of distributed (MPI) processes for cluster runs, -nnhost <n> the processes per host, -f <hostfile> the machine list, -mpi selects the MPI implementation (auto, Intel/Microsoft HPC variants, user path), -mpipath the library, -clustersimple starts a simple cluster job without a scheduler (all nodes from the host file, one process each), and -mpirsh/-mpibootstrap configure remote launching. The same settings live in the Cluster Computing job node for GUI-driven runs; -usebatchlic uses batch licences for distributed jobs.",
+      "usage": "comsol -np 16 batch -inputfile m.mph -outputfile o.mph; comsol -nn 4 -nnhost 1 -np 8 -f hosts.txt -clustersimple batch -inputfile m.mph -outputfile o.mph",
+      "parameters": [
+        {"name": "-np", "description": "Cores per process (shared memory)."},
+        {"name": "-nn / -nnhost", "description": "Number of MPI processes in total / per host."},
+        {"name": "-f hostfile", "description": "Text file listing host names for distributed runs."},
+        {"name": "-mpi / -mpipath / -mpibootstrap", "description": "MPI library selection and process launching."},
+        {"name": "-clustersimple", "description": "Simple distributed launch without a job scheduler."},
+        {"name": "-usebatchlic", "description": "Consume batch licences instead of interactive ones."}
+      ],
+      "example": "# Linux SLURM script fragment\ncomsol -nn 8 -np 16 -f $SLURM_JOB_NODELIST_FILE -mpibootstrap slurm batch -inputfile /scratch/model.mph -outputfile /scratch/model_out.mph -batchlog /scratch/model.log",
+      "notes": "Distributed runs need MUMPS (direct) or the distributed iterative solvers and the -clusterstorage/-clusterpartmethod options for partitioning; shared-memory runs (-np) suffice for most workstation jobs. Cluster options are documented in the COMSOL Commands section for each platform.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.31.html"
+    },
+    {
+      "name": "comsol batch -recover / -continue / -autosave / -recoverydir / -stoptime / -alivetime",
+      "kind": "command",
+      "description": "Robustness options for long batch runs: -autosave on (default) writes recovery files of the solution at intervals into the recovery directory (-recoverydir, or the preference setting), -recover restarts a crashed or killed job from the recovery data and continues, -continue resumes an interrupted job from its last stored solution, -stoptime <seconds> stops the job after a wall-clock limit (useful under scheduler limits, together with -alivetime which controls how often status is written), and -nosave/-norun skip saving or computing. These pair with the Time-Dependent Solver's 'Store solution' settings and with checkpointing in the Cluster Computing node.",
+      "usage": "comsol batch -inputfile m.mph -outputfile o.mph -autosave on -recoverydir C:/recovery; ... after a crash: comsol batch -inputfile m.mph -outputfile o.mph -recover; comsol batch -inputfile m.mph -outputfile o.mph -stoptime 36000",
+      "parameters": [
+        {"name": "-autosave on|off", "description": "Write recovery files during solving."},
+        {"name": "-recoverydir", "description": "Directory for recovery files (default in the user's .comsol folder)."},
+        {"name": "-recover", "description": "Open the model from the recovery directory and continue."},
+        {"name": "-continue", "description": "Continue an interrupted batch job."},
+        {"name": "-stoptime / -alivetime", "description": "Stop after N seconds / status write interval."},
+        {"name": "-nosave / -norun / -clearsolution / -clearmesh", "description": "Skip saving, skip computing, or clear data before running."}
+      ],
+      "example": "comsolbatch -inputfile transient.mph -outputfile transient_out.mph -batchlog transient.log -autosave on -alivetime 60 -stoptime 7200\nrem later, resume from recovery data:\ncomsolbatch -inputfile transient.mph -outputfile transient_out.mph -recover",
+      "notes": "Recovery files can be large (they hold the full solution); clean the recovery directory after successful runs. The output file is written only at the end unless the model's own settings or -autosave produce intermediate files.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.08.html"
+    },
+    {
+      "name": "comsol batch -methodcall / -appargnames -appargvalues / -run (running methods and apps)",
+      "kind": "command",
+      "description": "Batch execution of Application Builder code: -methodcall <tag> runs a Method Call node (a Model Method attached to the model, e.g. from Global Definitions > Method Calls) in the batch process after loading the model and before saving, -appargnames/-appargvalues (or -appargsfile) pass named arguments to an application's startup method for apps run in batch, and comsol -run app.mph launches an application in the standalone desktop (with -open to edit it). This is how Model Methods that automate multi-step workflows (build, solve, evaluate, export) are executed headless on servers and clusters.",
+      "usage": "comsol batch -inputfile model.mph -methodcall mtd1 -outputfile out.mph; comsol batch -inputfile app.mphapp -appargnames width,height -appargvalues 2,3; comsol -run C:/apps/heatsink.mphapp",
+      "parameters": [
+        {"name": "-methodcall <tag>", "description": "Method Call node tag (mtd1) to execute."},
+        {"name": "-appargnames / -appargvalues / -appargsfile / -appargvarlist / -appargfilelist", "description": "Application arguments read via getArgument*() in the app's methods."},
+        {"name": "-run / -open / -edit", "description": "Standalone COMSOL Desktop: run, open or edit an application file."}
+      ],
+      "example": "rem Model Method 'exportResults' stored in the model as Method Call mtd1\ncomsolbatch -inputfile fin_array.mph -methodcall mtd1 -nosave -batchlog fin_array.log",
+      "notes": "Method Calls appear under Global Definitions when a model method is added from the Developer tab (Model Builder > Developer > Run Method / Add Method Call). Methods that use dialogs or graphics should guard those calls for batch mode.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.08.html"
+    },
+    {
+      "name": "comsol mphserver / COMSOL Multiphysics Server options (-port, -login, -multi, -silent, -user, -passwd)",
+      "kind": "command",
+      "description": "Starts the COMSOL Multiphysics Server process that LiveLink for MATLAB, MPh/Python, Java clients and the COMSOL Desktop client connect to: comsol mphserver (Windows shortcut 'COMSOL Multiphysics Server') listens on port 2036 by default, -port sets another port (a busy port makes the server move to the next free one; -portfile writes the chosen port), -login force|never|auto|info controls password login (the first start asks to create a username/password stored in the preferences; -passwd reset|nostore manages it, -user names the account), -multi on keeps the server alive for repeated client connections, -silent stops it from reading stdin (needed when started as a service or from scripts), -graphics enables server-side plotting for mphplot, and -np/-nn apply as for batch. comsol mphserver matlab starts server and MATLAB together.",
+      "usage": "comsol mphserver -port 2036 -multi on -silent; comsol mphserver matlab -mlroot \"C:/Program Files/MATLAB/R2024a\"; Windows: \"COMSOL Multiphysics Server\" shortcut",
+      "parameters": [
+        {"name": "-port / -portfile", "description": "TCP port and file receiving the actual port."},
+        {"name": "-login", "description": "info (default, prompts once) | force | never | auto."},
+        {"name": "-user / -passwd", "description": "Login name; reset or do not store the password."},
+        {"name": "-multi on|off", "description": "Accept repeated client connections."},
+        {"name": "-silent / -graphics / -ipv6", "description": "Do not read stdin; enable graphics libraries; listen on IPv6."},
+        {"name": "-mode batch|desktop", "description": "Server mode."}
+      ],
+      "example": "rem Terminal 1\ncomsol mphserver -port 2036 -multi on -silent\nrem Terminal 2 (MATLAB)\nmphstart(2036)\nmodel = mphload('busbar.mph');\nrem Python\nimport mph; client = mph.start(port=2036)",
+      "notes": "The server must run the same COMSOL version as the client libraries. Multiple servers on one machine use different ports; each consumes a licence seat. The 'comsol server' entry in the first automation chunk gives the basic use; COMSOL Server (the product for deploying apps) is a different program.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.31.html"
+    },
+    {
+      "name": "COMSOL Multiphysics Client (-server, -port) and client/server GUI mode",
+      "kind": "command",
+      "description": "The COMSOL Desktop can run as a client of a remote COMSOL Multiphysics Server so that geometry/mesh/solve happen on a powerful machine while the GUI runs on a laptop: start the server on the remote host (comsol mphserver -login force), then on the local machine run comsol client (Windows shortcut 'COMSOL Multiphysics Client') with -server <host> -port <port>, or connect from a running Desktop via File > COMSOL Multiphysics Server > Connect to Server. Models are opened on the client but stored/computed on the server (File > Open on server), and the connection can be disconnected/reconnected without losing the server-side model.",
+      "usage": "comsol client -server cluster-head.example.org -port 2036; or Desktop: File > COMSOL Multiphysics Server > Connect to Server (host, port, user, password)",
+      "parameters": [
+        {"name": "-server", "description": "Server host name or IP."},
+        {"name": "-port", "description": "Server port (2036 default)."},
+        {"name": "-open <file>", "description": "Open a model file located on the server."}
+      ],
+      "example": "rem on the remote workstation (Windows):\n\"C:\\Program Files\\COMSOL\\COMSOL63\\Multiphysics\\bin\\win64\\comsol.exe\" mphserver -login force -port 2036\nrem on the laptop:\n\"C:\\Program Files\\COMSOL\\COMSOL63\\Multiphysics\\bin\\win64\\comsol.exe\" client -server 192.168.1.20 -port 2036",
+      "notes": "Requires network access to the port (firewall) and the same COMSOL version on both ends; a licence is checked out by the server. Graphics are rendered on the client from data sent by the server, so large plots transfer a lot of data.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.31.html"
+    },
+    {
+      "name": "comsol compile (COMSOL Compiler options: -platforms, -runtimetype, -outputdir, -splash, -iconwindows)",
+      "kind": "command",
+      "description": "Besides compiling Java model files, comsol compile turns an application (.mph/.mphapp with forms and methods) into a standalone executable with COMSOL Compiler: comsol compile -platforms windows,linux,macos app.mph builds executables for the chosen platforms, -runtimetype download (small executable that fetches the COMSOL Runtime on first start) or embed (self-contained), -outputdir sets the destination, -splash and -iconwindows/-iconmacos customise the branding, -phbarchive adds an external Physics Builder archive, and -classpathadd/-jdkroot/-verbose apply as for Java compilation. Compiled apps run without a COMSOL licence on the user's machine.",
+      "usage": "comsol compile -platforms windows -runtimetype embed -outputdir C:/dist -splash splash.png -iconwindows app.ico C:/apps/heatsink.mph",
+      "parameters": [
+        {"name": "-platforms", "description": "windows, linux, macos (comma separated)."},
+        {"name": "-runtimetype", "description": "download (default) | embed."},
+        {"name": "-outputdir", "description": "Where the executable is written."},
+        {"name": "-splash / -iconwindows / -iconmacos", "description": "Splash image and application icons."},
+        {"name": "-phbarchive", "description": "External physics archive to include."},
+        {"name": "-jdkroot / -classpathadd / -verbose", "description": "Java compilation options."}
+      ],
+      "example": "comsol compile -platforms windows,linux -runtimetype download -outputdir C:/dist -verbose C:/apps/heatsink.mph",
+      "notes": "Requires a COMSOL Compiler licence; the same operation is available from the Application Builder ribbon (Compile Application). Embedded runtimes are large (several GB); the download runtime needs internet access on first run.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.31.html"
+    },
+    {
+      "name": "comsol -c (license file) / -ckl / -tmpdir / -prefsdir / -configuration / -data / -checklicense",
+      "kind": "command",
+      "description": "Environment options accepted by every comsol command: -c <path> points to a licence file or port@host, -ckl uses the Class Kit Licence (teaching), -keeplicenses on keeps module licences checked out while an app runs, -tmpdir/-prefsdir/-configuration/-data override the temporary, preferences, GUI-configuration and workspace directories (useful on clusters with read-only homes or to isolate runs), -docroot/-applicationsroot point to custom documentation and Application Libraries locations, -comsolinifile selects a different .ini for JVM/heap settings, and -checklicense <file.mph> prints which products a model requires without running it. -blas/-alloc/-mpmode/-numasets tune the numerical libraries and memory allocation.",
+      "usage": "comsol -c 1718@license.example.org batch -inputfile m.mph -outputfile o.mph; comsol -tmpdir /scratch/tmp -prefsdir /scratch/prefs batch ...; comsol batch -checklicense m.mph",
+      "parameters": [
+        {"name": "-c", "description": "Licence file path or port@host."},
+        {"name": "-ckl", "description": "Use the class kit licence."},
+        {"name": "-tmpdir / -prefsdir / -configuration / -data", "description": "Directory overrides."},
+        {"name": "-checklicense", "description": "Print licence requirements of a model file."},
+        {"name": "-comsolinifile", "description": "Alternative .ini (e.g. with a larger -Xmx heap)."},
+        {"name": "-blas / -alloc / -mpmode", "description": "BLAS library (mkl, aocl, blas), memory allocator, multiprocessor mode."}
+      ],
+      "example": "comsol batch -checklicense C:/models/motor.mph\nrem -> lists e.g. COMSOL Multiphysics, AC/DC Module\ncomsol -c 1718@licsrv -tmpdir D:/tmp batch -inputfile C:/models/motor.mph -outputfile C:/models/motor_out.mph",
+      "notes": "Options preceding the batch/mphserver/compile keyword are general COMSOL options; options after it belong to that command. The Windows executables are comsol.exe, comsolbatch.exe, comsolmphserver.exe and comsolcompile.exe under bin/win64.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_running.38.31.html"
+    },
+    {
+      "name": "COMSOL Server (deploying applications)",
+      "kind": "tool",
+      "description": "COMSOL Server is the product for running COMSOL applications (built with the Application Builder) in a web browser or the COMSOL Client for Windows, for many users at once: an administrator installs COMSOL Server, uploads .mph/.mphapp applications to its Application Library (per user/group with permissions), sets the number of concurrent sessions, and users log in through http://host:2036 to run apps without any COMSOL installation. It supports app preferences, custom branding, app versioning, running with LiveLink for MATLAB/Excel on the server, and an Administration page for users, groups, licences and logs.",
+      "usage": "Install COMSOL Server; comsolserver (or the Windows service) starts it on port 2036; browse to http://localhost:2036, log in as administrator, Application Library > Upload; users run apps from the library",
+      "parameters": [
+        {"name": "Port / login", "description": "Web port (default 2036, HTTPS configurable) and user accounts/groups."},
+        {"name": "Application Library", "description": "Uploaded apps with visibility per group; app settings for maximum sessions."},
+        {"name": "COMSOL Client for Windows", "description": "Native client giving full graphics and LiveLink CAD access to server-hosted apps."},
+        {"name": "Preferences / branding", "description": "Server-wide settings, custom logo and CSS."}
+      ],
+      "example": "rem Windows: start the service, then\nrem upload C:\\apps\\heatsink.mph via the web interface -> Application Library\nrem users open http://server:2036, log in, click 'Run in browser'",
+      "notes": "COMSOL Server requires its own licence (counted by concurrent users) and the modules used by the apps. COMSOL Compiler is the alternative for distributing standalone executables; the Model Manager Server (6.x) is a separate product for model/version management.",
+      "docs": "https://www.comsol.com/comsol-server"
+    },
+    {
+      "name": "COMSOL Compiler (standalone applications)",
+      "kind": "tool",
+      "description": "COMSOL Compiler compiles an application into a standalone executable (Windows .exe, Linux binary, macOS app) that includes the COMSOL Runtime, so recipients run the simulation app without any COMSOL licence or installation - for distributing design tools to customers, students or colleagues. Compilation is started from the Application Builder ribbon (Compile Application) or the command line (comsol compile, see that entry) with options for platform, embedded or downloadable runtime, icons and splash screen; the compiled app has the same forms, methods and results as in the Application Builder and can save/load its own state.",
+      "usage": "Application Builder > Home > Compile Application (or Developer tab) > choose platforms and runtime type > Compile; or comsol compile -platforms windows app.mph",
+      "parameters": [
+        {"name": "Platforms", "description": "Windows, Linux, macOS executables from one source."},
+        {"name": "Runtime type", "description": "Embedded (self-contained, large) or Download (fetches runtime once)."},
+        {"name": "Branding", "description": "Icon, splash screen, application name."},
+        {"name": "Physics archive", "description": "Include Physics Builder archives used by the app."}
+      ],
+      "example": "rem Application Builder: Home > Compile Application\nrem Output: C:\\dist\\heatsink.exe (Windows), heatsink (Linux)\nrem Users double-click the executable; no COMSOL installation needed",
+      "notes": "Requires a COMSOL Compiler licence in addition to the modules used. Compiled applications cannot be edited by recipients and do not expose the Model Builder; updates require recompiling.",
+      "docs": "https://www.comsol.com/comsol-compiler"
+    },
+    {
+      "name": "Application Libraries / Part Libraries / Add-in Libraries",
+      "kind": "library",
+      "description": "The Application Libraries window (File > Application Libraries, or Home > Windows) lists the hundreds of tutorial and demo models and applications shipped with COMSOL Multiphysics and each module, with a description, documentation PDF (step-by-step instructions) and the .mph file (downloadable on demand with the Application Library Update); models can be opened directly, used as templates, and searched by name/physics. Related windows: Part Libraries (parametrised geometry parts per module), the Add-in Libraries (utility add-ins such as Image to Curve, Streamline Seeder, Model Comparison, Frequency Sweep helpers) and the Material Library window.",
+      "usage": "File > Application Libraries > (module) > model > Open Model / Open PDF Document; File > Help > Update COMSOL Application Libraries; Geometry > Parts > Part Libraries; Developer > Add-in Libraries; MATLAB: mphapplicationlibraries",
+      "parameters": [
+        {"name": "Search", "description": "Full-text search over titles, physics and keywords."},
+        {"name": "Open Model / Open PDF / Open Java", "description": "Load the model, read the tutorial, or see the Java model file where provided."},
+        {"name": "Application Library Update", "description": "Downloads the .mph files (only descriptions are installed by default)."},
+        {"name": "-applicationsroot", "description": "Command-line option pointing to a custom library location."}
+      ],
+      "example": "rem Example: COMSOL Multiphysics > Multiphysics > busbar.mph\nrem Open Model, then File > Save As > Model File for Java to study the API calls\nrem MATLAB:\nmphapplicationlibraries",
+      "notes": "Library models are licensed under the COMSOL Software License Agreement and are the reference for feature usage; their PDFs are the fastest way to learn a workflow. Applications in the libraries can be run directly or opened in the Application Builder.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_introduction.17.04.html"
+    },
+    {
+      "name": "Model Manager (local database, versions, search, Model Manager Server)",
+      "kind": "tool",
+      "description": "Model Manager (built into COMSOL Multiphysics since 6.0) is a simulation data management system: models, auxiliary files and apps are saved into a local database (File > Save to database) or a shared Model Manager Server database with version control (every save creates a version with a comment; earlier versions can be opened, compared with Model Comparison and restored), branches, tags, ownership and access permissions, full-text and physics/parameter-aware search across all models, and the ability to run batch jobs and comsol batch directly on database items (comsol batch -inputfile with a database URI). The Model Manager Server web interface (separate product/installation) adds asset management, users/groups and a REST-style API.",
+      "usage": "File > Open from / Save to Model Manager database; Model Manager window (Home > Windows > Model Manager): Search, Versions, Branches, Commits; API: ModelUtil.load(tag, \"database URI\") / model.save(\"URI\"); mph: client.load('mph://...')",
+      "parameters": [
+        {"name": "Database", "description": "Local (file based, single user) or Server (multi-user, PostgreSQL backed)."},
+        {"name": "Version / commit / comment", "description": "Each save is a version; commits snapshot the whole database state."},
+        {"name": "Search", "description": "Filters on physics, parameters, materials, author, tags; saved searches."},
+        {"name": "Auxiliary data", "description": "CAD files, data files, reports stored alongside models with their own versions."}
+      ],
+      "example": "rem Save the open model into the local database with a comment\nrem File > Save to Database > 'Local database' > Comment: 'Mesh refined' > Save\nrem Run batch on the latest version of a database item:\ncomsol batch -inputfile \"mphdb://local/Models/busbar\" -outputfile C:/out/busbar_out.mph",
+      "notes": "Model Manager database URIs and the batch usage are documented in the Model Manager Reference Manual (Running COMSOL Batch with Models in Databases). Model Manager Server requires its own licence and installation.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/model_manager_ref_tools.57.17.html"
+    },
+    {
+      "name": "Physics Builder (custom physics interfaces, .mphphb archives)",
+      "kind": "tool",
+      "description": "The Physics Builder (File > Preferences > Physics Builder > Enable, then the Physics Builder desktop) lets developers define new physics interfaces with the same look and behaviour as the built-in ones: a builder file (.mphphb) contains a tree of components - physics interface definitions with dependent variables, shape functions, variables, weak-form equations, features (domain/boundary/edge/point) with settings-window inputs, material properties, multiphysics couplings, study defaults and results templates - and Physics Builder archives are compiled and deployed to users through the Preferences (Physics Builder > Archives) or embedded in apps and compiled applications (-phbarchive). It is the mechanism for reusable proprietary models beyond what Weak Contributions and Equation View allow.",
+      "usage": "File > Preferences > Physics Builder > Enable Physics Builder; File > New > Physics Builder File (.mphphb); Physics Builder Manager > Compile archive; Preferences > Physics Builder > Archives to deploy; users then find the interface in the Model Wizard",
+      "parameters": [
+        {"name": "Physics Interface node", "description": "Name, tag, space dimensions, dependent variables, discretization."},
+        {"name": "Variable/Equation definitions", "description": "Variables, weak forms, constraints per entity level with input/output declarations."},
+        {"name": "Features", "description": "Domain/boundary features with inputs (settings window sections, unit-aware), default features, selections."},
+        {"name": "Test / Compile", "description": "Physics Builder Manager tests the interface in a model and compiles the archive."}
+      ],
+      "example": "rem 1. Enable the Physics Builder in Preferences, restart\nrem 2. New > Physics Builder File; add Physics Interface 'My Diffusion' (tag mdf), dependent variable c\nrem 3. Add a Domain Condition with Equation: weak = -D*(cx*test(cx)+cy*test(cy)) + f*test(c)\nrem 4. Physics Builder Manager > Test in Model, then Compile Archive -> mydiffusion.mphphb archive\nrem 5. Preferences > Physics Builder > Archives > Add; the interface appears under Model Wizard",
+      "notes": "Requires the Physics Builder to be enabled (part of COMSOL Multiphysics, no extra licence); deployed archives can be encrypted so recipients cannot read the equations. Documentation: Physics Builder Manual.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/html_COMSOL_PhysicsBuilderManual.html"
+    }
+  ]
+}

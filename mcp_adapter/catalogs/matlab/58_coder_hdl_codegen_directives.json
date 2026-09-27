@@ -1,0 +1,394 @@
+{
+  "category": "MATLAB Coder, GPU Coder & HDL Coder II > Code Generation Directives, Types, External Code, Build Info & HDL from MATLAB",
+  "description": "Code generation functions not covered by the basic entries (codegen, coder.typeof, coder.varsize, coder.extrinsic, coder.ceval, coder.config): inlining/unrolling/constant-folding directives, type and constant specifications, external C/C++ integration helpers, build-information and packaging utilities, hardware/GPU configuration, and HDL Coder functions and pragmas for generating HDL from MATLAB.",
+  "tools": [
+    {
+      "name": "coder.inline",
+      "kind": "function",
+      "description": "Directive placed inside a function to control whether the code generator inlines that function at its call sites ('always', 'never' or 'default' heuristics). Inlining removes call overhead; preventing it keeps generated code modular and readable.",
+      "usage": "coder.inline(\"always\")\ncoder.inline(\"never\")\ncoder.inline(\"default\")",
+      "parameters": [
+        {"name": "option", "description": "\"always\", \"never\" or \"default\"."}
+      ],
+      "example": "function y = smallHelper(x) %#codegen\ncoder.inline(\"always\");\ny = 2*x + 1;\nend",
+      "notes": "coder.inlineCall and coder.nonInlineCall control inlining at a specific call site instead. Has no effect in MATLAB execution.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.inline.html"
+    },
+    {
+      "name": "coder.inlineCall",
+      "kind": "function",
+      "description": "Inlines one specific call to a function in the generated code, overriding the callee's coder.inline setting only at that call site.",
+      "usage": "out = coder.inlineCall(functionCall)",
+      "parameters": [
+        {"name": "functionCall", "description": "The call expression, e.g. myFcn(a, b)."}
+      ],
+      "example": "function y = entry(x) %#codegen\ny = coder.inlineCall(filterStage(x)) + coder.nonInlineCall(bigStage(x));\nend",
+      "notes": "Introduced R2022a together with coder.nonInlineCall.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.inlinecall.html"
+    },
+    {
+      "name": "coder.const",
+      "kind": "function",
+      "description": "Forces an expression to be evaluated at code generation time and folded into a constant in the generated code, e.g. building lookup tables or configuration structures once instead of at run time.",
+      "usage": "out = coder.const(expression)\n[out1, ..., outN] = coder.const(handle, arg1, ..., argN)",
+      "parameters": [
+        {"name": "expression", "description": "Expression whose value must be computable at compile time."},
+        {"name": "handle, args", "description": "Function handle and constant arguments for multi-output evaluation."}
+      ],
+      "example": "function y = sinLUT(idx) %#codegen\ntbl = coder.const(sin(linspace(0, 2*pi, 256)));\ny = tbl(idx);\nend",
+      "notes": "Errors if the value depends on run-time inputs. coder.mustBeConst validates that an input argument is constant (R2023b+).",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.const.html"
+    },
+    {
+      "name": "coder.unroll",
+      "kind": "function",
+      "description": "Unrolls a for-loop in generated code by copying the loop body for each iteration, which can improve speed for short loops with constant bounds.",
+      "usage": "for i = coder.unroll(range) ... end\nfor i = coder.unroll(range, flag) ... end",
+      "parameters": [
+        {"name": "range", "description": "Loop range with compile-time constant bounds."},
+        {"name": "flag", "description": "Logical constant; false disables unrolling (useful for parametrized code)."}
+      ],
+      "example": "function y = dot4(a, b) %#codegen\ny = 0;\nfor k = coder.unroll(1:4)\n    y = y + a(k)*b(k);\nend\nend",
+      "notes": "Large unrolled loops increase code size. HDL Coder uses coder.hdl.loopspec for similar control in hardware.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.unroll.html"
+    },
+    {
+      "name": "coder.nullcopy",
+      "kind": "function",
+      "description": "Declares a variable without initializing its contents in generated code, avoiding unnecessary memory writes when every element will be assigned before use.",
+      "usage": "X = coder.nullcopy(A)",
+      "parameters": [
+        {"name": "A", "description": "Array defining the size, class and complexity of X."}
+      ],
+      "example": "function y = squares(n) %#codegen\ny = coder.nullcopy(zeros(1, n));\nfor k = 1:n\n    y(k) = k^2;\nend\nend",
+      "notes": "Reading an element before assigning it gives undefined results in generated code (MATLAB still initializes it).",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.nullcopy.html"
+    },
+    {
+      "name": "coder.target",
+      "kind": "function",
+      "description": "Returns true when code is being generated for the specified target (e.g. \"MATLAB\", \"MEX\", \"C\", \"C++\", \"CUDA\", \"HDL\"), letting one function contain target-specific branches.",
+      "usage": "tf = coder.target(target)",
+      "parameters": [
+        {"name": "target", "description": "\"MATLAB\", \"MEX\", \"Sfun\", \"Rtw\", \"HDL\", \"Custom\", \"C\", \"C++\", \"CUDA\"."}
+      ],
+      "example": "function y = logValue(x) %#codegen\nif coder.target(\"MATLAB\")\n    fprintf(\"x = %g\\n\", x);    % only in MATLAB\nelse\n    coder.ceval(\"printf\", \"x = %f\\n\", x);\nend\ny = x;\nend",
+      "notes": "Branches for other targets are removed at compile time.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.target.html"
+    },
+    {
+      "name": "coder.load",
+      "kind": "function",
+      "description": "Loads variables from a MAT-file or ASCII file at code generation time and embeds them as constants in the generated code, e.g. filter coefficients or trained model parameters.",
+      "usage": "S = coder.load(filename)\nS = coder.load(filename, var1, ..., varN)",
+      "parameters": [
+        {"name": "filename", "description": "Constant file name."},
+        {"name": "var1...varN", "description": "Variable names to load (wildcards and -regexp supported)."}
+      ],
+      "example": "function y = firApply(x) %#codegen\nS = coder.load(\"coeffs.mat\", \"b\");\ny = filter(S.b, 1, x);\nend",
+      "notes": "Changes to the MAT-file require regeneration. Use load for run-time loading where supported.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.load.html"
+    },
+    {
+      "name": "coder.newtype",
+      "kind": "function",
+      "description": "Creates a coder.Type object describing an entry-point input from class, size and variable-size flags without needing an example value, for use with codegen -args.",
+      "usage": "t = coder.newtype(numericClass, sz, variableDims)\nt = coder.newtype(numericClass, sz, variableDims, Name=Value)\nt = coder.newtype(\"struct\", structFields, sz, variableDims)",
+      "parameters": [
+        {"name": "numericClass", "description": "E.g. \"double\", \"single\", \"int16\", \"logical\", \"char\"."},
+        {"name": "sz / variableDims", "description": "Upper-bound size and logical vector of variable dimensions."},
+        {"name": "complex / sparse / gpu", "description": "Additional attributes."}
+      ],
+      "example": "t = coder.newtype(\"double\", [1 Inf], [0 1]);      % 1-by-:Inf row vector\ncodegen myFcn -args {t, coder.newtype(\"int32\", [1 1], [0 0])}",
+      "notes": "coder.typeof builds types from example values; coder.resize changes size/variability of existing types.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.newtype.html"
+    },
+    {
+      "name": "coder.Constant",
+      "kind": "function",
+      "description": "Specifies that an entry-point input is a compile-time constant with a given value, so the generated function has no corresponding argument and the value is folded into the code.",
+      "usage": "const = coder.Constant(v)",
+      "parameters": [
+        {"name": "v", "description": "Constant value."}
+      ],
+      "example": "codegen myFFT -args {zeros(1024,1), coder.Constant(1024)} -config:lib",
+      "notes": "The generated function signature omits constant inputs. Also used in buildInstrumentedMex and fiaccel -args.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.constant-class.html"
+    },
+    {
+      "name": "coder.ignoreConst",
+      "kind": "function",
+      "description": "Prevents the code generator from using the constant value of an argument expression to create specialized copies of a called function, reducing code size when a function is called with many different constants.",
+      "usage": "out = coder.ignoreConst(expression)",
+      "parameters": [
+        {"name": "expression", "description": "Argument expression whose constant value should be ignored."}
+      ],
+      "example": "function y = entry(x) %#codegen\ny = scale(x, coder.ignoreConst(2)) + scale(x, coder.ignoreConst(3));   % one specialization\nend",
+      "notes": "coder.ignoreSize similarly prevents specializations based on constant sizes.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.ignoreconst.html"
+    },
+    {
+      "name": "coder.ref",
+      "kind": "function",
+      "description": "Indicates that an argument of coder.ceval is passed by reference (as a pointer) to external C/C++ code, which may read and modify it. coder.rref (read-only) and coder.wref (write-only) are the restricted variants.",
+      "usage": "coder.ceval(\"fcn\", coder.ref(arg))\ncoder.ceval(\"fcn\", coder.rref(arg), coder.wref(out))",
+      "parameters": [
+        {"name": "arg", "description": "Variable (or element) to pass by reference."},
+        {"name": "\"gpu\"", "description": "Optional flag to pass GPU memory pointers (GPU Coder)."}
+      ],
+      "example": "function y = callScale(x) %#codegen\ny = zeros(size(x));\ncoder.cinclude(\"scale.h\");\ncoder.ceval(\"scaleArray\", coder.rref(x), coder.wref(y), int32(numel(x)));\nend",
+      "notes": "Pair with coder.updateBuildInfo or codegen command-line source files to compile the external function.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.ref.html"
+    },
+    {
+      "name": "coder.cinclude",
+      "kind": "function",
+      "description": "Adds an #include directive for a C/C++ header to the generated code, required when calling external functions or using external types via coder.ceval and coder.opaque.",
+      "usage": "coder.cinclude(headerfile)\ncoder.cinclude(headerfile, \"InAllSourceFiles\", allfiles)",
+      "parameters": [
+        {"name": "headerfile", "description": "Header name, e.g. \"myLib.h\" or \"<math.h>\"."},
+        {"name": "InAllSourceFiles", "description": "Include in all generated source files (default only where called)."}
+      ],
+      "example": "coder.cinclude(\"<time.h>\");\nt = coder.opaque(\"time_t\");\nt = coder.ceval(\"time\", []);",
+      "notes": "Header search paths are added with coder.updateBuildInfo(\"addIncludePaths\", ...) or codegen -I.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.cinclude.html"
+    },
+    {
+      "name": "coder.opaque",
+      "kind": "function",
+      "description": "Declares a variable of an external C type (e.g. FILE*, a struct handle or time_t) in generated code, whose value is only manipulated by external functions.",
+      "usage": "y = coder.opaque(type)\ny = coder.opaque(type, value)\ny = coder.opaque(type, value, \"HeaderFile\", headerfile)",
+      "parameters": [
+        {"name": "type", "description": "C type name as a string."},
+        {"name": "value", "description": "Initial value expression in C (e.g. \"NULL\")."},
+        {"name": "HeaderFile", "description": "Header declaring the type."}
+      ],
+      "example": "function writeLog(msg) %#codegen\nf = coder.opaque(\"FILE *\", \"NULL\", \"HeaderFile\", \"<stdio.h>\");\nf = coder.ceval(\"fopen\", [\"log.txt\" 0], [\"a\" 0]);\ncoder.ceval(\"fputs\", [msg 0], f);\ncoder.ceval(\"fclose\", f);\nend",
+      "notes": "MATLAB cannot inspect opaque values; use coder.target to provide MATLAB-side behavior.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.opaque.html"
+    },
+    {
+      "name": "coder.cstructname",
+      "kind": "function",
+      "description": "Names the C structure type generated for a MATLAB structure, or maps it to an existing externally defined struct type from a header, so generated code interfaces cleanly with hand-written C.",
+      "usage": "coder.cstructname(var, structName)\ncoder.cstructname(var, structName, \"extern\", \"HeaderFile\", headerfile)\nt = coder.cstructname(t, structName)",
+      "parameters": [
+        {"name": "var / t", "description": "Structure variable inside a function, or a coder.StructType at the command line."},
+        {"name": "\"extern\"", "description": "Use an externally defined type rather than generating one."}
+      ],
+      "example": "t = coder.typeof(struct(\"x\", 0, \"y\", 0));\nt = coder.cstructname(t, \"Point2D\");\ncodegen norm2d -args {t} -config:lib",
+      "notes": "Field order and types must match the external definition exactly.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.cstructname.html"
+    },
+    {
+      "name": "coder.updateBuildInfo",
+      "kind": "function",
+      "description": "Called from MATLAB code for code generation, it adds source files, include paths, libraries, defines or compile/link flags to the build information so external code is compiled and linked with the generated code.",
+      "usage": "coder.updateBuildInfo(\"addSourceFiles\", srcfile)\ncoder.updateBuildInfo(\"addIncludePaths\", path)\ncoder.updateBuildInfo(\"addLinkObjects\", filename, path, priority, precompiled, linkonly)\ncoder.updateBuildInfo(\"addDefines\", macros)",
+      "parameters": [
+        {"name": "method", "description": "RTW.BuildInfo method name, e.g. \"addSourceFiles\", \"addIncludePaths\", \"addLinkObjects\", \"addCompileFlags\", \"addLinkFlags\", \"addDefines\"."},
+        {"name": "args", "description": "Arguments of the build information method."}
+      ],
+      "example": "function y = useLib(x) %#codegen\ncoder.updateBuildInfo(\"addSourceFiles\", \"scale.c\", fullfile(pwd, \"csrc\"));\ncoder.updateBuildInfo(\"addIncludePaths\", fullfile(pwd, \"csrc\"));\ncoder.cinclude(\"scale.h\");\ny = 0; y = coder.ceval(\"scale\", x);\nend",
+      "notes": "For reusable integrations implement a coder.ExternalDependency class instead.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.updatebuildinfo.html"
+    },
+    {
+      "name": "coder.ExternalDependency",
+      "kind": "function",
+      "description": "Abstract class for packaging an interface to external C/C++ code: it declares build dependencies (updateBuildInfo) and exposes MATLAB-callable static methods that wrap coder.ceval, so callers do not deal with build details.",
+      "usage": "classdef myLibAPI < coder.ExternalDependency\n    methods (Static)\n        function name = getDescriptiveName(context) ... end\n        function tf = isSupportedContext(context) ... end\n        function updateBuildInfo(buildInfo, context) ... end\n        function y = compute(x) ... end\n    end\nend",
+      "parameters": [
+        {"name": "getDescriptiveName / isSupportedContext / updateBuildInfo", "description": "Required static methods."},
+        {"name": "context", "description": "coder.BuildConfig object describing the build (target language, toolchain)."}
+      ],
+      "example": "% in generated-code entry point:\nfunction y = entry(x) %#codegen\ny = myLibAPI.compute(x);\nend",
+      "notes": "Inside compute, branch with coder.target(\"MATLAB\") to provide a MATLAB implementation for simulation.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.externaldependency-class.html"
+    },
+    {
+      "name": "coder.screener",
+      "kind": "function",
+      "description": "Analyzes MATLAB files and their callees for code generation readiness, reporting unsupported functions and language features before you attempt codegen.",
+      "usage": "coder.screener(fcn)\ncoder.screener(fcn1, ..., fcnN)\ninfo = coder.screener(___, \"-gpu\")",
+      "parameters": [
+        {"name": "fcn", "description": "Entry-point function name(s)."},
+        {"name": "-gpu", "description": "Check readiness for GPU Coder."}
+      ],
+      "example": "coder.screener(\"myAlgorithm\")\ninfo = coder.screener(\"myAlgorithm\");\ninfo.Messages",
+      "notes": "Opens the Code Generation Readiness report when no output is requested.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.screener.html"
+    },
+    {
+      "name": "coder.getArgTypes",
+      "kind": "function",
+      "description": "Determines the input types of an entry-point function by running a test file or function and recording the arguments passed, returning coder.Type objects for codegen -args.",
+      "usage": "types = coder.getArgTypes(testFcn, fcn)\ntypes = coder.getArgTypes(testFcn, {fcn1, ..., fcnN})\ntypes = coder.getArgTypes(___, \"uniform\", true)",
+      "parameters": [
+        {"name": "testFcn", "description": "Test script/function that calls the entry point."},
+        {"name": "fcn", "description": "Entry-point function name."}
+      ],
+      "example": "types = coder.getArgTypes(\"test_myFilter\", \"myFilter\");\ncodegen myFilter -args types -config:lib",
+      "notes": "Types are fixed-size unless the test exercises different sizes; adjust with coder.resize.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.getargtypes.html"
+    },
+    {
+      "name": "packNGo",
+      "kind": "function",
+      "description": "Packages generated code files, required headers, sources and libraries (from the build information) into a ZIP file so the code can be relocated, unpacked and rebuilt in another development environment.",
+      "usage": "packNGo(buildInfo)\npackNGo(buildInfo, Name=Value)",
+      "parameters": [
+        {"name": "buildInfo", "description": "RTW.BuildInfo object (loaded from codegen/<target>/<fcn>/buildInfo.mat) or result of a build."},
+        {"name": "packType", "description": "\"flat\" (default, single folder) or \"hierarchical\"."},
+        {"name": "fileName / minimalHeaders / includeReport", "description": "ZIP name, header minimization and report inclusion."}
+      ],
+      "example": "codegen myFcn -args {zeros(1,100)} -config:lib\nload(fullfile(\"codegen\", \"lib\", \"myFcn\", \"buildInfo.mat\"))\npackNGo(buildInfo, packType=\"hierarchical\", fileName=\"myFcn_pkg\");",
+      "notes": "Alternatively set cfg.PostCodeGenCommand = 'packNGo(buildInfo)' to package automatically after generation.",
+      "docs": "https://www.mathworks.com/help/coder/ref/packngo.html"
+    },
+    {
+      "name": "coder.hardware",
+      "kind": "function",
+      "description": "Creates a hardware configuration object for a supported target board (e.g. Raspberry Pi, NVIDIA Jetson/DRIVE) to assign to the Hardware property of a code configuration, enabling on-target build, deployment and PIL.",
+      "usage": "hw = coder.hardware(boardName)\nnames = coder.hardware()",
+      "parameters": [
+        {"name": "boardName", "description": "Supported board name, e.g. \"Raspberry Pi\", \"NVIDIA Jetson\", \"NVIDIA Drive\"."}
+      ],
+      "example": "cfg = coder.config(\"exe\");\ncfg.Hardware = coder.hardware(\"Raspberry Pi\");\ncfg.Hardware.DeviceAddress = \"192.168.1.20\";\ncodegen -config cfg myApp -args {}",
+      "notes": "Requires the corresponding hardware support package; call coder.hardware() to list installed boards.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.hardware.html"
+    },
+    {
+      "name": "coder.gpuConfig",
+      "kind": "function",
+      "description": "Creates a GPU Coder configuration object (coder.GpuCodeConfig inside a MEX/lib/dll/exe config) for generating CUDA code from MATLAB, with GPU-specific options such as compute capability, memory manager and cuDNN/TensorRT libraries.",
+      "usage": "cfg = coder.gpuConfig\ncfg = coder.gpuConfig(buildType)\ncfg = coder.gpuConfig(buildType, \"ecoder\", true)",
+      "parameters": [
+        {"name": "buildType", "description": "\"mex\" (default), \"lib\", \"dll\" or \"exe\"."},
+        {"name": "GpuConfig.ComputeCapability / GpuConfig.EnableMemoryManager", "description": "Common GPU options."},
+        {"name": "DeepLearningConfig", "description": "coder.DeepLearningConfig(\"cudnn\" or \"tensorrt\") for networks."}
+      ],
+      "example": "cfg = coder.gpuConfig(\"mex\");\ncfg.GpuConfig.ComputeCapability = \"7.5\";\ncodegen -config cfg fog_rectification -args {imread(\"foggyInput.png\")} -report",
+      "notes": "Requires GPU Coder and a CUDA toolkit; coder.checkGpuInstall verifies the environment. Use coder.gpu.kernelfun / gpucoder.* pragmas to guide kernel creation.",
+      "docs": "https://www.mathworks.com/help/gpucoder/ref/coder.gpuconfig.html"
+    },
+    {
+      "name": "coder.EmbeddedCodeConfig",
+      "kind": "function",
+      "description": "Configuration object for C/C++ code generation with Embedded Coder, adding production-code options (code style, identifier naming, comments, code replacement libraries, SIL/PIL verification) on top of coder.CodeConfig.",
+      "usage": "cfg = coder.config(buildType, \"ecoder\", true)",
+      "parameters": [
+        {"name": "buildType", "description": "\"lib\", \"dll\" or \"exe\"."},
+        {"name": "VerificationMode", "description": "\"None\", \"SIL\" or \"PIL\"."},
+        {"name": "CodeReplacementLibrary / CustomSymbolStrGlobalVar / GenerateCodeMetricsReport", "description": "Examples of Embedded Coder-only settings."}
+      ],
+      "example": "cfg = coder.config(\"lib\", \"ecoder\", true);\ncfg.VerificationMode = \"SIL\";\ncfg.GenerateCodeMetricsReport = true;\ncodegen -config cfg myController -args {0, 0}\nmyController_sil(1, 2)",
+      "notes": "Requires Embedded Coder. coder.CodeConfig is the MATLAB Coder-only equivalent created by coder.config(\"lib\").",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.embeddedcodeconfig.html"
+    },
+    {
+      "name": "coder.HdlConfig",
+      "kind": "function",
+      "description": "HDL code generation configuration object for generating Verilog/VHDL (or HLS C++) from MATLAB functions with HDL Coder, including test bench generation, target language, clocking, optimization and synthesis tool settings. Created with coder.config(\"hdl\").",
+      "usage": "hdlcfg = coder.config(\"hdl\")\ncodegen -config hdlcfg designFcn -args {inputs}",
+      "parameters": [
+        {"name": "TargetLanguage", "description": "\"Verilog\", \"VHDL\" or \"SystemVerilog\"."},
+        {"name": "TestBenchName / GenerateHDLTestBench / SimulateGeneratedCode", "description": "Test bench settings."},
+        {"name": "SynthesisTool / TargetFrequency", "description": "FPGA synthesis tool (Vivado, Quartus, ...) and clock target."},
+        {"name": "Workflow", "description": "E.g. \"Generic ASIC/FPGA\", \"High Level Synthesis\"."}
+      ],
+      "example": "hdlcfg = coder.config(\"hdl\");\nhdlcfg.TargetLanguage = \"Verilog\";\nhdlcfg.TestBenchName = \"mlhdlc_sfir_tb\";\nhdlcfg.GenerateHDLTestBench = true;\ncodegen -config hdlcfg mlhdlc_sfir",
+      "notes": "Floating-point designs are converted to fixed point with a coder.FixPtConfig (-float2fixed) or use native floating point. The MATLAB HDL Workflow Advisor offers the same steps interactively.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/coder.hdlconfig.html"
+    },
+    {
+      "name": "hdlsetuptoolpath",
+      "kind": "function",
+      "description": "Adds an FPGA synthesis tool (AMD Vivado, Intel Quartus, Microchip Libero, Lattice) to the system path for the current MATLAB session so HDL Coder workflows can run synthesis and implementation.",
+      "usage": "hdlsetuptoolpath(\"ToolName\", toolName, \"ToolPath\", toolPath)",
+      "parameters": [
+        {"name": "ToolName", "description": "E.g. \"Xilinx Vivado\", \"Altera QUARTUS II\", \"Intel Quartus Pro\", \"Microchip Libero SoC\"."},
+        {"name": "ToolPath", "description": "Full path to the tool executable."}
+      ],
+      "example": "hdlsetuptoolpath(\"ToolName\", \"Xilinx Vivado\", ...\n    \"ToolPath\", \"C:/Xilinx/Vivado/2024.2/bin/vivado.bat\");",
+      "notes": "Call in startup.m to persist across sessions. Check supported tool versions for your MATLAB release.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/hdlsetuptoolpath.html"
+    },
+    {
+      "name": "hdlfimath",
+      "kind": "function",
+      "description": "Returns the recommended fimath for HDL code generation (floor rounding, wrap overflow, full-precision products and sums), which yields the most hardware-efficient arithmetic.",
+      "usage": "F = hdlfimath",
+      "parameters": [],
+      "example": "F = hdlfimath;\na = fi(0.5, 1, 16, 14, F);\nb = fi(0.25, 1, 16, 14, F);\nc = a*b    % full precision product, no rounding logic",
+      "notes": "Use with setfimath in fixed-point MATLAB designs intended for HDL Coder.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/hdlfimath.html"
+    },
+    {
+      "name": "hdl.RAM",
+      "kind": "function",
+      "description": "System object modeling single-port, simple dual-port or dual-port RAM for HDL code generation from MATLAB, mapping to inferred block RAM in FPGAs.",
+      "usage": "ram = hdl.RAM(Name=Value)\ndataOut = ram(dataIn, addr, writeEnable)",
+      "parameters": [
+        {"name": "RAMType", "description": "\"Single port\", \"Simple dual port\", \"Dual port\" or \"True dual port\"."},
+        {"name": "WriteOutputValue / RAMInitialValue", "description": "Read-during-write behavior (\"New data\"/\"Old data\") and initial contents."}
+      ],
+      "example": "function dout = ramWrap(din, addr, we) %#codegen\npersistent ram\nif isempty(ram)\n    ram = hdl.RAM(RAMType=\"Single port\");\nend\ndout = ram(din, addr, we);\nend",
+      "notes": "Address type determines depth (e.g. ufi with 10 bits -> 1024 words). Persistent arrays can also map to RAM with the MapPersistentVarsToRAM option.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/hdl.ram-system-object.html"
+    },
+    {
+      "name": "coder.hdl.pipeline",
+      "kind": "function",
+      "description": "HDL Coder pragma that inserts a specified number of pipeline registers at the output of a MATLAB expression in the generated HDL, to break long combinational paths and raise clock frequency.",
+      "usage": "out = coder.hdl.pipeline(expr)\nout = coder.hdl.pipeline(expr, num)",
+      "parameters": [
+        {"name": "expr", "description": "MATLAB expression whose output is registered."},
+        {"name": "num", "description": "Number of pipeline registers (default 1)."}
+      ],
+      "example": "function y = macPipe(a, b, c) %#codegen\nprod = coder.hdl.pipeline(a*b, 2);\ny = prod + c;\nend",
+      "notes": "Cannot be applied to expressions involving persistent state in feedback loops. Enable distributed pipelining to balance inserted registers.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/coder.hdl.pipeline.html"
+    },
+    {
+      "name": "coder.hdl.loopspec",
+      "kind": "function",
+      "description": "HDL Coder pragma that controls how the next for-loop is implemented in HDL: fully unrolled into parallel hardware or streamed to reuse one copy of the loop body over multiple clock cycles (and pipelined in HLS flows).",
+      "usage": "coder.hdl.loopspec(\"unroll\")\ncoder.hdl.loopspec(\"unroll\", unrollFactor)\ncoder.hdl.loopspec(\"stream\")\ncoder.hdl.loopspec(\"stream\", streamFactor)",
+      "parameters": [
+        {"name": "\"unroll\" / \"stream\"", "description": "Implementation strategy for the following loop."},
+        {"name": "factor", "description": "Partial unroll or stream factor."}
+      ],
+      "example": "function y = sum8(x) %#codegen\ny = fi(0, 1, 20, 8);\ncoder.hdl.loopspec(\"unroll\");\nfor k = 1:8\n    y(:) = y + x(k);\nend\nend",
+      "notes": "Place the pragma immediately before the loop. Streaming trades throughput for area.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/coder.hdl.loopspec.html"
+    },
+    {
+      "name": "makehdl",
+      "kind": "function",
+      "description": "Generates synthesizable VHDL, Verilog or SystemVerilog code for a Simulink model or subsystem with HDL Coder, applying HDL block properties and model-level optimization settings.",
+      "usage": "makehdl(dut)\nmakehdl(dut, Name, Value)",
+      "parameters": [
+        {"name": "dut", "description": "Path of the subsystem (or model) to generate HDL for."},
+        {"name": "TargetLanguage / TargetDirectory", "description": "\"VHDL\", \"Verilog\", \"SystemVerilog\" and output folder."},
+        {"name": "GenerateHDLCode / Traceability / ResourceReport / OptimizationReport", "description": "Generation and report options."}
+      ],
+      "example": "load_system(\"sfir_fixed\")\nmakehdl(\"sfir_fixed/symmetric_fir\", \"TargetLanguage\", \"Verilog\", ...\n    \"TargetDirectory\", \"hdlsrc\", \"ResourceReport\", \"on\");\nmakehdltb(\"sfir_fixed/symmetric_fir\")",
+      "notes": "Run checkhdl first to find incompatibilities. hdlset_param sets HDL parameters on models; makehdltb generates test benches; the HDL Workflow Advisor (hdladvisor) covers synthesis and FPGA deployment.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/makehdl.html"
+    },
+    {
+      "name": "hdlset_param",
+      "kind": "function",
+      "description": "Sets HDL-related parameters on a Simulink model or on individual blocks/subsystems (e.g. target language, clock settings, pipelining, sharing, architecture) that makehdl uses during code generation.",
+      "usage": "hdlset_param(path, Name, Value)",
+      "parameters": [
+        {"name": "path", "description": "Model name or block path."},
+        {"name": "Name, Value", "description": "HDL parameter pairs, e.g. \"TargetLanguage\", \"Verilog\"; \"OutputPipeline\", 2; \"SharingFactor\", 4; \"Architecture\", \"Fully parallel\"."}
+      ],
+      "example": "hdlset_param(\"sfir_fixed\", \"TargetLanguage\", \"Verilog\", \"ClockRatePipelining\", \"on\");\nhdlset_param(\"sfir_fixed/symmetric_fir/Product\", \"OutputPipeline\", 1);\nhdlget_param(\"sfir_fixed/symmetric_fir/Product\", \"OutputPipeline\")",
+      "notes": "Settings are saved with the model. hdlsaveparams exports nondefault HDL settings as a script.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/hdlset_param.html"
+    }
+  ]
+}

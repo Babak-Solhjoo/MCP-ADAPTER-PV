@@ -1,0 +1,270 @@
+{
+  "category": "Capture Tcl/Tk scripting & CIS component database automation",
+  "description": "How an external program or a power user automates OrCAD Capture: the embedded Tcl/Tk interpreter and the Dbo* database command family that exposes libraries, pages, parts, nets and properties to scripts, plus the Component Information System (CIS) that links the schematic to an ODBC part database for placement, linking, querying and BOM generation. Only Tcl commands documented in the Cadence/EMA 'OrCAD Capture Tcl/Tk Extensions' application notes are listed here.",
+  "tools": [
+    {
+      "name": "Command Window",
+      "kind": "panel",
+      "description": "Capture's embedded Tcl/Tk console, docked with the Session Log at the bottom of the application. Every Tcl command — standard Tcl and Capture's database extensions — is typed here, and when journaling is enabled Capture echoes the Tcl equivalent of each GUI action into it, which is the practical way to discover the command behind a menu item. It is also where `source` is used to run script files.",
+      "usage": "View > Command Window; or right-click any menu bar / toolbar and tick Command Window (toggle)",
+      "example": "Capture> puts \"hello\"\nhello\nCapture> expr {3*7}\n21",
+      "notes": "The Command Window is a toggle: selecting the menu item again hides it. If the tab is not visible, check the tab strip next to the Session Log."
+    },
+    {
+      "name": "source",
+      "kind": "tcl-command",
+      "description": "Standard Tcl command that reads and executes a script file inside the Capture interpreter. This is how a .tcl file of procedures is loaded into a session. Windows paths must use forward slashes or be wrapped in braces so backslashes are not treated as escapes.",
+      "usage": "source <path-to-file.tcl>",
+      "example": "source {D:/scripts/sync_footprints.tcl}\n::capSyncPropPCBFootprint::run",
+      "notes": "Sourcing a file only defines its procedures; you still have to call them. Re-sourcing after an edit redefines them in place."
+    },
+    {
+      "name": "cls",
+      "kind": "tcl-command",
+      "description": "Clears the Capture Command Window. A Capture-specific convenience command rather than standard Tcl, useful at the top of a script so its output is not mixed with earlier session noise.",
+      "usage": "cls",
+      "example": "cls\nputs \"--- starting property audit ---\""
+    },
+    {
+      "name": "info commands",
+      "kind": "tcl-command",
+      "description": "Standard Tcl introspection, and the documented way to discover Capture's database commands at run time. Passing a glob pattern lists every registered command matching it, which is how you find the right Dbo* call when the reference manual is not to hand.",
+      "usage": "info commands <pattern>",
+      "example": "Capture> info commands _GetName\nDboLib_GetName DboPortOccurrence_GetName DboAlias_GetName DboNet_GetName DboPage_GetName DboLibObject_GetName DboSchematicSymbolInst_GetName\nCapture> info commands DboPage*",
+      "notes": "Pattern matching is glob-style: `*Iter*` finds every iterator factory, `Dbo*Net*` narrows to net classes."
+    },
+    {
+      "name": "SetOptionBool Journaling",
+      "kind": "tcl-command",
+      "description": "Turns Capture's command journaling on or off. With journaling TRUE, every manual action performed in the GUI is registered with the Tcl interpreter and echoed in the Command Window as the equivalent command, so you can perform an operation by hand and copy the resulting command into a script. This is the recommended discovery workflow because Capture has no published exhaustive command list for GUI actions.",
+      "usage": "SetOptionBool Journaling TRUE | FALSE",
+      "example": "SetOptionBool Journaling TRUE\n# now change a part value by hand and read the echoed command in the Command Window",
+      "notes": "Journaling output depends on the release; several 16.x hotfixes suppressed the echo. Verify it is working before relying on it."
+    },
+    {
+      "name": "load orDb_Dll_TCL",
+      "kind": "tcl-command",
+      "description": "Loads the Capture database Tcl extension into a standalone Tcl shell (ActiveTcl), so that Dbo* commands are available outside the Capture GUI. Capture does not ship a Tcl shell, so this is only useful when ActiveTcl is installed separately. Inside Capture the extension is already loaded and this step is unnecessary.",
+      "usage": "load [file normalize [file join $env(CDS_INST_DIR)/ tools capture orDb_Dll_TCL]] DboTclWriteBasic",
+      "parameters": [
+        {"name": "CDS_INST_DIR", "description": "Environment variable pointing at the Cadence/OrCAD installation root."},
+        {"name": "DboTclWriteBasic", "description": "The package initialisation entry point inside the DLL."}
+      ],
+      "example": "set env(CDS_INST_DIR) {C:/Cadence/SPB_17.4}\nload [file normalize [file join $env(CDS_INST_DIR)/ tools capture orDb_Dll_TCL]] DboTclWriteBasic",
+      "notes": "Scripts that need the running GUI session (selection, active page) cannot work from a standalone shell; use the Command Window instead."
+    },
+    {
+      "name": "DboSession",
+      "kind": "script-object",
+      "description": "The root object of the Capture database: it owns the open designs and libraries in the current session. The live session pointer is exposed as the global variable `::DboSession_s_pDboSession`, and wrapping it with `DboSession -this <ptr>` produces a usable command handle. Everything else — opening a library, finding a design, creating a new .olb — starts from here.",
+      "usage": "set lSession $::DboSession_s_pDboSession\nDboSession -this $lSession",
+      "example": "set lSession $::DboSession_s_pDboSession\nset lStatus [DboState]\nDboSession -this $lSession",
+      "notes": "Do not delete the session object; it is owned by Capture. `DboState` objects that you create should be released with `$lStatus -delete`."
+    },
+    {
+      "name": "DboState",
+      "kind": "script-object",
+      "description": "The status object that almost every Capture database call takes as its final argument and uses to report success or failure. Create one with `DboState`, pass it around, check it after calls, and delete it when finished. `DboState_WriteToSessionLog` writes a message into Capture's Session Log from a script.",
+      "usage": "set lStatus [DboState]\n… calls …\n$lStatus -delete",
+      "example": "set lStatus [DboState]\nset msg [DboTclHelper_sMakeCString \"audit finished\"]\nDboState_WriteToSessionLog $msg\n$lStatus -delete"
+    },
+    {
+      "name": "DboTclHelper_sMakeCString / sGetConstCharPtr",
+      "kind": "tcl-command",
+      "description": "The bridge between Tcl strings and the C++ CString objects the database API expects. `DboTclHelper_sMakeCString` converts a Tcl string into a CString to pass into a call (or creates an empty one to receive an output), and `DboTclHelper_sGetConstCharPtr` converts the result back into a plain Tcl string for `puts`. Forgetting either conversion is the single most common error in Capture Tcl scripts.",
+      "usage": "set s [DboTclHelper_sMakeCString \"text\"]\nset t [DboTclHelper_sGetConstCharPtr $s]",
+      "parameters": [
+        {"name": "sMakeCString", "description": "Tcl string (or nothing, for an empty receiver) -> CString."},
+        {"name": "sGetConstCharPtr", "description": "CString -> Tcl string."}
+      ],
+      "example": "set lRefDesStr [DboTclHelper_sMakeCString]\n$lPartInst GetReferenceDesignator $lRefDesStr\nputs [DboTclHelper_sGetConstCharPtr $lRefDesStr]",
+      "notes": "Sibling helpers exist for other types: sMakeInt, sMakeStdStr, sMakeCPoint, sMakeDboValue, sMakeDboValueType, sMakeStdVector, sMakeLOGFONT, sMakeBitMap."
+    },
+    {
+      "name": "DboSession_GetLibAndSchematics",
+      "kind": "tcl-command",
+      "description": "Opens (or returns the already-open) library or design at a given path and hands back a DboLib handle whose packages, cells and schematics can be iterated. It is the entry point for any script that reads or edits an .olb or a .dsn from disk.",
+      "usage": "set lLib [DboSession_GetLibAndSchematics $lSession $lPathCString $lStatus]",
+      "example": "set lPath [DboTclHelper_sMakeCString C:/Cadence/tcl/DISCRETES.OLB]\nset lLib  [DboSession_GetLibAndSchematics $lSession $lPath $lStatus]"
+    },
+    {
+      "name": "DboSession CreateLib",
+      "kind": "tcl-command",
+      "description": "Creates a new, empty Capture library (.olb) at the given path and returns its handle, so a script can generate a library programmatically — for example building symbols from a CSV of pin definitions instead of drawing them by hand.",
+      "usage": "set newLib [$lSession CreateLib <pathCString> $lStatus]",
+      "example": "set newLib [$lSession CreateLib [DboTclHelper_sMakeCString \"C:/Cadence/tcl/test.OLB\"] $lStatus]"
+    },
+    {
+      "name": "NewPackageNamesIter / NextName",
+      "kind": "tcl-command",
+      "description": "Iterator over the package (part) names in a library. `NewPackageNamesIter` returns the iterator, then `NextName` fills a CString receiver with each successive name and reports exhaustion through the status object. This is the standard idiom for producing an inventory of what a .olb contains.",
+      "usage": "set iter [$lLib NewPackageNamesIter $lStatus]\nset name [DboTclHelper_sMakeCString]\n$iter NextName $name",
+      "example": "set pkgNameIter [$lLib NewPackageNamesIter $lStatus]\nset pPkgName [DboTclHelper_sMakeCString]\nwhile {[$pkgNameIter NextName $pPkgName] == 0} {\n  puts [DboTclHelper_sGetConstCharPtr $pPkgName]\n}",
+      "notes": "Every Capture collection follows the same `New<Thing>Iter` / `Next<Thing>` pattern; discover them with `info commands *Iter*`."
+    },
+    {
+      "name": "DboPage NewPartInstsIter / NextPartInst",
+      "kind": "tcl-command",
+      "description": "Walks every part instance placed on a schematic page. Combined with the page iterator of a schematic, it is how a script visits all components in a design to read or rewrite properties such as PCB Footprint, Value or MPN. The iterator returns a null object when it is exhausted.",
+      "usage": "set lPartInstIter [$pPage NewPartInstsIter $lStatus]\nset lPartInst [$lPartInstIter NextPartInst $lStatus]",
+      "example": "set lPartInstIter [$pPage NewPartInstsIter $lStatus]\nset lPartInst [$lPartInstIter NextPartInst $lStatus]\nwhile {$lPartInst != $lNullObj} {\n  set lRefDes [DboTclHelper_sMakeCString]\n  $lPartInst GetReferenceDesignator $lRefDes\n  puts [DboTclHelper_sGetConstCharPtr $lRefDes]\n  set lPartInst [$lPartInstIter NextPartInst $lStatus]\n}"
+    },
+    {
+      "name": "DboPartInst GetReference / GetReferenceDesignator",
+      "kind": "tcl-command",
+      "description": "Reads the identifiers of a placed part. `GetReference` returns the reference string (e.g. `R12`) and `GetReferenceDesignator` returns the full physical designator, both into a CString receiver. `DboInstOccurrence` offers the same pair plus `GetDesignator` and `FindPartInst` when you are walking flattened occurrences of a hierarchical design.",
+      "usage": "$lPartInst GetReference <CString&>\n$lPartInst GetReferenceDesignator <CString&>",
+      "example": "set ref [DboTclHelper_sMakeCString]\n$lPartInst GetReference $ref\nputs \"part = [DboTclHelper_sGetConstCharPtr $ref]\"",
+      "notes": "For hierarchical designs, instance-level values differ per occurrence; use DboInstOccurrence methods so repeated blocks report the correct flattened designators."
+    },
+    {
+      "name": "Dbo* class family (database object model)",
+      "kind": "api",
+      "description": "The complete Capture object model exposed to Tcl. Structural classes include DboDesign, DboLib, DboLibPart, DboCell, DboSymbol, DboSchematic and DboPage; instance classes include DboPartInst, DboPlacedInst, DboDrawnInst, DboTitleBlock and the DboGraphic*Inst family for every graphic primitive; connectivity classes include DboNet, DboFlatNet, DboAlias, DboBusEntry, DboOffPageConnector, DboGlobal, DboPort and DboERC; and DboProp/DboDisplayProp/DboValue cover properties. Naming is uniform — `DboClass_Method` for static calls and `$handle Method` for instance calls — so once the pattern is learned, `info commands` is enough to navigate.",
+      "usage": "DboClassName_StaticMethod <args> <DboState>\n$objectHandle InstanceMethod <args> <DboState>",
+      "example": "# list every class whose name mentions 'Net'\nCapture> info commands DboNet*\n# read a net's name\nset n [DboTclHelper_sMakeCString]\nDboNet_GetName $net $n",
+      "notes": "The authoritative list of classes, methods and argument types is Appendix B 'Database Commands List' of the OrCAD Capture Tcl/Tk Extensions application notes.",
+      "docs": "https://www.ema-eda.com/wp-content/uploads/files/resources/files/OrCAD_Capture_TclTk_Extensions.pdf"
+    },
+    {
+      "name": "Tcl auto-load directory (capAutoLoad)",
+      "kind": "api",
+      "description": "Scripts dropped into the user's Cadence setup tree are sourced automatically at Capture start-up, which is how add-on commands and extra right-click menu entries are deployed to a team. Navigate there quickly by typing `%HOME%` into Windows Explorer's address bar and opening cdssetup > OrCAD_Capture > tclscripts.",
+      "usage": "%HOME%\\cdssetup\\OrCAD_Capture\\tclscripts\\capAutoLoad\\<script>.tcl",
+      "example": "# save as %HOME%/cdssetup/OrCAD_Capture/tclscripts/capAutoLoad/audit.tcl\nproc audit_footprints {} { puts \"footprint audit loaded\" }",
+      "notes": "Third-party Capture 'apps' (3D symbol viewers, footprint sync utilities) install into this directory; conflicts show up as duplicate right-click entries."
+    },
+    {
+      "name": "Session Log",
+      "kind": "panel",
+      "description": "Capture's transcript window, sharing the tab strip with the Command Window. It records what the application and any running script reported, including messages a script writes with `DboState_WriteToSessionLog`. It is the place to look when a Tcl script appears to do nothing.",
+      "usage": "View > Session Log (tab next to Command Window)",
+      "example": "set m [DboTclHelper_sMakeCString \"Changed R1 footprint 0603 --> 0402\"]\nDboState_WriteToSessionLog $m"
+    },
+    {
+      "name": "Capture CIS (Component Information System)",
+      "kind": "tool",
+      "description": "The licensed extension that links Capture to a company component database through ODBC. Instead of placing a generic symbol and typing values, the designer browses real, approved parts and CIS copies the database fields (manufacturer, MPN, description, datasheet URL, footprint) onto the placed component. It also underpins the Standard and Variant BOM reports and the part linking and query commands.",
+      "usage": "Available in Capture CIS / OrCAD X Capture CIS licences; configured at Options > CIS Configuration",
+      "example": "Options > CIS Configuration > New > pick the ODBC data source > select tables > map properties > save company.dbc.",
+      "notes": "CIS requires a working ODBC System DSN. Create it in the Windows ODBC Data Source Administrator (System DSN tab) before configuring Capture, and use a System (not User) DSN so services and other users can see it."
+    },
+    {
+      "name": "CIS Configuration (.dbc file)",
+      "kind": "menu",
+      "description": "Creates and edits the CIS configuration file that ties Capture to the part database. The .dbc identifies the ODBC data source and which tables to use, lists the part properties transferred into the design when a part is placed or linked, sets the visibility of each transferred property, marks properties as Browsable (rendered as clickable links, e.g. a datasheet URL), and holds the part-type associations. Keep it in a read-only shared directory so users cannot alter the team configuration.",
+      "usage": "Options > CIS Configuration… > New (wizard) or Edit",
+      "parameters": [
+        {"name": "Part_Number", "description": "Mandatory key column identifying the database part."},
+        {"name": "Part_Type", "description": "Mandatory column that builds the browsing tree/subcategories in CIS Explorer."},
+        {"name": "Schematic_Part", "description": "Mandatory column giving `<library path>.OLB\\<part name>` so CIS knows which symbol to place."},
+        {"name": "PCB Footprint", "description": "Column mapped to the footprint property consumed by PCB Editor."},
+        {"name": "Browsable", "description": "Per-property flag turning the cell into a hyperlink (datasheet PDF, supplier URL)."},
+        {"name": "Keyed property", "description": "Property CIS matches on when using Link Database Part; Value is the default."}
+      ],
+      "example": "Options > CIS Configuration > New > data source 'CompanyParts' > tables 'Resistors','Capacitors','ICs' > map Part_Number/Part_Type/Schematic_Part > Finish > save company.dbc.",
+      "notes": "Without Part_Number, Part_Type and Schematic_Part correctly mapped, database parts cannot be placed at all."
+    },
+    {
+      "name": "Place Database Part",
+      "kind": "command",
+      "description": "Places a component straight from the CIS database. The CIS Explorer window opens the configured tables as a tree, filtered by Part_Type; selecting a row and placing it drops the symbol named in Schematic_Part and copies every configured database property onto the instance. This keeps the design restricted to approved, purchasable parts.",
+      "usage": "Place > Database Part… (shortcut Z), or double-click a row in CIS Explorer",
+      "example": "Press Z, expand Resistors > Thick Film 0402, pick 10k 1%, click on the page to place it complete with MPN and footprint.",
+      "notes": "The command is greyed out when the CIS Explorer window is undocked in some OrCAD X builds — dock the window, or place by double-clicking the row."
+    },
+    {
+      "name": "CIS Explorer",
+      "kind": "panel",
+      "description": "The browsing window over the configured part database. It shows the database tables as a tree grouped by Part_Type, supports filtering and keyword searches on any column, renders Browsable columns as hyperlinks to datasheets, and is the source for Place Database Part and Link Database Part. It is also where a designer compares candidate parts by their real parametric data.",
+      "usage": "Opened by Place > Database Part, or from the CIS toolbar",
+      "example": "In CIS Explorer, filter Capacitors where Voltage >= 50V and Package = 0805, then double-click the chosen row to place it."
+    },
+    {
+      "name": "Link Database Part",
+      "kind": "command",
+      "description": "Attaches an existing, manually placed schematic part to a database record, turning a generic symbol into a fully specified approved component. CIS matches candidates using the keyed property defined in the .dbc (Value by default) and then copies the database properties onto the instance. Use it to bring a legacy design under database control.",
+      "usage": "Select the part(s) > right-click > Link Database Part…",
+      "example": "Select every 10k resistor (Edit > Find, Value=10k), right-click > Link Database Part, choose the approved 0402 1% record, Apply."
+    },
+    {
+      "name": "Part Manager",
+      "kind": "panel",
+      "description": "The CIS audit view of the whole design: it lists every component with its link status — linked to the database and up to date, linked but with properties that differ from the database, unlinked, or not found. Commands in the panel re-link parts, update the schematic from the database, or accept the schematic value, making it the tool to run before releasing a design.",
+      "usage": "Tools > Part Manager (CIS-enabled projects)",
+      "example": "Tools > Part Manager > filter status 'Not Approved' > select all > Link Database Part > choose approved equivalents.",
+      "notes": "Part Manager status is recomputed against the live database, so it also catches parts that the component engineer has obsoleted since the design was drawn."
+    },
+    {
+      "name": "Update CIS Properties",
+      "kind": "command",
+      "description": "Refreshes the database-sourced properties on selected parts (or the whole design) from the current contents of the part database, so that changed descriptions, footprints, lifecycle status or preferred MPNs propagate into an existing schematic without re-placing anything.",
+      "usage": "Select parts or design.dsn > right-click / Tools > Update CIS Properties",
+      "example": "Select design.dsn, Tools > Part Manager, choose all linked parts, run the update so the new RoHS status field appears on every component."
+    },
+    {
+      "name": "Standard BOM / Variant BOM (CIS)",
+      "kind": "menu",
+      "description": "The CIS reporting commands. The Standard BOM builds a parts list from the database fields (not just schematic properties), with grouping, templates and direct Excel output. The Variant BOM does the same per assembly variant, expanding DNI and substitute-part rules so each SKU gets its own correct list. These replace the plain Tools > Bill of Materials report for CIS projects.",
+      "usage": "Reports > CIS Bill of Materials > Standard… / Variant… (CIS-enabled projects)",
+      "parameters": [
+        {"name": "BOM template / Configuration", "description": "Selects the saved column layout and grouping rules."},
+        {"name": "Variant", "description": "Which assembly variant to report; BASE reports the fully populated design."},
+        {"name": "Output format", "description": "Text, CSV or an Excel workbook, optionally using a company template."}
+      ],
+      "example": "Reports > CIS Bill of Materials > Variant > select variant 'EU' > template 'purchasing.xlt' > Generate."
+    },
+    {
+      "name": "Part Type / Query and part search in CIS",
+      "kind": "command",
+      "description": "Finds candidate components by parametric query rather than by name. The Part_Type column organises the database into the browsing tree, and each table's columns can be filtered and sorted so a designer can ask, for example, for every 16 V X7R 0402 capacitor in stock. The selected result is then placed or linked directly.",
+      "usage": "CIS Explorer > select a table/part type > use the column filters and the search box",
+      "example": "Part type 'CAP_CER', filter Dielectric = X7R, Voltage >= 16, Package = 0402, sort by Price, then place the cheapest approved option."
+    },
+    {
+      "name": "Design Variants (CIS)",
+      "kind": "tool",
+      "description": "Defines multiple assembly variants of one schematic. Per variant, components can be marked Do Not Populate or given a different database part, so a single design feeds several product SKUs. Variants drive the Variant BOM and can be carried into the board's assembly outputs.",
+      "usage": "Tools > Variant… (CIS) ; report with Reports > CIS Bill of Materials > Variant",
+      "example": "Create variants BASE, EU and US; in EU mark the 120 V input network DNI and swap the fuse to the IEC-approved MPN; generate a BOM per variant."
+    },
+    {
+      "name": "Netlist generation from a script",
+      "kind": "command",
+      "description": "Capture's netlisters are project-level commands rather than published Tcl procedures. The dependable automation pattern is therefore: generate or edit the design with the Dbo* Tcl API, then invoke the netlist from the GUI (Tools > Create Netlist) or, for a simulation flow, let PSpice's command line take over from the already-written .cir/.net files. Attempting to drive netlisting through an undocumented Tcl proc is not portable between releases.",
+      "usage": "Tools > Create Netlist… ; then hand the generated .cir/.net to `pspice -r`",
+      "example": "# schematic edited by Tcl, then simulated headless from a shell\npspice -r D:/work/amp/amp.cir -o amp.out -d amp.dat -e",
+      "notes": "Capture command-line switches for headless netlisting are not publicly documented; treat any such switch found online as unverified."
+    },
+    {
+      "name": "Batch property update pattern",
+      "kind": "api",
+      "description": "The canonical Capture Tcl automation recipe published in the Tcl/Tk Extensions notes: open the design, iterate schematics > pages > part instances, read a property, compare it with an authoritative source (the Design Cache, a CSV or the CIS database), write the corrected value back, and log every change to the Session Log. The shipped `capSyncPropPCBFootprint` example does exactly this for PCB Footprint values.",
+      "usage": "proc ::myns::visitPageInsts {pPage pMode} { … NewPartInstsIter / NextPartInst … }",
+      "example": "proc ::capSyncPropPCBFootprint::visitPageInsts { pPage pMode } {\n  set lStatus [DboState]\n  set lPartInstIter [$pPage NewPartInstsIter $lStatus]\n  set lPartInst [$lPartInstIter NextPartInst $lStatus]\n  # … compare instance footprint with the cached value, write back, log …\n  $lStatus -delete\n  return\n}",
+      "notes": "Always release DboState objects with `-delete` inside long loops, and save the design from the GUI afterwards so the edits are committed."
+    },
+    {
+      "name": "Spreadsheet-driven edits",
+      "kind": "api",
+      "description": "A common Capture scripting pattern: export the design's properties (Tools > Export Properties, or a Tcl walk of the part instances), edit them in Excel or a CSV, and then apply them back with Tools > Import Properties or a Tcl loop that matches on reference designator. It gives bulk editing power without needing the full database API for the write path.",
+      "usage": "Tools > Export Properties -> edit CSV -> Tools > Import Properties, or a Tcl `while` loop reading the CSV",
+      "example": "set fh [open D:/work/mpn.csv r]\nwhile {[gets $fh line] >= 0} {\n  lassign [split $line ,] refdes mpn\n  # locate the instance whose GetReference matches $refdes and set its MPN property\n}\nclose $fh"
+    },
+    {
+      "name": "OrCAD Capture Marketplace apps",
+      "kind": "library",
+      "description": "Cadence and its channel partners distribute Capture add-ons written in Tcl/Tk (3D footprint viewers, footprint synchronisers, library auditors, placement helpers). They install into the capAutoLoad directory and appear as extra right-click or menu entries. Reading their source is the best available substitute for a complete command reference, since they demonstrate working Dbo* usage.",
+      "usage": "Install into %HOME%\\cdssetup\\OrCAD_Capture\\tclscripts\\capAutoLoad; the commands appear on the right-click 'More' menu",
+      "example": "Select a part > right-click > More > 3D View of Symbol (a Tcl app that shells out to the Cadence 3D viewer)."
+    },
+    {
+      "name": "Capture COM/OLE automation",
+      "kind": "api",
+      "description": "Older OrCAD Capture releases registered an OLE Automation server so that Visual Basic or C++ clients could open designs and walk the object model. It predates the Tcl/Tk extensions and is not the supported path in current releases; Cadence's own documentation and examples all use Tcl. Treat any COM ProgID found in legacy code as release-specific and verify it against your installation before depending on it.",
+      "usage": "Legacy: create the Capture automation object from a COM client, then walk designs/pages/parts",
+      "example": "1. Confirm the ProgID is registered for your installed release before use.\n2. Prefer the Tcl Command Window and Dbo* API for anything new.",
+      "notes": "Unverified for OrCAD X 23.1/24.1 — no current Cadence documentation describes a supported Capture COM interface."
+    }
+  ]
+}

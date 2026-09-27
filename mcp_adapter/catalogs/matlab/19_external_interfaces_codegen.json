@@ -1,0 +1,420 @@
+{
+  "category": "External interfaces & code generation basics",
+  "description": "Calling out of MATLAB and letting other environments call in: shared C libraries, MEX functions, the Python and Java interfaces, COM and ActiveX automation on Windows, hardware and network interfaces, the MATLAB Engine APIs, and the entry points for generating C code and standalone applications.",
+  "tools": [
+    {
+      "name": "loadlibrary",
+      "kind": "function",
+      "description": "Loads a shared library (DLL, so or dylib) together with its C header so its functions can be called from MATLAB with `calllib`. Header parsing needs a supported compiler unless you supply a prototype file, which also lets you cache the parsed interface. Use it to reuse existing native code without writing a MEX wrapper.",
+      "usage": "loadlibrary(libname, hfile)\nloadlibrary(libname, hfile, Name, Value)\nloadlibrary(libname, @protofile)\n[notfound, warnings] = loadlibrary(___)",
+      "parameters": [
+        {"name": "libname", "description": "Shared library file, with or without extension."},
+        {"name": "hfile", "description": "C header file declaring the exported functions."},
+        {"name": "'alias'", "description": "Name used to refer to the library in later calls."},
+        {"name": "'addheader'", "description": "Additional headers included by the main one."},
+        {"name": "'mfilename'", "description": "Generate a prototype file so future loads skip header parsing."},
+        {"name": "'includepath'", "description": "Extra include directories for the header parser."}
+      ],
+      "example": "if ~libisloaded('shrlibsample')\n    addpath(fullfile(matlabroot, 'extern', 'examples', 'shrlib'));\n    loadlibrary('shrlibsample');\nend\nlibfunctions('shrlibsample', '-full')\ncalllib('shrlibsample', 'addDoubleRef', 1.0, 2.0, 3.0)\nunloadlibrary('shrlibsample')",
+      "notes": "Header parsing requires a configured C compiler; generating a prototype file once with 'mfilename' avoids that dependency on other machines. The library and MATLAB must have the same architecture, so a 32-bit DLL cannot be loaded into 64-bit MATLAB.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/loadlibrary.html"
+    },
+    {
+      "name": "calllib",
+      "kind": "function",
+      "description": "Calls a function in a library loaded with `loadlibrary`, converting MATLAB values to the declared C types and returning the result plus any output arguments passed by reference. Pointer arguments are handled with `libpointer` objects. Use it for each call into the native library.",
+      "usage": "res = calllib(libname, funcname, arg1, ..., argN)\n[res, argout1, ...] = calllib(___)",
+      "parameters": [
+        {"name": "libname", "description": "Library name or alias."},
+        {"name": "funcname", "description": "Exported function to call."},
+        {"name": "arg1,...,argN", "description": "Arguments matching the C prototype."}
+      ],
+      "example": "addpath(fullfile(matlabroot, 'extern', 'examples', 'shrlib'));\nloadlibrary('shrlibsample');\ncalllib('shrlibsample', 'addDoubleRef', 1.5, 2.5, 3.5)\np = libpointer('doublePtr', zeros(1, 5));\ncalllib('shrlibsample', 'multDoubleArray', p, 5);\nunloadlibrary('shrlibsample');",
+      "notes": "Passing a wrong type or size can corrupt memory and crash MATLAB, because there is no safety net around a native call. Use `libfunctionsview` or `libfunctions(lib,'-full')` to confirm the exact signature before calling.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/calllib.html"
+    },
+    {
+      "name": "libfunctions",
+      "kind": "function",
+      "description": "Lists the functions available in a loaded shared library, and with the '-full' flag shows their complete signatures including argument and return types. Use it to discover what a library exposes and to confirm how MATLAB has interpreted the header. `libfunctionsview` shows the same information in a window.",
+      "usage": "m = libfunctions(libname)\nm = libfunctions(libname, '-full')\nlibfunctionsview(libname)",
+      "parameters": [
+        {"name": "libname", "description": "Name or alias of a loaded library."},
+        {"name": "'-full'", "description": "Include full signatures."}
+      ],
+      "example": "addpath(fullfile(matlabroot, 'extern', 'examples', 'shrlib'));\nloadlibrary('shrlibsample');\nfns = libfunctions('shrlibsample');\nnumel(fns)\nlibfunctions('shrlibsample', '-full')\nunloadlibrary('shrlibsample');",
+      "notes": "Functions missing from the list were not parsed from the header, usually because of macros or unsupported types; a hand-written prototype file can fix that. The displayed types are what MATLAB will enforce at call time.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/libfunctions.html"
+    },
+    {
+      "name": "unloadlibrary",
+      "kind": "function",
+      "description": "Unloads a shared library previously loaded with `loadlibrary`, releasing it so the file can be replaced or a new version loaded. Use it at the end of a session and during development when rebuilding the library. `libisloaded` tests whether a library is currently loaded.",
+      "usage": "unloadlibrary(libname)\ntf = libisloaded(libname)",
+      "parameters": [
+        {"name": "libname", "description": "Library name or alias."}
+      ],
+      "example": "addpath(fullfile(matlabroot, 'extern', 'examples', 'shrlib'));\nloadlibrary('shrlibsample');\nlibisloaded('shrlibsample')\nunloadlibrary('shrlibsample');\nlibisloaded('shrlibsample')",
+      "notes": "A library that is still holding resources or running callbacks may crash MATLAB when unloaded. On Windows the DLL file stays locked until it is unloaded, which blocks rebuilding it.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/unloadlibrary.html"
+    },
+    {
+      "name": "libpointer",
+      "kind": "function",
+      "description": "Creates a pointer object that can be passed to library functions expecting C pointers, either to a value, an array, or an opaque structure. The value is read back through the object's Value property after the call. Use it for output arguments, buffers and structures shared with native code.",
+      "usage": "p = libpointer\np = libpointer(datatype)\np = libpointer(datatype, value)\np.Value\nreshape(p, n)\nsetdatatype(p, type, dims)",
+      "parameters": [
+        {"name": "datatype", "description": "Type name such as 'doublePtr', 'int32Ptr', 'voidPtr', or a structure pointer type."},
+        {"name": "value", "description": "Initial value stored in the referenced memory."}
+      ],
+      "example": "buf = libpointer('doublePtr', zeros(1, 4));\nbuf.Value\nbuf.Value = [1 2 3 4];\nbuf.Value(2)\nstrPtr = libpointer('cstring', 'hello');\nsetdatatype(buf, 'doublePtr', 1, 4);",
+      "notes": "MATLAB does not own memory that native code allocates, so a pointer returned from a library must be freed by that library's own free function. Reading past the allocated size through `setdatatype` produces garbage or a crash.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/libpointer.html"
+    },
+    {
+      "name": "mex",
+      "kind": "function",
+      "description": "Compiles C, C++ or Fortran source into a MEX binary that MATLAB calls like an ordinary function. It also configures and reports the selected compiler. Use MEX when you need native speed, access to system APIs, or to reuse an existing library with a tailored interface.",
+      "usage": "mex filenames\nmex -setup\nmex -setup C++\nmex ___ -output name\nmex ___ -I includedir -L libdir -l libname\nmex -g file.c",
+      "parameters": [
+        {"name": "-setup", "description": "Choose and configure the compiler."},
+        {"name": "-output", "description": "Name of the generated MEX file."},
+        {"name": "-I, -L, -l", "description": "Include path, library path and library to link."},
+        {"name": "-g", "description": "Build with debugging symbols."},
+        {"name": "-R2018a", "description": "Use the interleaved complex API."},
+        {"name": "-largeArrayDims", "description": "Support 64-bit array dimensions (the default in modern releases)."}
+      ],
+      "example": "mex -setup C\ncopyfile(fullfile(matlabroot,'extern','examples','mex','arrayProduct.c'), '.');\nmex arrayProduct.c\ny = arrayProduct(2, [1 2 3 4])\nwhich arrayProduct\nmexext",
+      "notes": "A MEX file that writes past the end of a MATLAB array crashes the whole MATLAB process, so build with `-g` and test carefully. MEX binaries are platform specific; ship the source or build for each target platform.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/mex.html"
+    },
+    {
+      "name": "mexext",
+      "kind": "function",
+      "description": "Returns the MEX file extension for the current platform, such as mexw64, mexa64 or mexmaca64, and can list the extensions for all platforms. Use it to locate or name compiled binaries in cross-platform code and build scripts. It is a pure query with no side effects.",
+      "usage": "ext = mexext\nexts = mexext('all')",
+      "parameters": [
+        {"name": "'all'", "description": "Return a struct array of extensions and architecture names for every platform."}
+      ],
+      "example": "mexext\ncomputer('arch')\nall = mexext('all');\n{all.arch}\nbinary = fullfile('bin', computer('arch'), ['mylib.' mexext]);\nisfile(binary)",
+      "notes": "Storing MEX binaries in per-architecture folders named by `computer('arch')` and adding the right one to the path is the standard cross-platform layout. A MEX file for the wrong architecture is simply not found rather than reported clearly.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/mexext.html"
+    },
+    {
+      "name": "codegen",
+      "kind": "function",
+      "description": "Generates C or C++ code from MATLAB functions using MATLAB Coder, producing a MEX file for verification or standalone source, a static library or a shared library. Input types must be specified because generated code is statically typed. Use it to accelerate a function or to deploy an algorithm to an embedded target.",
+      "usage": "codegen fcn\ncodegen fcn -args {argTypes}\ncodegen fcn -config:lib\ncodegen fcn -config:dll -report\ncodegen -o outname fcn -args {...}",
+      "parameters": [
+        {"name": "-args", "description": "Cell array of example values or `coder.typeof` specifications defining input types and sizes."},
+        {"name": "-config:mex|lib|dll|exe", "description": "Output type; MEX by default."},
+        {"name": "-report", "description": "Generate an HTML code generation report."},
+        {"name": "-o", "description": "Name of the generated artefact."},
+        {"name": "-d", "description": "Output folder for generated files."}
+      ],
+      "example": "% myfun.m:  function y = myfun(x) %#codegen\n%               y = sum(x.^2);\n%           end\ncodegen myfun -args {coder.typeof(0, [1 Inf])} -report\ny = myfun_mex([1 2 3])\ncodegen myfun -args {zeros(1,100)} -config:lib -report",
+      "notes": "Requires MATLAB Coder. Only a subset of the language and of the toolbox functions supports code generation, so annotate functions with %#codegen to get early warnings in the Editor. Dynamically sized inputs must be declared with `coder.typeof` and upper bounds.",
+      "docs": "https://www.mathworks.com/help/coder/ref/codegen.html"
+    },
+    {
+      "name": "coder.typeof",
+      "kind": "function",
+      "description": "Describes the class, size and variable-sizing of an input for code generation, for use in the -args list of `codegen`. Passing Inf in a dimension marks it as unbounded and variable size. Use it whenever the real inputs are not well represented by a single example value.",
+      "usage": "t = coder.typeof(example)\nt = coder.typeof(example, sizeVector)\nt = coder.typeof(example, sizeVector, variableDims)",
+      "parameters": [
+        {"name": "example", "description": "Prototype value giving the class and complexity."},
+        {"name": "sizeVector", "description": "Upper bounds per dimension; Inf means unbounded."},
+        {"name": "variableDims", "description": "Logical vector marking which dimensions are variable size."}
+      ],
+      "example": "t1 = coder.typeof(0, [1 Inf])          % variable-length double row\nt2 = coder.typeof(single(0), [3 3])     % fixed 3x3 single\nt3 = coder.typeof(0, [100 100], [1 1])  % variable up to 100x100\nt4 = coder.typeof('a', [1 64], [0 1]);\n% codegen myfun -args {t1}",
+      "notes": "Requires MATLAB Coder. Unbounded dimensions force dynamic memory allocation in the generated code, which some embedded targets forbid; give finite upper bounds where possible. `coder.newtype` and `coder.resize` build and adjust type objects programmatically.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.typeof.html"
+    },
+    {
+      "name": "coder.varsize",
+      "kind": "function",
+      "description": "Declares inside a function that a variable is variable-size, optionally with upper bounds per dimension. Use it when code generation would otherwise infer a fixed size, for example for an array that grows in a loop. It has no effect when the function runs in MATLAB.",
+      "usage": "coder.varsize('var1', 'var2')\ncoder.varsize('var', ubounds)\ncoder.varsize('var', ubounds, variableDims)",
+      "parameters": [
+        {"name": "'var'", "description": "Name of the variable, as a character vector."},
+        {"name": "ubounds", "description": "Upper bound for each dimension; Inf for unbounded."},
+        {"name": "variableDims", "description": "Logical vector marking variable dimensions."}
+      ],
+      "example": "function out = collect(n) %#codegen\n    out = zeros(1, 0);\n    coder.varsize('out', [1 1000], [0 1]);\n    for k = 1:n\n        if mod(k, 3) == 0\n            out(end+1) = k; %#ok<AGROW>\n        end\n    end\nend",
+      "notes": "Requires MATLAB Coder. The declaration must appear before the variable is used in a way that fixes its size. Unbounded declarations generate dynamic allocation, which is often disallowed on embedded targets.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.varsize.html"
+    },
+    {
+      "name": "coder.extrinsic",
+      "kind": "function",
+      "description": "Declares that named functions should be executed by MATLAB rather than compiled, so that code generation can proceed even when those functions are unsupported. In generated MEX the calls go back to MATLAB; in standalone code they are removed entirely. Use it for plotting, printing and other diagnostics inside functions you are compiling.",
+      "usage": "coder.extrinsic('fname1', 'fname2', ...)\ncoder.extrinsic('-sync:on', 'fname')",
+      "parameters": [
+        {"name": "'fname'", "description": "Function to treat as extrinsic."},
+        {"name": "'-sync:on'/'-sync:off'", "description": "Control synchronization of global data around the call."}
+      ],
+      "example": "function y = analyze(x) %#codegen\n    coder.extrinsic('plot', 'disp');\n    y = cumsum(x);\n    plot(y);          % runs in MATLAB from MEX, removed in standalone code\n    disp('done');\nend",
+      "notes": "Requires MATLAB Coder. The return value of an extrinsic call is of type mxArray, so it cannot be used in further generated computation unless you assign a known type first. Standalone code silently drops extrinsic calls, which can change behaviour between MEX and deployed builds.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.extrinsic.html"
+    },
+    {
+      "name": "coder.ceval",
+      "kind": "function",
+      "description": "Calls an external C or C++ function from MATLAB code that is being compiled, passing arguments by value or, with `coder.ref`, by reference. Use it to integrate existing native code and hardware drivers into generated code. Declare the source and headers with `coder.cinclude` and the build configuration.",
+      "usage": "coder.ceval('cfun', arg1, ..., argN)\nout = coder.ceval('cfun', ...)\ncoder.ceval('cfun', coder.ref(x), coder.wref(y), coder.rref(z))\ncoder.cinclude('header.h')",
+      "parameters": [
+        {"name": "'cfun'", "description": "Name of the external C function."},
+        {"name": "coder.ref/coder.rref/coder.wref", "description": "Pass by reference, read-only reference or write-only reference."}
+      ],
+      "example": "function y = addC(a, b) %#codegen\n    y = 0;\n    coder.cinclude('myadd.h');\n    y = coder.ceval('myadd', a, b);\nend\n% cfg = coder.config('lib');\n% cfg.CustomSource = 'myadd.c';\n% codegen addC -args {0, 0} -config cfg",
+      "notes": "Requires MATLAB Coder. A `coder.ceval` call does nothing when the function runs in MATLAB, so guard with `coder.target('MATLAB')` to provide a MATLAB implementation for simulation. Type mismatches are not checked and cause crashes in the generated binary.",
+      "docs": "https://www.mathworks.com/help/coder/ref/coder.ceval.html"
+    },
+    {
+      "name": "pyenv",
+      "kind": "function",
+      "description": "Configures and reports the Python interpreter that MATLAB uses for the `py.` interface, including its version, executable, library and execution mode. Out-of-process mode isolates Python so a crash or a library conflict does not take MATLAB down. Use it once per installation to point MATLAB at the right environment.",
+      "usage": "pe = pyenv\npe = pyenv(Name, Value)\npyenv('Version', exePath)\npyenv('ExecutionMode', 'OutOfProcess')\nterminate(pyenv)",
+      "parameters": [
+        {"name": "'Version'", "description": "Path to a Python executable, or a version number such as '3.12'."},
+        {"name": "'ExecutionMode'", "description": "'InProcess' (default) or 'OutOfProcess'."},
+        {"name": "pe.Status", "description": "'NotLoaded', 'Loaded' or 'Terminated'."}
+      ],
+      "example": "pe = pyenv\npe.Version\npe.Executable\npyenv('ExecutionMode', 'OutOfProcess');\npy.sys.version\nterminate(pyenv);",
+      "notes": "The interpreter can only be changed while Python is not loaded, so call `terminate(pyenv)` or restart MATLAB first. Out-of-process mode avoids library conflicts, for example between NumPy and MATLAB's own BLAS, at the cost of slower data transfer.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/pyenv.html"
+    },
+    {
+      "name": "py",
+      "kind": "api",
+      "description": "The namespace through which MATLAB calls Python functions, classes and modules directly, as `py.module.function(...)`. Numeric, logical and text data convert automatically, while other objects appear as Python object wrappers that can be converted explicitly. Use it to reuse Python libraries without leaving MATLAB.",
+      "usage": "py.module.function(args)\nmod = py.importlib.import_module('name')\npy.list({...})\npy.dict(struct)\ndouble(pyObject)\nstring(pyObject)\ncell(pyObject)",
+      "parameters": [
+        {"name": "module.function", "description": "Dotted path to the Python callable."},
+        {"name": "pyargs", "description": "Wrapper for passing Python keyword arguments."}
+      ],
+      "example": "py.math.sqrt(2)\nnp = py.importlib.import_module('numpy');\nv = double(np.linspace(0, 1, 5))\nL = py.list({1, 2, 3});\ndouble(py.sum(L))\nd = py.dict(pyargs('a', 1, 'b', 2));\nstruct(d)\npy.str('hello').upper()",
+      "notes": "MATLAB row vectors map to Python sequences but a returned NumPy array must be converted with `double` or `single` before use. Keyword arguments require the `pyargs` wrapper, and Python indexing remains zero-based inside Python objects.",
+      "docs": "https://www.mathworks.com/help/matlab/call-python-libraries.html"
+    },
+    {
+      "name": "pyrun",
+      "kind": "function",
+      "description": "Executes Python statements given as text in a persistent Python namespace and optionally returns named variables from it. Input variables are supplied as name-value pairs and converted automatically. Use it for short snippets of Python logic that would be awkward to express through the `py.` namespace.",
+      "usage": "pyrun(code)\noutvars = pyrun(code, outputs)\noutvars = pyrun(code, outputs, pyName=pyValue)",
+      "parameters": [
+        {"name": "code", "description": "Python statements as a string or string array of lines."},
+        {"name": "outputs", "description": "Name or array of names of Python variables to return."},
+        {"name": "pyName=pyValue", "description": "Variables to define in the Python namespace before running."}
+      ],
+      "example": "pyrun(\"import math\")\nz = pyrun(\"y = math.hypot(a, b)\", \"y\", a=3, b=4)\nlines = [\"total = 0\", \"for v in data:\", \"    total += v\"];\nt = pyrun(lines, \"total\", data=py.list({1,2,3,4}))\ndouble(t)",
+      "notes": "Available since R2021b. The Python namespace persists between calls in the session, so variables defined in one `pyrun` are visible in the next. Multi-line code must be passed as a string array with correct Python indentation.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/pyrun.html"
+    },
+    {
+      "name": "pyrunfile",
+      "kind": "function",
+      "description": "Runs a Python script file from MATLAB, optionally passing command-line arguments and retrieving variables defined by the script. Use it to reuse existing Python scripts unchanged as part of a MATLAB workflow. Like `pyrun`, inputs and outputs convert automatically where possible.",
+      "usage": "pyrunfile(file)\npyrunfile(\"file.py arg1 arg2\")\noutvars = pyrunfile(file, outputs)\noutvars = pyrunfile(file, outputs, pyName=pyValue)",
+      "parameters": [
+        {"name": "file", "description": "Path to the Python script, optionally followed by command-line arguments in the same string."},
+        {"name": "outputs", "description": "Names of script variables to return."},
+        {"name": "pyName=pyValue", "description": "Variables injected into the script namespace."}
+      ],
+      "example": "writelines([\"import sys\", \"result = sum(int(a) for a in sys.argv[1:])\"], 'addup.py');\nr = pyrunfile(\"addup.py 1 2 3\", \"result\");\ndouble(r)\nr2 = pyrunfile(\"addup.py\", \"result\", x=5);",
+      "notes": "Available since R2021b. Arguments are given inside the same string as the file name, exactly as on a command line. The script runs in its own namespace, unlike `pyrun`, which shares one across calls.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/pyrunfile.html"
+    },
+    {
+      "name": "javaObject",
+      "kind": "function",
+      "description": "Creates an instance of a Java class, which is useful when the class name is computed at run time or when it collides with a MATLAB name. Java objects can also be created simply by calling the constructor with the fully qualified name. Use the Java interface for networking, XML, collections and any existing JAR library.",
+      "usage": "obj = javaObject(classname)\nobj = javaObject(classname, arg1, ..., argN)\nobj = javaObjectEDT(classname, ...)",
+      "parameters": [
+        {"name": "classname", "description": "Fully qualified Java class name."},
+        {"name": "arg1,...,argN", "description": "Constructor arguments."}
+      ],
+      "example": "sb = javaObject('java.lang.StringBuilder');\nsb.append('Hello');\nsb.append(' world');\nchar(sb.toString())\nm = javaObject('java.util.HashMap');\nm.put('a', 1);\nm.get('a')\nf = java.io.File(pwd);\nf.exists()",
+      "notes": "Java strings must be converted with `char` and Java collections with `cell` or explicit loops. MATLAB must be running with the JVM, which `-nojvm` disables. Use `javaObjectEDT` for Swing components so they are created on the event dispatch thread.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/javaobject.html"
+    },
+    {
+      "name": "javaaddpath",
+      "kind": "function",
+      "description": "Adds JAR files or class folders to the dynamic Java class path so their classes become available. Changes take effect immediately but clear all Java objects and variables in the workspace. Use it for third-party libraries; the static path in javaclasspath.txt is better for libraries needed at every startup.",
+      "usage": "javaaddpath(dpath)\njavaaddpath(dpath, '-end')\njavarmpath(dpath)\njavaclasspath\njavaclasspath('-dynamic')",
+      "parameters": [
+        {"name": "dpath", "description": "JAR file or folder containing class files."},
+        {"name": "'-end'", "description": "Append rather than prepend."}
+      ],
+      "example": "javaaddpath(fullfile(pwd, 'lib', 'mylib.jar'));\njavaclasspath('-dynamic')\nobj = javaObject('com.example.Helper');\njavarmpath(fullfile(pwd, 'lib', 'mylib.jar'));",
+      "notes": "Adding to the dynamic path clears existing Java objects, so do it before creating any. Some libraries only work on the static class path, configured through a javaclasspath.txt file in the preferences folder and requiring a restart.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/javaaddpath.html"
+    },
+    {
+      "name": "javaMethod",
+      "kind": "function",
+      "description": "Calls a Java method by name on an object or class, which is necessary when the method name is dynamic or conflicts with a MATLAB function. Static methods are called by passing the class name instead of an object. Use `methodsview` to inspect the available signatures.",
+      "usage": "res = javaMethod(mname, obj, arg1, ..., argN)\nres = javaMethod(mname, classname, arg1, ..., argN)\nres = javaMethodEDT(___)",
+      "parameters": [
+        {"name": "mname", "description": "Method name."},
+        {"name": "obj/classname", "description": "Target object, or class name for a static method."},
+        {"name": "arg1,...,argN", "description": "Method arguments."}
+      ],
+      "example": "s = javaObject('java.lang.String', 'Hello World');\nchar(javaMethod('toUpperCase', s))\njavaMethod('valueOf', 'java.lang.Integer', 42)\nmethodsview('java.lang.String')\nchar(s.substring(int32(0), int32(5)))",
+      "notes": "Java is strictly typed, so integer arguments usually need explicit `int32` conversion or the overload resolution fails. Java indices are zero-based, unlike MATLAB's.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/javamethod.html"
+    },
+    {
+      "name": "actxserver",
+      "kind": "function",
+      "description": "Creates a COM Automation server on Windows and returns an interface object whose properties and methods can be used from MATLAB. Use it to drive Excel, Word, PowerPoint, instrument software and any other COM-enabled application. Always release the server and quit the application when finished.",
+      "usage": "h = actxserver(progid)\nh = actxserver(progid, Name, Value)\nrelease(h)\ndelete(h)",
+      "parameters": [
+        {"name": "progid", "description": "Programmatic identifier such as 'Excel.Application' or 'Matlab.Application'."},
+        {"name": "'machine'", "description": "Remote machine name for DCOM."},
+        {"name": "'interface'", "description": "Specific COM interface to request."}
+      ],
+      "example": "if ispc\n    h = actxserver('Excel.Application');\n    cleanup = onCleanup(@() h.Quit);\n    h.Visible = false;\n    wb = h.Workbooks.Add;\n    sheet = wb.Sheets.Item(1);\n    sheet.Range('A1:B2').Value = {1, 2; 3, 4};\n    wb.SaveAs(fullfile(pwd, 'out.xlsx'));\n    wb.Close(false);\nend",
+      "notes": "Windows only. Failing to call Quit leaves orphaned application processes running invisibly; wrap the cleanup in `onCleanup`. `get(h)` and `invoke(h)` list the available properties and methods of an interface.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/actxserver.html"
+    },
+    {
+      "name": "actxGetRunningServer",
+      "kind": "function",
+      "description": "Connects to an already running instance of a COM Automation server instead of starting a new one. Use it to drive an application the user already has open, such as an existing Excel session. It errors if no running instance is registered.",
+      "usage": "h = actxGetRunningServer(progid)",
+      "parameters": [
+        {"name": "progid", "description": "Programmatic identifier of the running server."}
+      ],
+      "example": "if ispc\n    try\n        h = actxGetRunningServer('Excel.Application');\n        h.Visible = true;\n        disp(h.Version);\n    catch ME\n        disp('Excel is not running');\n    end\nend",
+      "notes": "Windows only. Whether an instance is visible to this function depends on the Running Object Table, so an application launched by another user or with different elevation may not be found. Do not call Quit on a server you did not start.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/actxgetrunningserver.html"
+    },
+    {
+      "name": "invoke",
+      "kind": "function",
+      "description": "Calls a method on a COM object by name, or lists the available methods when called with only the object. Dot notation works for most methods, but `invoke` is needed when the name is dynamic or not a valid MATLAB identifier. It returns whatever the COM method returns.",
+      "usage": "S = invoke(h)\nres = invoke(h, methodname)\nres = invoke(h, methodname, arg1, ..., argN)",
+      "parameters": [
+        {"name": "h", "description": "COM object or interface."},
+        {"name": "methodname", "description": "Name of the method to call."},
+        {"name": "arg1,...,argN", "description": "Method arguments."}
+      ],
+      "example": "if ispc\n    h = actxserver('Matlab.Application');\n    invoke(h, 'Execute', 'a = magic(4); disp(sum(a(:)))')\n    methodsList = invoke(h);\n    numel(fieldnames(methodsList))\n    invoke(h, 'Quit');\nend",
+      "notes": "Windows only. COM arguments are passed as variants, and numeric types must sometimes be forced with explicit conversion. `get(h)` and `set(h)` inspect and modify COM properties the same way.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/invoke.html"
+    },
+    {
+      "name": "tcpclient",
+      "kind": "function",
+      "description": "Creates a TCP/IP client object that connects to a server at a given address and port, supporting `read`, `write`, `readline` and `writeline` plus a callback for arriving data. Use it to talk to instruments, embedded devices, simulators and network services that expose a raw socket. Timeouts, byte order and terminator are configurable properties.",
+      "usage": "t = tcpclient(address, port)\nt = tcpclient(address, port, Name, Value)\nwrite(t, data)\ndata = read(t, count, datatype)\nwriteline(t, text)\nline = readline(t)\nconfigureTerminator(t, term)\nconfigureCallback(t, mode, n, callback)",
+      "parameters": [
+        {"name": "address, port", "description": "Server host name or IP address and TCP port."},
+        {"name": "'Timeout'", "description": "Seconds to wait for a read to complete."},
+        {"name": "'ConnectTimeout'", "description": "Seconds to wait for the connection."},
+        {"name": "'ByteOrder'", "description": "'little-endian' (default) or 'big-endian'."},
+        {"name": "'EnableTransferDelay'", "description": "Nagle algorithm control."}
+      ],
+      "example": "t = tcpclient('localhost', 5000, 'Timeout', 10);\nconfigureTerminator(t, \"LF\");\nwriteline(t, '*IDN?');\nresponse = readline(t)\nwrite(t, uint8([1 2 3 4]));\nraw = read(t, 4, 'uint8');\nclear t",
+      "notes": "Clearing the object closes the connection; there is no explicit close function. Reading fewer bytes than the device sends leaves the rest buffered for the next read, and `t.NumBytesAvailable` reports how much is waiting. The TCP/IP client interface is provided by the Instrument Control Toolbox interfaces; check that it is available in your installation with `which tcpclient`."
+    },
+    {
+      "name": "udpport",
+      "kind": "function",
+      "description": "Creates a UDP socket object for connectionless datagram communication, with `write` and `read` taking an explicit destination address and port. Use it for broadcast and multicast protocols, for telemetry streams and for devices that use UDP rather than TCP. Unlike TCP, delivery and ordering are not guaranteed.",
+      "usage": "u = udpport\nu = udpport(type, Name, Value)\nwrite(u, data, destAddress, destPort)\ndata = read(u, count, datatype)\nconfigureMulticast(u, address)\nconfigureCallback(u, mode, n, callback)",
+      "parameters": [
+        {"name": "type", "description": "\"datagram\" or \"byte\" (default) transfer mode."},
+        {"name": "'LocalPort'", "description": "Port to bind for receiving."},
+        {"name": "'EnableBroadcast'", "description": "true to allow sending to a broadcast address."},
+        {"name": "'Timeout'", "description": "Read timeout in seconds."}
+      ],
+      "example": "u = udpport(\"datagram\", 'LocalPort', 9000, 'Timeout', 5);\nwrite(u, uint8([1 2 3]), 'uint8', '127.0.0.1', 9000);\nif u.NumDatagramsAvailable > 0\n    d = read(u, 1, 'uint8');\n    d.Data\nend\nclear u",
+      "notes": "Datagram mode preserves message boundaries while byte mode concatenates the payloads, which matters for protocols with framed messages. As with the TCP client, clearing the object releases the socket. This interface is provided by the Instrument Control Toolbox interfaces; verify availability with `which udpport`."
+    },
+    {
+      "name": "serialport",
+      "kind": "function",
+      "description": "Creates a serial port object for communicating with a device over RS-232 or a USB virtual COM port, with properties for baud rate, data bits, parity, stop bits and flow control. Data is exchanged with `read`, `write`, `readline` and `writeline`, and a terminator or callback can be configured. Use it for microcontrollers, instruments, GPS receivers and similar devices.",
+      "usage": "s = serialport(port, baudrate)\ns = serialport(port, baudrate, Name, Value)\nwriteline(s, text)\nline = readline(s)\ndata = read(s, count, datatype)\nconfigureTerminator(s, term)\nflush(s)\nports = serialportlist",
+      "parameters": [
+        {"name": "port", "description": "Port name such as \"COM3\" on Windows or \"/dev/ttyUSB0\" on Linux."},
+        {"name": "baudrate", "description": "Baud rate, for example 9600 or 115200."},
+        {"name": "'DataBits', 'Parity', 'StopBits', 'FlowControl'", "description": "Frame configuration."},
+        {"name": "'Timeout'", "description": "Read timeout in seconds."}
+      ],
+      "example": "ports = serialportlist(\"available\")\ns = serialport(\"COM3\", 115200, 'Timeout', 5);\nconfigureTerminator(s, \"CR/LF\");\nflush(s);\nwriteline(s, \"MEAS?\");\nreply = readline(s)\nclear s",
+      "notes": "The port is released when the object is cleared; leaving a stale object holding the port blocks other programs from opening it. Baud rate, parity and terminator must match the device exactly, and a mismatch usually shows up as garbled or empty reads rather than an error."
+    },
+    {
+      "name": "serialportlist",
+      "kind": "function",
+      "description": "Returns the serial ports on the system as a string array, either all known ports or only those currently available for connection. Use it to discover the right port name before calling `serialport`, and to present a choice to the user in an app. Port names differ by platform.",
+      "usage": "list = serialportlist\nlist = serialportlist(\"all\")\nlist = serialportlist(\"available\")",
+      "parameters": [
+        {"name": "\"all\"", "description": "Every port the system reports, including ones in use."},
+        {"name": "\"available\"", "description": "Only ports that are not currently open."}
+      ],
+      "example": "all = serialportlist(\"all\")\nfree = serialportlist(\"available\")\nif ~isempty(free)\n    s = serialport(free(1), 9600);\n    clear s\nend",
+      "notes": "A port already opened by MATLAB or another program appears in the \"all\" list but not in \"available\". On Linux and macOS, permission to open a device node is a common obstacle even when the port is listed."
+    },
+    {
+      "name": "matlab.net.http.RequestMessage",
+      "kind": "api",
+      "description": "Builds a full HTTP request with an explicit method, header fields and message body, and sends it with the send method, returning a response object containing the status code, headers and decoded body. Use it when `webread` and `webwrite` are not enough: PUT, DELETE and PATCH, custom authentication, cookies, multipart bodies and detailed error handling. The package also provides URI, header field and credential classes.",
+      "usage": "req = matlab.net.http.RequestMessage(method, headers, body)\nresp = send(req, uri)\nresp = send(req, uri, options)\nresp.StatusCode\nresp.Body.Data\nopts = matlab.net.http.HTTPOptions(Name, Value)",
+      "parameters": [
+        {"name": "method", "description": "'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD'."},
+        {"name": "headers", "description": "matlab.net.http.HeaderField objects."},
+        {"name": "body", "description": "matlab.net.http.MessageBody holding the payload."},
+        {"name": "options", "description": "HTTPOptions with ConnectTimeout, Authenticate, CertificateFilename and more."}
+      ],
+      "example": "import matlab.net.http.*\nheader = HeaderField('Content-Type', 'application/json');\nbody = MessageBody(struct('name', 'probe', 'gain', 2.5));\nreq = RequestMessage('PUT', header, body);\nuri = matlab.net.URI('https://httpbin.org/put');\nresp = send(req, uri);\ndouble(resp.StatusCode)\nresp.Body.Data.json.gain",
+      "notes": "The response status is an enumeration, so compare with `resp.StatusCode == matlab.net.http.StatusCode.OK` or convert with `double`. Unlike `webread`, a 4xx or 5xx response is returned normally rather than raising an error, so you must check the status yourself.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/matlab.net.http.requestmessage-class.html"
+    },
+    {
+      "name": "matlab.engine.shareEngine",
+      "kind": "api",
+      "description": "Makes the running MATLAB session available as a shared engine so that external programs, such as a Python script using the MATLAB Engine API, can attach to it rather than starting a new instance. Use it to drive an interactive session you are watching, and to avoid the startup cost of a fresh engine. `matlab.engine.engineName` and `matlab.engine.isEngineShared` report the current state.",
+      "usage": "matlab.engine.shareEngine\nmatlab.engine.shareEngine(name)\nname = matlab.engine.engineName\ntf = matlab.engine.isEngineShared",
+      "parameters": [
+        {"name": "name", "description": "Name other processes use to find this session."}
+      ],
+      "example": "matlab.engine.shareEngine('mySession')\nmatlab.engine.isEngineShared\nmatlab.engine.engineName\n% From Python:\n% import matlab.engine\n% eng = matlab.engine.connect_matlab('mySession')\n% eng.eval(\"plot(1:10)\", nargout=0)",
+      "notes": "Only one name per session, and the name must be unique among shared sessions on the machine. Starting MATLAB with the `-r \"matlab.engine.shareEngine\"` option shares it automatically at startup.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/matlab.engine.shareengine.html"
+    },
+    {
+      "name": "mcc",
+      "kind": "function",
+      "description": "Compiles MATLAB code into a standalone executable, a shared library or a component that runs without a MATLAB licence, using MATLAB Compiler. End users need the freely redistributable MATLAB Runtime of the matching release. Use it to deliver tools to people who do not have MATLAB.",
+      "usage": "mcc -m file.m\nmcc -m file.m -o appname\nmcc -e file.m\nmcc -l file.m\nmcc ___ -a extraFile -d outputDir -R option",
+      "parameters": [
+        {"name": "-m", "description": "Build a standalone console application."},
+        {"name": "-e", "description": "Build a Windows application with no console window."},
+        {"name": "-l", "description": "Build a shared library with a C interface."},
+        {"name": "-a", "description": "Include an additional file or folder that dependency analysis cannot find."},
+        {"name": "-d", "description": "Output folder."},
+        {"name": "-R", "description": "Runtime options passed to the generated application, such as '-nodisplay'."}
+      ],
+      "example": "% analysis.m must be a function with no input arguments for a simple app\nmcc -m analysis.m -o analysisApp -d build -a data/params.mat\n% then on the target machine:\n% analysisApp.exe\nisdeployed\nctfroot",
+      "notes": "Requires MATLAB Compiler. Files loaded by name at run time, such as those passed to `load` or `readtable` with computed paths, are missed by dependency analysis and must be added with -a. `isdeployed` and `ctfroot` let compiled code find its bundled resources.",
+      "docs": "https://www.mathworks.com/help/compiler/mcc.html"
+    },
+    {
+      "name": "deploytool",
+      "kind": "tool",
+      "description": "Opens the graphical packaging apps for deployment: Application Compiler for standalone executables, Library Compiler for C/C++, .NET, Java and Python packages, and Web App Compiler for browser-hosted apps. The apps manage dependencies, runtime options, splash screens and installers, and save the configuration in a .prj file. Use it instead of `mcc` when you want a repeatable, inspectable build configuration.",
+      "usage": "deploytool\ndeploytool(projectFile)\napplicationCompiler\nlibraryCompiler\ncompiler.build.standaloneApplication(file)",
+      "parameters": [
+        {"name": "projectFile", "description": "Existing .prj deployment project to open."}
+      ],
+      "example": "deploytool\napplicationCompiler\nresults = compiler.build.standaloneApplication('analysis.m', ...\n    'OutputDir', fullfile(pwd, 'build'), ...\n    'AdditionalFiles', {'data/params.mat'});\nresults.Files",
+      "notes": "Requires MATLAB Compiler, and the Library Compiler targets additionally require MATLAB Compiler SDK. The `compiler.build` package offers the same functionality programmatically, which is what you want in a CI pipeline.",
+      "docs": "https://www.mathworks.com/help/compiler/deploytool.html"
+    }
+  ]
+}

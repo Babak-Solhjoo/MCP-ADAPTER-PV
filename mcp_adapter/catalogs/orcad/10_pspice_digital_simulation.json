@@ -1,0 +1,403 @@
+{
+  "category": "PSpice digital simulation: U primitives, stimulus generators, timing and I/O models, interfaces and constraint checkers",
+  "description": "The digital side of PSpice A/D: the U device syntax, every primitive family (gates, tristate gates, transfer gates, flip-flops and latches, pull resistors, delay lines, PLDs, ROM/RAM, ADC/DAC, pin-to-pin delay and constraint checkers), the STIM/FSTIM stimulus devices and their command language, the timing-model parameter naming scheme, the UIO I/O model, analog/digital interface subcircuits and power nodes, and the worst-case timing and hazard reporting machinery.",
+  "tools": [
+    {
+      "name": "U (digital primitive, general form)",
+      "kind": "block",
+      "description": "Declaration of any digital primitive: type with its parenthesised parameters (e.g. number of inputs), the digital power and ground nodes used by interface subcircuits, the I/O nodes in the order the primitive defines, a timing model and an I/O model, plus optional MNTYMXDLY and IO_LEVEL selectors. Library parts such as 74LS00 are subcircuits built from these primitives.",
+      "usage": "U<name> <primitive type> [(<parameter value>*)] <digital power node> <digital ground node> <node>* <timing model name> <I/O model name> [MNTYMXDLY=<0..4>] [IO_LEVEL=<0..4>]",
+      "parameters": [
+        {"name": "<primitive type>", "description": "NAND, JKFF, STIM, PLAND, ROM, ADC, CONSTRAINT ..."},
+        {"name": "<timing model name>", "description": ".MODEL of the primitive-specific type (UGATE, UEFF, UDLY ...)."},
+        {"name": "<I/O model name>", "description": ".MODEL of type UIO (IO_STD, IO_LS, IO_HC ...)."},
+        {"name": "MNTYMXDLY", "description": "0 use .OPTIONS DIGMNTYMX, 1 min, 2 typ, 3 max, 4 worst-case."},
+        {"name": "IO_LEVEL", "description": "0 use .OPTIONS DIGIOLVL, 1-4 select AtoDn/DtoAn interface pair."}
+      ],
+      "example": "U1 NAND(2) $G_DPWR $G_DGND 1 2 10 D0_GATE IO_DFT\nU2 JKFF(1) $G_DPWR $G_DGND 3 5 200 3 3 10 2 D_293ASTD IO_STD\nU3 INV $G_DPWR $G_DGND IN OUT D_INV IO_INV MNTYMXDLY=3 IO_LEVEL=2",
+      "notes": "Nodes with both analog and digital connections get interface subcircuits inserted automatically. PULLUP, PULLDN and PINDLY have no timing model.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Standard gates: BUF, INV, AND, NAND, OR, NOR, XOR, NXOR",
+      "kind": "block",
+      "description": "Simple logic gates with one output. AND/NAND/OR/NOR take (<no. of inputs>); BUF, INV, XOR and NXOR have fixed pin counts. X propagates only when it could change the output (1 AND X = X, 0 AND X = 0). Timing comes from a UGATE model with TPLH/TPHL min/typ/max delays.",
+      "usage": "U<name> AND|NAND|OR|NOR(<no. of inputs>) <pwr> <gnd> <in>* <out> <UGATE model> <UIO model>\nU<name> BUF|INV <pwr> <gnd> <in> <out> <UGATE model> <UIO model>\nU<name> XOR|NXOR <pwr> <gnd> <in1> <in2> <out> <UGATE model> <UIO model>",
+      "parameters": [
+        {"name": "(<no. of inputs>)", "description": "Input count for AND/NAND/OR/NOR."}
+      ],
+      "example": "U1 AND(2) $G_DPWR $G_DGND IN1 IN2 OUT T_AND2 IO_STD\nU2 INV $G_DPWR $G_DGND 3 5 T_INV IO_STD\n.MODEL T_AND2 UGATE(TPLHMN=5ns TPLHTY=10ns TPLHMX=15ns TPHLMN=5ns TPHLTY=10ns TPHLMX=15ns)",
+      "notes": "Pulses shorter than the propagation delay are swallowed (suppressed-glitch hazard); a DLYLINE passes any width.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Gate arrays: BUFA, INVA, ANDA, NANDA, ORA, NORA, XORA, NXORA",
+      "kind": "block",
+      "description": "Several identical gates in one primitive, matching multi-gate packages. ANDA/NANDA/ORA/NORA take (<no. of inputs>,<no. of gates>); BUFA/INVA/XORA/NXORA take (<no. of gates>). Node order: all inputs of gate 1, all inputs of gate 2, ..., then all outputs in gate order.",
+      "usage": "U<name> ANDA|NANDA|ORA|NORA(<no. of inputs>,<no. of gates>) <pwr> <gnd> <in>* <out>* <UGATE model> <UIO model>\nU<name> BUFA|INVA|XORA|NXORA(<no. of gates>) <pwr> <gnd> <in>* <out>* <UGATE model> <UIO model>",
+      "parameters": [
+        {"name": "(<no. of inputs>,<no. of gates>)", "description": "Per-gate inputs and number of gates."}
+      ],
+      "example": "U13 NANDA(2,4) $G_DPWR $G_DGND INA0 INA1 INB0 INB1 INC0 INC1 IND0 IND1 OUTA OUTB OUTC OUTD T_NANDA IO_STD",
+      "notes": "All gates share one timing model; per-gate variation is not possible in one array.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Tristate gates: BUF3, INV3, AND3, NAND3, OR3, NOR3, XOR3, NXOR3 (and *3A arrays)",
+      "kind": "block",
+      "description": "Gates with an enable input: when enable is 0 the output strength is Z and its level X. Timing model type UTGATE adds enable-related delays TPZH/TPZL/TPHZ/TPLZ (min/typ/max) to the normal TPLH/TPHL. Array forms (BUF3A, NAND3A ...) share one enable placed after all inputs and before all outputs.",
+      "usage": "U<name> AND3|NAND3|OR3|NOR3(<no. of inputs>) <pwr> <gnd> <in>* <enable> <out> <UTGATE model> <UIO model>\nU<name> BUF3|INV3 <pwr> <gnd> <in> <enable> <out> <UTGATE model> <UIO model>\nU<name> NAND3A(<no. of inputs>,<no. of gates>) <pwr> <gnd> <in>* <enable> <out>* <UTGATE model> <UIO model>",
+      "parameters": [
+        {"name": "TPZHxx / TPZLxx", "description": "Enable-to-output (Z to H/L) delays."},
+        {"name": "TPHZxx / TPLZxx", "description": "Disable (H/L to Z) delays."}
+      ],
+      "example": "U5 AND3(2) $G_DPWR $G_DGND IN0 IN1 ENABLE OUT T_TRIAND2 IO_STD\n.MODEL T_TRIAND2 UTGATE(TPLHMN=15ns TPLHTY=20ns TPLHMX=25ns TPZHMN=10ns TPZHTY=15ns TPZHMX=20ns)",
+      "notes": "A tristate output on a net with INLD/OUTLD capacitance > 0 makes that net a charge-storage net that remembers its last level for TSTOREMN.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "NBTG / PBTG (bidirectional transfer gates)",
+      "kind": "block",
+      "description": "N- and P-channel bidirectional transfer (pass) gates: a gate node controls a channel between two nodes in either direction, modelled with a UBTG timing model. When the gate connects to an analog net PSpice inserts an AtoD interface; using the '_D' DtoA variants (IO_LEVEL 3/4) avoids converting large parts of the circuit to analog.",
+      "usage": "U<name> NBTG|PBTG <pwr> <gnd> <gate node> <channel node 1> <channel node 2> <UBTG model> <UIO model> [MNTYMXDLY=..] [IO_LEVEL=..]",
+      "parameters": [
+        {"name": "<channel node 1/2>", "description": "The two switched terminals; signals pass both ways."}
+      ],
+      "example": "U4 NBTG $G_DPWR $G_DGND GATE SD1 SD2 BTG1 IO_BTG\n.MODEL BTG1 UBTG\n.model io_nbtg uio (drvh=200 drvl=200 inld=10pf outld=15pf digpower=\"DIGIFPWR\" TstoreMN=10us inR=10MEG drvZ=5MEG)",
+      "notes": "Used to build CMOS analogue switches (4066) and bus switches in the digital domain.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "DFF / JKFF (edge-triggered flip-flops)",
+      "kind": "block",
+      "description": "Arrays of edge-triggered flip-flops sharing presetbar, clearbar and clock (JKFF clocks on the falling edge of clockbar; DFF on the rising clock edge), followed by n data (or J and K) inputs, n Q and n Qbar outputs. Timing model type UEFF carries setup, hold, propagation and minimum-width parameters and drives timing-violation messages.",
+      "usage": "U<name> DFF(<n>) <pwr> <gnd> <presetbar> <clearbar> <clock> <d1>..<dn> <q1>..<qn> <qbar1>..<qbarn> <UEFF model> <UIO model>\nU<name> JKFF(<n>) <pwr> <gnd> <presetbar> <clearbar> <clockbar> <j1>..<jn> <k1>..<kn> <q1>..<qn> <qbar1>..<qbarn> <UEFF model> <UIO model>",
+      "parameters": [
+        {"name": "(<n>)", "description": "Number of flip-flops sharing the control pins."}
+      ],
+      "example": "U2 DFF(2) $G_DPWR $G_DGND PREBAR CLRBAR CLK D0 D1 Q0 Q1 QBAR0 QBAR1 T_DFF IO_STD\nU5 JKFF(1) $G_DPWR $G_DGND PREBAR CLRBAR CLKBAR J K Q QBAR T_JKFF IO_STD",
+      "notes": "Initial state is X unless .OPTIONS DIGINITSTATE sets 0 or 1 or a reset is applied. Tie unused preset/clear to a logic-1 node ($D_HI) rather than leaving them open.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "DFFDE / JKFFDE (dual-edge flip-flops)",
+      "kind": "block",
+      "description": "Flip-flops that can be triggered on the positive and/or negative clock edge, selected dynamically through two extra enable nodes (positive-edge enable, negative-edge enable) placed after the clock. Same UEFF timing model as DFF/JKFF; used for DDR-style and dual-edge counters.",
+      "usage": "U<name> DFFDE(<n>) <pwr> <gnd> <presetbar> <clrbar> <clock> <pos-edge enable> <neg-edge enable> <d>* <q>* <qbar>* <UEFF model> <UIO model>",
+      "parameters": [
+        {"name": "<pos-edge enable> / <neg-edge enable>", "description": "Logic-1 enables triggering on that edge; common to all flip-flops in the array."}
+      ],
+      "example": "U7 DFFDE(1) $G_DPWR $G_DGND $D_HI $D_HI CLK $D_HI $D_HI D Q QBAR T_DFF IO_STD",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "SRFF / DLTCH (gated flip-flop and latch)",
+      "kind": "block",
+      "description": "Level-sensitive (gated) storage elements: SRFF is a gated set/reset flip-flop and DLTCH a transparent D latch, both arrays with shared presetbar, clearbar and gate nodes. Their timing model type is UGFF with gate-related delays (TPGQ), setup/hold to the gate edge and minimum gate width.",
+      "usage": "U<name> SRFF(<n>) <pwr> <gnd> <presetbar> <clearbar> <gate> <s1>..<sn> <r1>..<rn> <q>* <qbar>* <UGFF model> <UIO model>\nU<name> DLTCH(<n>) <pwr> <gnd> <presetbar> <clearbar> <gate> <d1>..<dn> <q>* <qbar>* <UGFF model> <UIO model>",
+      "parameters": [
+        {"name": "<gate>", "description": "While high the latch is transparent; it holds on the falling edge."}
+      ],
+      "example": "U9 DLTCH(4) $G_DPWR $G_DGND $D_HI $D_HI LE D0 D1 D2 D3 Q0 Q1 Q2 Q3 QB0 QB1 QB2 QB3 T_LATCH IO_STD\n.MODEL T_LATCH UGFF(TPDQLHTY=15ns TPDQHLTY=15ns TPGQLHTY=12ns TPGQHLTY=12ns TSUDGTY=5ns THDGTY=3ns)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "PULLUP / PULLDN (pull resistor arrays)",
+      "kind": "block",
+      "description": "Arrays of digital pull-up or pull-down 'resistors' that drive their nodes weakly to 1 or 0 so that open-collector/tristate busses resolve. They have an I/O model only (no timing model); the drive strength comes from the I/O model's DRVH/DRVL.",
+      "usage": "U<name> PULLUP|PULLDN(<number of resistors>) <pwr> <gnd> <node>* <UIO model>",
+      "parameters": [
+        {"name": "(<number of resistors>)", "description": "Number of nodes pulled."}
+      ],
+      "example": "U5 PULLUP(4) $G_DPWR $G_DGND BUS0 BUS1 BUS2 BUS3 R1K\nU2 PULLDN(1) $G_DPWR $G_DGND 15 R500",
+      "notes": "dig_io.lib provides R1K/R500-style I/O models with appropriately weak DRVH/DRVL; the DIGOVRDRV ratio decides when a real driver overrides the pull.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "DLYLINE (delay line)",
+      "kind": "block",
+      "description": "Pure digital delay element whose output follows the input after the UDLY model delay (DLYMN/DLYTY/DLYMX). Unlike gates it propagates pulses of any width, so it is the right primitive for modelling cable, trace or explicit delay-line parts.",
+      "usage": "U<name> DLYLINE <pwr> <gnd> <input node> <output node> <UDLY model> <UIO model> [MNTYMXDLY=..] [IO_LEVEL=..]",
+      "parameters": [
+        {"name": "DLYMN / DLYTY / DLYMX", "description": "Minimum, typical and maximum delay in the UDLY model."}
+      ],
+      "example": "U5 DLYLINE $G_DPWR $G_DGND IN OUT DLY20NS IO_STD\n.MODEL DLY20NS UDLY(DLYMN=20ns DLYTY=20ns DLYMX=20ns)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "PLD primitives: PLAND, PLOR, PLXOR, PLNAND, PLNOR, PLNXOR and *C (true/complement) forms",
+      "kind": "block",
+      "description": "Programmable logic arrays: inputs form columns, outputs rows, each row driven by one gate of the array type; the *C variants provide both true and complement of every input. The program comes from a JEDEC file (FILE=, normally through a TEXT parameter JEDEC_FILE) or in-line DATA=<radix>$...$. Timing model type UPLD. Library PAL/GAL parts wrap these so you only supply the JEDEC file name.",
+      "usage": "U<name> <pld type>(<no. of inputs>,<no. of outputs>) <pwr> <gnd> <input node>* <output node>* <UPLD model> <UIO model> [FILE=<file name text value>] [DATA=<radix flag>$<program data>$] [MNTYMXDLY=..] [IO_LEVEL=..]",
+      "parameters": [
+        {"name": "FILE", "description": "JEDEC file name (text constant or |text expression|)."},
+        {"name": "DATA", "description": "B$ / O$ / X$ radix flag followed by fuse data terminated by $."}
+      ],
+      "example": "UDECODE PLANDC(3, 8) $G_DPWR $G_DGND IN1 IN2 IN3 OUT0 OUT1 OUT2 OUT3 OUT4 OUT5 OUT6 OUT7 PLD_MDL IO_STD\n+ DATA=B$ 01 01 01  01 01 10  01 10 01  01 10 10  10 01 01  10 01 10  10 10 01  10 10 10 $\nX1 I1 I2 I3 O1 PAL14H4 TEXT: JEDEC_FILE=\"myprog.jed\"",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "ROM (read-only memory)",
+      "kind": "block",
+      "description": "Digital ROM with an enable, address inputs (msb first) and data outputs, programmed from an Intel-Hex file (FILE=) or in-line DATA. Timing model type UROM gives access and enable delays. The reference example is a 4x4-bit multiplier built as an 8-address-bit, 8-output ROM.",
+      "usage": "U<name> ROM(<no. of address pins>,<no. of output pins>) <pwr> <gnd> <enable node> <address msb>..<address lsb> <output msb>..<output lsb> <UROM model> <UIO model> [FILE=<hex file>] [DATA=<radix flag>$<data>$]",
+      "parameters": [
+        {"name": "FILE", "description": "Intel Hex format program file."},
+        {"name": "DATA", "description": "In-line contents, msb first."}
+      ],
+      "example": "UMULTIPLY ROM(8, 8) $G_DPWR $G_DGND EN A7 A6 A5 A4 A3 A2 A1 A0 D7 D6 D5 D4 D3 D2 D1 D0 ROM_MDL IO_STD FILE=\"mult.hex\"",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "RAM (random-access memory)",
+      "kind": "block",
+      "description": "Digital RAM with read-enable and write-enable, address pins, separate write-data and read-data busses, optionally initialised from an Intel-Hex file or in-line DATA. Timing model type URAM specifies read access, write pulse and setup/hold parameters.",
+      "usage": "U<name> RAM(<no. of address bits>,<no. of output bits>) <pwr> <gnd> <read enable> <write enable> <address msb>..<lsb> <write-data msb>..<lsb> <read-data msb>..<lsb> <URAM model> <UIO model> [FILE=<hex file>] [DATA=<radix flag>$<init data>$]",
+      "parameters": [
+        {"name": "FILE", "description": "Intel Hex initialisation file; overrides DATA."}
+      ],
+      "example": "UMEM RAM(4, 8) $G_DPWR $G_DGND RE WE A3 A2 A1 A0 WD7 WD6 WD5 WD4 WD3 WD2 WD1 WD0 RD7 RD6 RD5 RD4 RD3 RD2 RD1 RD0 RAM_MDL IO_STD",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "ADC (multi-bit analog-to-digital converter)",
+      "kind": "block",
+      "description": "Behavioural n-bit ADC primitive: analog input, reference and ground nodes, a convert strobe, status and over-range outputs and n digital outputs. Timing model UADC gives conversion delays (TPCSMN.. from convert edge to status/data). The analog input pins are true analog nodes, so no interface subcircuit is needed.",
+      "usage": "U<name> ADC(<number of bits>) <pwr> <gnd> <in node> <ref node> <gnd node> <convert node> <status node> <over-range node> <output msb>..<output lsb> <UADC model> <UIO model>",
+      "parameters": [
+        {"name": "<ref node>", "description": "Full-scale reference voltage input."},
+        {"name": "<status node>", "description": "Busy flag during conversion."}
+      ],
+      "example": "U5 ADC(4) $G_DPWR $G_DGND Sig Ref 0 Conv Stat OvrRng Out3 Out2 Out1 Out0 ADCModel IO_STD\n.MODEL ADCModel UADC(TPCSMN=10ns TPCSTY=20ns TPCSMX=30ns)",
+      "notes": "Capture parts ADC8break/ADC10break etc. wrap this primitive.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "DAC (multi-bit digital-to-analog converter)",
+      "kind": "block",
+      "description": "Behavioural n-bit DAC: a zero-impedance voltage source from out to gnd whose value is ref * binary input / 2^n, with switching times from the UDAC model (TSWMN/TSWTY/TSWMX, default 10 ns). Data inputs are digital nodes; out/ref/gnd are analog.",
+      "usage": "U<name> DAC(<number of bits>) <pwr> <gnd> <out node> <ref node> <gnd node> <input msb>..<input lsb> <UDAC model> <UIO model>",
+      "parameters": [
+        {"name": "TSWMN / TSWTY / TSWMX", "description": "Data change to analog output stable."}
+      ],
+      "example": "U7 DAC(4) $G_DPWR $G_DGND Sig Ref 0 In3 In2 In1 In0 DACModel IO_STD\n.MODEL DACModel UDAC(TSWMN=10ns TSWTY=15ns TSWMX=20ns)",
+      "notes": "Capture parts DAC8break etc. Use an R-C on the output to model settling if needed.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "PINDLY (pin-to-pin delay primitive)",
+      "kind": "block",
+      "description": "Models path-dependent delays of a complete device: inputs, optional enable and reference nodes, outputs, with BOOLEAN: assignments, PINDLY: delay assignments per output (using transition functions such as CHANGED, TRN_LH, DELAY(min,typ,max)), TRISTATE: sections and embedded SETUP_HOLD/WIDTH/FREQ/GENERAL constraints. It is how library ICs get datasheet-accurate pin-to-pin timing on top of functional primitives.",
+      "usage": "U<name> PINDLY(<no. of paths>,<no. of enables>,<no. of refs>) <pwr> <gnd> <input>* [<enable>*] [<reference>*] <output>* <UIO model> [MNTYMXDLY=..] [IO_LEVEL=..]\n+ [BOOLEAN: <var>={<expr>} ...]\n+ PINDLY: <output>={<delay expression>} ...\n+ [TRISTATE: ENABLE LO|HI <enable node> <delay assignment>*]\n+ [SETUP_HOLD: ...] [WIDTH: ...] [FREQ: ...] [GENERAL: ...]",
+      "parameters": [
+        {"name": "PINDLY:", "description": "Per-output delay expressions, e.g. CASE(TRN_LH & CHANGED(IN1,0), DELAY(5ns,10ns,15ns), DELAY(...))."},
+        {"name": "TRISTATE:", "description": "Delays applied when the named enable is at the stated level."}
+      ],
+      "example": "U1 PINDLY(4,0,3) $G_DPWR $G_DGND IN1 IN2 IN3 IN4 REF1 REF2 REF3 OUT1 OUT2 OUT3 OUT4 IO_MODEL\n+ PINDLY:\n+ OUT1 = { CASE( TRN_LH, DELAY(3ns,5ns,7ns), TRN_HL, DELAY(4ns,6ns,8ns), DELAY(-1,-1,-1) ) }",
+      "notes": "Unlike CONSTRAINT, constraints inside PINDLY can propagate hazards to the outputs (AFFECTS clauses). Most users meet PINDLY only when reading library subcircuits.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "CONSTRAINT (timing constraint checker)",
+      "kind": "block",
+      "description": "Primitive that only reports timing violations and never changes logic states or delays. It takes the device's input nodes and one or more constraint sections: SETUP_HOLD, WIDTH, FREQ and GENERAL, optionally with BOOLEAN helper variables. Violations go to the .out file (and Probe) as SETUP, HOLD, RELEASE, WIDTH, FREQUENCY or GENERAL messages, subject to DIGERRDEFAULT/DIGERRLIMIT.",
+      "usage": "U<name> CONSTRAINT(<no. of inputs>) <pwr> <gnd> <input node>* <UIO model> [IO_LEVEL=..] [BOOLEAN: <assignment>*] [SETUP_HOLD: ...] [WIDTH: ...] [FREQ: ...] [GENERAL: ...]",
+      "parameters": [
+        {"name": "BOOLEAN:", "description": "<var> = { <boolean expression> } definitions usable in WHEN clauses."},
+        {"name": "ERRORLIMIT", "description": "Per-section message cap overriding DIGERRDEFAULT."},
+        {"name": "MESSAGE", "description": "Extra text appended to the violation report."}
+      ],
+      "example": "UCHK CONSTRAINT(3) $G_DPWR $G_DGND CLK D CLRBAR IO_STD\n+ SETUP_HOLD: CLOCK LH=CLK DATA(1)=D SETUPTIME=20ns HOLDTIME=5ns WHEN {CLRBAR=='1'}\n+ WIDTH: NODE=CLK MIN_LOW=15ns MIN_HIGH=15ns\n+ FREQ: NODE=CLK MAXFREQ=25MEG",
+      "notes": "The GENERAL section evaluates an arbitrary Boolean over the inputs and reports when it becomes true. .EXTERNAL nets turn hazards reaching them into PERSISTENT HAZARD reports.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "SETUP_HOLD: constraint section",
+      "kind": "block",
+      "description": "Setup/hold/release checker inside CONSTRAINT or PINDLY: names the CLOCK node with its asserting edge (LH or HL), the DATA nodes, and SETUPTIME, HOLDTIME and RELEASETIME (each optionally split into _LO/_HI or _LH/_HL variants for level- or edge-dependent datasheet values). A WHEN expression gates the check, e.g. while a clear is inactive. Release (recovery) checks never allow simultaneous clock/data changes.",
+      "usage": "+ SETUP_HOLD: CLOCK LH|HL=<node> DATA(<n>)=<node>* [SETUPTIME=<t> | SETUPTIME_LO=<t> SETUPTIME_HI=<t>] [HOLDTIME=<t> | HOLDTIME_LO/HI=<t>] [RELEASETIME=<t> | RELEASETIME_LH/HL=<t>] [WHEN {<bool>}] [MESSAGE=\"<text>\"] [ERRORLIMIT=<n>] [AFFECTS_ALL|AFFECTS_NONE|AFFECTS(<n>)=<outputs>]",
+      "parameters": [
+        {"name": "CLOCK <edge>=<node>", "description": "Reference edge; LH rising, HL falling."},
+        {"name": "DATA(n)", "description": "Nodes that must be stable around the clock edge."},
+        {"name": "AFFECTS", "description": "PINDLY only: which outputs become X/hazard after a violation."}
+      ],
+      "example": "+ SETUP_HOLD: CLOCK LH=CLK DATA(2)=D0 D1 SETUPTIME=10ns HOLDTIME=2ns WHEN {PRE=='1' & CLR=='1'} MESSAGE=\"74LS74 D setup/hold\"",
+      "notes": "If CLOCK or DATA is X at check time nothing is reported. Violations are reported at the non-asserting edge, so they may appear out of order in the .out file.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "WIDTH: / FREQ: / GENERAL: constraint sections",
+      "kind": "block",
+      "description": "Remaining constraint checkers: WIDTH reports pulses on a node narrower than MIN_LOW/MIN_HIGH; FREQ reports a node whose frequency is below MINFREQ or above MAXFREQ; GENERAL evaluates a Boolean expression of the inputs (optionally with a LIMIT time window) and reports when it is true. All accept WHEN, MESSAGE and ERRORLIMIT like SETUP_HOLD.",
+      "usage": "+ WIDTH: NODE=<node> [MIN_LOW=<t>] [MIN_HIGH=<t>] [WHEN {..}] [MESSAGE=\"..\"] [ERRORLIMIT=<n>]\n+ FREQ: NODE=<node> [MINFREQ=<f>] [MAXFREQ=<f>] [WHEN {..}] [MESSAGE=\"..\"]\n+ GENERAL: [WHEN {<bool>}] [LIMIT=<t>] [MESSAGE=\"..\"] [ERRORLIMIT=<n>] [AFFECTS ...]",
+      "parameters": [
+        {"name": "MIN_LOW / MIN_HIGH", "description": "Minimum low/high pulse width."},
+        {"name": "MINFREQ / MAXFREQ", "description": "Allowed frequency window."}
+      ],
+      "example": "+ WIDTH: NODE=CLRBAR MIN_LOW=25ns MESSAGE=\"clear pulse too short\"\n+ FREQ: NODE=CLK MAXFREQ=33MEG\n+ GENERAL: WHEN {(PRE=='0') & (CLR=='0')} MESSAGE=\"preset and clear both active\"",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "STIM (digital stimulus generator)",
+      "kind": "block",
+      "description": "Generates digital waveforms on one or more nodes from a script of <time> <value> commands. (<width>,<format array>) sets the number of signals and how each digit of a value is interpreted (1 = binary, 3 = octal, 4 = hex digit). TIMESTEP defines the clock-cycle unit for times written with a C suffix; times may be absolute or relative (+5ns). The script supports labels, GOTO loops, INCR/DECR and REPEAT blocks.",
+      "usage": "U<name> STIM(<width>,<format array>) <pwr> <gnd> <node>* <UIO model> [STIMULUS=<name>] [IO_LEVEL=..] [TIMESTEP=<stepsize>]\n+ <time> <value>\n+ LABEL=<label>\n+ <time> GOTO <label> <n> TIMES | UNTIL GT|GE|LT|LE <value>\n+ <time> INCR BY <value> | DECR BY <value>\n+ REPEAT FOREVER | REPEAT <n> TIMES ... ENDREPEAT\n+ FILE=<file name>",
+      "parameters": [
+        {"name": "<format array>", "description": "Digits summing to <width>, each 1, 3 or 4."},
+        {"name": "<value>", "description": "Per-node states 0 1 R F X Z, or hex/octal digits per the format."},
+        {"name": "TIMESTEP", "description": "Seconds per clock cycle for C-suffixed times."}
+      ],
+      "example": "UCLK STIM(1,1) $G_DPWR $G_DGND CLK IO_STM TIMESTEP=10ns\n+ 0c 0\n+ LABEL=LOOP\n+ +1c 1\n+ +1c 0\n+ +0c GOTO LOOP -1 TIMES\nUBUS STIM(4,4) $G_DPWR $G_DGND A3 A2 A1 A0 IO_STM\n+ 0ns 0\n+ 50ns INCR BY 1\n+ 100ns GOTO LOOP UNTIL GE F",
+      "notes": "IO_STM from dig_io.lib is the standard stimulus I/O model. Capture parts STIM1/STIM4/STIM8/STIM16 and DIGCLOCK/DIGSTIM expose this; the Stimulus Editor writes .STIMULUS ... STIM definitions.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "FSTIM (file stimulus device)",
+      "kind": "block",
+      "description": "Drives digital nodes from a stimulus file whose header names signals and whose body lists time/state rows (the same format .VECTOR writes), so one simulation's results, a logic-simulator dump or a hand-written table can stimulate a circuit. SIGNAMES maps file columns to nodes when the names differ.",
+      "usage": "U<name> FSTIM(<# outputs>) <pwr> <gnd> <node>* <UIO model> FILE=<stimulus file name> [IO_LEVEL=..] [SIGNAMES=<file signal name>*]",
+      "parameters": [
+        {"name": "FILE", "description": "Required; quoted string or |text expression|."},
+        {"name": "SIGNAMES", "description": "Column names positionally matched to the node list."}
+      ],
+      "example": "U1 FSTIM(1) $G_DPWR $G_DGND IN1 IO_STM FILE=DIG1.STM\nU2 FSTIM(4) $G_DPWR $G_DGND ADDR3 ADDR2 ADDR1 ADDR0 IO_STM FILE=DIG_2.STM SIGNAMES=AD3 AD2 AD1 AD0",
+      "notes": "Capture part FILESTIM1/4/8/16/32 wraps it; the profile's Configuration Files > Stimulus category lists the .stm files.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Timing model parameter naming (TP, TSU, TH, TW, TSW with MN/TY/MX)",
+      "kind": "reference",
+      "description": "Every timing-model parameter is built from a kind prefix (TP propagation delay, TSU setup, TH hold, TW pulse width, TSW switching), a path/edge description and a MN/TY/MX suffix: TPLHTY is the typical low-to-high gate delay, TSUDCLKMN the minimum data-to-clock setup of a flip-flop, TWCLKHMX the maximum clock-high width. Missing propagation delays are extrapolated with DIGMNTYSCALE/DIGTYMXSCALE; missing constraints default to 0 (min), the typical (max) or the average (typ).",
+      "usage": ".MODEL <name> <UGATE|UTGATE|UEFF|UGFF|UDLY|UPLD|UROM|URAM|UADC|UDAC|UBTG>(<param>MN=.. <param>TY=.. <param>MX=.. ...)",
+      "parameters": [
+        {"name": "UGATE", "description": "TPLHMN/TY/MX, TPHLMN/TY/MX."},
+        {"name": "UTGATE", "description": "adds TPZH*, TPZL*, TPHZ*, TPLZ*."},
+        {"name": "UEFF", "description": "TPCLKQLH*, TPCLKQHL*, TPPCQLH*, TPPCQHL*, TSUDCLK*, THDCLK*, TSUPCCLKH*, TWPCL*, TWCLKL*, TWCLKH*, TSUCECLK*, THCECLK*."},
+        {"name": "UGFF", "description": "TPDQ*, TPGQ*, TPPCQ*, TSUDG*, THDG*, TWG*, TWPC*."}
+      ],
+      "example": ".MODEL D_74LS00 UGATE(TPLHMN=3ns TPLHTY=9ns TPLHMX=15ns TPHLMN=3ns TPHLTY=10ns TPHLMX=15ns)\n.MODEL T_JKFF UEFF(TPCLKQLHTY=20ns TPCLKQHLTY=25ns TSUDCLKMN=20ns THDCLKMN=0 TWCLKHMN=25ns)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "UIO model (digital I/O model parameters)",
+      "kind": "block",
+      "description": "Describes a device family's loading and driving: INLD/OUTLD input/output load capacitance, DRVH/DRVL output resistances (strength), DRVZ high-impedance leakage, INR input leakage, TSTOREMN minimum storage time for charge-storage nets, TPWRT pulse-width rejection threshold, TSWLHn/TSWHLn switching-time corrections for each DtoA level, DIGPOWER (power subcircuit, default DIGIFPWR) and the names of AtoD1-4 and DtoA1-4 interface subcircuits. One UIO model serves a whole family (IO_LS, IO_LS_OC, IO_LS_ST, IO_LS_OC_ST for 74LS).",
+      "usage": ".MODEL <name> UIO(INLD=<F> OUTLD=<F> DRVH=<ohm> DRVL=<ohm> DRVZ=<ohm> INR=<ohm> TSTOREMN=<s> TPWRT=<s> TSWLH1=<s> TSWHL1=<s> ... DIGPOWER=\"<subckt>\" AtoD1=\"<subckt>\" DtoA1=\"<subckt>\" ... AtoD4 DtoA4)",
+      "parameters": [
+        {"name": "DRVH / DRVL", "description": "Output high/low resistance, default 50 ohm; bounded by DIGDRVF/DIGDRVZ."},
+        {"name": "INLD / OUTLD", "description": "Load capacitances that add to propagation delay, default 0."},
+        {"name": "AtoDn / DtoAn", "description": "Interface subcircuits inserted for IO_LEVEL n; default AtoDDefault/DtoADefault."},
+        {"name": "TSTOREMN", "description": "Minimum charge-storage time, default 1 ms."}
+      ],
+      "example": ".MODEL IO_STD UIO(DRVH=96.4 DRVL=104 AtoD1=\"AtoD_STD\" AtoD2=\"AtoD_STD_NX\" AtoD3=\"AtoD_STD\" AtoD4=\"AtoD_STD_NX\" DtoA1=\"DtoA_STD\" DtoA2=\"DtoA_STD\" DtoA3=\"DtoA_STD\" DtoA4=\"DtoA_STD\" TSWHL1=1.373ns TSWLH1=3.382ns DIGPOWER=\"DIGIFPWR\")",
+      "notes": "Stimulus devices have no inputs, so INLD and AtoDn are ignored for them. Copy an existing family model from dig_io.lib when creating a new one.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "IO_STD / IO_LS / IO_HC / IO_AC / IO_ECL / IO_4000 / IO_STM (library I/O models)",
+      "kind": "library",
+      "description": "The I/O models shipped in dig_io.lib and used by the digital part libraries: IO_STD (standard TTL), IO_LS, IO_ALS, IO_AS, IO_F, IO_HC, IO_HCT, IO_AC, IO_ACT, IO_4000 (CD4000 CMOS), IO_ECL, each with _OC (open collector) and _ST (Schmitt) variants, plus IO_STM for stimulus generators and IO_BTG for transfer gates. Selecting the right family model gives correct thresholds, loading and interface subcircuits at analog boundaries.",
+      "usage": "U<name> <primitive> ... <timing model> IO_<family>[_OC][_ST]",
+      "parameters": [
+        {"name": "_OC", "description": "Open-collector output (DRVH very high)."},
+        {"name": "_ST", "description": "Schmitt-trigger input thresholds in the AtoD subcircuits."}
+      ],
+      "example": "U1 NAND(2) $G_DPWR $G_DGND A B Y D_74HC00 IO_HC\nUCLK STIM(1,1) $G_DPWR $G_DGND CLK IO_STM 0s 0 +50ns 1 +50ns 0",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "AtoD / DtoA interface subcircuits and DIGIFPWR",
+      "kind": "block",
+      "description": "When a node connects both analog and digital devices PSpice inserts an interface subcircuit named in the I/O model: AtoD_<family> (an O device with a DOUTPUT model) or DtoA_<family> (an N device with a DINPUT model), powered by the DIGIFPWR power subcircuit that creates the $G_DPWR/$G_DGND supplies (5 V by default). Levels 1/2 use full analog models; levels 3/4 (_D variants) keep the net digital where possible for speed.",
+      "usage": "IO_LEVEL=1..4 on the U device, or .OPTIONS DIGIOLVL; interface names come from AtoDn/DtoAn in the UIO model; power from DIGPOWER=\"DIGIFPWR\"",
+      "parameters": [
+        {"name": "AtoD_STD / DtoA_STD", "description": "TTL interfaces; _HC, _LS, _AC, _4000, _ECL variants per family."},
+        {"name": "DIGIFPWR", "description": "Subcircuit providing the digital supply; override VOLTAGE via its parameter or your own DIGPOWER subcircuit."}
+      ],
+      "example": "* dig_io.lib excerpt\n.subckt DtoA_STD D A DPWR DGND params: DRVL=0 DRVH=0 CAPACITANCE=0\nN1 A DGND DPWR DIN_STD DGTLNET=D IO_STD\nC1 A DGND {CAPACITANCE+0.1pF}\n.ends",
+      "notes": "The interface nodes appear in Probe as <node>$AtoD / <node>$DtoA. Use the Options > Gate-level Simulation 'Default I/O level' to choose globally.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "$G_DPWR / $G_DGND / $D_HI / $D_LO (digital global nodes)",
+      "kind": "reference",
+      "description": "Global nets used throughout the digital libraries: $G_DPWR and $G_DGND are the digital power and ground nodes (created by DIGIFPWR at 5 V), passed as OPTIONAL: subcircuit nodes so every 74xx part shares them; $D_HI and $D_LO are constant logic-1 and logic-0 nodes for tying off unused inputs. Capture provides the HI, LO, DIGPWR and DIGGND symbols for the same purpose.",
+      "usage": "X1 A B Y 74LS00            ; uses $G_DPWR/$G_DGND by default\nX2 A B Y MYPWR MYGND 74LS00 ; explicit supplies",
+      "parameters": [],
+      "example": "U1 DFF(1) $G_DPWR $G_DGND $D_HI $D_HI CLK D Q QB T_DFF IO_STD",
+      "notes": "Mixing 3.3 V CMOS and 5 V TTL families needs separate DIGPOWER subcircuits with their own supply nodes.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Digital worst-case timing (MNTYMXDLY=4 / DIGMNTYMX=4)",
+      "kind": "reference",
+      "description": "Min/max mode simulates each delay as an ambiguity region between its minimum and maximum values instead of a single typical value, propagating rising/falling ambiguity through the logic. Hazards are reported when ambiguities converge to produce a glitch (AMBIGUITY CONVERGENCE), accumulate until edges overlap (CUMULATIVE AMBIGUITY), or a pulse narrower than the delay is suppressed (SUPPRESSED GLITCH); those reaching storage or .EXTERNAL nets become PERSISTENT HAZARDs.",
+      "usage": ".OPTIONS DIGMNTYMX=4        ; whole design\nU1 NAND(2) ... MNTYMXDLY=4   ; one device",
+      "parameters": [
+        {"name": "Hazard messages", "description": "AMBIGUITY CONVERGENCE, CUMULATIVE AMBIGUITY, SUPPRESSED GLITCH, NET-STATE CONFLICT, DIGITAL INPUT VOLTAGE, PERSISTENT HAZARD, ZERO-DELAY-OSCILLATION."}
+      ],
+      "example": ".OPTIONS DIGMNTYMX=4 DIGERRLIMIT=100\n.EXTERNAL OUTPUT DATA_OUT\n* run TRAN and read the Hazards section of the .out file",
+      "notes": "Timing-violation and hazard messages can be filtered/suppressed with NOOUTMSG/NOPRBMSG and are shown in Probe as markers on the offending traces. A node toggling more than 50 times in one digital time step is flagged as ZERO-DELAY-OSCILLATION and the run is cancelled.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Timing violation messages (SETUP, HOLD, RELEASE, WIDTH, FREQUENCY, GENERAL)",
+      "kind": "reference",
+      "description": "The categories of digital condition messages written to the .out file and Probe data: SETUP/HOLD (data not stable before/after the clock edge), RELEASE (control released too close to the clock), WIDTH (pulse too narrow), FREQUENCY (period too long/short) and GENERAL (a user Boolean became true). They originate from CONSTRAINT/PINDLY sections and can be capped with DIGERRDEFAULT/DIGERRLIMIT.",
+      "usage": "View > Output File (search for 'WARNING' / 'VIOLATION') or Probe: View > Simulation Messages",
+      "parameters": [],
+      "example": "* .out excerpt\n**** DIGITAL TIMING VIOLATIONS\nSETUP VIOLATION at 250.0ns on U3 (D_74LS74): DATA=D changed 3.5ns before CLK LH; SETUPTIME=20ns",
+      "notes": "Probe's Simulation Message Summary dialog lists them with a Plot button that opens the involved traces at the violation time.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Digital stimulus file format (.stm / .vec)",
+      "kind": "format",
+      "description": "ASCII table read by FSTIM and written by .VECTOR: an optional TIMESCALE line, a header naming the signals (with radix groupings), then rows of <time> <state values>. Times are absolute unless prefixed with +, and multi-bit columns use hex/octal per the header. Because both ends use the same format, digital results can be chained between simulations or exchanged with external logic simulators.",
+      "usage": "* header\nTIMESCALE=1ns\nSTATE  CLK  DATA\n0      0    0\n+10    1    1\n+10    0    1",
+      "parameters": [
+        {"name": "TIMESCALE", "description": "Multiplier applied to the time column."},
+        {"name": "+<t>", "description": "Time relative to the previous row."}
+      ],
+      "example": "U1 FSTIM(2) $G_DPWR $G_DGND CLK DATA IO_STM FILE=\"pattern.stm\" SIGNAMES=CLK DATA",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "STIM1 / STIM4 / STIM8 / STIM16, DIGCLOCK, DIGSTIM, FILESTIM (Capture stimulus parts)",
+      "kind": "library",
+      "description": "Schematic front ends for the digital stimulus primitives in source.olb/sourcstm.olb: STIM1/4/8/16 hold the STIM command script in COMMAND1..COMMAND16 properties (with TIMESTEP, FORMAT, IO_LEVEL); DIGCLOCK generates a clock from ONTIME/OFFTIME/DELAY/STARTVAL/OPPVAL; DIGSTIM references a Stimulus Editor definition via STIMULUS; FILESTIM1..32 wrap FSTIM with FILENAME and SIGNAME properties.",
+      "usage": "Place > PSpice Component > Digital > (stimulus) or Place > Part > sourcstm.olb / source.olb",
+      "parameters": [
+        {"name": "COMMANDn", "description": "STIM script lines, e.g. 0s 0, +10ns 1, +10ns GOTO ..."},
+        {"name": "ONTIME / OFFTIME", "description": "DIGCLOCK high and low durations."}
+      ],
+      "example": "1. Place DIGCLOCK, set ONTIME=50ns OFFTIME=50ns.\n2. Place STIM4 on a 4-bit bus, set FORMAT=4, COMMAND1=0ns 0, COMMAND2=+100ns INCR BY 1, COMMAND3=+100ns GOTO 2 -1 TIMES.\n3. Run transient and view D(BUS) in Probe.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Digital Probe traces: D(), bus display and digital plot",
+      "kind": "function",
+      "description": "Digital nodes appear in Probe as D(node) traces drawn in the separate digital pane with states 0, 1, X (hatched), Z (dashed) and R/F transitions; busses can be grouped and shown in hex/octal/binary/decimal by wrapping the bits in braces {A3 A2 A1 A0}, and the Plot > Digital Size command sets the pane height. Time-cursor readout shows the state at the cursor.",
+      "usage": "Trace > Add Trace > D(<node>)   |   {D(A3) D(A2) D(A1) D(A0);h}   (h hex, o octal, d decimal, b binary)",
+      "parameters": [
+        {"name": "{bits;radix}", "description": "Bus grouping with optional radix suffix."}
+      ],
+      "example": "Trace > Add Trace: D(CLK) D(Q) {D(BUS3) D(BUS2) D(BUS1) D(BUS0);h}",
+      "notes": "Digital and analog traces can share the X axis; markers on digital nets in Capture (PSpice > Markers > Voltage Level) plot D() automatically. Use Plot > Add Plot to Window to separate busses.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Gate-level simulation options (profile Options tab)",
+      "kind": "panel",
+      "description": "The Simulation Settings > Options > Gate-level Simulation category maps to the DIG* options: Timing Mode (Minimum/Typical/Maximum/Worst-case = DIGMNTYMX), 'Suppress simulation error messages in waveform data file' (NOPRBMSG), 'Initialize all flip-flops to' (DIGINITSTATE 0/1/X) and 'Default I/O level for A/D interfaces' (DIGIOLVL 1-4). Advanced options expose DIGMNTYSCALE, DIGTYMXSCALE, DIGDRVF, DIGDRVZ, DIGOVRDRV, DIGERRDEFAULT, DIGERRLIMIT and DIGFREQ.",
+      "usage": "PSpice > Edit Simulation Profile > Options > Category: Gate-level Simulation",
+      "parameters": [
+        {"name": "Timing Mode", "description": "Minimum / Typical / Maximum / Worst-case (min/max)."},
+        {"name": "Initialize all flip-flops to", "description": "0, 1 or X."},
+        {"name": "Default I/O level", "description": "1 (analog interfaces) to 4."}
+      ],
+      "example": "1. Open the profile, Options tab, select Gate-level Simulation.\n2. Set Timing Mode = Worst-case (min/max) and Initialize flip-flops = 0.\n3. Run; inspect the Hazard messages via View > Simulation Messages in Probe.",
+      "docs": "https://www.orcad.com/"
+    }
+  ]
+}

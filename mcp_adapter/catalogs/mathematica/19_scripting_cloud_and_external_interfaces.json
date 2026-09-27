@@ -1,0 +1,323 @@
+{
+  "category": "Scripting, Cloud Deployment & External Interfaces",
+  "description": "How Wolfram Language code is run headlessly, deployed as web endpoints, and connected to the outside world. This covers the wolframscript command-line interface and script variables, the Wolfram Cloud deployment functions, calling out to Python and other language runtimes, HTTP and web service access, relational databases, and loading native shared libraries.",
+  "tools": [
+    {
+      "name": "wolframscript -code",
+      "kind": "command",
+      "description": "Evaluates a Wolfram Language expression given directly on the command line and prints the result, then exits. It is the quickest way to call Mathematica from a shell, a Makefile or another program. The -format option selects how the result is serialized and -o redirects it to a file.",
+      "usage": "wolframscript -code \"expr\"\nwolframscript -code \"expr\" -format JSON\nwolframscript -code \"expr\" -o out.txt",
+      "parameters": [
+        {"name": "-format", "description": "Output serialization: Text, InputForm, OutputForm, JSON, TeX, PNG, Image and others."},
+        {"name": "-o / -output", "description": "Write the result to a file instead of stdout."},
+        {"name": "-local", "description": "Force evaluation on a specific local kernel executable."},
+        {"name": "-timeout", "description": "Abort the evaluation after the given number of seconds."}
+      ],
+      "example": "wolframscript -code \"Integrate[Sin[x]^2, x]\"\nwolframscript -code \"N[Pi, 50]\" -format Text\nwolframscript -code \"ExportString[FactorInteger[2^64+1], \\\"JSON\\\"]\"\nwolframscript -code \"Plot[Sin[x],{x,0,Pi}]\" -format PNG -o plot.png",
+      "notes": "The result is printed in InputForm by default, which is parseable but not always pretty; use -format Text for human-readable output and -format JSON for machine consumption.",
+      "docs": "https://reference.wolfram.com/language/ref/program/wolframscript.html"
+    },
+    {
+      "name": "wolframscript -file",
+      "kind": "command",
+      "description": "Reads a Wolfram Language source file and evaluates its contents expression by expression, then exits. Nothing is printed unless the file explicitly calls Print, Echo or Export, which makes it the normal form for batch jobs that write their results to disk. Use -print all to echo the value of every expression.",
+      "usage": "wolframscript -file script.wl\nwolframscript -file script.wl arg1 arg2\nwolframscript -print all -file script.wl",
+      "example": "wolframscript -file analysis.wl\nwolframscript -file build.wl --verbose\nwolframscript -print all -file demo.wl",
+      "notes": "Arguments after the file name are available in $ScriptCommandLine, exactly as with -script.",
+      "docs": "https://reference.wolfram.com/language/ref/program/wolframscript.html"
+    },
+    {
+      "name": "wolframscript -script",
+      "kind": "command",
+      "description": "Runs a .wls script file in script mode: no In[]/Out[] labels, Print output goes to stdout, command-line arguments appear in $ScriptCommandLine, and Exit[n] sets the process exit code. On Unix a `#!/usr/bin/env wolframscript` shebang plus the executable bit makes the file directly runnable as a command. This is the standard way to write a command-line tool in Wolfram Language.",
+      "usage": "wolframscript -script run.wls arg1 arg2\n#!/usr/bin/env wolframscript\n./run.wls arg1",
+      "example": "wolframscript -script fit.wls data.csv\n#!/usr/bin/env wolframscript\n(* fit.wls *)\nargs = Rest[$ScriptCommandLine];\nIf[args === {}, Print[\"usage: fit.wls <file>\"]; Exit[1]];\nPrint[Mean[Flatten[Import[First[args], \"CSV\"]]]];\nExit[0]",
+      "notes": "Script mode suppresses automatic output of results, so a script that computes without printing produces nothing; always Print or Export the answer.",
+      "docs": "https://reference.wolfram.com/language/ref/program/wolframscript.html"
+    },
+    {
+      "name": "wolframscript -function",
+      "kind": "command",
+      "description": "Applies a Wolfram Language function directly to arguments supplied on the command line, without writing a script file. -args gives the arguments as strings, and -signature declares Interpreter types so they are parsed into numbers, dates or quantities first. It turns any Wolfram function into a shell command in one line.",
+      "usage": "wolframscript -function \"f\" -args a1 a2\nwolframscript -function \"f\" -signature Integer -args 5",
+      "example": "wolframscript -function \"StringReverse\" -args \"hello\"\nwolframscript -function \"Prime\" -signature Integer -args 1000\nwolframscript -function \"#1 + #2 &\" -signature Number Number -args 2 3",
+      "notes": "Without -signature every argument arrives as a string, so numeric functions need either a signature or an explicit ToExpression in the function.",
+      "docs": "https://reference.wolfram.com/language/ref/program/wolframscript.html"
+    },
+    {
+      "name": "wolframscript -cloud",
+      "kind": "command",
+      "description": "Runs the code in the Wolfram Cloud rather than on a local kernel, so no local Mathematica installation or licence is needed. -authenticate stores credentials for later non-interactive runs, and -api calls a deployed APIFunction by its UUID or URL passing named parameters. This makes wolframscript a thin client for cloud-hosted computation.",
+      "usage": "wolframscript -cloud -code \"expr\"\nwolframscript -authenticate\nwolframscript -api <uuid-or-url> key=value\nwolframscript -cloud <base> -file script.wl",
+      "example": "wolframscript -cloud -code \"$MachineName\"\nwolframscript -authenticate user@example.com\nwolframscript -api https://www.wolframcloud.com/obj/user/nthprime n=1000\nwolframscript -cloud -file report.wl",
+      "docs": "https://reference.wolfram.com/language/ref/program/wolframscript.html"
+    },
+    {
+      "name": "$ScriptCommandLine",
+      "kind": "system-variable",
+      "description": "The list of command-line arguments for a script, with the script's own name as the first element and the user arguments following. It is the Wolfram Language equivalent of argv and is populated when a file is run with wolframscript -script or -file. It is an empty list in an interactive session.",
+      "usage": "$ScriptCommandLine\nRest[$ScriptCommandLine]\nFirst[$ScriptCommandLine]",
+      "example": "args = Rest[$ScriptCommandLine];\nIf[Length[args] < 1, Print[\"usage: tool.wls <input>\"]; Exit[1]];\ninputFile = First[args];\nn = ToExpression[args[[2]]];\n$ScriptCommandLine",
+      "notes": "$CommandLine contains the raw kernel invocation including its own options, which is usually not what a script wants.",
+      "docs": "https://reference.wolfram.com/language/ref/$ScriptCommandLine.html"
+    },
+    {
+      "name": "$InputFileName",
+      "kind": "system-variable",
+      "description": "The full path of the file currently being read by Get or run as a script, and an empty string in an interactive session. DirectoryName[$InputFileName] is the headless equivalent of NotebookDirectory[], which is how a script locates data files next to itself. It is set while the file is being read, so capture it at the top level rather than inside a deferred definition.",
+      "usage": "$InputFileName\nDirectoryName[$InputFileName]\nFileNameJoin[{DirectoryName[$InputFileName], \"data.csv\"}]",
+      "example": "scriptDir = DirectoryName[$InputFileName];\ndata = Import[FileNameJoin[{scriptDir, \"input.csv\"}]];\nPrint[$InputFileName]",
+      "docs": "https://reference.wolfram.com/language/ref/$InputFileName.html"
+    },
+    {
+      "name": "Exit",
+      "kind": "function",
+      "description": "Terminates the Wolfram Language kernel, optionally with an integer exit code that the calling shell can test. Exit[0] signals success and any non-zero value signals failure, which is what makes a script usable in a CI pipeline or a Makefile. Quit is a synonym.",
+      "usage": "Exit[]\nExit[n]\nQuit[]",
+      "example": "If[!FileExistsQ[input], Print[\"missing input\"]; Exit[1]];\nExit[0]\nQuit[]\nIf[failed, Exit[2]]",
+      "notes": "Exit closes the kernel immediately, so flush or close any output streams first; buffered writes can otherwise be lost.",
+      "docs": "https://reference.wolfram.com/language/ref/Exit.html"
+    },
+    {
+      "name": "CloudConnect",
+      "kind": "function",
+      "description": "Authenticates the current session with the Wolfram Cloud, either interactively or with stored credentials, which is required before any cloud object can be created or read. CloudDisconnect ends the session and $CloudConnected reports the current state. For unattended scripts, credentials are usually stored once with wolframscript -authenticate.",
+      "usage": "CloudConnect[]\nCloudConnect[\"username\"]\nCloudConnect[\"user\", \"password\"]\nCloudDisconnect[]",
+      "example": "CloudConnect[]\n$CloudConnected\n$WolframID\nCloudConnect[\"user@example.com\"]\nCloudDisconnect[]",
+      "notes": "Never embed a plain-text password in a script; use stored credentials or an environment variable read with Environment.",
+      "docs": "https://reference.wolfram.com/language/ref/CloudConnect.html"
+    },
+    {
+      "name": "CloudDeploy",
+      "kind": "function",
+      "description": "Publishes an expression to the Wolfram Cloud and returns a CloudObject with a URL. What is deployed determines the behaviour: an APIFunction becomes a JSON/HTTP endpoint, a FormFunction becomes an interactive web form, a Delayed expression becomes a page recomputed on each request, and a plain expression becomes a stored object. Permissions -> \"Public\" makes it reachable without authentication.",
+      "usage": "CloudDeploy[expr]\nCloudDeploy[expr, \"name\"]\nCloudDeploy[expr, \"name\", Permissions -> \"Public\"]\nCloudDeploy[Delayed[expr], \"name\"]",
+      "parameters": [
+        {"name": "Permissions", "description": "\"Private\" (default), \"Public\", or a rule list granting specific users read/execute rights."},
+        {"name": "name", "description": "Path of the cloud object relative to the user's cloud home."}
+      ],
+      "example": "CloudDeploy[APIFunction[{\"n\" -> \"Integer\"}, Prime[#n] &, \"JSON\"], \"nthprime\", Permissions -> \"Public\"]\nCloudDeploy[Delayed[Plot[Sin[x], {x, 0, 2 Pi}], \"PNG\"], \"sineplot\", Permissions -> \"Public\"]\nCloudDeploy[Manipulate[Plot[Sin[a x], {x, 0, Pi}], {a, 1, 5}], \"demo\"]\nCloudDeploy[FormFunction[{\"x\" -> \"Number\"}, #x^2 &], \"square\"]",
+      "docs": "https://reference.wolfram.com/language/ref/CloudDeploy.html"
+    },
+    {
+      "name": "CloudObject",
+      "kind": "function",
+      "description": "Represents a file or deployed object in the Wolfram Cloud, identified by a URL or a path relative to the user's cloud home. Cloud objects work with Import, Export, Get, Put, DeleteObject and CopyFile just like local files. CloudObjects[] lists what exists and CloudObjectInformation gives metadata.",
+      "usage": "CloudObject[\"name\"]\nCloudObject[\"https://...\"]\nCloudObjects[]\nDeleteObject[obj]\nCloudObjectInformation[obj]",
+      "example": "obj = CloudObject[\"data/results.wl\"];\nCloudPut[results, obj];\nCloudGet[obj]\nCloudObjects[]\nCloudObjectInformation[obj, \"Permissions\"]\nDeleteObject[obj]",
+      "docs": "https://reference.wolfram.com/language/ref/CloudObject.html"
+    },
+    {
+      "name": "APIFunction",
+      "kind": "function",
+      "description": "Defines a web API: a set of named, typed parameters and a function computing the result, plus an optional output format such as \"JSON\". Parameter types are Interpreter specifications, so \"Integer\", \"Date\", \"City\" and Restricted forms all work and invalid input is rejected automatically with a helpful message. Deployed with CloudDeploy it becomes an HTTP endpoint callable from any language.",
+      "usage": "APIFunction[{\"p\" -> \"type\"}, f]\nAPIFunction[params, f, \"format\"]\nAPIFunction[{\"p\" -> {\"type\", default}}, f]\nCloudDeploy[api, \"name\", Permissions -> \"Public\"]",
+      "example": "api = APIFunction[{\"n\" -> \"Integer\"}, Prime[#n] &, \"JSON\"];\nurl = CloudDeploy[api, \"nthprime\", Permissions -> \"Public\"];\nURLExecute[url, {\"n\" -> 100}]\nAPIFunction[{\"city\" -> \"City\"}, #city[\"Population\"] &, \"JSON\"]\nAPIFunction[{\"x\" -> \"Number\", \"n\" -> {\"Integer\", 2}}, #x^#n &]",
+      "notes": "Test locally by applying the APIFunction to an association of parameters before deploying, which avoids a round trip for every fix.",
+      "docs": "https://reference.wolfram.com/language/ref/APIFunction.html"
+    },
+    {
+      "name": "FormFunction",
+      "kind": "function",
+      "description": "Defines an interactive web form with typed fields and a function that processes the submitted values. Deployed with CloudDeploy it produces a working web page with input validation, smart natural-language parsing of field values and a results page. AppearanceRules and field specifications control the layout and labels.",
+      "usage": "FormFunction[{\"f\" -> \"type\"}, f]\nFormFunction[fields, f, \"format\"]\nFormFunction[{{\"f\", \"label\"} -> \"type\"}, f]\nCloudDeploy[form, \"name\", Permissions -> \"Public\"]",
+      "example": "form = FormFunction[{\"x\" -> \"Number\", \"n\" -> \"Integer\"}, #x^#n &];\nCloudDeploy[form, \"power\", Permissions -> \"Public\"]\nFormFunction[{{\"city\", \"Your city\"} -> \"City\"}, GeoGraphics[#city] &]\nFormFunction[{\"file\" -> \"File\"}, Import[#file] &]",
+      "docs": "https://reference.wolfram.com/language/ref/FormFunction.html"
+    },
+    {
+      "name": "Delayed",
+      "kind": "function",
+      "description": "Wraps an expression so that, when deployed to the cloud, it is recomputed each time the object is requested rather than stored as a fixed value. Delayed[expr, \"format\"] fixes the output format, for example \"PNG\" for a plot or \"JSON\" for data. It is the simplest way to publish a live page without defining an API.",
+      "usage": "Delayed[expr]\nDelayed[expr, \"format\"]\nCloudDeploy[Delayed[expr], \"name\"]",
+      "example": "CloudDeploy[Delayed[DateString[]], \"clock\", Permissions -> \"Public\"]\nCloudDeploy[Delayed[Plot[Sin[x + Now[[1]]], {x, 0, 2 Pi}], \"PNG\"], \"liveplot\"]\nCloudDeploy[Delayed[ExportForm[latestData[], \"JSON\"]], \"feed\"]",
+      "docs": "https://reference.wolfram.com/language/ref/Delayed.html"
+    },
+    {
+      "name": "CloudPut",
+      "kind": "function",
+      "description": "Writes a Wolfram Language expression to a cloud object, the cloud analogue of Put. The object is stored in the user's cloud file space and can be read back with CloudGet from any machine. It returns the CloudObject that was written.",
+      "usage": "CloudPut[expr]\nCloudPut[expr, \"name\"]\nCloudPut[expr, obj]",
+      "example": "CloudPut[results, \"analysis/run1.wl\"]\nobj = CloudPut[{1, 2, 3}];\nCloudGet[obj]\nCloudPut[myFunc, \"lib/myFunc.wl\"]",
+      "docs": "https://reference.wolfram.com/language/ref/CloudPut.html"
+    },
+    {
+      "name": "CloudGet",
+      "kind": "function",
+      "description": "Reads and evaluates the contents of a cloud object, the cloud analogue of Get. It is used to retrieve stored data and to load shared package code from the cloud. Import works on cloud objects too when the content is a data format rather than Wolfram Language source.",
+      "usage": "CloudGet[\"name\"]\nCloudGet[obj]\nCloudImport[obj]",
+      "example": "CloudGet[\"analysis/run1.wl\"]\nCloudGet[CloudObject[\"https://www.wolframcloud.com/obj/user/data.wl\"]]\nCloudImport[\"data/table.csv\"]",
+      "docs": "https://reference.wolfram.com/language/ref/CloudGet.html"
+    },
+    {
+      "name": "CloudEvaluate",
+      "kind": "function",
+      "description": "Evaluates an expression in a cloud kernel rather than locally and returns the result, which lets a lightweight client offload work or access cloud-only resources. It holds its argument, so the expression is sent unevaluated. Combined with wolframscript -cloud it allows running Wolfram Language without a local installation.",
+      "usage": "CloudEvaluate[expr]\nCloudEvaluate[expr, form]",
+      "example": "CloudEvaluate[$MachineName]\nCloudEvaluate[Integrate[Sin[x]^3, x]]\nCloudEvaluate[Import[\"https://example.com/data.csv\"]]",
+      "docs": "https://reference.wolfram.com/language/ref/CloudEvaluate.html"
+    },
+    {
+      "name": "ExternalEvaluate",
+      "kind": "function",
+      "description": "Runs code in an external language interpreter and converts the result back into a Wolfram Language expression. Supported systems include \"Python\", \"NodeJS\", \"Shell\", \"Julia\", \"R\", \"Ruby\" and \"SQL\". The first argument names the system or an existing session, and Wolfram Language values can be injected into the code through <* *> templates.",
+      "usage": "ExternalEvaluate[\"system\", \"code\"]\nExternalEvaluate[session, \"code\"]\nExternalEvaluate[\"Python\" -> \"code\"]\nExternalEvaluate[sys, {\"line1\", \"line2\"}]",
+      "example": "ExternalEvaluate[\"Python\", \"2 ** 100\"]\nExternalEvaluate[\"Shell\", \"echo hello\"]\nExternalEvaluate[\"Python\", \"import numpy as np; np.linalg.det([[1,2],[3,4]])\"]\nn = 5; ExternalEvaluate[\"Python\", \"list(range(<* n *>))\"]\nExternalEvaluate[\"NodeJS\", \"Math.sqrt(2)\"]",
+      "notes": "The external interpreter must be registered; run FindExternalEvaluators[] to see what is available and RegisterExternalEvaluator to add one.",
+      "docs": "https://reference.wolfram.com/language/ref/ExternalEvaluate.html"
+    },
+    {
+      "name": "StartExternalSession",
+      "kind": "function",
+      "description": "Starts a persistent external language session so that state, imports and variables survive between evaluations. It returns an ExternalSessionObject to pass to ExternalEvaluate, and DeleteObject ends it. A persistent session is far faster than repeated one-shot calls because the interpreter is started only once.",
+      "usage": "StartExternalSession[\"system\"]\nStartExternalSession[<|\"System\" -> \"Python\", \"Executable\" -> path|>]\nExternalSessions[]\nDeleteObject[session]",
+      "example": "session = StartExternalSession[\"Python\"];\nExternalEvaluate[session, \"import numpy as np\"];\nExternalEvaluate[session, \"np.arange(5).tolist()\"]\nExternalSessions[]\nDeleteObject[session]",
+      "docs": "https://reference.wolfram.com/language/ref/StartExternalSession.html"
+    },
+    {
+      "name": "ExternalFunction",
+      "kind": "function",
+      "description": "Wraps a function defined in an external language as a Wolfram Language function that can be applied, mapped and composed like any other. Arguments are converted on the way in and results on the way out. It is the cleanest way to reuse an existing Python or JavaScript routine inside Wolfram Language code.",
+      "usage": "ExternalFunction[\"system\", \"code\"]\nExternalFunction[session, \"code\"]\nExternalFunction[\"Python\", \"def f(x): return x*2\", \"f\"]",
+      "example": "f = ExternalFunction[\"Python\", \"lambda x: x**2 + 1\"];\nf[5]\nf /@ Range[5]\ng = ExternalFunction[\"Python\", \"def norm(v):\\n    return sum(x*x for x in v) ** 0.5\", \"norm\"];\ng[{3, 4}]",
+      "docs": "https://reference.wolfram.com/language/ref/ExternalFunction.html"
+    },
+    {
+      "name": "RegisterExternalEvaluator",
+      "kind": "function",
+      "description": "Registers an external language interpreter at a specific path so ExternalEvaluate can use it, which is needed when the interpreter is not in a standard location or when several versions are installed. FindExternalEvaluators lists the registered and auto-detected ones with their versions and status. UnregisterExternalEvaluator removes an entry.",
+      "usage": "RegisterExternalEvaluator[\"system\", \"path\"]\nFindExternalEvaluators[]\nFindExternalEvaluators[\"Python\"]\nUnregisterExternalEvaluator[\"system\", path]",
+      "example": "RegisterExternalEvaluator[\"Python\", \"C:\\\\Python312\\\\python.exe\"]\nFindExternalEvaluators[\"Python\"]\nFindExternalEvaluators[]\nUnregisterExternalEvaluator[\"Python\", \"C:\\\\old\\\\python.exe\"]",
+      "notes": "The Python interpreter used by ExternalEvaluate must have the pyzmq and wolframclient packages available; registration installs them if needed.",
+      "docs": "https://reference.wolfram.com/language/ref/RegisterExternalEvaluator.html"
+    },
+    {
+      "name": "FindExternalEvaluators",
+      "kind": "function",
+      "description": "Lists the external language interpreters the system knows about, as a Dataset giving the system name, version, executable path and whether it is ready to use. It is the first diagnostic to run when ExternalEvaluate fails. A system name argument restricts the listing.",
+      "usage": "FindExternalEvaluators[]\nFindExternalEvaluators[\"system\"]",
+      "example": "FindExternalEvaluators[]\nFindExternalEvaluators[\"Python\"]\nFindExternalEvaluators[\"NodeJS\"]\nNormal[FindExternalEvaluators[\"Python\"]]",
+      "docs": "https://reference.wolfram.com/language/ref/FindExternalEvaluators.html"
+    },
+    {
+      "name": "URLRead",
+      "kind": "function",
+      "description": "Performs an HTTP request and returns a full HTTPResponse object with the status code, headers and body, giving complete control over the exchange. It accepts a URL string or an HTTPRequest object specifying method, headers, query parameters and body. An element specification such as \"Body\" or \"StatusCode\" extracts just one part.",
+      "usage": "URLRead[url]\nURLRead[HTTPRequest[url, assoc]]\nURLRead[req, \"Body\"]\nURLRead[req, {\"StatusCode\", \"Headers\"}]",
+      "example": "resp = URLRead[\"https://example.com\"];\nresp[\"StatusCode\"]\nresp[\"Body\"] // Short\nURLRead[HTTPRequest[\"https://api.example.com/items\", <|\"Method\" -> \"POST\", \"Body\" -> ExportString[data, \"JSON\"], \"Headers\" -> {\"Content-Type\" -> \"application/json\"}|>]]\nURLRead[\"https://example.com\", \"StatusCode\"]",
+      "notes": "URLRead replaces the deprecated URLFetch; it never raises on an HTTP error status, so always check \"StatusCode\" yourself.",
+      "docs": "https://reference.wolfram.com/language/ref/URLRead.html"
+    },
+    {
+      "name": "URLExecute",
+      "kind": "function",
+      "description": "Performs an HTTP request and interprets the response according to its content type, returning a Wolfram Language expression rather than a raw body. JSON becomes rules or associations, CSV becomes a table, and images become Image objects. It is the high-level convenience function for consuming web APIs, including deployed APIFunctions.",
+      "usage": "URLExecute[url]\nURLExecute[url, {\"param\" -> value}]\nURLExecute[url, params, \"format\"]\nURLExecute[cloudobj, params]",
+      "example": "URLExecute[\"https://api.example.com/data.json\"]\nURLExecute[\"https://api.example.com/search\", {\"q\" -> \"wolfram\", \"limit\" -> 10}]\napi = CloudDeploy[APIFunction[{\"n\" -> \"Integer\"}, Prime[#n] &, \"JSON\"], \"p\", Permissions -> \"Public\"];\nURLExecute[api, {\"n\" -> 100}]\nURLExecute[url, params, \"RawJSON\"]",
+      "docs": "https://reference.wolfram.com/language/ref/URLExecute.html"
+    },
+    {
+      "name": "URLSubmit",
+      "kind": "function",
+      "description": "Performs an HTTP request asynchronously, returning immediately with a TaskObject while handlers process the response when it arrives. Handler functions are given for events such as \"BodyReceived\", \"TaskFinished\" and \"ConnectionFailed\". It is the way to fetch many URLs concurrently or to keep a user interface responsive during a slow request.",
+      "usage": "URLSubmit[url]\nURLSubmit[url, HandlerFunctions -> <|\"BodyReceived\" -> f|>]\nURLSubmit[req, opts]\nTaskWait[task]",
+      "example": "task = URLSubmit[\"https://example.com\", HandlerFunctions -> <|\"BodyReceived\" -> (Print[StringLength[#Body]] &)|>];\nTaskWait[task]\ntasks = URLSubmit /@ urls;\nTaskWait[tasks]\nTaskRemove[task]",
+      "docs": "https://reference.wolfram.com/language/ref/URLSubmit.html"
+    },
+    {
+      "name": "URLDownload",
+      "kind": "function",
+      "description": "Downloads the contents of a URL directly to a local file, returning a File object, without holding the whole payload in memory. With no file name it writes to a temporary file named after the URL. URLDownloadSubmit is the asynchronous version for large or parallel downloads.",
+      "usage": "URLDownload[url]\nURLDownload[url, \"file\"]\nURLDownload[req, file, prop]\nURLDownloadSubmit[url, file]",
+      "example": "URLDownload[\"https://example.com/data.zip\", \"data.zip\"]\nfile = URLDownload[\"https://example.com/image.png\"];\nImport[file]\nURLDownload[url, FileNameJoin[{dir, \"out.csv\"}]]",
+      "docs": "https://reference.wolfram.com/language/ref/URLDownload.html"
+    },
+    {
+      "name": "HTTPRequest",
+      "kind": "function",
+      "description": "Represents an HTTP request as a symbolic object carrying the URL, method, headers, query parameters, body and cookies. It is passed to URLRead, URLExecute, URLSubmit or URLDownload to be performed. Building the request separately makes it easy to reuse headers and to inspect exactly what will be sent.",
+      "usage": "HTTPRequest[url]\nHTTPRequest[url, <|\"Method\" -> \"POST\", \"Body\" -> body|>]\nHTTPRequest[url, <|\"Headers\" -> {...}, \"Query\" -> {...}|>]",
+      "parameters": [
+        {"name": "Method", "description": "\"GET\", \"POST\", \"PUT\", \"DELETE\", \"PATCH\" and so on."},
+        {"name": "Headers", "description": "List of name -> value rules sent as request headers."},
+        {"name": "Query", "description": "Association or rule list appended as URL query parameters."},
+        {"name": "Body", "description": "Request body as a string, ByteArray or association for form encoding."}
+      ],
+      "example": "req = HTTPRequest[\"https://api.example.com/items\", <|\"Method\" -> \"POST\", \"Headers\" -> {\"Authorization\" -> \"Bearer \" <> token}, \"Body\" -> ExportString[<|\"name\" -> \"x\"|>, \"JSON\"]|>];\nURLRead[req]\nHTTPRequest[\"https://example.com\", <|\"Query\" -> {\"q\" -> \"test\"}|>]\nreq[\"URL\"]",
+      "notes": "Read secrets such as API tokens from Environment or SystemCredential rather than writing them into the request literally.",
+      "docs": "https://reference.wolfram.com/language/ref/HTTPRequest.html"
+    },
+    {
+      "name": "HTTPResponse",
+      "kind": "function",
+      "description": "Represents an HTTP response, carrying the status code, headers, cookies and body, and supporting property access such as resp[\"Body\"] or resp[\"StatusCode\"]. URLRead returns one, and constructing one is how a deployed Wolfram Language API returns custom status codes and headers. The \"BodyByteArray\" property gives the raw bytes for binary content.",
+      "usage": "resp[\"StatusCode\"]\nresp[\"Body\"]\nresp[\"Headers\"]\nHTTPResponse[body, <|\"StatusCode\" -> 404|>]",
+      "example": "resp = URLRead[\"https://example.com\"];\nresp[\"StatusCode\"]\nresp[\"Headers\"]\nImportString[resp[\"Body\"], \"RawJSON\"]\nCloudDeploy[APIFunction[{}, HTTPResponse[\"not found\", <|\"StatusCode\" -> 404|>] &], \"nf\"]",
+      "docs": "https://reference.wolfram.com/language/ref/HTTPResponse.html"
+    },
+    {
+      "name": "URLBuild",
+      "kind": "function",
+      "description": "Assembles a URL from its components and a query parameter association, handling percent-encoding correctly. URLParse performs the inverse, splitting a URL into scheme, domain, path, query and fragment. Use them instead of string concatenation, which breaks on spaces and special characters.",
+      "usage": "URLBuild[{\"base\", \"path\"}]\nURLBuild[base, query]\nURLParse[url]\nURLEncode[s]\nURLDecode[s]",
+      "example": "URLBuild[\"https://example.com/search\", {\"q\" -> \"a b\", \"n\" -> 10}]\nURLBuild[{\"https://example.com\", \"api\", \"v1\", \"items\"}]\nURLParse[\"https://example.com/a/b?x=1\"]\nURLEncode[\"a b&c\"]",
+      "docs": "https://reference.wolfram.com/language/ref/URLBuild.html"
+    },
+    {
+      "name": "ServiceConnect",
+      "kind": "function",
+      "description": "Creates an authenticated connection to an external web service such as a mail provider, a data source or a social platform, handling OAuth and API key exchange. The returned ServiceObject is passed to ServiceExecute to make requests. ServiceConnections lists existing connections and stored credentials are reused on later sessions.",
+      "usage": "ServiceConnect[\"service\"]\nServiceConnect[\"service\", \"New\"]\nServiceConnect[\"service\", <|\"APIKey\" -> key|>]\nServiceConnections[]\nServiceDisconnect[obj]",
+      "example": "obj = ServiceConnect[\"OpenAI\", <|\"APIKey\" -> Environment[\"OPENAI_API_KEY\"]|>];\nServiceConnections[]\nServiceObject[\"MailServer\"]\nServiceDisconnect[obj]",
+      "notes": "Available services depend on the installed service connection paclets; $Services and ServiceConnect[] with no argument list what can be connected to.",
+      "docs": "https://reference.wolfram.com/language/ref/ServiceConnect.html"
+    },
+    {
+      "name": "ServiceExecute",
+      "kind": "function",
+      "description": "Sends a named request to a connected external service and returns the result as a Wolfram Language expression. The available request names and their parameters are documented per service and listed by the service object's \"Requests\" property. It abstracts away the HTTP details, authentication and response parsing.",
+      "usage": "ServiceExecute[obj, \"request\"]\nServiceExecute[obj, \"request\", {\"param\" -> value}]\nobj[\"Requests\"]\nobj[\"RequestParameters\", \"request\"]",
+      "example": "obj = ServiceConnect[\"OpenAI\"];\nobj[\"Requests\"]\nServiceExecute[obj, \"Chat\", {\"Messages\" -> {<|\"Role\" -> \"user\", \"Content\" -> \"hello\"|>}}]\nServiceExecute[mail, \"SendMessage\", {\"To\" -> addr, \"Subject\" -> s, \"Body\" -> b}]",
+      "docs": "https://reference.wolfram.com/language/ref/ServiceExecute.html"
+    },
+    {
+      "name": "LibraryFunctionLoad",
+      "kind": "function",
+      "description": "Loads a function from a native shared library built against the Wolfram LibraryLink API, making it callable as an ordinary Wolfram Language function with almost no call overhead. Argument and return types are declared explicitly, including Real, Integer, Complex, {Real, 1} for arrays and \"UTF8String\". It is the fastest way to integrate C or C++ code and is what FunctionCompileExportLibrary output is loaded with.",
+      "usage": "LibraryFunctionLoad[\"lib\", \"fname\", {argtypes}, rettype]\nLibraryFunctionUnload[f]\nLibraryUnload[\"lib\"]\nFindLibrary[\"name\"]",
+      "parameters": [
+        {"name": "argtypes", "description": "List of types such as Integer, Real, Complex, {Real, 1}, {Integer, 2, \"Shared\"}, \"UTF8String\", \"Boolean\"."},
+        {"name": "rettype", "description": "Return type in the same type language."}
+      ],
+      "example": "f = LibraryFunctionLoad[\"demo_lib\", \"demo_I_I\", {Integer}, Integer];\nf[5]\ng = LibraryFunctionLoad[lib, \"vector_sum\", {{Real, 1}}, Real];\ng[RandomReal[1, 1000]]\nLibraryFunctionUnload[f]\nFindLibrary[\"demo_lib\"]",
+      "notes": "The library must be on $LibraryPath or given by absolute path, and must be compiled for the same architecture as the kernel. CreateLibrary in the CCompilerDriver package builds one from C source.",
+      "docs": "https://reference.wolfram.com/language/ref/LibraryFunctionLoad.html"
+    },
+    {
+      "name": "SQLExecute",
+      "kind": "function",
+      "description": "Executes an SQL statement on a connection opened with OpenSQLConnection from the DatabaseLink package, returning query results as a list of rows. SQLSelect, SQLInsert, SQLUpdate and SQLDelete provide symbolic alternatives to raw SQL strings. Parameters passed as a second argument are bound safely, which avoids SQL injection.",
+      "usage": "Needs[\"DatabaseLink`\"]\nconn = OpenSQLConnection[JDBC[\"driver\", \"url\"], \"Username\" -> u, \"Password\" -> p]\nSQLExecute[conn, \"sql\"]\nSQLExecute[conn, \"sql with ?\", {param}]\nCloseSQLConnection[conn]",
+      "example": "Needs[\"DatabaseLink`\"];\nconn = OpenSQLConnection[JDBC[\"SQLite\", \"data.sqlite\"]];\nSQLExecute[conn, \"SELECT name, value FROM readings WHERE value > ?\", {10}]\nSQLSelect[conn, \"readings\", {\"name\", \"value\"}]\nSQLTables[conn]\nCloseSQLConnection[conn]",
+      "notes": "DatabaseLink requires a JDBC driver for the target database; the modern RelationalDatabase framework is usually preferable for read-only analytical queries.",
+      "docs": "https://reference.wolfram.com/language/ref/SQLExecute.html"
+    },
+    {
+      "name": "RelationalDatabase",
+      "kind": "function",
+      "description": "Represents the schema of an external SQL database so that its tables can be queried with ordinary Wolfram Language operations instead of SQL strings. Combined with EntityStore the tables become entity types whose properties are queried with EntityValue and Dataset operations, and the query is compiled to SQL and executed on the server. DatabaseReference specifies the connection details.",
+      "usage": "RelationalDatabase[DatabaseReference[...]]\nRelationalDatabase[\"file.sqlite\"]\nstore = EntityStore[db]\nEntityRegister[store]\ndb[\"Tables\"]",
+      "example": "db = RelationalDatabase[\"data.sqlite\"];\ndb[\"Tables\"]\nstore = EntityStore[db];\nEntityRegister[store];\nEntityValue[\"readings\", \"EntityCount\"]\nEntityClass[\"readings\", \"value\" -> GreaterThan[10]] // EntityList",
+      "notes": "Queries are pushed down to the database engine where possible, so filtering with EntityClass is far more efficient than importing the whole table first.",
+      "docs": "https://reference.wolfram.com/language/ref/RelationalDatabase.html"
+    },
+    {
+      "name": "PacletInstall",
+      "kind": "function",
+      "description": "Installs a paclet, the standard packaging unit for Wolfram Language libraries, either by name from the Wolfram Paclet Repository or from a local .paclet file. PacletFind lists installed paclets, PacletSymbol and Needs load their functionality, and PacletUninstall removes them. It is how third-party and Wolfram-published extensions are managed.",
+      "usage": "PacletInstall[\"name\"]\nPacletInstall[\"file.paclet\"]\nPacletFind[\"name\"]\nPacletUninstall[\"name\"]\nPacletSymbol[\"Paclet`\", \"Symbol\"]",
+      "example": "PacletInstall[\"MyOrg/MyPaclet\"]\nPacletFind[\"GeneralUtilities\"]\nPacletInstall[\"C:\\\\build\\\\MyPaclet-1.0.paclet\"]\nPacletUninstall[\"MyOrg/MyPaclet\"]\nPacletSites[]",
+      "notes": "ResourceFunction[\"name\"] is the lighter-weight alternative for a single function from the Wolfram Function Repository, with no installation step.",
+      "docs": "https://reference.wolfram.com/language/ref/PacletInstall.html"
+    }
+  ]
+}

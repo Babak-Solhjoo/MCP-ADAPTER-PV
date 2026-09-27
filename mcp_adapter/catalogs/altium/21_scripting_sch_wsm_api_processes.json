@@ -1,0 +1,487 @@
+{
+  "category": "Scripting: Schematic API, Workspace Manager API and confirmed process commands",
+  "description": "Member-level reference for the schematic scripting API (SchServer, ISch_Document sheet properties, object registration, schematic object interfaces and constants), the Workspace Manager API (IProject, IDocument, INet, IComponent members) and the server process identifiers (Server:Command strings) that are documented for use with RunProcess / Client.SendMessage.",
+  "tools": [
+    {
+      "name": "SchServer.ProcessControl.PreProcess / PostProcess",
+      "kind": "api",
+      "description": "Schematic counterpart of the PCB PreProcess/PostProcess pair: SchServer.ProcessControl.PreProcess(Doc, '') opens a modification session on the document and PostProcess(Doc, '') closes it, grouping all object creations/edits into one undo step and letting the compiler/robots update. Required around RegisterSchObjectInContainer and property edits.",
+      "usage": "SchServer.ProcessControl.PreProcess(SchDoc, '');  ... edits ...  SchServer.ProcessControl.PostProcess(SchDoc, '');",
+      "parameters": [
+        {
+          "name": "Doc",
+          "description": "ISch_Document being modified."
+        }
+      ],
+      "example": "SchServer.ProcessControl.PreProcess(SchDoc, '');\nTry\n  NetLabel := SchServer.SchObjectFactory(eNetLabel, eCreate_Default);\n  NetLabel.Text := 'CLK';\n  NetLabel.Location := Point(MilsToCoord(1000), MilsToCoord(2000));\n  SchDoc.RegisterSchObjectInContainer(NetLabel);\nFinally\n  SchServer.ProcessControl.PostProcess(SchDoc, '');\nEnd;\nSchDoc.GraphicallyInvalidate;",
+      "notes": "Object edits should also be wrapped in SchServer.RobotManager.SendMessage(Obj.I_ObjectAddress, c_BroadCast, SCHM_BeginModify/SCHM_EndModify, c_NoEventData).",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/schematic-api-system-interfaces-reference"
+    },
+    {
+      "name": "SchServer.RobotManager.SendMessage (SCHM_BeginModify / SCHM_EndModify / SCHM_PrimitiveRegistration)",
+      "kind": "api",
+      "description": "Broadcasts schematic editor messages so that undo, the compiler and panels see programmatic changes: SCHM_BeginModify before and SCHM_EndModify after changing an existing object's properties; SCHM_PrimitiveRegistration is sent automatically by RegisterSchObjectInContainer. Destination is c_BroadCast and data c_NoEventData.",
+      "usage": "SchServer.RobotManager.SendMessage(Obj.I_ObjectAddress, c_BroadCast, SCHM_BeginModify, c_NoEventData); ... SchServer.RobotManager.SendMessage(Obj.I_ObjectAddress, c_BroadCast, SCHM_EndModify, c_NoEventData);",
+      "parameters": [],
+      "example": "SchServer.RobotManager.SendMessage(Cmp.I_ObjectAddress, c_BroadCast, SCHM_BeginModify, c_NoEventData);\nCmp.Comment.Text := '4.7k';\nSchServer.RobotManager.SendMessage(Cmp.I_ObjectAddress, c_BroadCast, SCHM_EndModify, c_NoEventData);",
+      "notes": "Without EndModify the object may not be redrawn or marked as changed.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/schematic-api-system-interfaces-reference"
+    },
+    {
+      "name": "SchServer.GetSchDocumentByPath / LoadSchDocumentByPath / GetCurrentSchDocument",
+      "kind": "api",
+      "description": "Document accessors: GetCurrentSchDocument returns the active sheet; GetSchDocumentByPath(Path) returns the ISch_Document of an already-open sheet by full path (Nil otherwise); LoadSchDocumentByPath(Path) opens the file (without necessarily showing it) and returns its ISch_Document, useful for project-wide scripts that walk IProject.DM_LogicalDocuments.",
+      "usage": "SchDoc := SchServer.GetCurrentSchDocument;  SchDoc := SchServer.GetSchDocumentByPath(Path);  SchDoc := SchServer.LoadSchDocumentByPath(Path);",
+      "parameters": [
+        {
+          "name": "Path",
+          "description": "Full path of the .SchDoc/.SchLib."
+        }
+      ],
+      "example": "Prj := GetWorkspace.DM_FocusedProject;\nFor i := 0 To Prj.DM_LogicalDocumentCount - 1 Do Begin\n  Doc := Prj.DM_LogicalDocuments(i);\n  If Doc.DM_DocumentKind = 'SCH' Then Begin\n    SchDoc := SchServer.GetSchDocumentByPath(Doc.DM_FullPath);\n    If SchDoc = Nil Then SchDoc := SchServer.LoadSchDocumentByPath(Doc.DM_FullPath);\n    ... process SchDoc ...\n  End;\nEnd;",
+      "notes": "Documents loaded but not shown still need saving through WorkspaceManager:SaveObject with ObjectKind=Document and the file path.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/schematic-api-system-interfaces-reference"
+    },
+    {
+      "name": "ISch_Document.RegisterSchObjectInContainer / UnRegisterSchObjectFromContainer",
+      "kind": "api",
+      "description": "Adds an object created by SchServer.SchObjectFactory to the sheet (or to a container such as a component for pins/parameters) and sends the registration message; UnRegisterSchObjectFromContainer removes it. Objects must have their Location and key properties set before registration for correct connectivity.",
+      "usage": "SchDoc.RegisterSchObjectInContainer(AObject : ISch_BasicContainer);  SchDoc.UnRegisterSchObjectFromContainer(AObject);",
+      "parameters": [
+        {
+          "name": "AObject",
+          "description": "Any ISch_BasicContainer descendant (wire, net label, port, component, parameter...)."
+        }
+      ],
+      "example": "Port := SchServer.SchObjectFactory(ePort, eCreate_Default);\nPort.Name := 'VOUT';\nPort.IOType := ePortIOOutput;\nPort.Style := ePortRight;\nPort.Location := Point(MilsToCoord(3000), MilsToCoord(1500));\nSchDoc.RegisterSchObjectInContainer(Port);",
+      "notes": "For component children use Cmp.AddSchObject(Param) / Cmp.RemoveSchObject instead.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/isch-document-interface"
+    },
+    {
+      "name": "ISch_Document.PlaceSchComponent",
+      "kind": "api",
+      "description": "Places a component from a library onto the sheet in one call: PlaceSchComponent(LibraryPath, LibRef, SchObject) loads the symbol named LibRef from the given .SchLib/.IntLib and returns the placed ISch_Component handle, which can then be positioned and annotated. Simpler than building components manually with the object factory.",
+      "usage": "SchDoc.PlaceSchComponent(ALibraryPath : WideString; ALibRef : WideString; Var SchObject : TSchObjectHandle)",
+      "parameters": [
+        {
+          "name": "ALibraryPath",
+          "description": "Full path of the library file."
+        },
+        {
+          "name": "ALibRef",
+          "description": "Component name inside the library."
+        }
+      ],
+      "example": "SchDoc.PlaceSchComponent('C:\\Libs\\Passives.SchLib', 'RES', Handle);\nCmp := SchServer.GetCurrentSchDocument.CurrentSchComponent;  // or cast Handle\nCmp.Designator.Text := 'R1';\nCmp.Location := Point(MilsToCoord(2000), MilsToCoord(2000));",
+      "notes": "The process alternative is Sch:PlacePart with Library/LibReference parameters.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/isch-document-interface"
+    },
+    {
+      "name": "ISch_Document.ChooseLocationInteractively / ChooseRectangleInteractively",
+      "kind": "api",
+      "description": "Interactive input for schematic scripts: ChooseLocationInteractively(Location, Prompt) waits for a click and returns a TLocation (False if cancelled); ChooseRectangleInteractively(Rect, Prompt1, Prompt2) collects two corners. Used to let the user pick where generated objects go or which area to process.",
+      "usage": "If SchDoc.ChooseLocationInteractively(Loc, 'Click placement point') Then ...;",
+      "parameters": [
+        {
+          "name": "Prompt",
+          "description": "Status bar text."
+        }
+      ],
+      "example": "If Not SchDoc.ChooseLocationInteractively(Loc, 'Pick the top-left of the resistor ladder') Then Exit;\nFor i := 0 To 7 Do Begin\n  SchDoc.PlaceSchComponent(LibPath, 'RES', H);\n  R := SchServer.GetCurrentSchDocument.CurrentSchComponent;\n  R.Location := Point(Loc.X, Loc.Y - i * MilsToCoord(400));\nEnd;",
+      "notes": "Schematic coordinates are TCoord in DXP units (MilsToCoord works; 100 mil grid = MilsToCoord(100)).",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/isch-document-interface"
+    },
+    {
+      "name": "ISch_Document sheet properties (SheetStyle, SheetSizeX/Y, SnapGridSize, VisibleGridSize, TitleBlockOn, TemplateFileName, DocumentName)",
+      "kind": "api",
+      "description": "Document-level properties readable/writable via GetState_/SetState_ pairs or the properties: DocumentName (read-only path), SheetStyle (eSheetA4, eSheetA3, eSheetLetter, ... , custom via UseCustomSheet/CustomX/CustomY), SheetSizeX/SheetSizeY, WorkspaceOrientation (eLandscape/ePortrait), SnapGridOn/SnapGridSize, VisibleGridOn/VisibleGridSize, HotSpotGridOn/HotSpotGridSize, BorderOn, TitleBlockOn, ReferenceZonesOn, SheetZonesX/Y, TemplateFileName, ShowTemplateGraphics, SystemFont, DisplayUnit/UnitSystem, and UpdateDocumentProperties to apply changes.",
+      "usage": "SchDoc.SheetStyle := eSheetA3; SchDoc.SnapGridSize := MilsToCoord(100); SchDoc.TitleBlockOn := True; SchDoc.UpdateDocumentProperties; SchDoc.GraphicallyInvalidate;",
+      "parameters": [],
+      "example": "SchServer.ProcessControl.PreProcess(SchDoc, '');\nSchDoc.SheetStyle := eSheetA3;\nSchDoc.WorkspaceOrientation := eLandscape;\nSchDoc.VisibleGridSize := MilsToCoord(100);\nSchDoc.UpdateDocumentProperties;\nSchServer.ProcessControl.PostProcess(SchDoc, '');\nSchDoc.GraphicallyInvalidate;",
+      "notes": "Applying a template file is done through TemplateFileName plus the Sch:DocumentOptions/Templates processes; document parameters live in the document's parameter objects.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/isch-document-interface"
+    },
+    {
+      "name": "ISch_Document.LockViewUpdate / UnLockViewUpdate / GraphicallyInvalidate",
+      "kind": "api",
+      "description": "Performance and refresh controls: LockViewUpdate suspends redraws and panel updates while a script makes many changes (especially when building library components), UnLockViewUpdate restores them, and GraphicallyInvalidate forces a full repaint of the sheet after modifications.",
+      "usage": "SchDoc.LockViewUpdate; ... SchDoc.UnLockViewUpdate; SchDoc.GraphicallyInvalidate;",
+      "parameters": [],
+      "example": "SchDoc.LockViewUpdate;\nTry\n  For i := 0 To 199 Do PlaceNetLabel(i);\nFinally\n  SchDoc.UnLockViewUpdate;\n  SchDoc.GraphicallyInvalidate;\nEnd;",
+      "notes": "Always unlock in a Finally block; a locked document stays blank until unlocked.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/isch-document-interface"
+    },
+    {
+      "name": "Schematic object id constants (eSchComponent, ePin, eWire, eBus, eBusEntry, eNetLabel, ePort, ePowerObject, eParameter, eDesignator, eSheetSymbol, eSheetEntry, eJunction, eLine, eRectangle, eLabel, eTextFrame, eNote, eNoERC, eParameterSet, eHarnessConnector, eHarnessEntry, eSignalHarness)",
+      "kind": "api",
+      "description": "TObjectId values for the schematic domain used by SchServer.SchObjectFactory and ISch_Iterator.AddFilter_ObjectSet: eSchComponent, ePin, eWire, eBus, eBusEntry, eNetLabel, ePort, ePowerObject, eParameter, eDesignator, eSheetSymbol, eSheetEntry, eSheetName, eSheetFileName, eJunction, eLine, ePolyline, ePolygon, eArc, eEllipticalArc, eEllipse, eRectangle, eRoundRectangle, eBezier, eLabel, eTextFrame, eNote, eImage, eSymbol (IEEE), eNoERC, eParameterSet, eCompileMask, eBlanket, eProbe, eHarnessConnector, eHarnessEntry, eSignalHarness, eOffSheetConnector, eTemplate, eDocument.",
+      "usage": "Obj := SchServer.SchObjectFactory(eWire, eCreate_Default);  Iterator.AddFilter_ObjectSet(MkSet(eSchComponent, eNetLabel));",
+      "parameters": [],
+      "example": "Iter := SchDoc.SchIterator_Create;\nIter.AddFilter_ObjectSet(MkSet(ePort, eNetLabel, ePowerObject));\nObj := Iter.FirstSchObject;\nWhile Obj <> Nil Do Begin\n  Case Obj.ObjectId Of\n    ePort        : Report.Add('Port ' + Obj.Name);\n    eNetLabel    : Report.Add('Label ' + Obj.Text);\n    ePowerObject : Report.Add('Power ' + Obj.Text);\n  End;\n  Obj := Iter.NextSchObject;\nEnd;\nSchDoc.SchIterator_Destroy(Iter);",
+      "notes": "Child objects (pins, parameters) of components are reached with Cmp.SchIterator_Create, not the document iterator.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/schematic-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "ISch_NetLabel / ISch_Port / ISch_PowerObject",
+      "kind": "api",
+      "description": "Net identifier objects: ISch_NetLabel has Text, Location, Orientation (eRotate0/90/180/270), FontId, Color; ISch_Port has Name, IOType (ePortIOUnspecified, ePortIOOutput, ePortIOInput, ePortIOBidirectional), Style (ePortLeft, ePortRight, ePortLeftRight, ePortNone), Width, Alignment, Location, AreaColor/TextColor; ISch_PowerObject has Text (net name), Style (ePowerObjectStyle_Bar, _Circle, _Arrow, _Wave, _PowerGround, _SignalGround, _Earth, _GostArrow...), Orientation, Location, ShowNetName.",
+      "usage": "NL.Text := 'SDA';  Port.IOType := ePortIOBidirectional; Port.Style := ePortLeftRight;  PO.Text := 'GND'; PO.Style := ePowerObjectStyle_PowerGround;",
+      "parameters": [],
+      "example": "PO := SchServer.SchObjectFactory(ePowerObject, eCreate_Default);\nPO.Text := 'GND';\nPO.Style := ePowerObjectStyle_PowerGround;\nPO.Orientation := eRotate270;\nPO.Location := Point(MilsToCoord(1500), MilsToCoord(900));\nSchDoc.RegisterSchObjectInContainer(PO);",
+      "notes": "Net labels must touch a wire hotspot (grid-aligned Location) to take effect.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/schematic-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "ISch_SheetSymbol / ISch_SheetEntry",
+      "kind": "api",
+      "description": "Hierarchy objects: ISch_SheetSymbol has SheetName and FileName child objects (SheetName.Text, FileName.Text), Location, XSize/YSize, AreaColor, and contains ISch_SheetEntry children (iterate with SheetSymbol.SchIterator_Create filtered on eSheetEntry). ISch_SheetEntry has Name, IOType, Side (eLeftSide/eRightSide/eTopSide/eBottomSide), DistanceFromTop, ArrowKind, HarnessType, Style.",
+      "usage": "SS := SchServer.SchObjectFactory(eSheetSymbol, eCreate_Default); SS.SheetName.Text := 'PSU'; SS.FileName.Text := 'PSU.SchDoc'; SS.XSize := MilsToCoord(1000); SS.YSize := MilsToCoord(600); SchDoc.RegisterSchObjectInContainer(SS);",
+      "parameters": [],
+      "example": "SE := SchServer.SchObjectFactory(eSheetEntry, eCreate_Default);\nSE.Name := 'VIN';\nSE.IOType := ePortIOInput;\nSE.Side := eLeftSide;\nSE.DistanceFromTop := 1;   // grid units from the top edge\nSS.AddSchObject(SE);",
+      "notes": "After adding entries run Design > Synchronize Sheet Entries and Ports (or the Sch:SynchronizeSheetEntries process where available) to create matching ports.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/schematic-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "ISch_Designator and component parameter access (Cmp.Designator, Cmp.Comment, Cmp.GetState_SchPins, parameter iteration)",
+      "kind": "api",
+      "description": "ISch_Component exposes Designator and Comment as ISch_Designator/ISch_Parameter objects with Text, IsHidden, Location, Autoposition; other parameters are found by iterating the component with AddFilter_ObjectSet(MkSet(eParameter)) and reading Name/Text; pins via a child iterator on ePin (or GetState_SchPins). LibReference, LibraryPath/SourceLibraryName, CurrentPartID, PartCount, IsMirrored, Orientation, Location and ComponentKind complete the picture.",
+      "usage": "Cmp.Designator.Text := 'U3'; Cmp.Comment.Text := 'LM358'; PI := Cmp.SchIterator_Create; PI.AddFilter_ObjectSet(MkSet(eParameter)); P := PI.FirstSchObject; ... Cmp.SchIterator_Destroy(PI);",
+      "parameters": [],
+      "example": "PI := Cmp.SchIterator_Create;\nPI.AddFilter_ObjectSet(MkSet(eParameter));\nP := PI.FirstSchObject;\nWhile P <> Nil Do Begin\n  If P.Name = 'Manufacturer' Then P.Text := 'Texas Instruments';\n  P := PI.NextSchObject;\nEnd;\nCmp.SchIterator_Destroy(PI);",
+      "notes": "Adding a new parameter: P := SchServer.SchObjectFactory(eParameter, eCreate_Default); P.Name := ...; P.Text := ...; Cmp.AddSchObject(P).",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/schematic-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "ISch_Lib (schematic library document API)",
+      "kind": "api",
+      "description": "Library-document interface (descendant of ISch_Document) for .SchLib scripts: CurrentSchComponent (focused symbol), SchLibIterator_Create/Destroy to walk all ISch_Component symbols, AddSchComponent/RemoveSchComponent, GetState_SchComponentCount, plus the normal factory/registration protocol to add pins, graphics and parameters to a symbol. Used for batch symbol generation and library audits.",
+      "usage": "Lib := SchServer.GetCurrentSchDocument;  // when a .SchLib is active\nLI := Lib.SchLibIterator_Create; LI.AddFilter_ObjectSet(MkSet(eSchComponent)); Sym := LI.FirstSchObject; ... Lib.SchIterator_Destroy(LI);",
+      "parameters": [],
+      "example": "Sym := SchServer.SchObjectFactory(eSchComponent, eCreate_Default);\nSym.LibReference := 'TP';\nSym.Designator.Text := 'TP?';\nPin := SchServer.SchObjectFactory(ePin, eCreate_Default);\nPin.Designator := '1'; Pin.Name := 'TP'; Pin.Electrical := eElectricPassive; Pin.PinLength := MilsToCoord(200);\nSym.AddSchObject(Pin);\nLib.AddSchComponent(Sym);\nLib.GraphicallyInvalidate;",
+      "notes": "Check ObjectId or the document kind (DM_DocumentKind = 'SCHLIB') before casting to ISch_Lib.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/isch-lib-interface"
+    },
+    {
+      "name": "IProject.DM_Compile / DM_CompileEx / DM_NeedsCompile",
+      "kind": "api",
+      "description": "Compiles (validates) the project from a script so that nets, components and hierarchy are available through the Workspace Manager API: DM_Compile returns True on success; DM_CompileEx(All, Cancelled) forces full compilation; DM_NeedsCompile reports whether documents changed since the last compile. Violations are then listed via DM_ViolationCount / DM_Violations(i).",
+      "usage": "If Prj.DM_Compile Then ...;  Prj.DM_CompileEx(True, Cancelled);  If Prj.DM_NeedsCompile Then Prj.DM_Compile;",
+      "parameters": [],
+      "example": "Prj := GetWorkspace.DM_FocusedProject;\nIf Not Prj.DM_Compile Then Begin ShowError('Compile failed'); Exit; End;\nFor i := 0 To Prj.DM_ViolationCount - 1 Do\n  Report.Add(Prj.DM_Violations(i).DM_ErrorKindString + ': ' + Prj.DM_Violations(i).DM_LongDescriptorString);",
+      "notes": "Equivalent GUI action: Project > Validate PCB Project.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/iproject-interface"
+    },
+    {
+      "name": "IProject.DM_ProjectFileName / DM_ProjectFullPath / DM_GetOutputPath / DM_SetOutputPath",
+      "kind": "api",
+      "description": "Project identity and output location: DM_ProjectFileName (name only), DM_ProjectFullPath (full path of the .PrjPcb), DM_GetOutputPath (the configured Project Outputs folder), DM_SetOutputPath and DM_InitializeOutputPath(OutputType) to create/return the folder for a given output type; also DM_ProjectTemplateLocation and DM_UserID.",
+      "usage": "Path := Prj.DM_ProjectFullPath;  Out := Prj.DM_GetOutputPath;",
+      "parameters": [],
+      "example": "OutDir := Prj.DM_GetOutputPath;\nIf OutDir = '' Then OutDir := ExtractFilePath(Prj.DM_ProjectFullPath) + 'Project Outputs for ' + ChangeFileExt(Prj.DM_ProjectFileName, '');\nForceDirectories(OutDir);",
+      "notes": "Output path options are in Project Options > Options.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/iproject-interface"
+    },
+    {
+      "name": "IProject.DM_LogicalDocuments / DM_PhysicalDocuments / DM_GeneratedDocuments",
+      "kind": "api",
+      "description": "Document enumeration: DM_LogicalDocumentCount/DM_LogicalDocuments(i) return the source documents as listed in the project (each sheet once); DM_PhysicalDocumentCount/DM_PhysicalDocuments(i) return the compiled physical instances (one per channel of a multi-channel sheet); DM_GeneratedDocumentCount/DM_GeneratedDocuments(i) return generated outputs; DM_TopLevelLogicalDocument / DM_TopLevelPhysicalDocument and DM_PrimaryImplementationDocument (the PCB) locate key documents.",
+      "usage": "For i := 0 To Prj.DM_LogicalDocumentCount - 1 Do Doc := Prj.DM_LogicalDocuments(i);",
+      "parameters": [],
+      "example": "Pcb := Prj.DM_PrimaryImplementationDocument;\nIf Pcb <> Nil Then ShowMessage('PCB: ' + Pcb.DM_FullPath);\nFor i := 0 To Prj.DM_PhysicalDocumentCount - 1 Do\n  Report.Add(Prj.DM_PhysicalDocuments(i).DM_FullPath + ' room=' + Prj.DM_PhysicalDocuments(i).DM_PhysicalRoomName);",
+      "notes": "Physical documents exist only after a successful DM_Compile.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/iproject-interface"
+    },
+    {
+      "name": "IProject.DM_AddSourceDocument / DM_RemoveSourceDocument / DM_IndexOfSourceDocument / DM_MoveSourceDocument",
+      "kind": "api",
+      "description": "Project membership editing: DM_AddSourceDocument(Filename) adds a document to the project (as Add Existing to Project does), DM_RemoveSourceDocument(Filename) removes it, DM_IndexOfSourceDocument returns its position, DM_MoveSourceDocument(Filename, NewIndex) reorders (affects sheet numbering order), DM_AddGeneratedDocument registers an output file. Save the project afterwards with WorkspaceManager:SaveObject ObjectKind=Project.",
+      "usage": "Prj.DM_AddSourceDocument('D:\\work\\Extra.SchDoc');  Prj.DM_RemoveSourceDocument(Path);  Prj.DM_MoveSourceDocument(Path, 0);",
+      "parameters": [],
+      "example": "Prj.DM_AddSourceDocument(ExtractFilePath(Prj.DM_ProjectFullPath) + 'Board.OutJob');\nResetParameters;\nAddStringParameter('ObjectKind', 'Project');\nRunProcess('WorkspaceManager:SaveObject');",
+      "notes": "Paths may be relative to the project folder.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/iproject-interface"
+    },
+    {
+      "name": "IProject.DM_ProjectVariants / DM_CurrentProjectVariant (IProjectVariant)",
+      "kind": "api",
+      "description": "Variant access: DM_ProjectVariantCount and DM_ProjectVariants(i) return IProjectVariant objects (DM_Description, DM_VariationCount/DM_Variations(i) with per-component fitted state and alternate part/parameter variations), DM_CurrentProjectVariant is the active variant; DM_RemoveProjectVariant deletes one. Used to generate variant-aware reports from scripts.",
+      "usage": "For v := 0 To Prj.DM_ProjectVariantCount - 1 Do Variant := Prj.DM_ProjectVariants(v);",
+      "parameters": [],
+      "example": "For v := 0 To Prj.DM_ProjectVariantCount - 1 Do Begin\n  Variant := Prj.DM_ProjectVariants(v);\n  Report.Add(Variant.DM_Description + ': ' + IntToStr(Variant.DM_VariationCount) + ' variations');\nEnd;",
+      "notes": "Variant definitions are edited in Project > Variants; the API is mainly read-oriented.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/iproject-interface"
+    },
+    {
+      "name": "IProject.DM_SearchPaths / DM_AddSearchPath / DM_ErrorLevels / DM_SetErrorLevels",
+      "kind": "api",
+      "description": "Project option access: DM_SearchPathCount/DM_SearchPaths(i) (ISearchPath with path and sub-folder flag) and DM_AddSearchPath(Path, IncludeSubFolders) manage Project Options > Search Paths; DM_ErrorLevels(ErrorKind) / DM_SetErrorLevels(ErrorKind, Level) read and set Error Reporting severities; DM_HierarchyMode/DM_SetHierarchyMode select net identifier scope; DM_ChannelDesignatorFormat and DM_ChannelRoomNamingStyle expose Multi-Channel settings; DM_EditOptions(PageName) opens the Project Options dialog.",
+      "usage": "Prj.DM_AddSearchPath('..\\Models', True);  Lvl := Prj.DM_ErrorLevels(AErrorKind);  Prj.DM_EditOptions('ErrorReporting');",
+      "parameters": [],
+      "example": "Prj.DM_AddSearchPath(ExtractFilePath(Prj.DM_ProjectFullPath) + 'Models', True);\nResetParameters; AddStringParameter('ObjectKind', 'Project'); RunProcess('WorkspaceManager:SaveObject');",
+      "notes": "Error kind constants (TErrorKind) are numerous; read them from an existing project rather than hard-coding.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/iproject-interface"
+    },
+    {
+      "name": "IDocument.DM_FullPath / DM_FileName / DM_DocumentKind / DM_Project",
+      "kind": "api",
+      "description": "Basic document identity: DM_FullPath and DM_FileName give the path and name, DM_DocumentKind returns the kind string ('SCH', 'PCB', 'SCHLIB', 'PCBLIB', 'OUTPUTJOB', 'PCBDwf', 'BomDoc' ...), DM_Project returns the owning IProject, DM_DocumentIsLoaded/DM_LoadDocument control loading, DM_IsPrimaryImplementationDocument flags the PCB, and DM_UpdateDateModified marks changes.",
+      "usage": "If Doc.DM_DocumentKind = 'PCB' Then ...;  Path := Doc.DM_FullPath;",
+      "parameters": [],
+      "example": "For i := 0 To Prj.DM_LogicalDocumentCount - 1 Do Begin\n  Doc := Prj.DM_LogicalDocuments(i);\n  Report.Add(Doc.DM_DocumentKind + ' : ' + Doc.DM_FullPath);\nEnd;",
+      "notes": "Kind strings are upper-case for SCH/PCB and case-sensitive comparisons should use UpperCase.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/idocument-interface"
+    },
+    {
+      "name": "IDocument.DM_Nets / DM_NetCount (INet, INetItem)",
+      "kind": "api",
+      "description": "Compiled connectivity of a document (use the flattened top-level or physical document for the whole design): DM_NetCount and DM_Nets(i) return INet objects with DM_NetName, DM_PinCount/DM_Pins(i) (INetItem pins with DM_LogicalPartDesignator / DM_PhysicalPartDesignator and DM_PinNumber), DM_NetLabelCount/DM_NetLabels(i), DM_PortCount/DM_Ports(i), DM_PowerObjectCount, DM_NetClassCount; DM_NetClasses(i) at document level list classes. This is how the shipped ScripterProtelNetlist example builds a netlist.",
+      "usage": "Doc := Prj.DM_DocumentFlattened; For n := 0 To Doc.DM_NetCount - 1 Do Net := Doc.DM_Nets(n);",
+      "parameters": [],
+      "example": "Prj.DM_Compile;\nFlat := Prj.DM_DocumentFlattened;\nFor n := 0 To Flat.DM_NetCount - 1 Do Begin\n  Net := Flat.DM_Nets(n);\n  Line := Net.DM_NetName + ':';\n  For p := 0 To Net.DM_PinCount - 1 Do\n    Line := Line + ' ' + Net.DM_Pins(p).DM_PhysicalPartDesignator + '-' + Net.DM_Pins(p).DM_PinNumber;\n  Report.Add(Line);\nEnd;",
+      "notes": "DM_DocumentFlattened is the compiled flat design (all sheets merged); per-sheet nets are local unless the scope makes them global.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/idocument-interface"
+    },
+    {
+      "name": "IDocument.DM_Components / DM_ComponentCount (IComponent, IPart)",
+      "kind": "api",
+      "description": "Compiled component list: DM_ComponentCount/DM_Components(i) return IComponent objects with DM_LogicalDesignator, DM_PhysicalDesignator, DM_Comment, DM_Description, DM_FootPrint, DM_LibReference, DM_PartCount/DM_Parts(i) (IPart with DM_PinCount/DM_Pins), DM_ParameterCount/DM_Parameters(i), DM_UniqueId and DM_ChannelIndex; DM_UniqueComponentCount/DM_UniqueComponents ignore multi-channel duplicates. Use the flattened or physical document for board-level designators.",
+      "usage": "For c := 0 To Flat.DM_ComponentCount - 1 Do Cmp := Flat.DM_Components(c);",
+      "parameters": [],
+      "example": "For c := 0 To Flat.DM_ComponentCount - 1 Do Begin\n  Cmp := Flat.DM_Components(c);\n  Report.Add(Cmp.DM_PhysicalDesignator + ',' + Cmp.DM_Comment + ',' + Cmp.DM_FootPrint + ',' + Cmp.DM_Description);\nEnd;",
+      "notes": "This read-only view is ideal for custom BOMs; editing goes through the schematic API.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/idocument-interface"
+    },
+    {
+      "name": "IDocument hierarchy and multi-channel members (DM_ChildDocuments, DM_ParentDocuments, DM_SheetSymbols, DM_PhysicalRoomName, DM_ChannelIndex, DM_Parameters)",
+      "kind": "api",
+      "description": "Structure navigation: DM_ChildDocumentCount/DM_ChildDocuments(i) and DM_ParentDocumentCount/DM_ParentDocuments(i) walk the hierarchy; DM_SheetSymbolCount/DM_SheetSymbols(i) list sheet symbols (ISheetSymbol objects described by DM_LongDescriptorString); DM_PhysicalRoomName, DM_ChannelIndex, DM_ChannelPrefix, DM_CurrentInstanceNumber identify channel instances; DM_ParameterCount/DM_Parameters(i) give document parameters; DM_RoomCount/DM_Rooms, DM_ComponentClassCount/DM_ComponentClasses, DM_DifferentialPairCount/DM_DifferentialPairs, DM_RuleCount/DM_Rules expose generated classes/rules.",
+      "usage": "For k := 0 To Doc.DM_ChildDocumentCount - 1 Do Child := Doc.DM_ChildDocuments(k);",
+      "parameters": [],
+      "example": "Procedure Walk(Doc : IDocument; Level : Integer);\nVar k : Integer;\nBegin\n  Report.Add(StringOfChar(' ', Level * 2) + Doc.DM_FileName + ' [' + Doc.DM_PhysicalRoomName + ']');\n  For k := 0 To Doc.DM_ChildDocumentCount - 1 Do Walk(Doc.DM_ChildDocuments(k), Level + 1);\nEnd;",
+      "notes": "Call on DM_TopLevelPhysicalDocument to include every channel instance.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/idocument-interface"
+    },
+    {
+      "name": "PCB:Zoom (process)",
+      "kind": "command",
+      "description": "Zoom/redraw process of the PCB editor with an Action parameter: Redraw (refresh the view), All (fit document), In, Out, Area, Selected, Previous, Point; the documented example uses Action=Redraw and Action=All. Use it to refresh the display after scripted changes or to frame results.",
+      "usage": "ResetParameters; AddStringParameter('Action', 'Redraw'); RunProcess('PCB:Zoom');",
+      "parameters": [
+        {
+          "name": "Action",
+          "description": "Redraw | All | In | Out | Area | Selected | Previous ..."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('Action', 'All');\nRunProcess('PCB:Zoom');",
+      "notes": "Sch:Zoom is the schematic equivalent with the same Action values.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "PCB:DesignRuleCheck (process)",
+      "kind": "command",
+      "description": "Runs the Design Rule Checker on the active PCB. Without parameters it opens the Design Rule Checker dialog; parameters (as documented for the command) select what to check and report, e.g. the rule categories, online/batch behaviour, report creation and violation limits, mirroring the dialog's Report Options (CreateReportFile, CreateViolations, StopWhenViolationsFound). Used by release scripts before generating outputs.",
+      "usage": "RunProcess('PCB:DesignRuleCheck');   // opens the dialog; add parameters per the command reference to run silently",
+      "parameters": [
+        {
+          "name": "Report options",
+          "description": "Create report file / violations, violation limit (see command reference for exact parameter names)."
+        }
+      ],
+      "example": "ResetParameters;\nRunProcess('PCB:DesignRuleCheck');",
+      "notes": "For fully unattended DRC prefer an Output Job Validation output (Design Rules Check) generated through WorkspaceManager:GenerateReport or the OutJob processes.",
+      "docs": "https://www.altium.com/documentation/altium-designer/pcb-cmd-designrulecheckdesignrulecheck-ad"
+    },
+    {
+      "name": "PCB:PlaceComponent (process)",
+      "kind": "command",
+      "description": "Launches the PCB Place Component command; with parameters it can pre-select the footprint and designator (Footprint, Designator, Comment, and library source parameters as listed in the command reference) so a script can place footprints interactively or from a library. Object-API alternative: create an IPCB_Component and add its primitives from a loaded IPCB_Library footprint.",
+      "usage": "ResetParameters; AddStringParameter('Footprint', 'RES_0603'); AddStringParameter('Designator', 'R1'); RunProcess('PCB:PlaceComponent');",
+      "parameters": [
+        {
+          "name": "Footprint / Designator / Comment",
+          "description": "Component identity for placement."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('Footprint', 'CAP_0402');\nAddStringParameter('Designator', 'C10');\nRunProcess('PCB:PlaceComponent');",
+      "notes": "Parameter names should be confirmed against the PCB commands reference for your version; the command is interactive (the footprint floats on the cursor).",
+      "docs": "https://www.altium.com/documentation/altium-designer/pcb-cmd-placecomponentplacecomponent-ad"
+    },
+    {
+      "name": "PCB:Export (process)",
+      "kind": "command",
+      "description": "Export process of the PCB editor covering the File > Export formats (STEP, Parasolid, DXF/DWG, IDF, VRML, PDF3D, Hyperlynx, Ansys EDB, PADS, Specctra ...); when run with the appropriate Format/FileName parameters it performs the export, otherwise it shows the export dialog. Commonly used from scripts to emit STEP files after placement changes.",
+      "usage": "ResetParameters; AddStringParameter('Format', 'STEP'); AddStringParameter('FileName', 'D:\\out\\Board.step'); RunProcess('PCB:Export');",
+      "parameters": [
+        {
+          "name": "Format",
+          "description": "Export format identifier (see command reference)."
+        },
+        {
+          "name": "FileName",
+          "description": "Target path."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('Format', 'STEP');\nRunProcess('PCB:Export');   // opens the STEP export options dialog",
+      "notes": "STEP export options (holes, copper, components) are dialog settings; an OutJob Export STEP output is the reproducible alternative.",
+      "docs": "https://www.altium.com/documentation/altium-designer/pcb-cmd-exportexport-ad"
+    },
+    {
+      "name": "PCB:Select / PCB:DeSelect (processes)",
+      "kind": "command",
+      "description": "Selection processes with an Object parameter mirroring Edit > Select / Deselect: All, Net, Connection, PhysicalConnection, ComponentConnections, AllOnLayer, InsideArea, OutsideArea, TouchingLine, TouchingRectangle, Free, ToggleSelection, plus Net=<name> for named nets in some versions. PCB:DeSelect with Object=All clears the selection, which scripts run before iterating SelectecObject.",
+      "usage": "ResetParameters; AddStringParameter('Object', 'All'); RunProcess('PCB:DeSelect');",
+      "parameters": [
+        {
+          "name": "Object",
+          "description": "All | Net | Connection | PhysicalConnection | AllOnLayer | InsideArea | Free | ToggleSelection ..."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('Object', 'All');\nRunProcess('PCB:DeSelect');\nResetParameters;\nAddStringParameter('Object', 'AllOnLayer');\nRunProcess('PCB:Select');",
+      "notes": "Interactive variants (InsideArea, TouchingLine) wait for user input.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "Sch:PlacePart (process)",
+      "kind": "command",
+      "description": "Starts component placement in the schematic editor; parameters can pre-fill the Place Part settings (Library/library path, LibReference or Part name, Designator, Comment, Footprint) so the chosen symbol floats on the cursor ready to click, or the Components panel opens when parameters are absent. Object-API alternative: ISch_Document.PlaceSchComponent.",
+      "usage": "ResetParameters; AddStringParameter('LibReference', 'RES'); AddStringParameter('Designator', 'R1'); AddStringParameter('Comment', '10k'); RunProcess('Sch:PlacePart');",
+      "parameters": [
+        {
+          "name": "LibReference / Library",
+          "description": "Symbol name and source library."
+        },
+        {
+          "name": "Designator / Comment / Footprint",
+          "description": "Values applied to the placed part."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('LibReference', 'CAP');\nAddStringParameter('Designator', 'C1');\nAddStringParameter('Comment', '100nF');\nRunProcess('Sch:PlacePart');",
+      "notes": "Exact parameter names are listed on the Sch:PlacePart command page for your version.",
+      "docs": "https://www.altium.com/documentation/altium-designer/sch-cmd-placepartplacepart-ad"
+    },
+    {
+      "name": "Sch:Zoom / Sch:Annotate / Sch:PlaceWire / Sch:PlaceNetLabel / Sch:PlacePort (processes)",
+      "kind": "command",
+      "description": "Frequently used schematic processes: Sch:Zoom (Action=All|Redraw|In|Out|Area|Selected), Sch:Annotate (opens the Annotate dialog; with Action parameters runs quiet annotation), Sch:PlaceWire, Sch:PlaceBus, Sch:PlaceNetLabel, Sch:PlacePort, Sch:PlaceSheetSymbol, Sch:PlaceSheetEntry, Sch:PlaceLine and Sch:CreateSheetSymbolFromSheet / Sch:CreateSheetFromSheetSymbol, each corresponding to the Place/Design menu command of the same name.",
+      "usage": "ResetParameters; AddStringParameter('Action', 'All'); RunProcess('Sch:Zoom');  RunProcess('Sch:PlaceNetLabel');",
+      "parameters": [
+        {
+          "name": "Action (Sch:Zoom)",
+          "description": "All | Redraw | In | Out | Area | Selected."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('Action', 'Redraw');\nRunProcess('Sch:Zoom');",
+      "notes": "Placement processes are interactive; for silent object creation use the schematic object API.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "WorkspaceManager:OpenObject (process)",
+      "kind": "command",
+      "description": "Opens projects or documents: parameters ObjectKind (Project, Document, NewFromTemplate, ...), FileName (path), and options such as Kind/Template for new documents. The documented example creates a project from a template with Client.SendMessage('WorkspaceManager:OpenObject', 'OpenMode=NewFromTemplate | ObjectKind=Project', 1024, Nil).",
+      "usage": "ResetParameters; AddStringParameter('ObjectKind', 'Document'); AddStringParameter('FileName', 'D:\\work\\Main.PcbDoc'); RunProcess('WorkspaceManager:OpenObject');",
+      "parameters": [
+        {
+          "name": "ObjectKind",
+          "description": "Project | Document | NewFromTemplate ..."
+        },
+        {
+          "name": "FileName",
+          "description": "Path of the object to open."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('ObjectKind', 'Project');\nAddStringParameter('FileName', 'D:\\work\\Board.PrjPcb');\nRunProcess('WorkspaceManager:OpenObject');",
+      "notes": "Client.OpenDocument(Kind, Path) is the object-API alternative for single documents.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "WorkspaceManager:SaveObject / WorkspaceManager:CloseObject (processes)",
+      "kind": "command",
+      "description": "Save and close processes with ObjectKind selecting the target: FocusedDocument, Project, FocusedProject, Document (with FileName), All; SaveObject supports SaveMode (Save, SaveAs, SaveCopyAs) with a FileName for the new path, CloseObject supports closing the focused document/project or all documents, prompting for unsaved changes unless suppressed. These are the script equivalents of File > Save / Save As / Close and Project > Close Project.",
+      "usage": "ResetParameters; AddStringParameter('ObjectKind', 'FocusedDocument'); RunProcess('WorkspaceManager:SaveObject');   ResetParameters; AddStringParameter('ObjectKind', 'FocusedProject'); RunProcess('WorkspaceManager:CloseObject');",
+      "parameters": [
+        {
+          "name": "ObjectKind",
+          "description": "FocusedDocument | Document | Project | FocusedProject | All ..."
+        },
+        {
+          "name": "SaveMode / FileName",
+          "description": "SaveAs target (SaveObject)."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('ObjectKind', 'Project');\nRunProcess('WorkspaceManager:SaveObject');\nResetParameters;\nAddStringParameter('ObjectKind', 'FocusedProject');\nRunProcess('WorkspaceManager:CloseObject');",
+      "notes": "Confirm parameter spellings on the SaveObject/CloseObject command pages of your version.",
+      "docs": "https://www.altium.com/documentation/altium-designer/workspacemanager-cmd-saveobjectsaveobject-ad"
+    },
+    {
+      "name": "WorkspaceManager:GenerateReport (process)",
+      "kind": "command",
+      "description": "Generates project outputs (netlists, BOM/reports, prints) without the GUI: ObjectKind names the output family (e.g. Netlist), Index selects the specific generator/format in that family, ReturnGeneratedDocuments=True asks for the produced file names, which are read back with GetStringParameter('Result', ...) and GetStringParameter('File1', ...). Basis of scripted netlist exports; OutJob-based generation is preferred for full manufacturing sets.",
+      "usage": "ResetParameters; AddStringParameter('ObjectKind', 'Netlist'); AddIntegerParameter('Index', 5); AddStringParameter('ReturnGeneratedDocuments', 'True'); RunProcess('WorkspaceManager:GenerateReport'); GetStringParameter('File1', FileName);",
+      "parameters": [
+        {
+          "name": "ObjectKind",
+          "description": "Output family, e.g. Netlist."
+        },
+        {
+          "name": "Index",
+          "description": "Ordinal of the generator within the family (order of the Design > Netlist For Project menu)."
+        },
+        {
+          "name": "ReturnGeneratedDocuments",
+          "description": "True to get result file names back."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('ObjectKind', 'Netlist');\nAddIntegerParameter('Index', 5);\nAddStringParameter('ReturnGeneratedDocuments', 'True');\nRunProcess('WorkspaceManager:GenerateReport');\nGetStringParameter('Result', Res);\nGetStringParameter('File1', F1);\nShowMessage('Generated ' + F1);",
+      "notes": "Index numbering follows the installed netlisters, so verify on the target machine.",
+      "docs": "https://www.altium.com/documentation/altium-designer/workspacemanager-cmd-generatereportgeneratereport-ad"
+    },
+    {
+      "name": "WorkspaceManager:Compile (process)",
+      "kind": "command",
+      "description": "Compiles/validates a project or document from a script (Project > Validate PCB Project): parameters ObjectKind (Project, FocusedProject, Document) and Action (Compile) as documented in the WorkspaceManager commands reference. The object-API equivalent is IProject.DM_Compile, which also returns success and gives access to violations.",
+      "usage": "ResetParameters; AddStringParameter('ObjectKind', 'Project'); AddStringParameter('Action', 'Compile'); RunProcess('WorkspaceManager:Compile');",
+      "parameters": [
+        {
+          "name": "ObjectKind",
+          "description": "Project | FocusedProject | Document."
+        },
+        {
+          "name": "Action",
+          "description": "Compile."
+        }
+      ],
+      "example": "ResetParameters;\nAddStringParameter('ObjectKind', 'FocusedProject');\nRunProcess('WorkspaceManager:Compile');",
+      "notes": "Prefer IProject.DM_Compile when you need the result; the process just triggers the GUI action.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "Client.SendMessage vs RunProcess parameter passing (GetStringParameter / AddIntegerParameter)",
+      "kind": "api",
+      "description": "Two ways to invoke processes: the parameter stack (ResetParameters, AddStringParameter, AddIntegerParameter, AddWordParameter, RunProcess, then GetStringParameter/GetIntegerParameter to read return values) or the one-liner Client.SendMessage('Server:Command', 'Param1=Value | Param2=Value', 255, Client.CurrentView) whose parameter string is pipe-separated. The stack form is required when return values are needed (e.g. GenerateReport); SendMessage suits VBScript/JScript and fire-and-forget commands.",
+      "usage": "ResetParameters; AddStringParameter('Name', 'Value'); RunProcess('Server:Command'); GetStringParameter('Result', S);   |   Client.SendMessage('Server:Command', 'Name=Value | Name2=Value2', 255, Client.CurrentView);",
+      "parameters": [],
+      "example": "' VBScript\nCall Client.SendMessage(\"PCB:Zoom\", \"Action=Redraw\", 255, Client.CurrentView)\n\n// DelphiScript with return value\nResetParameters;\nAddStringParameter('ObjectKind', 'Netlist');\nAddIntegerParameter('Index', 0);\nAddStringParameter('ReturnGeneratedDocuments', 'True');\nRunProcess('WorkspaceManager:GenerateReport');\nGetStringParameter('File1', F);",
+      "notes": "The process must be one the current view/server can handle; PCB: processes need a PCB document focused.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "Customized command running a script (ScriptingSystem:RunScript from menus, toolbars and hotkeys)",
+      "kind": "command",
+      "description": "To give a script a menu entry, toolbar button or hotkey, create a command in the Customizing Editor with Process ScriptingSystem:RunScript and Parameters ProjectName=<path to .PrjScr>|ProcName=<Unit.pas>Procedure, optionally with an icon and shortcut; the script project must be accessible at that path (or be part of the open project group). RunScriptText runs literal statements instead.",
+      "usage": "Right-click menu bar > Customize > New command: Process=ScriptingSystem:RunScript, Parameters=ProjectName=D:\\Scripts\\Tools.PrjScr|ProcName=Tools.pas>RenumberVias",
+      "parameters": [
+        {
+          "name": "ProjectName",
+          "description": "Full path of the script project."
+        },
+        {
+          "name": "ProcName",
+          "description": "Unit file name, '>' and procedure name."
+        }
+      ],
+      "example": "Parameters: ProjectName=C:\\Users\\Public\\Documents\\Altium\\Scripts\\PCB\\Vias.PrjScr|ProcName=Vias.pas>TentSmallVias\nShortcut: Ctrl+Alt+T",
+      "notes": "Scripts run this way have no debugger; test from the Scripts panel first.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    }
+  ]
+}

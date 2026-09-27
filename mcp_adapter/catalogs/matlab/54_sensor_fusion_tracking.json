@@ -1,0 +1,544 @@
+{
+  "category": "Sensor Fusion and Tracking Toolbox > Tracking Filters, Multi-Object Trackers, Scenarios, Sensor Models & Inertial Fusion",
+  "description": "Sensor Fusion and Tracking Toolbox functions for Kalman-type tracking filters and motion models, multi-object trackers (GNN, JPDA, TOMHT, PHD), detections and tracks, track-to-track fusion, tracking scenarios and trajectories, IMU/GPS/radar/lidar sensor models, inertial navigation filters, calibration and tracking metrics/visualization. (imufilter, ahrsfilter, insfilterMARG and quaternion are catalogued elsewhere.)",
+  "tools": [
+    {
+      "name": "trackingKF",
+      "kind": "function",
+      "description": "Creates a linear Kalman filter for object tracking with predefined constant-velocity or constant-acceleration motion models in 1-D, 2-D or 3-D, or a custom linear model. Provides predict/correct and track-management helpers like distance and likelihood.",
+      "usage": "filter = trackingKF\nfilter = trackingKF(F, H)\nfilter = trackingKF(F, H, G)\nfilter = trackingKF(MotionModel=model, Name=Value)",
+      "parameters": [
+        {"name": "MotionModel", "description": "\"1D/2D/3D Constant Velocity\", \"1D/2D/3D Constant Acceleration\" or \"Custom\"."},
+        {"name": "F, H, G", "description": "State transition, measurement and control matrices for custom models."},
+        {"name": "State / StateCovariance", "description": "Initial state and covariance."},
+        {"name": "ProcessNoise / MeasurementNoise", "description": "Q and R matrices."}
+      ],
+      "example": "kf = trackingKF(MotionModel=\"2D Constant Velocity\", State=[0;1;0;1], ...\n    MeasurementNoise=0.5*eye(2));\nfor k = 1:10\n    predict(kf, 1);\n    z = [k; k] + 0.5*randn(2,1);\n    [x, P] = correct(kf, z);\nend\nx'",
+      "notes": "For 2-D CV the state is [x; vx; y; vy]. Nonlinear models need trackingEKF/UKF. Use smooth (fixed-interval RTS) after a run for offline smoothing.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackingkf.html"
+    },
+    {
+      "name": "trackingEKF",
+      "kind": "function",
+      "description": "Creates an extended Kalman filter for tracking with nonlinear state transition and measurement functions, using analytic or numerical Jacobians. It is the most commonly used filter in trackers via init functions like initcvekf.",
+      "usage": "filter = trackingEKF(transitionFcn, measurementFcn, state)\nfilter = trackingEKF(___, Name=Value)",
+      "parameters": [
+        {"name": "transitionFcn / measurementFcn", "description": "Handles such as @constvel and @cvmeas."},
+        {"name": "StateTransitionJacobianFcn / MeasurementJacobianFcn", "description": "Jacobian handles (e.g. @constveljac, @cvmeasjac); numerical if omitted."},
+        {"name": "ProcessNoise / MeasurementNoise / HasAdditiveProcessNoise", "description": "Noise models."}
+      ],
+      "example": "ekf = trackingEKF(@constvel, @cvmeas, [0;1;0;1;0;0], ...\n    StateTransitionJacobianFcn=@constveljac, MeasurementJacobianFcn=@cvmeasjac);\npredict(ekf, 0.1);\ncorrect(ekf, [0.12; 0.09; 0]);",
+      "notes": "Measurement functions accept MeasurementParameters for sensor position/frame (e.g. spherical radar measurements).",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackingekf.html"
+    },
+    {
+      "name": "trackingUKF",
+      "kind": "function",
+      "description": "Creates an unscented Kalman filter for tracking with nonlinear models, propagating sigma points instead of linearizing. More robust than the EKF for strongly nonlinear measurements such as range/bearing.",
+      "usage": "filter = trackingUKF(transitionFcn, measurementFcn, state)\nfilter = trackingUKF(___, Name=Value)",
+      "parameters": [
+        {"name": "Alpha / Beta / Kappa", "description": "Sigma-point spread and distribution parameters (defaults 1e-3, 2, 0)."},
+        {"name": "ProcessNoise / MeasurementNoise", "description": "Noise covariances."}
+      ],
+      "example": "ukf = trackingUKF(@constturn, @ctmeas, [0;10;0;5;2;0;0], Alpha=0.1);\npredict(ukf, 0.5);\ncorrect(ukf, [5; 2.5; 0]);",
+      "notes": "trackingCKF (cubature) and trackingPF (particle) are alternatives; initcvukf/initctukf create UKFs from detections.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackingukf.html"
+    },
+    {
+      "name": "trackingIMM",
+      "kind": "function",
+      "description": "Creates an interacting multiple model filter that runs several motion-model filters (e.g. constant velocity, constant acceleration, constant turn) in parallel and mixes them by model probability, for maneuvering targets.",
+      "usage": "imm = trackingIMM\nimm = trackingIMM(trackingFilters, modelConversionFcn, transitionProbabilities)\nimm = trackingIMM(Name=Value)",
+      "parameters": [
+        {"name": "TrackingFilters", "description": "Cell array of filters (trackingEKF/UKF/KF)."},
+        {"name": "ModelConversionFcn", "description": "Function converting states between models, default @switchimm."},
+        {"name": "TransitionProbabilities", "description": "Model switching probabilities (scalar or matrix)."}
+      ],
+      "example": "det = objectDetection(0, [10; 5; 0]);\nimm = initekfimm(det);\npredict(imm, 1);\ncorrect(imm, [11; 5.5; 0]);\nimm.ModelProbabilities",
+      "notes": "initekfimm creates a CV/CA/CT IMM from a detection and is a common FilterInitializationFcn for maneuvering targets.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackingimm.html"
+    },
+    {
+      "name": "trackingPF",
+      "kind": "function",
+      "description": "Creates a particle filter for tracking with arbitrary nonlinear, non-Gaussian models, representing the state distribution by weighted particles with configurable resampling.",
+      "usage": "pf = trackingPF(transitionFcn, measurementFcn, state)\npf = trackingPF(___, Name=Value)",
+      "parameters": [
+        {"name": "NumParticles", "description": "Number of particles (default 1000)."},
+        {"name": "StateCovariance", "description": "Spread used to initialize particles."},
+        {"name": "ResamplingPolicy / ResamplingMethod", "description": "When and how to resample (\"multinomial\", \"systematic\", \"stratified\", \"residual\")."}
+      ],
+      "example": "pf = trackingPF(@constvel, @cvmeas, [0;1;0;1;0;0], NumParticles=2000);\npredict(pf, 1);\ncorrect(pf, [1; 1; 0]);",
+      "notes": "Slower than Kalman filters; use when the posterior is multimodal. initcvpf creates one from a detection.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackingpf.html"
+    },
+    {
+      "name": "initcvekf",
+      "kind": "function",
+      "description": "Creates and initializes a 3-D constant-velocity trackingEKF from an objectDetection. It is the typical FilterInitializationFcn passed to trackers so that new tracks start with a sensible state and covariance.",
+      "usage": "filter = initcvekf(detection)",
+      "parameters": [
+        {"name": "detection", "description": "objectDetection with position (rectangular or spherical, with MeasurementParameters)."}
+      ],
+      "example": "det = objectDetection(0, [10; 20; 0], MeasurementNoise=eye(3));\nekf = initcvekf(det);\nekf.State'      % [10 0 20 0 0 0]",
+      "notes": "Family: initcvkf, initcakf, initcaekf, initctekf, initcvukf, initcaukf, initctukf, initcvpf, initekfimm and more. Write your own init function to customize noise.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/initcvekf.html"
+    },
+    {
+      "name": "initcvkf",
+      "kind": "function",
+      "description": "Creates a linear constant-velocity trackingKF from a detection with Cartesian position measurements, for trackers where measurements are linear in the state.",
+      "usage": "filter = initcvkf(detection)",
+      "parameters": [
+        {"name": "detection", "description": "objectDetection with 1-, 2- or 3-D position measurement in rectangular coordinates."}
+      ],
+      "example": "tracker = trackerGNN(FilterInitializationFcn=@initcvkf);",
+      "notes": "Cannot handle spherical measurements; use initcvekf for radar-style detections.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/initcvkf.html"
+    },
+    {
+      "name": "constvel",
+      "kind": "function",
+      "description": "State transition function for the constant-velocity motion model, propagating [x; vx], [x; vx; y; vy] or [x; vx; y; vy; z; vz] states by a time step. Used as the transition function of EKF/UKF/PF tracking filters.",
+      "usage": "updatedState = constvel(state)\nupdatedState = constvel(state, dt)\nupdatedState = constvel(state, w, dt)",
+      "parameters": [
+        {"name": "state", "description": "State vector or matrix of states (columns)."},
+        {"name": "dt", "description": "Time step in seconds (default 1)."},
+        {"name": "w", "description": "Process noise (acceleration) for non-additive noise formulations."}
+      ],
+      "example": "x1 = constvel([0; 2; 0; 1], 0.5)     % [1; 2; 0.5; 1]\nJ = constveljac([0; 2; 0; 1], 0.5);",
+      "notes": "Other models: constacc/cameas, constturn/ctmeas, ctrv, singer, each with Jacobian functions (…jac).",
+      "docs": "https://www.mathworks.com/help/fusion/ref/constvel.html"
+    },
+    {
+      "name": "cvmeas",
+      "kind": "function",
+      "description": "Measurement function for the constant-velocity model: maps a CV state to Cartesian position or to spherical (azimuth, elevation, range, range-rate) measurements relative to a sensor, optionally with sensor position, velocity and axes.",
+      "usage": "measurement = cvmeas(state)\nmeasurement = cvmeas(state, frame)\nmeasurement = cvmeas(state, frame, sensorpos, sensorvel, laxes)\nmeasurement = cvmeas(state, measurementParameters)",
+      "parameters": [
+        {"name": "frame", "description": "\"rectangular\" (default) or \"spherical\"."},
+        {"name": "measurementParameters", "description": "Struct(s) with Frame, OriginPosition, OriginVelocity, Orientation, HasVelocity, HasElevation."}
+      ],
+      "example": "z = cvmeas([100; 5; 50; 0; 0; 0], \"spherical\")    % [az; el; range; rangeRate]",
+      "notes": "cvmeasjac returns the Jacobian. Spherical angles are in degrees.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/cvmeas.html"
+    },
+    {
+      "name": "constturn",
+      "kind": "function",
+      "description": "State transition function for the constant turn-rate motion model with state [x; vx; y; vy; omega] (2-D) or [x; vx; y; vy; omega; z; vz] (3-D), where omega is the turn rate in deg/s. Suited to coordinated-turn maneuvers.",
+      "usage": "updatedState = constturn(state)\nupdatedState = constturn(state, dt)\nupdatedState = constturn(state, w, dt)",
+      "parameters": [
+        {"name": "state", "description": "Constant-turn state vector(s)."},
+        {"name": "dt", "description": "Time step (s)."}
+      ],
+      "example": "x = [0; 10; 0; 0; 9];        % 9 deg/s turn\nfor k = 1:10, x = constturn(x, 1); end\nx([1 3])'",
+      "notes": "Pair with ctmeas/ctmeasjac and constturnjac. ctrv uses a turn-rate/velocity-magnitude parameterization common in automotive tracking.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/constturn.html"
+    },
+    {
+      "name": "trackerGNN",
+      "kind": "function",
+      "description": "System object implementing a multi-sensor, multi-object tracker with global nearest neighbor assignment, history- or score-based track confirmation/deletion and any tracking filter. It is the simplest general-purpose tracker.",
+      "usage": "tracker = trackerGNN(Name=Value)\n[confirmedTracks, tentativeTracks, allTracks, info] = tracker(detections, time)",
+      "parameters": [
+        {"name": "FilterInitializationFcn", "description": "Function creating a filter from a detection (default @initcvekf)."},
+        {"name": "AssignmentThreshold", "description": "Gating threshold on normalized distance (default 30)."},
+        {"name": "ConfirmationThreshold / DeletionThreshold", "description": "M-of-N logic, e.g. [2 3] and [5 5]."},
+        {"name": "TrackLogic / MaxNumTracks / Assignment", "description": "\"History\" or \"Score\"; capacity; \"Munkres\", \"Jonker-Volgenant\", \"Auction\"."}
+      ],
+      "example": "tracker = trackerGNN(FilterInitializationFcn=@initcvekf, ...\n    ConfirmationThreshold=[2 3], DeletionThreshold=[5 5]);\nfor t = 0:0.1:2\n    dets = {objectDetection(t, [10+2*t; 5; 0], MeasurementNoise=eye(3))};\n    confirmed = tracker(dets, t);\nend\nconfirmed(1).State'",
+      "notes": "Outputs are objectTrack arrays. For dense clutter use trackerJPDA; for crossing targets trackerTOMHT; for extended objects trackerPHD.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackergnn-system-object.html"
+    },
+    {
+      "name": "trackerJPDA",
+      "kind": "function",
+      "description": "System object implementing a joint probabilistic data association tracker, which softly assigns detections to tracks based on association probabilities. It performs better than GNN in clutter and with closely spaced targets.",
+      "usage": "tracker = trackerJPDA(Name=Value)\n[confirmedTracks, tentativeTracks, allTracks, info] = tracker(detections, time)",
+      "parameters": [
+        {"name": "ClutterDensity / DetectionProbability", "description": "Clutter model and Pd used in association probabilities."},
+        {"name": "TrackLogic", "description": "\"History\" or \"Integrated\" (JIPDA-style existence probability)."},
+        {"name": "HitMissThreshold / TimeTolerance", "description": "Association and timing controls."}
+      ],
+      "example": "tracker = trackerJPDA(FilterInitializationFcn=@initcvekf, ...\n    ClutterDensity=1e-7, DetectionProbability=0.9, TrackLogic=\"Integrated\");",
+      "notes": "Computational cost grows with cluster size; limit with MaxNumEvents. smootherJIPDA performs offline smoothing of JIPDA tracks.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackerjpda-system-object.html"
+    },
+    {
+      "name": "trackerTOMHT",
+      "kind": "function",
+      "description": "System object implementing a track-oriented multiple hypothesis tracker that keeps several association hypotheses (track branches) alive and resolves them with later data. Best for difficult association problems such as crossing targets.",
+      "usage": "tracker = trackerTOMHT(Name=Value)\n[confirmedTracks, tentativeTracks, allTracks, info] = tracker(detections, time)",
+      "parameters": [
+        {"name": "AssignmentThreshold", "description": "Three-element gating thresholds for assignment, branch creation and new tracks."},
+        {"name": "MaxNumHypotheses / MaxNumTrackBranches / NScanPruning", "description": "Hypothesis and branch management limits."}
+      ],
+      "example": "tracker = trackerTOMHT(FilterInitializationFcn=@initcvekf, ...\n    MaxNumHypotheses=10, MaxNumTrackBranches=3);",
+      "notes": "More expensive than GNN/JPDA. Building blocks (trackBranchHistory, clusterTrackBranches, pruneTrackBranches) are available for custom MHT designs.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackertomht-system-object.html"
+    },
+    {
+      "name": "trackerPHD",
+      "kind": "function",
+      "description": "System object implementing a probability hypothesis density (random finite set) tracker that supports extended objects producing multiple detections per scan, such as high-resolution radar or lidar targets.",
+      "usage": "tracker = trackerPHD(Name=Value)\n[confirmedTracks, tentativeTracks, allTracks, info] = tracker(detections, time)",
+      "parameters": [
+        {"name": "SensorConfigurations", "description": "trackingSensorConfiguration objects with sensor FOV, clutter, detection probability and FilterInitializationFcn (e.g. @initcvggiwphd)."},
+        {"name": "PartitioningFcn", "description": "Detection partitioning function, default @partitionDetections."},
+        {"name": "BirthRate / ExtractionThreshold / ConfirmationThreshold", "description": "Target birth and track extraction settings."}
+      ],
+      "example": "cfg = trackingSensorConfiguration(1, SensorLimits=[-45 45; 0 100], ...\n    FilterInitializationFcn=@initcvggiwphd, SensorTransformFcn=@cvmeas);\ntracker = trackerPHD(SensorConfigurations=cfg, HasSensorConfigurationsInput=false);",
+      "notes": "Uses gmphd or ggiwphd filters internally. trackerGridRFS provides grid-based tracking of dynamic occupancy.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackerphd-system-object.html"
+    },
+    {
+      "name": "objectDetection",
+      "kind": "function",
+      "description": "Creates a detection report with time, measurement, measurement noise, sensor index and optional measurement parameters and attributes. It is the common input format for all trackers and filter initialization functions.",
+      "usage": "detection = objectDetection(time, measurement)\ndetection = objectDetection(time, measurement, Name=Value)",
+      "parameters": [
+        {"name": "time", "description": "Detection time (s)."},
+        {"name": "measurement", "description": "Measurement vector (position, or az/el/range...)."},
+        {"name": "MeasurementNoise", "description": "Measurement covariance matrix."},
+        {"name": "SensorIndex / ObjectClassID / ObjectAttributes", "description": "Sensor identity, class label and extra attributes."},
+        {"name": "MeasurementParameters", "description": "Struct describing the measurement frame and sensor pose."}
+      ],
+      "example": "mp = struct(Frame=\"spherical\", OriginPosition=[0;0;10], HasVelocity=false);\ndet = objectDetection(1.2, [30; 2; 150], MeasurementNoise=diag([1 1 4]), ...\n    SensorIndex=2, MeasurementParameters=mp);",
+      "notes": "Trackers take cell arrays of objectDetection objects (or arrays of structs with the same fields).",
+      "docs": "https://www.mathworks.com/help/fusion/ref/objectdetection.html"
+    },
+    {
+      "name": "objectTrack",
+      "kind": "function",
+      "description": "Represents a single object track report with track ID, state, covariance, age, confirmation/coasting flags, class ID and track logic. Trackers return arrays of objectTrack and track fusers consume them.",
+      "usage": "track = objectTrack\ntrack = objectTrack(Name=Value)",
+      "parameters": [
+        {"name": "TrackID / SourceIndex / UpdateTime / Age", "description": "Identification and timing."},
+        {"name": "State / StateCovariance", "description": "Estimated state and covariance."},
+        {"name": "IsConfirmed / IsCoasted / ObjectClassID", "description": "Status and classification."}
+      ],
+      "example": "trk = objectTrack(TrackID=7, State=[1;0;2;0;0;0], StateCovariance=eye(6));\ntoStruct(trk)",
+      "notes": "Use getTrackPositions/getTrackVelocities to extract kinematics from track arrays.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/objecttrack.html"
+    },
+    {
+      "name": "getTrackPositions",
+      "kind": "function",
+      "description": "Extracts position estimates and position covariances from an array of tracks using a position selector matrix that picks position components out of the state vector.",
+      "usage": "positions = getTrackPositions(tracks, positionSelector)\n[positions, covariances] = getTrackPositions(tracks, positionSelector)",
+      "parameters": [
+        {"name": "tracks", "description": "objectTrack array or struct array with State/StateCovariance."},
+        {"name": "positionSelector", "description": "Matrix mapping state to position, e.g. [1 0 0 0 0 0; 0 0 1 0 0 0; 0 0 0 0 1 0] for 3-D CV."}
+      ],
+      "example": "sel = [1 0 0 0 0 0; 0 0 1 0 0 0; 0 0 0 0 1 0];\n[pos, cov] = getTrackPositions(confirmedTracks, sel);\nplotTrack(trackPlotter(theaterPlot), pos, cov)",
+      "notes": "getTrackVelocities works the same way with a velocity selector.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/gettrackpositions.html"
+    },
+    {
+      "name": "assignmunkres",
+      "kind": "function",
+      "description": "Solves the 2-D assignment problem with the Munkres (Hungarian) algorithm, returning optimal track-to-detection assignments and unassigned rows and columns given a cost matrix and cost of non-assignment.",
+      "usage": "[assignments, unassignedRows, unassignedColumns] = assignmunkres(costMatrix, costOfNonAssignment)",
+      "parameters": [
+        {"name": "costMatrix", "description": "Tracks-by-detections cost matrix (Inf forbids pairs)."},
+        {"name": "costOfNonAssignment", "description": "Scalar cost of leaving a row/column unassigned."}
+      ],
+      "example": "C = [1 8 Inf; 7 2 9];\n[a, ur, uc] = assignmunkres(C, 5)",
+      "notes": "Alternatives: assignjv (Jonker-Volgenant), assignauction, assignkbest (k-best), assignsd (S-D multidimensional).",
+      "docs": "https://www.mathworks.com/help/fusion/ref/assignmunkres.html"
+    },
+    {
+      "name": "trackFuser",
+      "kind": "function",
+      "description": "System object that fuses tracks from multiple local trackers (sources) into central tracks, using configurable state fusion (cross-covariance, covariance intersection) and source configurations. Enables distributed/decentralized tracking architectures.",
+      "usage": "fuser = trackFuser(Name=Value)\n[confirmedTracks, tentativeTracks, allTracks, info] = fuser(localTracks, time)",
+      "parameters": [
+        {"name": "FuserIndex / MaxNumSources", "description": "Fuser identity and number of sources."},
+        {"name": "SourceConfigurations", "description": "Cell array of fuserSourceConfiguration objects."},
+        {"name": "StateFusion", "description": "\"Cross\", \"Intersection\" or \"Custom\"."}
+      ],
+      "example": "fuser = trackFuser(FuserIndex=3, MaxNumSources=2, ...\n    SourceConfigurations={fuserSourceConfiguration(1), fuserSourceConfiguration(2)});\ncentral = fuser([tracksA; tracksB], t);",
+      "notes": "trackingArchitecture composes multiple trackers and fusers into one system. fusecovint/fusecovunion/fusexcov are the underlying fusion functions.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackfuser-system-object.html"
+    },
+    {
+      "name": "trackingScenario",
+      "kind": "function",
+      "description": "Creates a tracking scenario that simulates moving platforms with trajectories, mounted sensors, emitters and signatures, producing ground truth and synthetic detections over time for tracker development and testing.",
+      "usage": "scene = trackingScenario\nscene = trackingScenario(Name=Value)",
+      "parameters": [
+        {"name": "UpdateRate / StopTime", "description": "Simulation rate (Hz) and stop time (s)."},
+        {"name": "IsEarthCentered", "description": "Use Earth-centered (geodetic) coordinates instead of flat Cartesian."}
+      ],
+      "example": "scene = trackingScenario(UpdateRate=10, StopTime=10);\ntgt = platform(scene, Trajectory=waypointTrajectory([0 0 0; 100 50 0], [0 10]));\nradarPlat = platform(scene);\nradarPlat.Sensors = fusionRadarSensor(1, UpdateRate=10, ScanMode=\"No scanning\", FieldOfView=[120 30]);\nwhile advance(scene)\n    dets = detect(scene);\nend",
+      "notes": "record(scene) returns the whole simulation; trackingScenarioRecording replays it. Use theaterPlot for visualization and monteCarloRun for Monte Carlo realizations.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackingscenario.html"
+    },
+    {
+      "name": "waypointTrajectory",
+      "kind": "function",
+      "description": "System object that generates smooth position, orientation, velocity, acceleration and angular velocity samples through waypoints at specified times of arrival. Used for platform motion in scenarios and to drive IMU/GPS sensor simulations.",
+      "usage": "traj = waypointTrajectory(waypoints, timeOfArrival)\ntraj = waypointTrajectory(___, Name=Value)\n[position, orientation, velocity, acceleration, angularVelocity] = traj()",
+      "parameters": [
+        {"name": "waypoints / timeOfArrival", "description": "N-by-3 positions (m) and N-by-1 times (s)."},
+        {"name": "Velocities / Orientation / GroundSpeed", "description": "Optional per-waypoint constraints."},
+        {"name": "SampleRate / SamplesPerFrame", "description": "Output rate and frame size."},
+        {"name": "ReferenceFrame / AutoPitch / AutoBank", "description": "\"NED\" (default) or \"ENU\"; orientation alignment options."}
+      ],
+      "example": "traj = waypointTrajectory([0 0 0; 50 0 0; 50 50 0], [0 10 20], SampleRate=100);\n[p, q, v, a, w] = lookupPose(traj, 0:0.5:20);\nplot(p(:,1), p(:,2))",
+      "notes": "kinematicTrajectory integrates body accelerations/angular rates; geoTrajectory works in geodetic coordinates; polynomialTrajectory uses piecewise polynomials.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/waypointtrajectory-system-object.html"
+    },
+    {
+      "name": "kinematicTrajectory",
+      "kind": "function",
+      "description": "System object that generates a trajectory by integrating body-frame acceleration and angular velocity inputs from an initial pose, producing positions, orientations and velocities in the local navigation frame.",
+      "usage": "traj = kinematicTrajectory(Name=Value)\n[position, orientation, velocity, acceleration, angularVelocity] = traj(bodyAcceleration, bodyAngularVelocity)",
+      "parameters": [
+        {"name": "SampleRate", "description": "Integration rate (Hz)."},
+        {"name": "Position / Velocity / Orientation", "description": "Initial state."}
+      ],
+      "example": "fs = 100;\ntraj = kinematicTrajectory(SampleRate=fs, Velocity=[10 0 0]);\nbodyAcc = zeros(fs, 3);\nbodyW = repmat([0 0 deg2rad(10)], fs, 1);     % 10 deg/s yaw rate\n[pos, orient] = traj(bodyAcc, bodyW);",
+      "notes": "Useful for generating IMU truth consistent with specified dynamics; feed outputs into imuSensor.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/kinematictrajectory-system-object.html"
+    },
+    {
+      "name": "imuSensor",
+      "kind": "function",
+      "description": "System object that simulates an inertial measurement unit (accelerometer, gyroscope and optional magnetometer) with configurable noise, bias, resolution, range, misalignment and temperature effects, from true acceleration, angular velocity and orientation.",
+      "usage": "IMU = imuSensor\nIMU = imuSensor(IMUType, Name=Value)\n[accelReadings, gyroReadings, magReadings] = IMU(acc, angVel, orientation)",
+      "parameters": [
+        {"name": "IMUType", "description": "\"accel-gyro\" (default), \"accel-mag\" or \"accel-gyro-mag\"."},
+        {"name": "Accelerometer / Gyroscope / Magnetometer", "description": "accelparams, gyroparams, magparams objects."},
+        {"name": "SampleRate / ReferenceFrame / MagneticField", "description": "Rate, \"NED\" or \"ENU\", and local field vector."}
+      ],
+      "example": "IMU = imuSensor(\"accel-gyro-mag\", SampleRate=100);\nIMU.Gyroscope = gyroparams(ConstantBias=0.01, NoiseDensity=1e-3);\n[acc, gyro, mag] = IMU(zeros(100,3), repmat([0 0 0.1],100,1), quaternion.ones(100,1));",
+      "notes": "Inputs are in the navigation frame; readings are in the sensor/body frame. Pair with ahrsfilter, imufilter or insEKF to evaluate fusion algorithms.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/imusensor-system-object.html"
+    },
+    {
+      "name": "accelparams",
+      "kind": "function",
+      "description": "Creates an accelerometer parameter object describing measurement range, resolution, constant bias, axes misalignment, noise density, bias instability, random walk and temperature effects, typically taken from a datasheet. gyroparams and magparams are the gyroscope and magnetometer equivalents.",
+      "usage": "params = accelparams(Name=Value)\nparams = gyroparams(Name=Value)\nparams = magparams(Name=Value)",
+      "parameters": [
+        {"name": "MeasurementRange / Resolution", "description": "Range (m/s^2) and LSB size."},
+        {"name": "ConstantBias / AxesMisalignment", "description": "Fixed errors."},
+        {"name": "NoiseDensity / BiasInstability / RandomWalk", "description": "Stochastic error terms."},
+        {"name": "TemperatureBias / TemperatureScaleFactor", "description": "Thermal sensitivity."}
+      ],
+      "example": "acc = accelparams(MeasurementRange=19.62, Resolution=0.00059875, ...\n    ConstantBias=0.4905, NoiseDensity=0.003924);\nIMU = imuSensor(Accelerometer=acc);",
+      "notes": "Estimate noise terms from real data with allanvar.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/accelparams.html"
+    },
+    {
+      "name": "gpsSensor",
+      "kind": "function",
+      "description": "System object simulating a GPS receiver that outputs noisy geodetic position, velocity, groundspeed and course from true local or geodetic position and velocity inputs.",
+      "usage": "GPS = gpsSensor(Name=Value)\n[position, velocity, groundspeed, course] = GPS(truePosition, trueVelocity)",
+      "parameters": [
+        {"name": "SampleRate / ReferenceLocation", "description": "Update rate and origin [lat lon alt] of the local frame."},
+        {"name": "HorizontalPositionAccuracy / VerticalPositionAccuracy / VelocityAccuracy", "description": "Error standard deviations."},
+        {"name": "PositionInputFormat", "description": "\"Local\" (default) or \"Geodetic\"."}
+      ],
+      "example": "gps = gpsSensor(SampleRate=1, ReferenceLocation=[42.3 -71.1 50], ...\n    HorizontalPositionAccuracy=1.5);\n[lla, vel] = gps([10 20 0], [1 0 0]);",
+      "notes": "Includes correlated random-walk error (DecayFactor). Use gnssSensor (Navigation Toolbox) for satellite-level simulation.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/gpssensor-system-object.html"
+    },
+    {
+      "name": "fusionRadarSensor",
+      "kind": "function",
+      "description": "System object generating statistical radar detections (or tracks, or clustered detections) from target poses, modeling field of view, scan patterns, resolution, detection probability, false alarms, RCS and multipath-free propagation.",
+      "usage": "sensor = fusionRadarSensor(sensorIndex, Name=Value)\n[dets, numDets, config] = sensor(targetPoses, simTime)",
+      "parameters": [
+        {"name": "UpdateRate / ScanMode / FieldOfView / MechanicalScanLimits", "description": "Timing and scanning (\"Mechanical\", \"Electronic\", \"No scanning\")."},
+        {"name": "MountingLocation / MountingAngles", "description": "Pose on the platform."},
+        {"name": "DetectionCoordinates", "description": "\"Scenario\", \"Body\", \"Sensor rectangular\" or \"Sensor spherical\"."},
+        {"name": "TargetReportFormat", "description": "\"Clustered detections\", \"Detections\" or \"Tracks\"."}
+      ],
+      "example": "radar = fusionRadarSensor(1, UpdateRate=10, ScanMode=\"No scanning\", ...\n    FieldOfView=[60 20], HasElevation=true, DetectionCoordinates=\"Scenario\");\nplat.Sensors = radar;      % inside a trackingScenario\ndets = detect(scene);",
+      "notes": "Radar Toolbox's radarDataGenerator provides the same interface. Also see irSensor, sonarSensor and monostaticLidarSensor.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/fusionradarsensor-system-object.html"
+    },
+    {
+      "name": "monostaticLidarSensor",
+      "kind": "function",
+      "description": "System object simulating a lidar that generates point clouds from platforms described by extendedObjectMesh geometries, with configurable range, azimuth/elevation limits and resolution. Used to test extended-object tracking and perception.",
+      "usage": "lidar = monostaticLidarSensor(sensorIndex, Name=Value)\n[ptCloud, config, clusters] = lidar(targetMeshes, simTime)",
+      "parameters": [
+        {"name": "UpdateRate / MaxRange / RangeAccuracy", "description": "Timing and range characteristics."},
+        {"name": "AzimuthLimits / ElevationLimits / AzimuthResolution / ElevationResolution", "description": "Scan geometry."},
+        {"name": "MountingLocation / MountingAngles", "description": "Sensor pose."}
+      ],
+      "example": "lidar = monostaticLidarSensor(1, UpdateRate=10, MaxRange=100, ...\n    AzimuthResolution=0.2, ElevationLimits=[-15 15]);\n% attach to a platform whose Mesh is extendedObjectMesh(\"cuboid\")",
+      "notes": "In trackingScenario set platform Mesh and Dimensions, then use lidarDetect(scene) or call the sensor directly.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/monostaticlidarsensor-system-object.html"
+    },
+    {
+      "name": "ecompass",
+      "kind": "function",
+      "description": "Computes orientation from a single accelerometer and magnetometer reading (an electronic compass), assuming the device is static so the accelerometer measures only gravity.",
+      "usage": "orientation = ecompass(accelerometerReading, magnetometerReading)\norientation = ecompass(___, orientationFormat, ReferenceFrame=frame)",
+      "parameters": [
+        {"name": "accelerometerReading / magnetometerReading", "description": "N-by-3 readings in the sensor frame."},
+        {"name": "orientationFormat", "description": "\"quaternion\" (default) or \"rotmat\"."},
+        {"name": "ReferenceFrame", "description": "\"NED\" (default) or \"ENU\"."}
+      ],
+      "example": "q = ecompass([0 0 9.81], [19.5 -5.1 48]);\neulerd(q, \"ZYX\", \"frame\")      % heading, pitch, roll",
+      "notes": "Sensitive to dynamic acceleration and magnetic disturbances; use ahrsfilter or complementaryFilter for moving devices. Calibrate magnetometers with magcal first.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/ecompass.html"
+    },
+    {
+      "name": "complementaryFilter",
+      "kind": "function",
+      "description": "System object estimating orientation by fusing gyroscope integration with accelerometer (and optional magnetometer) corrections through a complementary filter; a lightweight alternative to Kalman-based AHRS.",
+      "usage": "FUSE = complementaryFilter(Name=Value)\n[orientation, angularVelocity] = FUSE(accel, gyro)\n[orientation, angularVelocity] = FUSE(accel, gyro, mag)",
+      "parameters": [
+        {"name": "SampleRate", "description": "Input sample rate (Hz)."},
+        {"name": "AccelerometerGain / MagnetometerGain", "description": "Correction gains in [0,1]."},
+        {"name": "HasMagnetometer / OrientationFormat", "description": "Whether mag input is used; \"quaternion\" or \"Rotation matrix\"."}
+      ],
+      "example": "fuse = complementaryFilter(SampleRate=100, HasMagnetometer=false);\nq = fuse(accelData, gyroData);\neulerd(q(end), \"ZYX\", \"frame\")",
+      "notes": "Lower compute cost than imufilter/ahrsfilter; tune gains to balance gyro drift against accelerometer noise.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/complementaryfilter-system-object.html"
+    },
+    {
+      "name": "insfilterNonholonomic",
+      "kind": "function",
+      "description": "Estimates pose (position, velocity, orientation) of ground vehicles by fusing IMU and GPS data with nonholonomic constraints (no sideways or vertical velocity in the body frame), improving performance during GPS outages.",
+      "usage": "filt = insfilterNonholonomic(Name=Value)\npredict(filt, accel, gyro)\nfusegps(filt, lla, Rpos, gpsVel, Rvel)\n[position, orientation, velocity] = pose(filt)",
+      "parameters": [
+        {"name": "IMUSampleRate / ReferenceLocation", "description": "IMU rate and local-frame origin [lat lon alt]."},
+        {"name": "DecimationFactor", "description": "Rate reduction for applying the nonholonomic constraint."},
+        {"name": "GyroscopeNoise / AccelerometerNoise / ZeroVelocityConstraintNoise", "description": "Noise tuning."}
+      ],
+      "example": "filt = insfilterNonholonomic(IMUSampleRate=100, ReferenceLocation=[42.3 -71.35 0]);\nfor k = 1:size(accel,1)\n    predict(filt, accel(k,:), gyro(k,:));\n    if mod(k,100) == 0\n        fusegps(filt, lla(k/100,:), 1, gpsVel(k/100,:), 0.1);\n    end\nend\n[p, q] = pose(filt);",
+      "notes": "Create filters generically with insfilter. Other variants: insfilterMARG, insfilterAsync, insfilterErrorState; insEKF is the configurable framework.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/insfilternonholonomic.html"
+    },
+    {
+      "name": "insfilterAsync",
+      "kind": "function",
+      "description": "Estimates pose from asynchronous accelerometer, gyroscope, magnetometer and GPS measurements with a continuous-discrete extended Kalman filter, where each sensor can be fused whenever its data arrives.",
+      "usage": "filt = insfilterAsync(Name=Value)\npredict(filt, dt)\nfuseaccel(filt, accel, Racc); fusegyro(filt, gyro, Rgyro); fusemag(filt, mag, Rmag)\nfusegps(filt, lla, Rpos, vel, Rvel)",
+      "parameters": [
+        {"name": "ReferenceLocation / ReferenceFrame", "description": "Local frame origin and \"NED\"/\"ENU\"."},
+        {"name": "State / StateCovariance", "description": "Initial state (orientation, rates, position, velocity, biases, geomagnetic field)."}
+      ],
+      "example": "filt = insfilterAsync(ReferenceLocation=[42.3 -71.35 0]);\npredict(filt, 0.01);\nfuseaccel(filt, [0 0 -9.81], 1);\nfusegyro(filt, [0 0 0], 1e-3);\n[p, q] = pose(filt);",
+      "notes": "Use tune with tunerconfig to optimize noise parameters from ground-truth data.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/insfilterasync.html"
+    },
+    {
+      "name": "insEKF",
+      "kind": "function",
+      "description": "Configurable inertial navigation extended Kalman filter built from sensor model objects (insAccelerometer, insGyroscope, insMagnetometer, insGPS or custom) and a motion model (insMotionOrientation, insMotionPose or custom). Supports batch estimation and automatic noise tuning.",
+      "usage": "filt = insEKF\nfilt = insEKF(sensor1, ..., sensorN, motionModel)\nfilt = insEKF(___, options)",
+      "parameters": [
+        {"name": "sensors", "description": "insAccelerometer, insGyroscope, insMagnetometer, insGPS or positioning.INSSensorModel subclasses."},
+        {"name": "motionModel", "description": "insMotionOrientation (default) or insMotionPose."},
+        {"name": "options", "description": "insOptions (SensorNamesSource, ReferenceFrame, Datatype)."}
+      ],
+      "example": "filt = insEKF(insAccelerometer, insGyroscope, insMagnetometer);\npredict(filt, 0.01);\nfuse(filt, filt.Sensors{1}, [0 0 -9.81], 0.1);\nq = quaternion(stateparts(filt, \"Orientation\"))",
+      "notes": "estimateStates processes a timetable of sensor data in one call; tune optimizes noise with ground truth. insCreateSensorModelTemplate scaffolds custom sensors.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/insekf.html"
+    },
+    {
+      "name": "magcal",
+      "kind": "function",
+      "description": "Computes magnetometer calibration coefficients (soft-iron correction matrix A and hard-iron offset b) from raw readings collected while rotating the sensor, so that corrected data lies on a sphere.",
+      "usage": "[A, b, expmfs] = magcal(D)\n[A, b, expmfs] = magcal(D, fitkind)",
+      "parameters": [
+        {"name": "D", "description": "N-by-3 raw magnetometer data."},
+        {"name": "fitkind", "description": "\"eye\" (hard iron only), \"diag\", \"sym\" or \"auto\" (default)."}
+      ],
+      "example": "[A, b, mfs] = magcal(rawMag);\nmagCal = (rawMag - b) * A;\nscatter3(magCal(:,1), magCal(:,2), magCal(:,3), \".\"); axis equal",
+      "notes": "Collect data covering all orientations. accelcal provides accelerometer calibration.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/magcal.html"
+    },
+    {
+      "name": "allanvar",
+      "kind": "function",
+      "description": "Computes the Allan variance of inertial sensor data over averaging times, used to identify noise terms (angle random walk, bias instability, rate random walk) for gyroscope and accelerometer models.",
+      "usage": "[avar, tau] = allanvar(Omega)\n[avar, tau] = allanvar(Omega, m)\n[avar, tau] = allanvar(Omega, m, fs)",
+      "parameters": [
+        {"name": "Omega", "description": "N-by-M sensor data (e.g. static gyro rates)."},
+        {"name": "m", "description": "Cluster sizes (samples) or \"octave\" (default)."},
+        {"name": "fs", "description": "Sample rate (Hz)."}
+      ],
+      "example": "fs = 100;\n[avar, tau] = allanvar(gyroStatic(:,1), \"octave\", fs);\nloglog(tau, sqrt(avar)); grid on\nxlabel(\"\\tau (s)\"); ylabel(\"Allan deviation\")",
+      "notes": "Record hours of static data for reliable long-tau estimates. Map the fitted terms to gyroparams NoiseDensity, BiasInstability and RandomWalk.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/allanvar.html"
+    },
+    {
+      "name": "theaterPlot",
+      "kind": "function",
+      "description": "Creates a theater plot for visualizing tracking scenarios: platforms, trajectories, sensor coverage, detections, tracks and covariances, using dedicated plotter objects that are updated each time step.",
+      "usage": "tp = theaterPlot(Name=Value)\nplatP = platformPlotter(tp); detP = detectionPlotter(tp); trkP = trackPlotter(tp)",
+      "parameters": [
+        {"name": "XLimits / YLimits / ZLimits / Parent", "description": "Axes limits and parent axes."},
+        {"name": "Plotters", "description": "platformPlotter, trajectoryPlotter, coveragePlotter, detectionPlotter, trackPlotter, orientationPlotter."}
+      ],
+      "example": "tp = theaterPlot(XLimits=[0 120], YLimits=[-20 80]);\ndetP = detectionPlotter(tp, DisplayName=\"Detections\");\ntrkP = trackPlotter(tp, DisplayName=\"Tracks\", ConnectHistory=\"on\");\nplotDetection(detP, [10 5 0; 20 8 0]);\nplotTrack(trkP, [15 6 0], eye(3), \"T1\");",
+      "notes": "trackingGlobeViewer offers Earth-centered visualization; poseplot shows 3-D orientation.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/theaterplot.html"
+    },
+    {
+      "name": "poseplot",
+      "kind": "function",
+      "description": "Plots a 3-D pose (orientation and position) as a patch object, by default an airplane-like shape, that can be updated in a loop to animate orientation estimates from fusion filters.",
+      "usage": "poseplot\nposeplot(orientation)\nposeplot(orientation, position)\nposeplot(___, frame, Name=Value)\npp = poseplot(___)",
+      "parameters": [
+        {"name": "orientation", "description": "quaternion, rotation matrix or so3 object."},
+        {"name": "position", "description": "[x y z] position."},
+        {"name": "frame", "description": "\"NED\" (default) or \"ENU\"."},
+        {"name": "MeshFileName / PatchFaceColor / ScaleFactor", "description": "Custom STL mesh and appearance."}
+      ],
+      "example": "q = quaternion([30 10 0], \"eulerd\", \"ZYX\", \"frame\");\npp = poseplot(q);\nfor k = 1:90\n    pp.Orientation = q * quaternion([k 0 0], \"eulerd\", \"ZYX\", \"frame\");\n    drawnow\nend",
+      "notes": "Also available in Navigation and Robotics System Toolboxes.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/poseplot.html"
+    },
+    {
+      "name": "trackGOSPAMetric",
+      "kind": "function",
+      "description": "System object computing the generalized optimal subpattern assignment (GOSPA) metric between tracks and truths, combining localization error, missed targets and false tracks into a single score (with component breakdown).",
+      "usage": "gospaObj = trackGOSPAMetric(Name=Value)\n[gospa, info] = gospaObj(tracks, truths)",
+      "parameters": [
+        {"name": "CutoffDistance", "description": "Maximum distance before an assignment counts as miss/false (default 30)."},
+        {"name": "Order / Alpha", "description": "Metric order p and alpha parameter (default 2)."},
+        {"name": "Distance", "description": "\"posnees\", \"velnees\", \"posabserr\", \"velabserr\" or \"custom\"."}
+      ],
+      "example": "gospaObj = trackGOSPAMetric(Distance=\"posabserr\", CutoffDistance=10);\ntruths = platformPoses(scene);\ngospa = gospaObj(confirmedTracks, truths);",
+      "notes": "trackOSPAMetric, trackErrorMetrics, trackAssignmentMetrics and trackCLEARMetrics provide other assessment views.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackgospametric-system-object.html"
+    },
+    {
+      "name": "trackErrorMetrics",
+      "kind": "function",
+      "description": "System object computing track accuracy metrics (RMS position/velocity error, NEES) between assigned tracks and truths per step and cumulatively, commonly paired with trackAssignmentMetrics.",
+      "usage": "tem = trackErrorMetrics(Name=Value)\n[posRMS, velRMS, posANEES, velANEES] = tem(tracks, trackIDs, truths, truthIDs)",
+      "parameters": [
+        {"name": "ErrorFunctionFormat", "description": "\"built-in\" (default) or \"custom\"."},
+        {"name": "MotionModel", "description": "\"constvel\", \"constacc\", \"constturn\" or \"singer\" for built-in error functions."}
+      ],
+      "example": "tam = trackAssignmentMetrics;\ntem = trackErrorMetrics;\n[trackAM, truthAM] = tam(tracks, truths);\n[trackIDs, truthIDs] = currentAssignment(tam);\n[posRMS, velRMS] = tem(tracks, trackIDs, truths, truthIDs);\ncumulativeTruthMetrics(tem)",
+      "notes": "NEES near the state dimension indicates a consistent (well-tuned) filter.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/trackerrormetrics-system-object.html"
+    },
+    {
+      "name": "staticDetectionFuser",
+      "kind": "function",
+      "description": "System object that fuses synchronous detections from multiple sensors (e.g. angle-only or range-only) into higher-dimensional super-detections, for example triangulating line-of-sight measurements into 3-D positions.",
+      "usage": "fuser = staticDetectionFuser(Name=Value)\n[superDets, info] = fuser(detections)",
+      "parameters": [
+        {"name": "MeasurementFusionFcn", "description": "Fusion function, default @triangulateLOS."},
+        {"name": "MaxNumSensors / MeasurementFormat", "description": "Sensor count and output format (\"Position\", \"Velocity\", \"PositionAndVelocity\", \"Custom\")."},
+        {"name": "Volume / DetectionProbability", "description": "Sensor volume and Pd used in association likelihoods."}
+      ],
+      "example": "fuser = staticDetectionFuser(MaxNumSensors=3, MeasurementFusionFcn=@triangulateLOS);\nsuperDets = fuser(allAngleOnlyDets);\ntracks = tracker(superDets, t);",
+      "notes": "Typical in passive ESM or IR networks; feed the fused detections into a tracker.",
+      "docs": "https://www.mathworks.com/help/fusion/ref/staticdetectionfuser-system-object.html"
+    }
+  ]
+}

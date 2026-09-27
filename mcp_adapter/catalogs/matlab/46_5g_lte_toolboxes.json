@@ -1,0 +1,542 @@
+{
+  "category": "5G Toolbox & LTE Toolbox > Carriers, Physical Channels, Channel Models, Coding & Waveform Generation",
+  "description": "Standard-compliant 3GPP NR (5G) and LTE physical-layer functions: carrier and channel configuration objects, PDSCH/PUSCH and transport-channel processing, OFDM modulation, TDL/CDL fading channels, channel estimation and equalization, LDPC/polar coding, synchronization signals, and end-to-end waveform generators.",
+  "tools": [
+    {
+      "name": "nrCarrierConfig",
+      "kind": "function",
+      "description": "Configuration object describing an NR carrier: cell ID, subcarrier spacing, number of resource blocks, cyclic prefix and the current slot/frame counters. It is passed to nearly every 5G Toolbox physical-layer function (nrResourceGrid, nrOFDMModulate, nrPDSCHIndices, nrTDLChannel info, channel estimators).",
+      "usage": "carrier = nrCarrierConfig\ncarrier = nrCarrierConfig(Name=Value)",
+      "parameters": [
+        {"name": "NCellID", "description": "Physical cell identity 0..1007 (default 1)."},
+        {"name": "SubcarrierSpacing", "description": "15, 30, 60, 120, 240 (or 480/960 in later releases) kHz."},
+        {"name": "CyclicPrefix", "description": "'normal' or 'extended' (60 kHz only)."},
+        {"name": "NSizeGrid / NStartGrid", "description": "Number of RBs and starting RB of the carrier grid."},
+        {"name": "NSlot / NFrame", "description": "Current slot and frame numbers used by scrambling and DM-RS generation."}
+      ],
+      "example": "carrier = nrCarrierConfig(NCellID=42, SubcarrierSpacing=30, NSizeGrid=51);\ninfo = nrOFDMInfo(carrier);   % SampleRate, Nfft, SymbolsPerSlot ...\ngrid = nrResourceGrid(carrier, 2);   % 2 antenna ports",
+      "notes": "Read-only dependent properties such as SymbolsPerSlot and SlotsPerFrame are derived from the numerology. Increment carrier.NSlot inside slot loops.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrcarrierconfig.html"
+    },
+    {
+      "name": "nrPDSCHConfig",
+      "kind": "function",
+      "description": "Configuration object for a physical downlink shared channel allocation: modulation, layers, PRB and symbol allocation, mapping type, DM-RS (nrPDSCHDMRSConfig) and PT-RS settings, scrambling identities and reserved resources. Used by nrPDSCHIndices, nrPDSCH, nrPDSCHDMRS and nrPDSCHDecode.",
+      "usage": "pdsch = nrPDSCHConfig\npdsch = nrPDSCHConfig(Name=Value)",
+      "parameters": [
+        {"name": "Modulation", "description": "'QPSK', '16QAM', '64QAM', '256QAM' (or '1024QAM' in later releases); cell array per codeword."},
+        {"name": "NumLayers", "description": "1..8 transmission layers."},
+        {"name": "PRBSet", "description": "0-based PRB indices within the BWP."},
+        {"name": "SymbolAllocation", "description": "[start length] OFDM symbols."},
+        {"name": "MappingType", "description": "'A' or 'B'."},
+        {"name": "DMRS", "description": "nrPDSCHDMRSConfig object (DMRSConfigurationType, DMRSLength, DMRSAdditionalPosition, ...)."},
+        {"name": "NID / RNTI", "description": "Scrambling identity and radio network temporary identifier."}
+      ],
+      "example": "pdsch = nrPDSCHConfig(Modulation='64QAM', NumLayers=2, PRBSet=0:50, SymbolAllocation=[2 12]);\npdsch.DMRS.DMRSAdditionalPosition = 1;\n[ind, info] = nrPDSCHIndices(carrier, pdsch);   % info.G = number of coded bits",
+      "notes": "Companion objects: nrPUSCHConfig for the uplink, nrPDCCHConfig, nrCSIRSConfig, nrSRSConfig, nrPRACHConfig.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpdschconfig.html"
+    },
+    {
+      "name": "nrPDSCHIndices",
+      "kind": "function",
+      "description": "Generates the 1-based linear resource-element indices (per layer) of a PDSCH allocation in the carrier resource grid, skipping DM-RS, PT-RS and reserved REs, plus an info struct giving the number of coded bits G and bits per RE. The indices are used to map nrPDSCH symbols into the grid and to extract received symbols.",
+      "usage": "[ind, info] = nrPDSCHIndices(carrier, pdsch)\n[ind, info] = nrPDSCHIndices(carrier, pdsch, Name=Value)",
+      "parameters": [
+        {"name": "carrier", "description": "nrCarrierConfig."},
+        {"name": "pdsch", "description": "nrPDSCHConfig."},
+        {"name": "'IndexStyle'", "description": "'index' (linear, default) or 'subscript'."},
+        {"name": "'IndexBase'", "description": "'1based' or '0based'."},
+        {"name": "info.G / info.Gd", "description": "Coded bits per codeword / symbols per layer."}
+      ],
+      "example": "[pdschInd, pdschInfo] = nrPDSCHIndices(carrier, pdsch);\ngrid = nrResourceGrid(carrier, pdsch.NumLayers);\ngrid(pdschInd) = pdschSymbols;",
+      "notes": "Call nrPDSCHDMRSIndices and nrPDSCHDMRS to place reference signals in the same grid.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpdschindices.html"
+    },
+    {
+      "name": "nrPDSCH",
+      "kind": "function",
+      "description": "Performs PDSCH physical-channel processing on codeword bits: scrambling, symbol modulation and layer mapping, returning modulated symbols per layer ready for precoding and resource mapping. The inverse (demodulation/descrambling to soft bits) is nrPDSCHDecode.",
+      "usage": "sym = nrPDSCH(carrier, pdsch, cws)\nsym = nrPDSCH(carrier, pdsch, cws, Name=Value)",
+      "parameters": [
+        {"name": "cws", "description": "Codeword bits (column vector, or cell array of two for >4 layers), typically output of nrDLSCH."},
+        {"name": "'OutputDataType'", "description": "'double' or 'single'."}
+      ],
+      "example": "encodeDLSCH = nrDLSCH(TargetCodeRate=0.5);\nsetTransportBlock(encodeDLSCH, randi([0 1], tbs, 1));\ncw = encodeDLSCH(pdsch.Modulation, pdsch.NumLayers, pdschInfo.G, 0);   % RV 0\nsym = nrPDSCH(carrier, pdsch, cw);",
+      "notes": "Precoding is not included; apply a precoding matrix W with sym*W before mapping when NumLayers < number of antennas.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpdsch.html"
+    },
+    {
+      "name": "nrPDSCHDecode",
+      "kind": "function",
+      "description": "Decodes received PDSCH symbols (after channel equalization) into soft bits: layer demapping, soft demodulation using the noise variance, and descrambling. Its output feeds nrDLSCHDecoder for rate recovery, LDPC decoding and CRC checks.",
+      "usage": "[cws, symbols] = nrPDSCHDecode(carrier, pdsch, sym, nVar)",
+      "parameters": [
+        {"name": "sym", "description": "Equalized received symbols, one column per layer."},
+        {"name": "nVar", "description": "Noise variance estimate (from nrChannelEstimate)."},
+        {"name": "cws", "description": "Cell array of soft-bit (LLR) codewords."}
+      ],
+      "example": "[eqSym, csi] = nrEqualizeMMSE(rxSym, Hest, nVar);\n[dlschLLRs, rxSymbols] = nrPDSCHDecode(carrier, pdsch, eqSym, nVar);\ndecodeDLSCH = nrDLSCHDecoder(TargetCodeRate=0.5, TransportBlockLength=tbs);\n[bits, blkerr] = decodeDLSCH(dlschLLRs, pdsch.Modulation, pdsch.NumLayers, 0);",
+      "notes": "Scale the LLRs by CSI (csi from nrEqualizeMMSE) before decoding to improve LDPC performance, as in the shipped examples.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpdschdecode.html"
+    },
+    {
+      "name": "nrPDSCHDMRS",
+      "kind": "function",
+      "description": "Generates the demodulation reference signal symbols for a PDSCH configuration (Gold-sequence based, per DM-RS port and CDM group), and nrPDSCHDMRSIndices gives the matching resource-element indices. The receiver uses the same symbols as the reference for nrChannelEstimate.",
+      "usage": "sym = nrPDSCHDMRS(carrier, pdsch)\n[sym, ind] = deal(nrPDSCHDMRS(carrier, pdsch), nrPDSCHDMRSIndices(carrier, pdsch))",
+      "parameters": [
+        {"name": "carrier, pdsch", "description": "nrCarrierConfig and nrPDSCHConfig (DMRS sub-object controls type, length, additional positions, NIDNSCID, NSCID)."},
+        {"name": "'OutputDataType'", "description": "'double' or 'single'."}
+      ],
+      "example": "dmrsSym = nrPDSCHDMRS(carrier, pdsch);\ndmrsInd = nrPDSCHDMRSIndices(carrier, pdsch);\ngrid(dmrsInd) = dmrsSym;\n% receiver:\n[Hest, nVar] = nrChannelEstimate(carrier, rxGrid, dmrsInd, dmrsSym);",
+      "notes": "Uplink equivalents: nrPUSCHDMRS / nrPUSCHDMRSIndices. Phase-tracking RS: nrPDSCHPTRS.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpdschdmrs.html"
+    },
+    {
+      "name": "nrDLSCH",
+      "kind": "function",
+      "description": "System object implementing the downlink shared channel transport processing: CRC attachment, LDPC base-graph selection, code-block segmentation, LDPC encoding, rate matching with HARQ redundancy versions and code-block concatenation. Set the transport block with setTransportBlock, then call the object per redundancy version.",
+      "usage": "encodeDLSCH = nrDLSCH(Name=Value)\nsetTransportBlock(encodeDLSCH, trBlk)\nsetTransportBlock(encodeDLSCH, trBlk, cwIdx)\ncw = encodeDLSCH(mod, nlayers, outlen, rv)",
+      "parameters": [
+        {"name": "TargetCodeRate", "description": "Code rate used for LDPC base graph selection (default 0.5133)."},
+        {"name": "MultipleHARQProcesses", "description": "true to keep buffers per HARQ process; then pass harqID as last argument."},
+        {"name": "LimitedBufferSize", "description": "Limited-buffer rate matching size."},
+        {"name": "outlen", "description": "Codeword length G from nrPDSCHIndices."},
+        {"name": "rv", "description": "Redundancy version 0..3."}
+      ],
+      "example": "tbs = nrTBS(pdsch.Modulation, pdsch.NumLayers, numel(pdsch.PRBSet), pdschInfo.NREPerPRB, 0.5);\nencodeDLSCH = nrDLSCH(TargetCodeRate=0.5);\nsetTransportBlock(encodeDLSCH, randi([0 1], tbs, 1));\ncw = encodeDLSCH(pdsch.Modulation, pdsch.NumLayers, pdschInfo.G, 0);",
+      "notes": "Decoder counterpart: nrDLSCHDecoder (with TransportBlockLength and resetSoftBuffer). Uplink: nrULSCH / nrULSCHDecoder. Function-level building blocks: nrCRCEncode, nrCodeBlockSegmentLDPC, nrLDPCEncode, nrRateMatchLDPC.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrdlsch-system-object.html"
+    },
+    {
+      "name": "nrDLSCHDecoder",
+      "kind": "function",
+      "description": "System object that reverses nrDLSCH: rate recovery with HARQ soft combining across retransmissions, LDPC decoding (belief propagation variants with configurable iterations), code-block desegmentation and CRC checking, returning the decoded transport block and a block-error flag.",
+      "usage": "decodeDLSCH = nrDLSCHDecoder(Name=Value)\n[trblk, blkerr] = decodeDLSCH(cw, mod, nlayers, rv)\n[trblk, blkerr] = decodeDLSCH(cw, mod, nlayers, rv, harqID)\nresetSoftBuffer(decodeDLSCH, cwIdx, harqID)",
+      "parameters": [
+        {"name": "TargetCodeRate", "description": "Must match the encoder."},
+        {"name": "TransportBlockLength", "description": "Expected TBS in bits."},
+        {"name": "LDPCDecodingAlgorithm", "description": "'Belief propagation', 'Layered belief propagation', 'Normalized min-sum', 'Offset min-sum'."},
+        {"name": "MaximumLDPCIterationCount", "description": "Default 6; more improves BLER at cost of time."},
+        {"name": "MultipleHARQProcesses", "description": "Keep separate soft buffers per HARQ ID."}
+      ],
+      "example": "decodeDLSCH = nrDLSCHDecoder(TargetCodeRate=0.5, TransportBlockLength=tbs, MaximumLDPCIterationCount=12);\n[rxBits, blkerr] = decodeDLSCH(dlschLLRs, pdsch.Modulation, pdsch.NumLayers, 0);\nif ~blkerr, resetSoftBuffer(decodeDLSCH, 0); end",
+      "notes": "Call resetSoftBuffer after a successful decode or when a new transport block starts, otherwise stale soft bits are combined.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrdlschdecoder-system-object.html"
+    },
+    {
+      "name": "nrPUSCHConfig",
+      "kind": "function",
+      "description": "Configuration object for the physical uplink shared channel, mirroring nrPDSCHConfig with uplink-specific options: transform precoding (DFT-s-OFDM), codebook-based precoding (TPMI, NumAntennaPorts), frequency hopping, UCI multiplexing and PUSCH DM-RS/PT-RS settings. Used by nrPUSCHIndices, nrPUSCH, nrPUSCHDMRS and nrPUSCHDecode.",
+      "usage": "pusch = nrPUSCHConfig\npusch = nrPUSCHConfig(Name=Value)",
+      "parameters": [
+        {"name": "Modulation, NumLayers, PRBSet, SymbolAllocation, MappingType", "description": "As for PDSCH (pi/2-BPSK additionally allowed with transform precoding)."},
+        {"name": "TransformPrecoding", "description": "true for DFT-s-OFDM."},
+        {"name": "TransmissionScheme", "description": "'nonCodebook' or 'codebook' (with NumAntennaPorts and TPMI)."},
+        {"name": "FrequencyHopping", "description": "'neither', 'intraSlot', 'interSlot'."},
+        {"name": "DMRS", "description": "nrPUSCHDMRSConfig."}
+      ],
+      "example": "pusch = nrPUSCHConfig(Modulation='16QAM', NumLayers=1, PRBSet=0:24, TransformPrecoding=true);\n[ind, info] = nrPUSCHIndices(carrier, pusch);\nencodeULSCH = nrULSCH(TargetCodeRate=0.4);\nsetTransportBlock(encodeULSCH, randi([0 1], nrTBS(pusch.Modulation, 1, 25, info.NREPerPRB, 0.4), 1));\ncw = encodeULSCH(pusch.Modulation, 1, info.G, 0);\nsym = nrPUSCH(carrier, pusch, cw);",
+      "notes": "nrPUSCH applies transform precoding and codebook precoding when configured; nrPUSCHDecode reverses them.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpuschconfig.html"
+    },
+    {
+      "name": "nrResourceGrid",
+      "kind": "function",
+      "description": "Creates an empty (all-zero) resource grid for one slot of a carrier: subcarriers x OFDM symbols x antenna ports (or layers), sized from the carrier numerology. Fill it using indices from nrPDSCHIndices, nrPDSCHDMRSIndices, nrCSIRSIndices etc., then OFDM-modulate with nrOFDMModulate.",
+      "usage": "grid = nrResourceGrid(carrier)\ngrid = nrResourceGrid(carrier, nports)\ngrid = nrResourceGrid(___, 'OutputDataType', 'single')",
+      "parameters": [
+        {"name": "carrier", "description": "nrCarrierConfig (NSizeGrid*12 subcarriers, SymbolsPerSlot symbols)."},
+        {"name": "nports", "description": "Third dimension size (antenna ports or layers), default 1."}
+      ],
+      "example": "grid = nrResourceGrid(carrier, 4);\nsize(grid)     % [612 14 4] for 51 RB, normal CP",
+      "notes": "Multi-slot grids are usually built by concatenating slot grids along the second dimension before nrOFDMModulate.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrresourcegrid.html"
+    },
+    {
+      "name": "nrOFDMModulate",
+      "kind": "function",
+      "description": "OFDM-modulates a resource grid (one or more slots) into a time-domain waveform using the carrier numerology: IFFT with the standard subcarrier mapping, cyclic prefix insertion (including the longer CP of the first symbol per half-subframe) and optional windowing/carrier frequency offset. Returns the waveform and an info struct with sample rate and CP lengths.",
+      "usage": "[waveform, info] = nrOFDMModulate(carrier, grid)\n[waveform, info] = nrOFDMModulate(carrier, grid, Name=Value)\n[waveform, info] = nrOFDMModulate(grid, scs, initialNSlot, Name=Value)",
+      "parameters": [
+        {"name": "grid", "description": "K-by-N-by-P resource grid (K = 12*NSizeGrid)."},
+        {"name": "'Nfft'", "description": "IFFT size (default chosen from grid size)."},
+        {"name": "'SampleRate'", "description": "Alternative to Nfft."},
+        {"name": "'Windowing'", "description": "Number of time-domain windowing samples."},
+        {"name": "'CarrierFrequency'", "description": "Applies phase pre-compensation per TS 38.211."}
+      ],
+      "example": "[txWaveform, ofdmInfo] = nrOFDMModulate(carrier, grid);\nfs = ofdmInfo.SampleRate;\nrxGrid = nrOFDMDemodulate(carrier, rxWaveform);",
+      "notes": "nrOFDMInfo returns the same parameters without modulating. Use nrTimingEstimate before nrOFDMDemodulate on received waveforms.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrofdmmodulate.html"
+    },
+    {
+      "name": "nrOFDMDemodulate",
+      "kind": "function",
+      "description": "OFDM-demodulates a time-domain waveform back into a resource grid for the carrier numerology, removing cyclic prefixes and applying the FFT with the standard CP fraction sampling offset. Used at the receiver after timing synchronization and channel filtering.",
+      "usage": "grid = nrOFDMDemodulate(carrier, waveform)\ngrid = nrOFDMDemodulate(carrier, waveform, Name=Value)\ngrid = nrOFDMDemodulate(waveform, nrb, scs, initialNSlot, Name=Value)",
+      "parameters": [
+        {"name": "waveform", "description": "T-by-R matrix of received samples (R receive antennas)."},
+        {"name": "'CyclicPrefixFraction'", "description": "Position of the FFT window in the CP (default 0.5)."},
+        {"name": "'Nfft' / 'SampleRate'", "description": "Must match the transmitter."},
+        {"name": "'CarrierFrequency'", "description": "Phase de-compensation."}
+      ],
+      "example": "offset = nrTimingEstimate(carrier, rxWaveform, dmrsInd, dmrsSym);\nrxWaveform = rxWaveform(1+offset:end, :);\nrxGrid = nrOFDMDemodulate(carrier, rxWaveform);",
+      "notes": "The number of output symbols is floor of the samples available; pad the waveform with zeros to keep a whole number of slots.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrofdmdemodulate.html"
+    },
+    {
+      "name": "nrTDLChannel",
+      "kind": "function",
+      "description": "System object implementing the TR 38.901 tapped delay line MIMO fading channel (profiles TDL-A to TDL-E, or custom) with configurable delay spread, Doppler, antenna counts, MIMO correlation and polarization. Returns the faded waveform plus path gains and sample times for perfect channel estimation.",
+      "usage": "tdl = nrTDLChannel\ntdl = nrTDLChannel(Name=Value)\n[rxWaveform, pathGains, sampleTimes] = tdl(txWaveform)\nchInfo = info(tdl)",
+      "parameters": [
+        {"name": "DelayProfile", "description": "'TDL-A'..'TDL-E', 'TDLA30', 'TDLB100', 'TDLC300', 'Custom'."},
+        {"name": "DelaySpread", "description": "RMS delay spread in s (default 30e-9)."},
+        {"name": "MaximumDopplerShift", "description": "Hz (default 5)."},
+        {"name": "NumTransmitAntennas / NumReceiveAntennas", "description": "MIMO size."},
+        {"name": "MIMOCorrelation", "description": "'Low', 'Medium', 'High', 'Custom'."},
+        {"name": "SampleRate", "description": "Waveform sample rate."},
+        {"name": "Seed", "description": "Fading generator seed for repeatability."}
+      ],
+      "example": "tdl = nrTDLChannel(DelayProfile='TDL-C', DelaySpread=300e-9, MaximumDopplerShift=50, NumTransmitAntennas=2, NumReceiveAntennas=2);\ntdl.SampleRate = ofdmInfo.SampleRate;\n[rxWave, pathGains, sampleTimes] = tdl(txWaveform);\npathFilters = getPathFilters(tdl);\n[offset, mag] = nrPerfectTimingEstimate(pathGains, pathFilters);\nHest = nrPerfectChannelEstimate(carrier, pathGains, pathFilters, offset, sampleTimes);",
+      "notes": "Pad the input with maximum channel delay samples (info(tdl).MaximumChannelDelay) so the last symbols are flushed. nrCDLChannel is the geometry-based alternative with antenna arrays.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrtdlchannel-system-object.html"
+    },
+    {
+      "name": "nrCDLChannel",
+      "kind": "function",
+      "description": "System object implementing the TR 38.901 clustered delay line channel (CDL-A to CDL-E and NTN profiles) with explicit transmit/receive antenna array geometry, cluster angles, polarization and Doppler, suitable for beamforming and massive-MIMO link simulations. Provides path gains and OFDM channel responses like nrTDLChannel.",
+      "usage": "cdl = nrCDLChannel\ncdl = nrCDLChannel(Name=Value)\n[rxWaveform, pathGains, sampleTimes] = cdl(txWaveform)\n[ofdmResponse, timingOffset] = cdl(carrier)     % ChannelFiltering=false",
+      "parameters": [
+        {"name": "DelayProfile", "description": "'CDL-A'..'CDL-E', 'NTN-CDL-A'..'D', 'Custom'."},
+        {"name": "DelaySpread, MaximumDopplerShift, CarrierFrequency", "description": "Physical parameters (defaults 30 ns, 5 Hz, 4 GHz)."},
+        {"name": "TransmitAntennaArray / ReceiveAntennaArray", "description": "Struct (Size=[M N P Mg Ng], ElementSpacing, PolarizationAngles, Element) or Phased Array System Toolbox array."},
+        {"name": "ChannelFiltering", "description": "false to obtain path gains without filtering a waveform."},
+        {"name": "SampleRate, Seed", "description": "As for nrTDLChannel."}
+      ],
+      "example": "cdl = nrCDLChannel(DelayProfile='CDL-B', DelaySpread=100e-9, MaximumDopplerShift=30, CarrierFrequency=3.5e9);\ncdl.TransmitAntennaArray.Size = [2 4 2 1 1];   % 16 elements, dual-polarized\ncdl.ReceiveAntennaArray.Size = [1 2 2 1 1];\ncdl.SampleRate = fs;\n[rxWave, pathGains, sampleTimes] = cdl(txWave);\ndisplayChannel(cdl)",
+      "notes": "Object functions: info, getPathFilters, displayChannel, swapTransmitAndReceive, reset, release. Number of transmit antennas is prod(TransmitAntennaArray.Size).",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrcdlchannel-system-object.html"
+    },
+    {
+      "name": "nrPerfectChannelEstimate",
+      "kind": "function",
+      "description": "Computes the ideal channel estimate in the resource grid domain (subcarriers x symbols x Rx x Tx) from the path gains and path filters returned by nrTDLChannel/nrCDLChannel, using the timing offset. Used to isolate receiver algorithm performance from channel-estimation error.",
+      "usage": "H = nrPerfectChannelEstimate(carrier, pathGains, pathFilters)\nH = nrPerfectChannelEstimate(carrier, pathGains, pathFilters, offset)\nH = nrPerfectChannelEstimate(carrier, pathGains, pathFilters, offset, sampleTimes)\nH = nrPerfectChannelEstimate(pathGains, pathFilters, nrb, scs, initialNSlot, ...)",
+      "parameters": [
+        {"name": "pathGains", "description": "Ns-by-Np-by-Nt-by-Nr array from the channel object."},
+        {"name": "pathFilters", "description": "Nh-by-Np from getPathFilters(channel)."},
+        {"name": "offset", "description": "Timing offset in samples (nrPerfectTimingEstimate)."},
+        {"name": "sampleTimes", "description": "Time of each path-gain sample."}
+      ],
+      "example": "pathFilters = getPathFilters(tdl);\n[offset, mag] = nrPerfectTimingEstimate(pathGains, pathFilters);\nHest = nrPerfectChannelEstimate(carrier, pathGains, pathFilters, offset, sampleTimes);\nnVar = 10^(-snrdB/10);",
+      "notes": "Practical (reference-signal-based) estimation is done with nrChannelEstimate.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrperfectchannelestimate.html"
+    },
+    {
+      "name": "nrChannelEstimate",
+      "kind": "function",
+      "description": "Practical channel estimation from received resource grid and known reference symbols (DM-RS, CSI-RS, SRS): least-squares estimates at RS locations, optional CDM despreading and averaging, then interpolation across the grid; also returns a noise-variance estimate for MMSE equalization and soft demodulation.",
+      "usage": "[H, nVar] = nrChannelEstimate(carrier, rxGrid, refInd, refSym)\n[H, nVar, info] = nrChannelEstimate(carrier, rxGrid, refInd, refSym, Name=Value)\n[H, nVar] = nrChannelEstimate(carrier, rxGrid, pdsch)   % uses PDSCH DM-RS",
+      "parameters": [
+        {"name": "refInd, refSym", "description": "Reference-signal indices and symbols (e.g. nrPDSCHDMRSIndices / nrPDSCHDMRS)."},
+        {"name": "'CDMLengths'", "description": "[F T] CDM despreading lengths (info from nrPDSCHDMRSConfig)."},
+        {"name": "'AveragingWindow'", "description": "[F T] frequency/time averaging window sizes."},
+        {"name": "'CyclicPrefix'", "description": "For the syntax without carrier."}
+      ],
+      "example": "[Hest, nVar] = nrChannelEstimate(carrier, rxGrid, dmrsInd, dmrsSym, CDMLengths=pdsch.DMRS.CDMLengths);\n[pdschRx, pdschHest] = nrExtractResources(pdschInd, rxGrid, Hest);\n[eq, csi] = nrEqualizeMMSE(pdschRx, pdschHest, nVar);",
+      "notes": "nrExtractResources pulls the REs of a channel from the grid and estimate together; nrTimingEstimate provides the sample offset beforehand.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrchannelestimate.html"
+    },
+    {
+      "name": "nrTimingEstimate",
+      "kind": "function",
+      "description": "Estimates the timing offset (in samples) of a received waveform by correlating it with a locally regenerated reference (DM-RS, PSS/SSS or any known symbols mapped to a grid and OFDM-modulated), returning the offset and the correlation magnitude. Apply before OFDM demodulation.",
+      "usage": "[offset, mag] = nrTimingEstimate(carrier, waveform, refInd, refSym)\n[offset, mag] = nrTimingEstimate(carrier, waveform, refGrid)\n[offset, mag] = nrTimingEstimate(waveform, nrb, scs, initialNSlot, refInd, refSym, Name=Value)",
+      "parameters": [
+        {"name": "waveform", "description": "Received T-by-R samples."},
+        {"name": "refInd, refSym / refGrid", "description": "Known reference symbols or a full reference grid."},
+        {"name": "'SampleRate', 'Nfft'", "description": "Must match the transmitter OFDM parameters."}
+      ],
+      "example": "[offset, mag] = nrTimingEstimate(carrier, rxWaveform, dmrsInd, dmrsSym);\nrxWaveform = rxWaveform(1+offset:end, :);",
+      "notes": "For initial cell search use nrPSS/nrSSS with nrTimingEstimate and then nrPBCH decoding via nrPBCHDecode.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrtimingestimate.html"
+    },
+    {
+      "name": "nrEqualizeMMSE",
+      "kind": "function",
+      "description": "Applies minimum mean-square-error equalization to received symbols given the channel estimates for each RE and the noise variance, returning equalized symbols per layer and channel state information (CSI) that can scale soft bits. It is the standard equalizer in the 5G Toolbox link examples.",
+      "usage": "[out, csi] = nrEqualizeMMSE(rxSym, Hest, nVar)",
+      "parameters": [
+        {"name": "rxSym", "description": "NRE-by-R received symbols (R receive antennas)."},
+        {"name": "Hest", "description": "NRE-by-R-by-P channel estimates (P layers)."},
+        {"name": "nVar", "description": "Noise variance."}
+      ],
+      "example": "[eqSym, csi] = nrEqualizeMMSE(pdschRx, pdschHest, nVar);\n[llrs, rxSymbols] = nrPDSCHDecode(carrier, pdsch, eqSym, nVar);\ncsi = nrLayerDemap(csi);\nllrs{1} = llrs{1} .* repmat(csi{1}.', pdschInfo.Qm, 1);   % per shipped example",
+      "notes": "For precoded transmissions multiply the estimate by the precoding matrix first (Hest*W) so the equalizer sees the effective channel per layer.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrequalizemmse.html"
+    },
+    {
+      "name": "nrLDPCEncode",
+      "kind": "function",
+      "description": "Encodes code-block segments with the 5G NR LDPC code for base graph 1 or 2 (TS 38.212), producing the full codeword before rate matching. It is a building block of nrDLSCH/nrULSCH and useful for custom coding studies; nrLDPCDecode is the soft-input decoder.",
+      "usage": "out = nrLDPCEncode(in, bgn)\nout = nrLDPCEncode(in, bgn, 'OutputDataType', 'int8')",
+      "parameters": [
+        {"name": "in", "description": "K-by-C matrix of code-block bits (filler bits as -1), from nrCodeBlockSegmentLDPC."},
+        {"name": "bgn", "description": "Base graph number 1 or 2."}
+      ],
+      "example": "tb = randi([0 1], 5000, 1);\ntbIn = nrCRCEncode(tb, '24A');\ncbs = nrCodeBlockSegmentLDPC(tbIn, 1);\nenc = nrLDPCEncode(cbs, 1);\nrm = nrRateMatchLDPC(enc, 12000, 0, 'QPSK', 1);",
+      "notes": "Decoding chain: nrRateRecoverLDPC -> nrLDPCDecode (max iterations, algorithm) -> nrCodeBlockDesegmentLDPC -> nrCRCDecode.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrldpcencode.html"
+    },
+    {
+      "name": "nrPolarEncode",
+      "kind": "function",
+      "description": "Encodes control information (DCI, UCI, BCH) with the 5G NR polar code including CRC-aided interleaving and sub-block interleaving per TS 38.212, for a given information length K and rate-matched length E. Paired with nrPolarDecode (CRC-aided successive-cancellation list decoding).",
+      "usage": "enc = nrPolarEncode(in, E)\nenc = nrPolarEncode(in, E, nMax, iIL)",
+      "parameters": [
+        {"name": "in", "description": "K-by-1 message bits (CRC already attached for DCI/UCI as appropriate)."},
+        {"name": "E", "description": "Rate-matched output length."},
+        {"name": "nMax", "description": "9 (downlink) or 10 (uplink) maximum code length exponent."},
+        {"name": "iIL", "description": "true for downlink input interleaving."}
+      ],
+      "example": "K = 56; E = 864; L = 8;\nmsg = randi([0 1], K, 1);\nenc = nrPolarEncode(msg, E);\nmod = nrSymbolModulate(nrRateMatchPolar(enc, K, E), 'QPSK');\n% receiver:\nllr = nrSymbolDemodulate(mod + 0.3*randn(size(mod)), 'QPSK', 0.09);\ndec = nrPolarDecode(nrRateRecoverPolar(llr, K, numel(enc)), K, E, L);",
+      "notes": "nrDCIEncode / nrUCIEncode wrap the complete control-channel coding chains.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpolarencode.html"
+    },
+    {
+      "name": "nrCRCEncode",
+      "kind": "function",
+      "description": "Appends a 3GPP NR cyclic redundancy check ('6', '11', '16', '24A', '24B', '24C') to a block of bits, optionally masked with an RNTI. nrCRCDecode strips the CRC and reports the error syndrome; both are used in transport and control channel processing.",
+      "usage": "blkcrc = nrCRCEncode(blk, poly)\nblkcrc = nrCRCEncode(blk, poly, mask)\n[blk, err] = nrCRCDecode(blkcrc, poly)",
+      "parameters": [
+        {"name": "blk", "description": "Column vector or matrix of bits (columns processed independently)."},
+        {"name": "poly", "description": "'6', '11', '16', '24A', '24B', '24C'."},
+        {"name": "mask", "description": "Integer XORed onto the CRC bits (e.g. RNTI)."}
+      ],
+      "example": "tbCRC = nrCRCEncode(tb, '24A');\n[tbOut, err] = nrCRCDecode(tbCRC, '24A');   % err = 0 when intact",
+      "notes": "Filler bits (-1) are treated as zeros for CRC computation and preserved in the output.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrcrcencode.html"
+    },
+    {
+      "name": "nrPSS",
+      "kind": "function",
+      "description": "Generates the primary synchronization signal sequence (127 BPSK symbols) for a physical cell identity, with nrPSSIndices giving its position in the SS/PBCH block grid. Together with nrSSS and nrPBCH it builds the synchronization signal block used for cell search and frame timing.",
+      "usage": "sym = nrPSS(ncellid)\nind = nrPSSIndices",
+      "parameters": [
+        {"name": "ncellid", "description": "Physical cell ID 0..1007 (PSS depends on mod(ncellid, 3))."}
+      ],
+      "example": "ncellid = 17;\nssbGrid = zeros(240, 4);\nssbGrid(nrPSSIndices) = nrPSS(ncellid);\nssbGrid(nrSSSIndices) = nrSSS(ncellid);\n% cell search: correlate received waveform with each of the 3 PSS via nrTimingEstimate",
+      "notes": "The SS burst generation for a full carrier is easiest with nrWaveformGenerator (SSBurst configuration).",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpss.html"
+    },
+    {
+      "name": "nrPBCH",
+      "kind": "function",
+      "description": "Performs physical broadcast channel processing (scrambling with cell ID and SSB index, QPSK modulation) on the 864 coded BCH bits produced by nrBCH, returning 432 symbols for the SS/PBCH block. nrPBCHIndices gives the RE indices and nrPBCHDecode / nrBCHDecode recover the MIB at the UE.",
+      "usage": "sym = nrPBCH(cw, ncellid, v)\nind = nrPBCHIndices(ncellid)\ncw = nrPBCHDecode(sym, ncellid, v, nVar)",
+      "parameters": [
+        {"name": "cw", "description": "864-bit codeword from nrBCH(mib, sfn, hrf, lmax, idx, ncellid)."},
+        {"name": "ncellid", "description": "Physical cell ID."},
+        {"name": "v", "description": "SS/PBCH block index (LSBs used for scrambling)."}
+      ],
+      "example": "mib = randi([0 1], 24, 1);\ncw = nrBCH(mib, 0, 0, 8, 0, ncellid);\npbchSym = nrPBCH(cw, ncellid, 0);\nssbGrid(nrPBCHIndices(ncellid)) = pbchSym;\nssbGrid(nrPBCHDMRSIndices(ncellid)) = nrPBCHDMRS(ncellid, 0);",
+      "notes": "The DM-RS for PBCH (nrPBCHDMRS) also encodes the SSB index, which the receiver detects by correlation.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrpbch.html"
+    },
+    {
+      "name": "nrPRBS",
+      "kind": "function",
+      "description": "Generates the 3GPP NR pseudo-random (Gold) binary sequence used for scrambling and reference-signal generation, given the 31-bit initialization value and length, optionally with an offset and signed (+1/-1) output. Handy for custom scrambling and RS generation studies.",
+      "usage": "seq = nrPRBS(cinit, n)\nseq = nrPRBS(cinit, [offset n])\nseq = nrPRBS(___, Name=Value)",
+      "parameters": [
+        {"name": "cinit", "description": "Initialization value (0 to 2^31-1)."},
+        {"name": "n / [offset n]", "description": "Sequence length and optional starting offset."},
+        {"name": "'MappingType'", "description": "'binary' (0/1, default) or 'signed' (1/-1)."},
+        {"name": "'OutputDataType'", "description": "'logical', 'double', 'int8'."}
+      ],
+      "example": "cinit = mod(2^15*(1+1) + ncellid, 2^31);\nc = nrPRBS(cinit, 1000);\nscrambled = xor(bits, c);",
+      "notes": "The sequence generator matches TS 38.211 section 5.2.1 (length-31 Gold sequence with Nc = 1600 discard).",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrprbs.html"
+    },
+    {
+      "name": "nrSymbolModulate",
+      "kind": "function",
+      "description": "Maps bits to NR constellation symbols (pi/2-BPSK, BPSK, QPSK, 16/64/256/1024-QAM) with the TS 38.211 bit-to-symbol mapping and unit average power; nrSymbolDemodulate returns soft bits (LLRs, approximate or exact) given the noise variance. Used inside nrPDSCH/nrPUSCH and for control channels.",
+      "usage": "sym = nrSymbolModulate(bits, mod)\nsym = nrSymbolModulate(bits, mod, 'OutputDataType', 'single')\nllr = nrSymbolDemodulate(sym, mod, nVar)\nllr = nrSymbolDemodulate(sym, mod, nVar, 'DecisionType', 'hard')",
+      "parameters": [
+        {"name": "bits", "description": "Column vector of bits; length must be a multiple of bits per symbol."},
+        {"name": "mod", "description": "'pi/2-BPSK', 'BPSK', 'QPSK', '16QAM', '64QAM', '256QAM', '1024QAM'."},
+        {"name": "nVar", "description": "Noise variance for soft demodulation."},
+        {"name": "'DecisionType'", "description": "'soft' (default) or 'hard'."}
+      ],
+      "example": "bits = randi([0 1], 6000, 1);\nsym = nrSymbolModulate(bits, '64QAM');\nrx = awgn(sym, 20, 'measured');\nllr = nrSymbolDemodulate(rx, '64QAM', 10^(-20/10));\nber = mean((llr < 0) ~= bits)",
+      "notes": "Unlike qammod, the NR mapping is fixed by the standard and includes the pi/2-BPSK rotation.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrsymbolmodulate.html"
+    },
+    {
+      "name": "nrTBS",
+      "kind": "function",
+      "description": "Computes the transport block size per TS 38.214 for given modulation, number of layers, allocated PRBs, resource elements per PRB, target code rate and optional overhead/scaling, returning the bit count expected by nrDLSCH/nrULSCH and the decoders.",
+      "usage": "tbs = nrTBS(mod, nlayers, nPRB, NREPerPRB, tcr)\ntbs = nrTBS(mod, nlayers, nPRB, NREPerPRB, tcr, xoh)\ntbs = nrTBS(mod, nlayers, nPRB, NREPerPRB, tcr, xoh, tbScaling)",
+      "parameters": [
+        {"name": "mod", "description": "Modulation string (or cell array per codeword)."},
+        {"name": "nlayers", "description": "Number of layers."},
+        {"name": "nPRB", "description": "Number of allocated PRBs."},
+        {"name": "NREPerPRB", "description": "REs per PRB available for data (info.NREPerPRB from nrPDSCHIndices)."},
+        {"name": "tcr", "description": "Target code rate."},
+        {"name": "xoh", "description": "Overhead REs (0, 6, 12, 18)."},
+        {"name": "tbScaling", "description": "Scaling factor for paging/RAR (1, 0.5, 0.25)."}
+      ],
+      "example": "[~, info] = nrPDSCHIndices(carrier, pdsch);\ntbs = nrTBS(pdsch.Modulation, pdsch.NumLayers, numel(pdsch.PRBSet), info.NREPerPRB, 0.6)",
+      "notes": "Returns a vector when two codewords are configured (more than 4 layers).",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrtbs.html"
+    },
+    {
+      "name": "nrWaveformGenerator",
+      "kind": "function",
+      "description": "Generates a complete 5G NR downlink or uplink baseband waveform from a carrier configuration object holding multiple SCS carriers, bandwidth parts, SS bursts, PDSCH/PDCCH/CSI-RS (downlink) or PUSCH/PUCCH/SRS (uplink) instances, including all reference signals; returns the waveform and a detailed info struct. Called with no arguments it opens the 5G Waveform Generator app.",
+      "usage": "[waveform, info] = nrWaveformGenerator(cfg)\nnrWaveformGenerator",
+      "parameters": [
+        {"name": "cfg", "description": "nrDLCarrierConfig or nrULCarrierConfig."},
+        {"name": "info", "description": "Struct with ResourceGrids, WaveformResources (indices, symbols, transport blocks) and OFDM info."}
+      ],
+      "example": "cfg = nrDLCarrierConfig(FrequencyRange='FR1', ChannelBandwidth=40, NumSubframes=10);\ncfg.SCSCarriers = {nrSCSCarrierConfig(SubcarrierSpacing=30, NSizeGrid=106)};\ncfg.BandwidthParts = {nrWavegenBWPConfig(SubcarrierSpacing=30, NSizeBWP=106)};\ncfg.PDSCH = {nrWavegenPDSCHConfig(Modulation='256QAM', PRBSet=0:105, TargetCodeRate=0.7)};\n[wave, info] = nrWaveformGenerator(cfg);\nfs = info.ResourceGrids(1).Info.SampleRate;",
+      "notes": "Introduced in R2020b. The generated configuration can be exported from the app as a script. For EVM analysis use the NR EVM measurement example with hNRDownlinkEVM.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrwaveformgenerator.html"
+    },
+    {
+      "name": "nrDLCarrierConfig",
+      "kind": "function",
+      "description": "Top-level downlink waveform configuration for nrWaveformGenerator: frequency range, channel bandwidth, number of subframes, windowing and cell arrays of nrSCSCarrierConfig, nrWavegenBWPConfig, nrWavegenSSBurstConfig, nrWavegenPDCCHConfig, nrWavegenPDSCHConfig and nrWavegenCSIRSConfig objects. nrULCarrierConfig is the uplink equivalent (PUSCH, PUCCH, SRS).",
+      "usage": "cfg = nrDLCarrierConfig\ncfg = nrDLCarrierConfig(Name=Value)",
+      "parameters": [
+        {"name": "FrequencyRange", "description": "'FR1' or 'FR2'."},
+        {"name": "ChannelBandwidth", "description": "MHz (must be valid for the SCS)."},
+        {"name": "NCellID, NumSubframes, WindowingPercent, SampleRate, CarrierFrequency", "description": "Global waveform settings."},
+        {"name": "SCSCarriers / BandwidthParts / SSBurst / PDCCH / PDSCH / CSIRS", "description": "Cell arrays of the corresponding wavegen configuration objects."}
+      ],
+      "example": "cfg = nrDLCarrierConfig(ChannelBandwidth=20, NumSubframes=2);\ncfg.SSBurst.BlockPattern = 'Case B';\ncfg.PDSCH{1}.Modulation = 'QPSK';\n[wave, info] = nrWaveformGenerator(cfg);",
+      "notes": "Objects are validated when nrWaveformGenerator runs; use validateConfig(cfg) to check early.",
+      "docs": "https://www.mathworks.com/help/5g/ref/nrdlcarrierconfig.html"
+    },
+    {
+      "name": "lteRMCDL",
+      "kind": "function",
+      "description": "Returns the parameter structure of an LTE downlink reference measurement channel (R.0 to R.31 and beyond) including PDSCH settings, transmission scheme and subframe allocation; the structure is then passed to lteRMCDLTool to generate a waveform or modified for custom configurations.",
+      "usage": "rmccfg = lteRMCDL(rc)\nrmccfg = lteRMCDL(rc, duplexmode)\nrmccfg = lteRMCDL(rc, duplexmode, totsubframes)\nrmccfg = lteRMCDL(rmccfg)   % complete a partial structure",
+      "parameters": [
+        {"name": "rc", "description": "Reference channel string, e.g. 'R.4', 'R.12', 'R.31-4'."},
+        {"name": "duplexmode", "description": "'FDD' (default) or 'TDD'."},
+        {"name": "totsubframes", "description": "Number of subframes to generate (default 10)."}
+      ],
+      "example": "rmc = lteRMCDL('R.12');\nrmc.PDSCH.Modulation = {'64QAM'};\nrmc.TotSubframes = 20;\n[waveform, grid, rmc] = lteRMCDLTool(rmc, [1; 0; 0; 1]);",
+      "notes": "Uplink counterpart: lteRMCUL / lteRMCULTool; E-UTRA test models: lteTestModel / lteTestModelTool.",
+      "docs": "https://www.mathworks.com/help/lte/ref/ltermcdl.html"
+    },
+    {
+      "name": "lteRMCDLTool",
+      "kind": "function",
+      "description": "Generates an LTE downlink RMC waveform (time-domain samples) and resource grid from an RMC configuration and input transport data, including PDSCH, control region, reference signals and optional SIB1. Called without arguments it opens the LTE Waveform Generator app.",
+      "usage": "[waveform, grid, rmccfgout] = lteRMCDLTool(rmccfg, trdata)\n[waveform, grid, rmccfgout] = lteRMCDLTool(rc, trdata, duplexmode, totsubframes)\nlteRMCDLTool",
+      "parameters": [
+        {"name": "rmccfg / rc", "description": "Structure from lteRMCDL or an RC identifier."},
+        {"name": "trdata", "description": "Information bits (looped as needed), or a cell array per codeword."},
+        {"name": "rmccfgout", "description": "Completed configuration including SamplingRate and Nfft."}
+      ],
+      "example": "[wave, grid, cfg] = lteRMCDLTool('R.6', [1;0;1;1], 'FDD', 10);\nfs = cfg.SamplingRate;\nrxGrid = lteOFDMDemodulate(cfg, wave);",
+      "notes": "The waveform is normalised per the OFDM modulator; scale before transmitting through lteFadingChannel with the matching SamplingRate.",
+      "docs": "https://www.mathworks.com/help/lte/ref/ltermcdltool.html"
+    },
+    {
+      "name": "lteTestModelTool",
+      "kind": "function",
+      "description": "Generates E-UTRA test model (E-TM 1.1, 1.2, 2, 3.1, 3.2, 3.3) waveforms specified in TS 36.141 for base-station conformance testing (EVM, ACLR, power). Configuration comes from lteTestModel; no arguments opens the LTE Waveform Generator app.",
+      "usage": "[waveform, grid, tmcfgout] = lteTestModelTool(tmcfg)\n[waveform, grid, tmcfgout] = lteTestModelTool(tm, bw)\n[waveform, grid, tmcfgout] = lteTestModelTool(tm, bw, duplexmode, totsubframes)",
+      "parameters": [
+        {"name": "tm", "description": "Test model number as string, e.g. '1.1', '3.1'."},
+        {"name": "bw", "description": "Channel bandwidth: '1.4MHz', '3MHz', '5MHz', '10MHz', '15MHz', '20MHz'."},
+        {"name": "duplexmode, totsubframes", "description": "'FDD'/'TDD' and number of subframes."}
+      ],
+      "example": "[wave, grid, cfg] = lteTestModelTool('3.1', '10MHz');\nlteEVM(wave)   % if evaluating a DUT output, compare against reference",
+      "notes": "Test models fix the modulation per model (e.g. E-TM 3.1 = 64QAM) and are used mainly for transmitter measurements.",
+      "docs": "https://www.mathworks.com/help/lte/ref/ltetestmodeltool.html"
+    },
+    {
+      "name": "lteFadingChannel",
+      "kind": "function",
+      "description": "Passes an LTE waveform through a multipath fading MIMO channel defined by the 3GPP profiles (EPA, EVA, ETU), Doppler frequency, antenna correlation and initial time, returning the faded waveform and channel info (path gains, delays). Used together with lteDLPerfectChannelEstimate for ideal estimation.",
+      "usage": "[out, info] = lteFadingChannel(chcfg, in)",
+      "parameters": [
+        {"name": "chcfg.DelayProfile", "description": "'EPA', 'EVA', 'ETU', 'Custom', 'Off'."},
+        {"name": "chcfg.DopplerFreq", "description": "Maximum Doppler in Hz."},
+        {"name": "chcfg.NRxAnts", "description": "Number of receive antennas."},
+        {"name": "chcfg.MIMOCorrelation", "description": "'Low', 'Medium', 'High', 'UplinkMedium', 'Custom'."},
+        {"name": "chcfg.SamplingRate", "description": "Must match the waveform (cfg.SamplingRate)."},
+        {"name": "chcfg.InitTime / Seed", "description": "Fading start time for continuity across subframes; seed for repeatability."}
+      ],
+      "example": "chcfg = struct('DelayProfile','EVA','DopplerFreq',70,'NRxAnts',2,'MIMOCorrelation','Low', ...\n               'SamplingRate',cfg.SamplingRate,'Seed',1,'InitTime',0,'NTerms',16, ...\n               'ModelType','GMEDS','NormalizeTxAnts','On','NormalizePathGains','On','InitPhase','Random');\n[rxWave, chInfo] = lteFadingChannel(chcfg, [wave; zeros(25, size(wave,2))]);",
+      "notes": "Append trailing zeros so the channel delay does not truncate the last subframe. Moving channels: lteMovingChannel; HST: lteHSTChannel.",
+      "docs": "https://www.mathworks.com/help/lte/ref/ltefadingchannel.html"
+    },
+    {
+      "name": "lteOFDMModulate",
+      "kind": "function",
+      "description": "OFDM-modulates an LTE downlink resource grid into a time-domain waveform using the cell-wide settings (NDLRB, CyclicPrefix), with optional windowing; lteOFDMDemodulate performs the inverse at the receiver. Sample rate and FFT size are reported in the info output.",
+      "usage": "[waveform, info] = lteOFDMModulate(enb, grid)\n[waveform, info] = lteOFDMModulate(enb, grid, windowing)\ngrid = lteOFDMDemodulate(enb, waveform)\ngrid = lteOFDMDemodulate(enb, waveform, cpfraction)",
+      "parameters": [
+        {"name": "enb", "description": "Cell-wide struct with NDLRB, CyclicPrefix (and Windowing)."},
+        {"name": "grid", "description": "Resource grid: subcarriers x symbols x antenna ports (lteDLResourceGrid)."},
+        {"name": "windowing", "description": "Number of windowing samples (overrides enb.Windowing)."}
+      ],
+      "example": "enb = lteRMCDL('R.4');\ngrid = lteDLResourceGrid(enb);\ngrid(lteCellRSIndices(enb)) = lteCellRS(enb);\n[wave, info] = lteOFDMModulate(enb, grid);\nrxGrid = lteOFDMDemodulate(enb, wave);",
+      "notes": "Uplink SC-FDMA uses lteSCFDMAModulate / lteSCFDMADemodulate.",
+      "docs": "https://www.mathworks.com/help/lte/ref/lteofdmmodulate.html"
+    },
+    {
+      "name": "lteDLChannelEstimate",
+      "kind": "function",
+      "description": "Estimates the LTE downlink channel from cell-specific reference signals in a received resource grid, with configurable pilot averaging (frequency/time window), interpolation and optional noise estimation, returning an estimate array (subcarriers x symbols x Rx x Tx) plus noise variance for lteEqualizeMMSE and ltePDSCHDecode.",
+      "usage": "[hest, noiseest] = lteDLChannelEstimate(enb, rxgrid)\n[hest, noiseest] = lteDLChannelEstimate(enb, cec, rxgrid)\n[hest, noiseest] = lteDLChannelEstimate(enb, pdsch, cec, rxgrid)",
+      "parameters": [
+        {"name": "cec.PilotAverage", "description": "'UserDefined' or 'TestEVM'."},
+        {"name": "cec.FreqWindow / TimeWindow", "description": "Averaging window sizes in REs."},
+        {"name": "cec.InterpType", "description": "'nearest', 'linear', 'natural', 'cubic', 'v4', 'none'."},
+        {"name": "cec.InterpWindow / InterpWinSize", "description": "'Causal', 'Non-causal', 'Centered', 'Centred' and size in subframes."},
+        {"name": "cec.Reference", "description": "'CellRS' (default), 'CSIRS', 'DMRS'."}
+      ],
+      "example": "cec = struct('FreqWindow',9,'TimeWindow',9,'InterpType','cubic','PilotAverage','UserDefined','InterpWindow','Centered','InterpWinSize',1);\n[hest, nest] = lteDLChannelEstimate(enb, cec, rxGrid);\n[pdschRx, pdschHest] = lteExtractResources(pdschInd, rxGrid, hest);\n[cws, syms] = ltePDSCHDecode(enb, pdsch, pdschRx, pdschHest, nest);",
+      "notes": "Ideal estimate for simulations: lteDLPerfectChannelEstimate(enb, chcfg, offset). Uplink: lteULChannelEstimate.",
+      "docs": "https://www.mathworks.com/help/lte/ref/ltedlchannelestimate.html"
+    },
+    {
+      "name": "ltePDSCHDecode",
+      "kind": "function",
+      "description": "Decodes received LTE PDSCH symbols: MMSE equalization (when channel estimates are supplied), layer demapping and transmit-diversity/spatial-multiplexing decoding, soft demodulation and descrambling, returning soft-bit codewords for lteDLSCHDecode. ltePDSCH is the transmit-side function.",
+      "usage": "[cws, symbols] = ltePDSCHDecode(enb, chs, sym)\n[cws, symbols] = ltePDSCHDecode(enb, chs, sym, hest, noiseest)",
+      "parameters": [
+        {"name": "enb", "description": "Cell-wide settings (NCellID, NSubframe, CellRefP ...)."},
+        {"name": "chs", "description": "PDSCH configuration (Modulation, RNTI, TxScheme, NLayers, PRBSet ...)."},
+        {"name": "sym", "description": "Received PDSCH symbols (extracted with lteExtractResources)."},
+        {"name": "hest, noiseest", "description": "Channel estimate for those REs and noise variance."}
+      ],
+      "example": "[cws, syms] = ltePDSCHDecode(enb, enb.PDSCH, pdschRx, pdschHest, nest);\n[bits, crc] = lteDLSCHDecode(enb, enb.PDSCH, trBlkLen, cws);",
+      "notes": "Indices for extraction come from ltePDSCHIndices(enb, chs, prbset). Transport decoding with HARQ uses lteDLSCHDecode with the 'decState' output.",
+      "docs": "https://www.mathworks.com/help/lte/ref/ltepdschdecode.html"
+    },
+    {
+      "name": "lteCellSearch",
+      "kind": "function",
+      "description": "Performs LTE cell search on a received waveform by correlating with the primary and secondary synchronization signals, returning the detected physical cell identity and the timing offset to the start of the first frame; optionally searches several cells and duplex modes. Follow with lteFrequencyOffset/lteFrequencyCorrect and lteDLFrameOffset.",
+      "usage": "[cellid, offset] = lteCellSearch(enb, waveform)\n[cellid, offset, peak] = lteCellSearch(enb, waveform, alg)",
+      "parameters": [
+        {"name": "enb", "description": "Struct with NDLRB, DuplexMode and CyclicPrefix (unknown fields can be tried in a loop)."},
+        {"name": "waveform", "description": "Received samples at the LTE sampling rate for NDLRB."},
+        {"name": "alg.MaxCellCount / alg.SSSDetection", "description": "Number of cells to return; 'PostFFT' or 'PreFFT' SSS detection."}
+      ],
+      "example": "enb = struct('NDLRB', 6, 'DuplexMode', 'FDD', 'CyclicPrefix', 'Normal');\nfoff = lteFrequencyOffset(enb, rx);\nrx = lteFrequencyCorrect(enb, rx, foff);\n[cellID, offset] = lteCellSearch(enb, rx);\nrx = rx(1+offset:end, :);",
+      "notes": "The classic 'Cell Search, MIB and SIB1 Recovery' example shows the full acquisition chain including ltePBCHDecode and lteMIB.",
+      "docs": "https://www.mathworks.com/help/lte/ref/ltecellsearch.html"
+    }
+  ]
+}

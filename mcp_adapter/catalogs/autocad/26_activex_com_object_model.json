@@ -1,0 +1,569 @@
+{
+  "category": "ActiveX / COM Automation Object Model",
+  "description": "The AutoCAD ActiveX (COM) object model used from VBA, VB.NET/C# COM interop, Python (win32com, pyautocad), PowerShell and AutoLISP vla- functions: Application and Documents, document-level methods (save, close, PostCommand, undo marks, purge, handles, export, wblock), plotting, layouts and preferences, entity creation methods of ModelSpace/PaperSpace, layers, block references and dynamic properties, selection sets with filters, entity editing methods, XData/XRecords, the Utility object and ObjectDBX. COM automation is not available in AutoCAD LT.",
+  "tools": [
+    {
+      "name": "AcadDocuments.Open",
+      "kind": "script-object",
+      "description": "Opens an existing drawing in the running AutoCAD session and returns its Document object, optionally read-only. It is the entry point of most external automation scripts that process specific drawings through the editor.",
+      "usage": "Set doc = AcadApplication.Documents.Open(Name [, ReadOnly] [, Password])",
+      "parameters": [
+        {"name": "Name", "description": "Full path of the DWG (or DWS/DXF)."},
+        {"name": "ReadOnly", "description": "True to open read-only."},
+        {"name": "Password", "description": "Password for legacy encrypted drawings."}
+      ],
+      "example": "import win32com.client\nacad = win32com.client.Dispatch(\"AutoCAD.Application\")\ndoc = acad.Documents.Open(r\"C:\\Proj\\A-101.dwg\")\nprint(doc.Name, doc.ModelSpace.Count)\ndoc.Close(False)",
+      "notes": "Opening makes the document active, and COM calls block while AutoCAD is busy; retry on 'Call was rejected by callee' (RPC_E_CALL_REJECTED). For large batches prefer accoreconsole or ObjectDBX, which avoid editor overhead.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9ED7A548-7978-4BFD-8462-E2FA747E8880"
+    },
+    {
+      "name": "AcadDocuments.Add",
+      "kind": "script-object",
+      "description": "Creates a new drawing, optionally from a template, and returns the new Document, which becomes the active document.",
+      "usage": "Set doc = AcadApplication.Documents.Add([TemplateName])",
+      "parameters": [
+        {"name": "TemplateName", "description": "DWT name or path; defaults to the template set in Options (or acad.dwt)."}
+      ],
+      "example": "Dim doc As AcadDocument\nSet doc = ThisDrawing.Application.Documents.Add(\"acadiso.dwt\")\ndoc.SaveAs \"C:\\Out\\new_sheet.dwg\"",
+      "notes": "Documents.Count and Documents.Item(i) enumerate open drawings; Documents.Close closes all of them.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-6DB6EFDF-C393-4BD0-9E59-A57BCDA3456F"
+    },
+    {
+      "name": "AcadDocument.SaveAs",
+      "kind": "script-object",
+      "description": "Saves the document to a new name and optionally in a different DWG/DXF version or as a template. After the call the document refers to the new file.",
+      "usage": "doc.SaveAs FullFileName [, SaveAsType] [, SecurityParams]",
+      "parameters": [
+        {"name": "FullFileName", "description": "Target path including extension."},
+        {"name": "SaveAsType", "description": "AcSaveAsType: acNative, ac2018_dwg, ac2013_dwg, ac2010_dwg, ac2007_dwg, ac2018_dxf, ac2018_Template, ..."}
+      ],
+      "example": "' down-save a copy for a consultant on an older release\nThisDrawing.SaveAs \"C:\\Out\\A-101_R2013.dwg\", ac2013_dwg",
+      "notes": "Use doc.Save for an in-place save. Saving to DXF switches the open document to the DXF file.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-ED0D0B02-25FC-4ED2-9DEE-2B0C9AA9416A"
+    },
+    {
+      "name": "AcadDocument.Close",
+      "kind": "script-object",
+      "description": "Closes a document, optionally saving changes and optionally under a new file name. Used at the end of each iteration of a batch loop.",
+      "usage": "doc.Close [SaveChanges] [, FileName]",
+      "parameters": [
+        {"name": "SaveChanges", "description": "True to save (default prompts or saves depending on context), False to discard."},
+        {"name": "FileName", "description": "Save under this name when SaveChanges is True."}
+      ],
+      "example": "for f in files:\n    d = acad.Documents.Open(f)\n    d.PurgeAll()\n    d.Close(True)",
+      "notes": "Closing the document that is running the VBA macro is not allowed; in VBA process other documents or use a separate launcher.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-F0135870-7411-42CB-82E6-87509ADF3DFF"
+    },
+    {
+      "name": "AcadDocument.PostCommand",
+      "kind": "script-object",
+      "description": "Posts a command string to the document's command line for asynchronous processing. Unlike SendCommand, which processes the string before returning, PostCommand queues the input and returns immediately, which avoids re-entrancy problems when called from modeless code or event handlers.",
+      "usage": "doc.PostCommand \"COMMAND arguments \"",
+      "parameters": [
+        {"name": "Command", "description": "Command text; a space or vbCr at the end acts as Enter."}
+      ],
+      "example": "ThisDrawing.PostCommand \"_.ZOOM _E \"\nThisDrawing.PostCommand \"(load \"\"stdtools.lsp\"\") \"",
+      "notes": "Because execution is deferred, code after PostCommand cannot rely on the command having finished. Use Application.GetAcadState().IsQuiescent to wait from an external process.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9D3B8666-1B40-47C0-911B-859E3C38FB1A"
+    },
+    {
+      "name": "AcadDocument.StartUndoMark",
+      "kind": "script-object",
+      "description": "Starts an undo group so that all subsequent operations until EndUndoMark are undone as one step. Wrap every macro that performs several edits in StartUndoMark/EndUndoMark.",
+      "usage": "doc.StartUndoMark\n' ... edits ...\ndoc.EndUndoMark",
+      "parameters": [
+        {"name": "EndUndoMark", "description": "Closes the group; must always be called, including in error handlers."}
+      ],
+      "example": "Sub RecolorHatches()\n  On Error GoTo done\n  ThisDrawing.StartUndoMark\n  Dim e As AcadEntity\n  For Each e In ThisDrawing.ModelSpace\n    If TypeOf e Is AcadHatch Then e.color = acByLayer\n  Next\ndone:\n  ThisDrawing.EndUndoMark\nEnd Sub",
+      "notes": "Ignored when UNDO control is None or One.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-7C669949-1327-4CFD-96CF-CE65EC38DAA8"
+    },
+    {
+      "name": "AcadDocument.PurgeAll",
+      "kind": "script-object",
+      "description": "Removes all unreferenced named objects (blocks, layers, linetypes, text and dimension styles, and so on) from the document, like PURGE All without prompts.",
+      "usage": "doc.PurgeAll",
+      "parameters": [
+        {"name": "(none)", "description": "No arguments."}
+      ],
+      "example": "' repeat because purging a block can orphan layers it used\nDim i As Integer\nFor i = 1 To 3: ThisDrawing.PurgeAll: Next i",
+      "notes": "A single call does one pass; nested items become purgeable only on later passes. Zero-length geometry and empty text objects are not removed; use -PURGE with its Zero-length and Empty text options for those.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9FD38B4D-2554-419A-9A1F-916725A300F5"
+    },
+    {
+      "name": "AcadDocument.HandleToObject",
+      "kind": "script-object",
+      "description": "Returns the object that has a given handle string. Handles are persistent across sessions, so they are the right key for linking drawing objects to spreadsheets or databases.",
+      "usage": "Set obj = doc.HandleToObject(Handle)",
+      "parameters": [
+        {"name": "Handle", "description": "Hexadecimal handle string, as returned by obj.Handle."}
+      ],
+      "example": "Dim obj As AcadEntity\nSet obj = ThisDrawing.HandleToObject(\"2A7F\")\nobj.Highlight True",
+      "notes": "Raises an error if the handle does not exist or the object was erased; wrap in error handling. ObjectIdToObject converts a session ObjectID instead.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-E03AFFD7-B473-45F9-9FF1-CE4D09C94CF3"
+    },
+    {
+      "name": "AcadDocument.Export",
+      "kind": "script-object",
+      "description": "Exports objects of the drawing to another file format such as WMF, SAT, EPS, BMP or DXF. A selection set specifies the objects for most formats.",
+      "usage": "doc.Export FileName, Extension, SelectionSet",
+      "parameters": [
+        {"name": "FileName", "description": "Target path without extension."},
+        {"name": "Extension", "description": "\"WMF\", \"SAT\", \"EPS\", \"DXF\" or \"BMP\"."},
+        {"name": "SelectionSet", "description": "Objects to export (an empty set may be required for whole-drawing DXF)."}
+      ],
+      "example": "Dim ss As AcadSelectionSet\nSet ss = ThisDrawing.SelectionSets.Add(\"EXP\")\nss.Select acSelectionSetAll\nThisDrawing.Export \"C:\\Out\\solids\", \"SAT\", ss\nss.Delete",
+      "notes": "PDF output is done through plotting (DWG To PDF.pc3) rather than Export.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-893F1711-3591-4DDC-8D27-DF91052F5E5A"
+    },
+    {
+      "name": "AcadDocument.Wblock",
+      "kind": "script-object",
+      "description": "Writes the objects in a selection set to a new drawing file, the ActiveX equivalent of WBLOCK with object selection.",
+      "usage": "doc.Wblock FileName, SelectionSet",
+      "parameters": [
+        {"name": "FileName", "description": "Output DWG path."},
+        {"name": "SelectionSet", "description": "Objects to write."}
+      ],
+      "example": "Dim ss As AcadSelectionSet\nSet ss = ThisDrawing.SelectionSets.Add(\"WB\")\nss.SelectOnScreen\nThisDrawing.Wblock \"C:\\Out\\detail_5.dwg\", ss\nss.Delete",
+      "notes": "Existing files are overwritten without warning. Named dependencies (layers, styles) used by the objects are included.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-4EEC4025-ACFC-41DA-899A-8264394D7691"
+    },
+    {
+      "name": "AcadDocument.ActiveLayer",
+      "kind": "script-object",
+      "description": "Gets or sets the current layer as a Layer object. Sibling properties set the other drawing 'current' states: ActiveTextStyle, ActiveLinetype, ActiveDimStyle, ActiveLayout, ActiveSpace, ActiveUCS and ActiveViewport.",
+      "usage": "Set doc.ActiveLayer = doc.Layers(\"A-ANNO\")\ndoc.ActiveSpace = acModelSpace",
+      "parameters": [
+        {"name": "ActiveSpace", "description": "acModelSpace (1) or acPaperSpace (0)."},
+        {"name": "MSpace", "description": "True to activate model space inside a layout viewport."}
+      ],
+      "example": "doc.ActiveLayer = doc.Layers.Item(\"A-ANNO\")   # Python/win32com\ndoc.ActiveTextStyle = doc.TextStyles.Item(\"ISO\")",
+      "notes": "Assigning a frozen layer as ActiveLayer raises an error; thaw it first.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9216BFCD-D358-4FC6-B631-B52E6693D242"
+    },
+    {
+      "name": "AcadPlot.PlotToFile",
+      "kind": "script-object",
+      "description": "Plots the active layout (or the layouts set with SetLayoutsToPlot) to a file, for example a PDF via the DWG To PDF.pc3 configuration. Returns True on success.",
+      "usage": "ok = doc.Plot.PlotToFile(PlotFile [, PlotConfig])",
+      "parameters": [
+        {"name": "PlotFile", "description": "Output path (extension according to the device)."},
+        {"name": "PlotConfig", "description": "Optional PC3 name overriding the layout's configured device."},
+        {"name": "SetLayoutsToPlot", "description": "Plot.SetLayoutsToPlot(array of layout names) before plotting several layouts."}
+      ],
+      "example": "ThisDrawing.SetVariable \"BACKGROUNDPLOT\", 0\nWith ThisDrawing.ActiveLayout\n  .ConfigName = \"DWG To PDF.pc3\"\n  .CanonicalMediaName = \"ISO_full_bleed_A3_(420.00_x_297.00_MM)\"\n  .RefreshPlotDeviceInfo\nEnd With\nThisDrawing.Plot.PlotToFile \"C:\\Out\\A-101.pdf\"",
+      "notes": "Set BACKGROUNDPLOT to 0, otherwise the call returns before the file is written. Plot.QuietErrorMode = True suppresses error dialogs in batch runs.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-85A6B1AF-80AA-4F56-8305-6EFD4A4D8CF8"
+    },
+    {
+      "name": "AcadPlot.PlotToDevice",
+      "kind": "script-object",
+      "description": "Sends the active layout (or layouts set with SetLayoutsToPlot) to a printer or plotter, using the layout's page setup or an overriding PC3 configuration.",
+      "usage": "ok = doc.Plot.PlotToDevice([PlotConfig])",
+      "parameters": [
+        {"name": "PlotConfig", "description": "Optional PC3 or Windows system printer name."},
+        {"name": "NumberOfCopies", "description": "Plot.NumberOfCopies before plotting."}
+      ],
+      "example": "ThisDrawing.Plot.NumberOfCopies = 2\nThisDrawing.Plot.PlotToDevice \"\\\\PRINTSRV\\A3-Colour\"",
+      "notes": "Use Plot.DisplayPlotPreview acFullPreview for an interactive preview before plotting.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-55FEED17-E697-4CF3-B9C3-6ACCF060672F"
+    },
+    {
+      "name": "AcadLayout.GetCanonicalMediaNames",
+      "kind": "script-object",
+      "description": "Returns the list of paper sizes (canonical media names) available for the layout's current plot device. Combined with ConfigName, CanonicalMediaName, PlotType, StandardScale, StyleSheet and PlotRotation it lets scripts build page setups.",
+      "usage": "names = layout.GetCanonicalMediaNames()\nlocal = layout.GetLocaleMediaName(canonicalName)",
+      "parameters": [
+        {"name": "ConfigName", "description": "Plot device (PC3 or system printer); set it and call RefreshPlotDeviceInfo before querying media."},
+        {"name": "GetLocaleMediaName", "description": "Translates a canonical name into the display name shown in dialogs."},
+        {"name": "GetPlotDeviceNames / GetPlotStyleTableNames", "description": "List available devices and CTB/STB tables."}
+      ],
+      "example": "lay = doc.ActiveLayout\nlay.ConfigName = \"DWG To PDF.pc3\"\nlay.RefreshPlotDeviceInfo()\nfor n in lay.GetCanonicalMediaNames():\n    print(n, '->', lay.GetLocaleMediaName(n))",
+      "notes": "Canonical names are locale-independent and must be used when setting CanonicalMediaName.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-BDFDA2F3-63E6-47CD-8185-1793BEEDBCB1"
+    },
+    {
+      "name": "AcadPreferences.Files",
+      "kind": "script-object",
+      "description": "The PreferencesFiles object (Application.Preferences.Files) exposes the file-search settings of the Options dialog: SupportPath, PrinterConfigPath, PrinterStyleSheetPath, TemplateDwgPath, AutoSavePath, TempFilePath, FontFileMap and others. Other Preferences sub-objects cover Display, OpenSave, System, User, Drafting, Selection and Profiles.",
+      "usage": "path = acad.Preferences.Files.SupportPath\nacad.Preferences.Files.SupportPath = path & \";C:\\CAD\\Support\"",
+      "parameters": [
+        {"name": "SupportPath", "description": "Semicolon-separated support file search path."},
+        {"name": "TrustedPaths", "description": "Trusted locations for SECURELOAD (also via the TRUSTEDPATHS variable)."},
+        {"name": "Preferences.Profiles", "description": "ActiveProfile, ImportProfile, ExportProfile, CopyProfile."}
+      ],
+      "example": "prefs = acad.Preferences.Files\nif r\"C:\\CAD\\Support\" not in prefs.SupportPath:\n    prefs.SupportPath = prefs.SupportPath + r\";C:\\CAD\\Support\"",
+      "notes": "Changes are stored in the current profile in the registry and persist across sessions. Deployment tools often prefer .arg profile files.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-539ADB58-295E-4BF1-A0CB-D104163409F9"
+    },
+    {
+      "name": "AcadApplication.ZoomExtents",
+      "kind": "script-object",
+      "description": "Zooms the active viewport of the active document to the drawing extents. The Application object also provides ZoomAll, ZoomWindow, ZoomCenter, ZoomScaled, ZoomPrevious and ZoomPickWindow.",
+      "usage": "acad.ZoomExtents\nacad.ZoomWindow LowerLeft, UpperRight",
+      "parameters": [
+        {"name": "LowerLeft / UpperRight", "description": "3-element double arrays for ZoomWindow."}
+      ],
+      "example": "acad.ZoomExtents()\ndoc.Save()",
+      "notes": "Zoom affects the active document only; activate a document (doc.Activate) before zooming it.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-B204BFAA-B774-4C87-86D8-37007F390B5A"
+    },
+    {
+      "name": "AcadApplication.GetAcadState",
+      "kind": "script-object",
+      "description": "Returns an AcadState object whose IsQuiescent property tells whether AutoCAD is idle (no active command, no pending input). External programs poll it before sending further COM calls or commands.",
+      "usage": "Set st = acad.GetAcadState()\nIf st.IsQuiescent Then ...",
+      "parameters": [
+        {"name": "IsQuiescent", "description": "True when AutoCAD is ready for new automation requests."}
+      ],
+      "example": "import time\ndoc.PostCommand(\"_.-PURGE _A * _N \")\nwhile not acad.GetAcadState().IsQuiescent:\n    time.sleep(0.2)",
+      "notes": "Polling with a short sleep avoids 'Call was rejected by callee' errors from out-of-process clients.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-820F93B4-7B83-4708-8E21-0D43D7D1C828"
+    },
+    {
+      "name": "AcadApplication.RunMacro",
+      "kind": "script-object",
+      "description": "Runs a VBA macro from a loaded or specified .dvb project. LoadDVB and UnloadDVB manage VBA projects, and LoadARX/UnloadARX/ListARX manage ObjectARX modules from automation clients.",
+      "usage": "acad.LoadDVB \"C:\\CAD\\VBA\\tools.dvb\"\nacad.RunMacro \"tools.dvb!Module1.ExportAttributes\"\nacad.LoadARX \"C:\\CAD\\ARX\\acmetools.arx\"",
+      "parameters": [
+        {"name": "MacroPath", "description": "[project.dvb!][module.]macro name."},
+        {"name": "LoadARX / LoadDVB", "description": "Full path of the module or project to load."}
+      ],
+      "example": "acad.LoadDVB(r\"C:\\CAD\\VBA\\tools.dvb\")\nacad.RunMacro(\"tools.dvb!Module1.ExportAttributes\")",
+      "notes": "VBA requires the separately installed VBA module for AutoCAD. Macros cannot receive arguments; pass data through USERR/USERS system variables or files.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-638E14CA-798C-42BC-8F2B-5E9D6952C707"
+    },
+    {
+      "name": "AcadApplication.GetInterfaceObject",
+      "kind": "script-object",
+      "description": "Creates an instance of a COM object inside the AutoCAD process from its ProgID. Its main use is creating ObjectDBX documents (ObjectDBX.AxDbDocument.25 for the AutoCAD 2025/2026 family) and objects of vertical-product type libraries.",
+      "usage": "Set obj = acad.GetInterfaceObject(ProgID)",
+      "parameters": [
+        {"name": "ProgID", "description": "E.g. \"ObjectDBX.AxDbDocument.25\" or \"AutoCAD.AcCmColor.25\"; the suffix follows the release family (24 for 2021-2024, 25 for 2025-2026)."}
+      ],
+      "example": "Dim col As AcadAcCmColor\nSet col = ThisDrawing.Application.GetInterfaceObject(\"AutoCAD.AcCmColor.25\")\ncol.SetRGB 255, 128, 0\nent.TrueColor = col",
+      "notes": "The version suffix is a common source of 'Problem in loading application' errors after upgrades; derive it from Application.Version where possible.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-0977714A-B209-445C-AF17-B5D173E41C38"
+    },
+    {
+      "name": "AcadModelSpace.AddLightWeightPolyline",
+      "kind": "script-object",
+      "description": "Creates a lightweight 2D polyline from an array of 2D vertex coordinates (x1, y1, x2, y2, ...). Closed, ConstantWidth, Elevation and bulges (SetBulge) are set on the returned object.",
+      "usage": "Set pl = ModelSpace.AddLightWeightPolyline(VerticesList)",
+      "parameters": [
+        {"name": "VerticesList", "description": "Array of doubles with an even number of values (at least 4)."}
+      ],
+      "example": "import win32com.client, pythoncom\ndef darr(*v): return win32com.client.VARIANT(pythoncom.VT_ARRAY | pythoncom.VT_R8, v)\nms = acad.ActiveDocument.ModelSpace\npl = ms.AddLightWeightPolyline(darr(0, 0, 100, 0, 100, 50, 0, 50))\npl.Closed = True",
+      "notes": "From Python, coordinate arrays must be wrapped as VARIANT(VT_ARRAY|VT_R8); plain tuples raise type-mismatch errors. pyautocad's aDouble helper does the same.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-2003E0A1-5FB5-48A7-8CDA-2804F7C61C1C"
+    },
+    {
+      "name": "AcadModelSpace.Add3DPoly",
+      "kind": "script-object",
+      "description": "Creates a 3D polyline from an array of 3D coordinates (x1, y1, z1, x2, y2, z2, ...). Used for survey strings, pipe centrelines and other non-planar polylines.",
+      "usage": "Set p3 = ModelSpace.Add3DPoly(PointsArray)",
+      "parameters": [
+        {"name": "PointsArray", "description": "Array of doubles; length a multiple of 3, at least 6."}
+      ],
+      "example": "Dim pts(0 To 8) As Double\npts(0) = 0: pts(1) = 0: pts(2) = 0\npts(3) = 50: pts(4) = 0: pts(5) = 5\npts(6) = 50: pts(7) = 40: pts(8) = 12\nThisDrawing.ModelSpace.Add3DPoly pts",
+      "notes": "3D polylines have no width or arcs. AppendVertex adds points later.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-21D7283A-552F-4DD8-BB4D-AEA1632186B9"
+    },
+    {
+      "name": "AcadModelSpace.AddMText",
+      "kind": "script-object",
+      "description": "Creates a multiline text object at an insertion point with a boundary width and a text string that may include MText formatting codes.",
+      "usage": "Set mt = ModelSpace.AddMText(InsertionPoint, Width, Text)",
+      "parameters": [
+        {"name": "InsertionPoint", "description": "3-element double array."},
+        {"name": "Width", "description": "Boundary width; 0 for no wrapping."},
+        {"name": "Text", "description": "Content; \\P for new paragraphs."}
+      ],
+      "example": "Dim p(0 To 2) As Double: p(0) = 10: p(1) = 200\nDim mt As AcadMText\nSet mt = ThisDrawing.ModelSpace.AddMText(p, 120, \"NOTES\\PAll dimensions in mm.\")\nmt.Height = 3.5\nmt.AttachmentPoint = acAttachmentPointTopLeft",
+      "notes": "In VBA the backslash needs no escaping; in Python use raw strings or doubled backslashes.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-0A441CDB-21D3-4AA3-A616-7FF4DA8925D2"
+    },
+    {
+      "name": "AcadModelSpace.AddHatch",
+      "kind": "script-object",
+      "description": "Creates a Hatch object with a pattern and associativity setting; the boundary is then defined with AppendOuterLoop (and AppendInnerLoop for islands) and computed with Evaluate.",
+      "usage": "Set h = ModelSpace.AddHatch(PatternType, PatternName, Associativity [, HatchObjectType])\nh.AppendOuterLoop ObjectArray\nh.Evaluate",
+      "parameters": [
+        {"name": "PatternType", "description": "acHatchPatternTypePreDefined, acHatchPatternTypeUserDefined or acHatchPatternTypeCustomDefined."},
+        {"name": "PatternName", "description": "Pattern such as \"ANSI31\" or \"SOLID\"."},
+        {"name": "Associativity", "description": "True to associate the hatch with its boundary objects."},
+        {"name": "HatchObjectType", "description": "acHatchObject (default) or acGradientObject."}
+      ],
+      "example": "Dim outer(0) As AcadEntity\nSet outer(0) = boundaryPline\nDim h As AcadHatch\nSet h = ThisDrawing.ModelSpace.AddHatch(acHatchPatternTypePreDefined, \"ANSI31\", True)\nh.AppendOuterLoop outer\nh.PatternScale = 2\nh.Evaluate",
+      "notes": "Loops must be closed; the objects array must be declared As AcadEntity (or Object) for AppendOuterLoop to accept it.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-BAF2BEDD-489A-42D1-92B1-698DC9DAE675"
+    },
+    {
+      "name": "AcadModelSpace.AddDimAligned",
+      "kind": "script-object",
+      "description": "Creates an aligned dimension between two extension-line origins with the dimension text at a given location, using the current dimension style. Related methods: AddDimRotated, AddDimAngular, AddDimRadial, AddDimDiametric, AddDimOrdinate, AddDimArc.",
+      "usage": "Set d = ModelSpace.AddDimAligned(ExtLine1Point, ExtLine2Point, TextPosition)",
+      "parameters": [
+        {"name": "ExtLine1Point / ExtLine2Point", "description": "Measured points (3-element arrays)."},
+        {"name": "TextPosition", "description": "Location of the dimension line/text."}
+      ],
+      "example": "p1 = darr(0, 0, 0); p2 = darr(100, 0, 0); tp = darr(50, 10, 0)\ndim = ms.AddDimAligned(p1, p2, tp)\ndim.StyleName = \"ISO-25\"",
+      "notes": "The dimension is not associative with geometry; use DIMREASSOCIATE or the command-line DIM commands if associativity is required.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9F5CE147-3787-4DD9-8028-8E89BF02A357"
+    },
+    {
+      "name": "AcadModelSpace.AddTable",
+      "kind": "script-object",
+      "description": "Creates a table object with a given number of rows and columns, row height and column width, using the current table style. Cells are filled with SetText, SetCellValue or SetCellValueFromText.",
+      "usage": "Set t = ModelSpace.AddTable(InsertionPoint, NumRows, NumColumns, RowHeight, ColWidth)",
+      "parameters": [
+        {"name": "NumRows / NumColumns", "description": "Initial table size (title and header rows count)."},
+        {"name": "RowHeight / ColWidth", "description": "Initial sizes in drawing units."}
+      ],
+      "example": "Dim t As AcadTable\nSet t = ThisDrawing.ModelSpace.AddTable(pt, 5, 3, 8, 40)\nt.SetText 0, 0, \"DOOR SCHEDULE\"\nt.SetText 1, 0, \"Tag\": t.SetText 1, 1, \"Width\": t.SetText 1, 2, \"Height\"",
+      "notes": "Rows and columns are zero-based. Call RegenerateTableSuppressed = True while filling large tables and set it back to False at the end for speed.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A5A767A8-98D0-40B4-89D1-1F0E5AC52EB7"
+    },
+    {
+      "name": "AcadModelSpace.AddBox",
+      "kind": "script-object",
+      "description": "Creates a 3D solid box of given length (X), width (Y) and height (Z). The Origin argument is the center of the box, not a corner. Other solid primitives: AddCone, AddCylinder, AddSphere, AddTorus, AddWedge, AddExtrudedSolid, AddRevolvedSolid.",
+      "usage": "Set s = ModelSpace.AddBox(Origin, Length, Width, Height)",
+      "parameters": [
+        {"name": "Origin", "description": "Center of the box (3-element array)."},
+        {"name": "Length / Width / Height", "description": "Dimensions along X, Y, Z."}
+      ],
+      "example": "Dim c(0 To 2) As Double: c(0) = 50: c(1) = 30: c(2) = 10\nDim b As Acad3DSolid\nSet b = ThisDrawing.ModelSpace.AddBox(c, 100, 60, 20)\nb.Boolean acSubtraction, ThisDrawing.ModelSpace.AddCylinder(c, 5, 20)",
+      "notes": "Solid creation is not available in AutoCAD LT. 3DSolid.Boolean performs union/subtraction/intersection with another solid.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-DE469E81-8531-415C-9D22-7041A42838DD"
+    },
+    {
+      "name": "AcadModelSpace.AttachExternalReference",
+      "kind": "script-object",
+      "description": "Attaches (or overlays) an external DWG reference at an insertion point with scale and rotation, returning an ExternalReference object.",
+      "usage": "Set x = ModelSpace.AttachExternalReference(PathName, Name, InsertionPoint, XScale, YScale, ZScale, Rotation, bOverlay [, Password])",
+      "parameters": [
+        {"name": "PathName", "description": "Path of the referenced drawing (relative paths are resolved against the host drawing)."},
+        {"name": "Name", "description": "Block name for the xref definition."},
+        {"name": "bOverlay", "description": "True for overlay, False for attachment."}
+      ],
+      "example": "Dim o(0 To 2) As Double\nThisDrawing.ModelSpace.AttachExternalReference _\n  \"..\\Base\\site.dwg\", \"SITE\", o, 1, 1, 1, 0, True",
+      "notes": "Reload or detach through the Blocks collection: ThisDrawing.Blocks(\"SITE\").Reload / .Detach.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-28CB9C44-08E6-47EF-A982-8F505D8C68F6"
+    },
+    {
+      "name": "AcadPaperSpace.AddPViewport",
+      "kind": "script-object",
+      "description": "Creates a layout (paper-space) viewport with a center point, width and height. The viewport must be turned on with Display True, then its scale and view are set through StandardScale/CustomScale, ViewCenter and Direction.",
+      "usage": "Set vp = PaperSpace.AddPViewport(Center, Width, Height)\nvp.Display True",
+      "parameters": [
+        {"name": "Center", "description": "Center point on the sheet (3-element array)."},
+        {"name": "Width / Height", "description": "Viewport size in paper units."},
+        {"name": "StandardScale / CustomScale", "description": "acVp1_100 etc. or a numeric scale factor."}
+      ],
+      "example": "ThisDrawing.ActiveSpace = acPaperSpace\nDim c(0 To 2) As Double: c(0) = 210: c(1) = 148\nDim vp As AcadPViewport\nSet vp = ThisDrawing.PaperSpace.AddPViewport(c, 380, 250)\nvp.Display True\nvp.StandardScale = acVpCustomScale: vp.CustomScale = 1 / 50",
+      "notes": "Viewports added to a layout that is not active may not display until the layout is activated. Lock the display with DisplayLocked.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-175761C6-B99A-431E-B76E-770DF0D7C39A"
+    },
+    {
+      "name": "AcadLayer",
+      "kind": "script-object",
+      "description": "Layer object in the Layers collection with properties Name, Color/TrueColor, Linetype, Lineweight, LayerOn, Freeze, Lock, Plottable, Description, Transparency and Material, plus Delete. Created with Layers.Add(name).",
+      "usage": "Set lay = doc.Layers.Add(\"E-POWER\")\nlay.Color = acRed: lay.Linetype = \"DASHED\": lay.Lock = False",
+      "parameters": [
+        {"name": "Freeze / LayerOn / Lock", "description": "Visibility and edit state booleans."},
+        {"name": "Linetype", "description": "Name of a loaded linetype (load with doc.Linetypes.Load)."},
+        {"name": "Lineweight", "description": "AcLineWeight constant such as acLnWt035."}
+      ],
+      "example": "lay = doc.Layers.Add(\"E-POWER\")\nif \"DASHED\" not in [lt.Name for lt in doc.Linetypes]:\n    doc.Linetypes.Load(\"DASHED\", \"acadiso.lin\")\nlay.Linetype = \"DASHED\"\nlay.Color = 1",
+      "notes": "Setting Freeze on the active layer raises an error. Layers.GenerateUsageData followed by layer.Used tells whether a layer is in use before deleting it.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-14F28A52-81E5-4CD0-AA79-ADC09E91BB8C"
+    },
+    {
+      "name": "AcadBlockReference.GetAttributes",
+      "kind": "script-object",
+      "description": "Returns an array of the editable AttributeReference objects of a block reference, allowing attribute values to be read and changed (TagString, TextString). Constant attributes are returned by GetConstantAttributes.",
+      "usage": "atts = blockRef.GetAttributes()",
+      "parameters": [
+        {"name": "HasAttributes", "description": "Check this property first; blocks without attributes return an empty array."}
+      ],
+      "example": "for ent in doc.ModelSpace:\n    if ent.ObjectName == \"AcDbBlockReference\" and ent.HasAttributes:\n        for att in ent.GetAttributes():\n            if att.TagString == \"REV\":\n                att.TextString = \"C\"",
+      "notes": "Iterating ModelSpace from Python is slow for large drawings (one COM round trip per object); filter with a SelectionSet first.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3E8E1756-F45D-4CCE-838B-00FBC0374278"
+    },
+    {
+      "name": "AcadBlockReference.GetDynamicBlockProperties",
+      "kind": "script-object",
+      "description": "Returns the DynamicBlockReferenceProperty objects of a dynamic block reference, each with PropertyName, Value, AllowedValues, ReadOnly, UnitsType and Description. Setting Value changes the dynamic parameter.",
+      "usage": "props = blockRef.GetDynamicBlockProperties()\nprop.Value = newValue",
+      "parameters": [
+        {"name": "IsDynamicBlock", "description": "Test before calling."},
+        {"name": "Value", "description": "Variant; must match the parameter type (Double for linear/angular, String for visibility)."},
+        {"name": "EffectiveName", "description": "Original block name of a modified dynamic block."}
+      ],
+      "example": "Dim p As Variant, i As Integer\np = br.GetDynamicBlockProperties\nFor i = LBound(p) To UBound(p)\n  If p(i).PropertyName = \"Visibility1\" Then p(i).Value = \"Double door\"\n  If p(i).PropertyName = \"Width\" Then p(i).Value = CDbl(900)\nNext i",
+      "notes": "Passing an Integer instead of Double for a distance raises 'Invalid input'. The Origin property is always read-only.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-16C8768B-2533-45FF-9CFF-FF864AC78202"
+    },
+    {
+      "name": "AcadSelectionSet.Select",
+      "kind": "script-object",
+      "description": "Adds objects to a selection set without user interaction using a mode (window, crossing, previous, last, all) and optional filter arrays. FilterType holds DXF group codes and FilterData the matching values, like an ssget filter list.",
+      "usage": "ss.Select Mode [, Point1] [, Point2] [, FilterType, FilterData]",
+      "parameters": [
+        {"name": "Mode", "description": "acSelectionSetWindow, acSelectionSetCrossing, acSelectionSetPrevious, acSelectionSetLast, acSelectionSetAll."},
+        {"name": "FilterType", "description": "Integer array of DXF codes (0 type, 8 layer, 2 block name, -4 operators)."},
+        {"name": "FilterData", "description": "Variant array of values paired with FilterType."}
+      ],
+      "example": "Dim ft(1) As Integer, fd(1) As Variant\nft(0) = 0: fd(0) = \"INSERT\"\nft(1) = 2: fd(1) = \"DOOR*\"\nDim ss As AcadSelectionSet\nSet ss = ThisDrawing.SelectionSets.Add(\"DOORS\")\nss.Select acSelectionSetAll, , , ft, fd\nMsgBox ss.Count & \" doors\"\nss.Delete",
+      "notes": "Selection set names must be unique; delete leftovers from a previous run. From Python, build FilterType as VARIANT(VT_ARRAY|VT_I2) and FilterData as VARIANT(VT_ARRAY|VT_VARIANT).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-4CDE43DD-E3EF-4EF8-B377-4B9ED03E4C96"
+    },
+    {
+      "name": "AcadSelectionSet.SelectOnScreen",
+      "kind": "script-object",
+      "description": "Prompts the user to select objects on screen and adds them to the selection set, optionally with the same FilterType/FilterData filtering as Select.",
+      "usage": "ss.SelectOnScreen [FilterType, FilterData]",
+      "parameters": [
+        {"name": "FilterType / FilterData", "description": "Optional DXF filter arrays."}
+      ],
+      "example": "Dim ft(0) As Integer, fd(0) As Variant\nft(0) = 0: fd(0) = \"TEXT,MTEXT\"\nSet ss = ThisDrawing.SelectionSets.Add(\"TXT\")\nss.SelectOnScreen ft, fd",
+      "notes": "In external (out-of-process) automation the AutoCAD window must be activated for the user to pick; the call blocks until selection ends.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-C4B442A3-D6A9-48FA-8C86-03D49A3B2ED7"
+    },
+    {
+      "name": "AcadSelectionSet.SelectByPolygon",
+      "kind": "script-object",
+      "description": "Selects objects using a fence, window polygon or crossing polygon defined by a list of points, with optional filters. Useful for selecting everything inside a room outline or crossing a route.",
+      "usage": "ss.SelectByPolygon Mode, PointsList [, FilterType, FilterData]",
+      "parameters": [
+        {"name": "Mode", "description": "acSelectionSetFence, acSelectionSetWindowPolygon or acSelectionSetCrossingPolygon."},
+        {"name": "PointsList", "description": "Array of doubles with 3D coordinates (x, y, z per point)."}
+      ],
+      "example": "' select all blocks inside a closed polyline's outline\nDim c As Variant: c = pline.Coordinates   ' 2D list x,y,...\nDim pts() As Double, i As Long, n As Long\nn = (UBound(c) + 1) / 2\nReDim pts(0 To n * 3 - 1)\nFor i = 0 To n - 1: pts(i * 3) = c(i * 2): pts(i * 3 + 1) = c(i * 2 + 1): Next\nss.SelectByPolygon acSelectionSetWindowPolygon, pts",
+      "notes": "Like interactive polygon selection, only objects visible on screen are reliably found; zoom to the area first.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D8002585-5D08-45E2-AF6C-6E894FA3D463"
+    },
+    {
+      "name": "AcadEntity.Move",
+      "kind": "script-object",
+      "description": "Moves an entity by the vector from Point1 to Point2. The editing family on every entity also includes Copy (returns the copy), Rotate (base point, angle in radians), ScaleEntity (base point, factor), Mirror (returns the mirrored copy), Rotate3D, Mirror3D, TransformBy and Delete.",
+      "usage": "ent.Move Point1, Point2\nSet c = ent.Copy()\nent.Rotate BasePoint, RotationAngle\nent.ScaleEntity BasePoint, ScaleFactor\nSet m = ent.Mirror(Point1, Point2)",
+      "parameters": [
+        {"name": "Point1 / Point2", "description": "3-element arrays defining the displacement."},
+        {"name": "RotationAngle", "description": "Radians, counterclockwise."}
+      ],
+      "example": "from math import radians\nnew = ent.Copy()\nnew.Move(darr(0, 0, 0), darr(0, 500, 0))\nnew.Rotate(darr(0, 500, 0), radians(90))",
+      "notes": "Mirror leaves the original in place; delete it if you want MIRROR with 'erase source'. MIRRTEXT affects text mirroring.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-FF65DF24-D646-4DC2-894D-095E426DC2C1"
+    },
+    {
+      "name": "AcadEntity.ArrayRectangular",
+      "kind": "script-object",
+      "description": "Creates a classic (non-associative) rectangular array of an entity and returns the new objects. ArrayPolar creates a polar array around a center point.",
+      "usage": "objs = ent.ArrayRectangular(NumberOfRows, NumberOfColumns, NumberOfLevels, DistBetweenRows, DistBetweenCols, DistBetweenLevels)\nobjs = ent.ArrayPolar(NumberOfObjects, AngleToFill, CenterPoint)",
+      "parameters": [
+        {"name": "NumberOfRows / Columns / Levels", "description": "Counts including the original (levels = 1 for 2D)."},
+        {"name": "AngleToFill", "description": "ArrayPolar fill angle in radians (2*pi for a full circle)."}
+      ],
+      "example": "Dim a As Variant\na = hole.ArrayRectangular(3, 4, 1, 25, 40, 0)\nMsgBox (UBound(a) + 1) & \" copies created\"",
+      "notes": "These methods create separate objects; associative arrays (ARRAYRECT) are not exposed through ActiveX.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D8F15232-7297-4C90-86A4-0A0887D4938B"
+    },
+    {
+      "name": "AcadEntity.IntersectWith",
+      "kind": "script-object",
+      "description": "Returns the intersection points of two entities as a flat array of doubles (x, y, z per point). The extend option allows intersections with extended geometry.",
+      "usage": "pts = ent.IntersectWith(IntersectObject, ExtendOption)",
+      "parameters": [
+        {"name": "IntersectObject", "description": "The other entity."},
+        {"name": "ExtendOption", "description": "acExtendNone, acExtendThisEntity, acExtendOtherEntity, acExtendBoth."}
+      ],
+      "example": "Dim v As Variant\nv = line1.IntersectWith(line2, acExtendNone)\nIf VarType(v) <> vbEmpty Then\n  If UBound(v) >= 2 Then Debug.Print v(0), v(1), v(2)\nEnd If",
+      "notes": "No intersection returns an empty array (UBound = -1); always check the bounds before reading points.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-1243A593-5DAE-4DC3-B539-59FDA990E687"
+    },
+    {
+      "name": "AcadEntity.GetBoundingBox",
+      "kind": "script-object",
+      "description": "Returns the minimum and maximum corners of the entity's WCS axis-aligned bounding box through two output arguments.",
+      "usage": "ent.GetBoundingBox MinPoint, MaxPoint",
+      "parameters": [
+        {"name": "MinPoint / MaxPoint", "description": "Variant output arguments receiving 3-element arrays."}
+      ],
+      "example": "Dim mn As Variant, mx As Variant\nent.GetBoundingBox mn, mx\nThisDrawing.Application.ZoomWindow mn, mx",
+      "notes": "In Python/win32com output arguments are returned as a tuple: mn, mx = ent.GetBoundingBox().",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A20C361C-BBF0-4EAB-8BE7-709154CEEE09"
+    },
+    {
+      "name": "AcadObject.SetXData",
+      "kind": "script-object",
+      "description": "Attaches extended data (XData) to any object from two parallel arrays of group codes and values; GetXData reads it back for a given application name. The first pair must be code 1001 with a registered application name.",
+      "usage": "obj.SetXData XDataType, XDataValue\nobj.GetXData AppName, XDataType, XDataValue",
+      "parameters": [
+        {"name": "XDataType", "description": "Integer array: 1001 app name, 1000 string, 1040 real, 1070 short, 1071 long, 1010 point ..."},
+        {"name": "XDataValue", "description": "Variant array with the values."},
+        {"name": "AppName", "description": "For GetXData: application name, \"\" for all."}
+      ],
+      "example": "ThisDrawing.RegisteredApplications.Add \"ACME\"\nDim t(0 To 2) As Integer, v(0 To 2) As Variant\nt(0) = 1001: v(0) = \"ACME\"\nt(1) = 1000: v(1) = \"PUMP-07\"\nt(2) = 1040: v(2) = 3.2\nent.SetXData t, v\nDim rt As Variant, rv As Variant\nent.GetXData \"ACME\", rt, rv",
+      "notes": "XData is limited to about 16 KB per object. SelectionSet filters on code -3 select objects carrying a given application's XData.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-EF0393EC-8446-4989-8C72-F3AE49D81176"
+    },
+    {
+      "name": "AcadXRecord.SetXRecordData",
+      "kind": "script-object",
+      "description": "Stores arbitrary data in an XRecord created with Dictionary.AddXRecord, using parallel arrays of DXF group codes and values. GetXRecordData reads it back. Used for drawing-level application settings.",
+      "usage": "Set dict = doc.Dictionaries.Add(\"ACME\")\nSet xr = dict.AddXRecord(\"SETTINGS\")\nxr.SetXRecordData XRecordDataType, XRecordData",
+      "parameters": [
+        {"name": "XRecordDataType", "description": "Integer array of DXF codes (1 string, 40 real, 70 short, 90 long...)."},
+        {"name": "XRecordData", "description": "Variant array of values."}
+      ],
+      "example": "Dim d As AcadDictionary, x As AcadXRecord\nSet d = ThisDrawing.Dictionaries.Add(\"ACME\")\nSet x = d.AddXRecord(\"SETTINGS\")\nDim t(0 To 1) As Integer, v(0 To 1) As Variant\nt(0) = 1: v(0) = \"Project 2026-017\"\nt(1) = 40: v(1) = 50#\nx.SetXRecordData t, v",
+      "notes": "Dictionaries.Add returns the existing dictionary if the name exists. Per-object data goes into the object's extension dictionary (GetExtensionDictionary).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-8426BA72-1852-40BC-84D4-F63F49A0DE74"
+    },
+    {
+      "name": "AcadUtility.GetPoint",
+      "kind": "script-object",
+      "description": "Prompts the user for a point on screen (with optional rubber-band base point) and returns it as a WCS 3-element array. The Utility object also provides GetEntity, GetString, GetReal, GetInteger, GetDistance, GetAngle, GetKeyword, GetCorner, Prompt and InitializeUserInput.",
+      "usage": "pt = doc.Utility.GetPoint([Point], [Prompt])",
+      "parameters": [
+        {"name": "Point", "description": "Optional base point for the rubber-band line (WCS)."},
+        {"name": "Prompt", "description": "Prompt text."},
+        {"name": "InitializeUserInput", "description": "Call first to set bits (1 = no null) and keywords."}
+      ],
+      "example": "Dim p1 As Variant, p2 As Variant\np1 = ThisDrawing.Utility.GetPoint(, vbCrLf & \"First point: \")\np2 = ThisDrawing.Utility.GetPoint(p1, vbCrLf & \"Second point: \")\nThisDrawing.ModelSpace.AddLine p1, p2",
+      "notes": "Pressing Esc raises a run-time error, so use On Error handling. Unlike AutoLISP getpoint, the returned point is already in WCS.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-5C8BA75E-5F87-479B-B167-3961F93E617E"
+    },
+    {
+      "name": "AcadUtility.TranslateCoordinates",
+      "kind": "script-object",
+      "description": "Converts a point or displacement between coordinate systems: WCS, UCS, display (DCS), paper-space DCS and an entity's OCS. The ActiveX equivalent of AutoLISP trans.",
+      "usage": "newPt = doc.Utility.TranslateCoordinates(Point, FromCoordSystem, ToCoordSystem, Displacement [, OCSNormal])",
+      "parameters": [
+        {"name": "From/ToCoordSystem", "description": "acWorld, acUCS, acDisplayDCS, acPaperSpaceDCS or acOCS."},
+        {"name": "Displacement", "description": "True to treat the input as a vector (no translation)."},
+        {"name": "OCSNormal", "description": "Normal of the OCS when acOCS is used."}
+      ],
+      "example": "Dim ucsPt As Variant\nucsPt = ThisDrawing.Utility.TranslateCoordinates(wcsPt, acWorld, acUCS, False)",
+      "notes": "Lightweight polyline and 2D entity coordinates are in OCS; translate with the entity's Normal before comparing with WCS points.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-9B897CC9-2AE8-4411-BDA9-E337CBFACF8B"
+    },
+    {
+      "name": "ObjectDBX.AxDbDocument",
+      "kind": "script-object",
+      "description": "An in-memory drawing document created with Application.GetInterfaceObject(\"ObjectDBX.AxDbDocument.25\") that opens DWG files without loading them into the editor. It exposes most of the Document object model (ModelSpace, Blocks, Layers, Layouts) and SaveAs, making batch reading and editing of many files fast.",
+      "usage": "Set dbx = acad.GetInterfaceObject(\"ObjectDBX.AxDbDocument.25\")\ndbx.Open FileName [, Password]\n' ... work ...\ndbx.SaveAs FileName",
+      "parameters": [
+        {"name": "Open", "description": "Loads a DWG into the ObjectDBX document."},
+        {"name": "SaveAs", "description": "Saves changes (there is no Save or Close method)."},
+        {"name": "ProgID suffix", "description": "Matches the release family (24 for 2021-2024, 25 for 2025-2026)."}
+      ],
+      "example": "(setq dbx (vla-GetInterfaceObject (vlax-get-acad-object) \"ObjectDBX.AxDbDocument.25\"))\n(foreach f (vl-directory-files \"C:/Proj\" \"*.dwg\" 1)\n  (vla-Open dbx (strcat \"C:/Proj/\" f))\n  (vlax-for lay (vla-get-Layers dbx) (if (= (vla-get-Name lay) \"TEMP\") (vla-put-Freeze lay :vlax-true)))\n  (vla-SaveAs dbx (strcat \"C:/Proj/\" f)))\n(vlax-release-object dbx)",
+      "notes": "No editor: no commands, selection sets, SendCommand, zoom or text alignment adjustment; attribute alignment may need fixing after edits. Files open elsewhere cannot be saved. Release the object when done.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-36BF58F3-537D-4B59-BEFE-2D0FEF5A4443"
+    }
+  ]
+}

@@ -1,0 +1,394 @@
+{
+  "category": "Stateflow, Simscape & code generation essentials",
+  "description": "The three big add-on worlds that sit on top of a Simulink block diagram: Stateflow for modal and supervisory logic (charts, state transition tables, truth tables and the MATLAB API that builds them), Simscape for acausal physical networks (the Utilities blocks that bridge to Simulink, the Foundation electrical and mechanical elements, Simscape Multibody and custom component libraries), and the code generation and verification chain (Simulink Coder/Embedded Coder builds, code packaging, Simulink Test, Simulink Coverage, Simulink Design Verifier, HDL Coder and Simulink Real-Time). Every block entry gives the add_block library path verified against an installed Simulink, and every entry names the add-on product it needs.",
+  "tools": [
+    {
+      "name": "Chart",
+      "kind": "block",
+      "description": "The Stateflow Chart block embeds a finite state machine or flow chart inside a Simulink model. States represent operating modes and transitions the conditions that move between them, with entry/during/exit actions, hierarchy, parallel (AND) decomposition, history junctions, graphical functions, MATLAB functions and Simulink functions available inside. Use it for supervisory logic, mode management, fault handling, startup/shutdown sequences and protocol handling - anything more naturally described as 'what state am I in' than as a signal-flow equation.",
+      "usage": "add_block('sflib/Chart', [mdl '/Controller'])\nLibrary Browser: Stateflow > Chart\nsfnew            % new model containing an empty chart\nch = find(sfroot,'-isa','Stateflow.Chart','Name','Controller');   % then set ch.ActionLanguage etc.",
+      "parameters": [
+        {"name": "StateMachineType", "description": "Chart property (Stateflow API, or Chart properties dialog): 'Classic' (default), 'Mealy' (outputs from transitions only) or 'Moore' (outputs from states only). Mealy/Moore enforce stricter, more verifiable semantics."},
+        {"name": "ActionLanguage", "description": "Chart property: 'MATLAB' (default) or 'C'. MATLAB action language supports matrices and MATLAB syntax; C is closer to the generated code and allows pointers and custom C."},
+        {"name": "ChartUpdate", "description": "Chart property: 'INHERITED' (default), 'DISCRETE' (rate set by SampleTime) or 'CONTINUOUS'."},
+        {"name": "Decomposition", "description": "Chart property: 'EXCLUSIVE_OR' (default) or 'PARALLEL_AND' for the chart's top level."},
+        {"name": "ExecuteAtInitialization", "description": "Chart property: true to run the chart's default transition at model initialization rather than at the first time step."}
+      ],
+      "example": "mdl = 'sfDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('sflib/Chart', [mdl '/Supervisor']);\n\n% chart settings are properties of the Stateflow object, NOT set_param parameters\nch = find(sfroot, '-isa','Stateflow.Chart', 'Name','Supervisor');\nch.ActionLanguage   = 'MATLAB';\nch.StateMachineType = 'Classic';\n\ns1 = Stateflow.State(ch); s1.Name = 'Idle';    s1.Position = [40 40 120 70];\ns2 = Stateflow.State(ch); s2.Name = 'Running'; s2.Position = [40 160 120 70];\nt  = Stateflow.Transition(ch); t.Source = s1; t.Destination = s2;\nt.LabelString = 'start';\nsave_system(mdl);",
+      "notes": "Requires Stateflow. The Chart block reports itself to Simulink as a SubSystem, so get_param/set_param do NOT expose ActionLanguage, StateMachineType, ChartUpdate or SampleTime - reach them through the Stateflow.Chart object from sfroot, or through the chart's Properties dialog. Enable the ActiveStateOutput property to get the active state out as an enumerated signal for logging and test assertions.",
+      "docs": "https://www.mathworks.com/help/stateflow/ref/chart.html"
+    },
+    {
+      "name": "State Transition Table",
+      "kind": "block",
+      "description": "A tabular alternative to a graphical Stateflow chart: rows are states (with hierarchy shown by indentation) and columns are transition conditions, so the whole state machine is a readable table instead of a diagram. Stateflow compiles it into an equivalent chart, so semantics, simulation and code generation are identical. Use it when the machine is dense with transitions - a chart with fifteen states and forty transitions becomes unreadable as a diagram but stays reviewable as a table, and tables diff far better under source control.",
+      "usage": "add_block('sflib/State Transition Table', [mdl '/Modes'])\nLibrary Browser: Stateflow > State Transition Table",
+      "parameters": [
+        {"name": "ActionLanguage", "description": "Table property (set in the editor or through the Stateflow API, not with set_param): 'MATLAB' or 'C', same meaning as for a Chart."},
+        {"name": "StateMachineType", "description": "Table property: 'Classic', 'Mealy' or 'Moore'."},
+        {"name": "Default transition row", "description": "The first row defines which state is entered at startup."},
+        {"name": "Inner transition column", "description": "Optional column for transitions that stay inside the parent state."}
+      ],
+      "example": "mdl = 'sttDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('sflib/State Transition Table', [mdl '/Modes']);\nopen_system([mdl '/Modes']);   % edit the table in the State Transition Table editor\nsave_system(mdl);",
+      "notes": "Requires Stateflow. View the equivalent auto-generated chart at any time from the State Transition Table editor - useful when debugging, because breakpoints and the Stateflow debugger operate on that chart. The block reports itself to Simulink as a SubSystem, so its ActionLanguage and StateMachineType are not reachable through get_param/set_param; use the editor or the Stateflow API.",
+      "docs": "https://www.mathworks.com/help/stateflow/ref/statetransitiontable.html"
+    },
+    {
+      "name": "Truth Table",
+      "kind": "block",
+      "description": "Implements combinational logic as a condition/decision/action table: each row is a condition, each numbered column a decision (a combination of T/F/- values) and each decision maps to an action. Stateflow checks the table for completeness (every input combination covered) and consistency (no duplicate decisions) and compiles it into a flow chart. Use it for lookup-style decision logic, fault classification and mode arbitration, where a table makes the coverage obvious and a flow chart would hide it.",
+      "usage": "add_block('sflib/Truth Table', [mdl '/FaultLogic'])\nLibrary Browser: Stateflow > Truth Table",
+      "parameters": [
+        {"name": "Condition table", "description": "Rows of boolean conditions on the inputs, plus one column per decision and a final default (-) column."},
+        {"name": "Action table", "description": "Numbered actions referenced from the decision row of the condition table."},
+        {"name": "Underspecified / Overspecified diagnostics", "description": "Settings that control whether missing or duplicated decisions are errors or warnings."},
+        {"name": "ActionLanguage", "description": "Table property (set in the Truth Table editor or through the Stateflow API, not with set_param): 'MATLAB' or 'C' for the expressions in the tables."}
+      ],
+      "example": "mdl = 'ttDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('sflib/Truth Table', [mdl '/FaultLogic']);\nopen_system([mdl '/FaultLogic']);   % fill in the condition and action tables\nsave_system(mdl);",
+      "notes": "Requires Stateflow. A MATLAB-language Truth Table function can also be placed inside a Stateflow chart rather than used as a standalone block. If you only need combinational logic in MATLAB (no Simulink block), the MATLAB Function block with an if/elseif ladder generates comparable code but loses the completeness checking.",
+      "docs": "https://www.mathworks.com/help/stateflow/ref/truthtable.html"
+    },
+    {
+      "name": "sfnew",
+      "kind": "function",
+      "description": "Creates a new, unsaved Simulink model containing an empty Stateflow block and opens it. It is the quickest way to start a state machine from the command line, and the type argument selects which Stateflow block is inserted - a chart, a state transition table or a truth table - and whether the chart uses Mealy or Moore semantics. Use it as the first line of any script that builds a chart programmatically through the Stateflow API.",
+      "usage": "sfnew\nsfnew(modelName)\nsfnew(type)\nsfnew(type, modelName)",
+      "parameters": [
+        {"name": "modelName", "description": "Name for the new model. Omit it and the model is called 'untitled'."},
+        {"name": "'-MATLAB' / '-C'", "description": "Action language of the new chart."},
+        {"name": "'-Mealy' / '-Moore'", "description": "Create a Mealy or Moore chart instead of a classic one."},
+        {"name": "'-STT'", "description": "Insert a State Transition Table block instead of a Chart."},
+        {"name": "'-TT'", "description": "Insert a Truth Table block instead of a Chart."}
+      ],
+      "example": "sfnew('-MATLAB','gearLogic');\nch = find(sfroot, '-isa','Stateflow.Chart');\n\nlow  = Stateflow.State(ch); low.Name  = 'Low';  low.Position  = [40 40 120 70];\nhigh = Stateflow.State(ch); high.Name = 'High'; high.Position = [40 170 120 70];\n\nd = Stateflow.Data(ch); d.Name = 'speed'; d.Scope = 'Input';\n\nup = Stateflow.Transition(ch);\nup.Source = low; up.Destination = high; up.LabelString = '[speed > 60]';\n\nsave_system('gearLogic');",
+      "notes": "Requires Stateflow. sfopen opens an existing chart file or model; stateflow (no arguments) opens the Stateflow library model sflib; sfroot returns the root object you search to reach charts that already exist. sfnew leaves the model unsaved - call save_system before using it from another script.",
+      "docs": "https://www.mathworks.com/help/stateflow/ref/sfnew.html"
+    },
+    {
+      "name": "sfroot",
+      "kind": "function",
+      "description": "Returns the root object of the Stateflow hierarchy, the starting point for every programmatic search. Calling find on it with '-isa' and property filters locates charts, states, transitions, junctions, data, events and functions anywhere in the loaded models. Use it whenever you need to reach an existing chart from a script - to audit state names, retarget transitions, add data, or bulk-edit labels across a model.",
+      "usage": "rt = sfroot\nobjs = rt.find('-isa','Stateflow.Chart')\nobjs = find(sfroot,'-isa','Stateflow.State','Name','Idle')\nm = rt.find('-isa','Simulink.BlockDiagram','Name',mdl)",
+      "parameters": [
+        {"name": "'-isa', className", "description": "Filter by class: Stateflow.Chart, Stateflow.State, Stateflow.Transition, Stateflow.Junction, Stateflow.Data, Stateflow.Event, Stateflow.Function, Stateflow.EMFunction, Stateflow.TruthTable, Stateflow.Box."},
+        {"name": "'Name', value", "description": "Filter by the object's Name property; combine several property filters in one find call."},
+        {"name": "'-depth', n", "description": "Limit how far down the hierarchy the search goes."},
+        {"name": "'-and' / '-or' / '-not'", "description": "Combine filters logically."}
+      ],
+      "example": "sfnew('-MATLAB','auditMe');\nch0 = find(sfroot,'-isa','Stateflow.Chart','Name','Chart');\na = Stateflow.State(ch0); a.Name='Idle';    a.Position=[40 40 120 60];\nb = Stateflow.State(ch0); b.Name='Active';  b.Position=[40 150 120 60];\nt = Stateflow.Transition(ch0); t.Source=a; t.Destination=b; t.LabelString='go';\n\n% now audit every chart in every loaded model\nrt = sfroot;\ncharts = rt.find('-isa','Stateflow.Chart');\nfor k = 1:numel(charts)\n    st = charts(k).find('-isa','Stateflow.State');\n    fprintf('%s: %d states\\n', charts(k).Name, numel(st));\nend\n\nidle = rt.find('-isa','Stateflow.State','Name','Idle');\nif ~isempty(idle), disp(idle(1).LabelString); end",
+      "notes": "Requires Stateflow. The model must be loaded (load_system or open_system) before its charts appear under sfroot. Searching without an '-isa' filter walks the entire hierarchy and is slow on large models - always filter. Objects returned are live handles: assigning to their properties changes the model immediately and dirties it.",
+      "docs": "https://www.mathworks.com/help/stateflow/ref/sfroot.html"
+    },
+    {
+      "name": "Stateflow.Chart",
+      "kind": "api",
+      "description": "The API object representing a chart. Its properties mirror the chart's block dialog (ActionLanguage, StateMachineType, ChartUpdate, ExecuteAtInitialization, Decomposition) and its object functions create and query the chart's contents. Use it as the container you pass to the Stateflow.State, Stateflow.Transition, Stateflow.Junction, Stateflow.Data and Stateflow.Event constructors when generating a state machine from code, and to reposition or relabel an existing chart in bulk.",
+      "usage": "ch = find(sfroot,'-isa','Stateflow.Chart','Name',chartName)\nch.ActionLanguage = 'MATLAB';\nst = ch.find('-isa','Stateflow.State');\nd = Stateflow.Data(ch); d.Name = 'u'; d.Scope = 'Input';",
+      "parameters": [
+        {"name": "Name / Path", "description": "Chart name and the Simulink path of the block that owns it."},
+        {"name": "ActionLanguage", "description": "'MATLAB' or 'C'."},
+        {"name": "StateMachineType", "description": "'Classic', 'Mealy' or 'Moore'."},
+        {"name": "Decomposition", "description": "'EXCLUSIVE_OR' (default) or 'PARALLEL_AND' for the chart's top level."},
+        {"name": "ChartUpdate / SampleTime", "description": "'INHERITED', 'DISCRETE' or 'CONTINUOUS', and the sample time used when DISCRETE."},
+        {"name": "find(...) / defaultTransitions / view", "description": "Object functions to search the chart's contents, get its default transitions and open it in the editor."}
+      ],
+      "example": "sfnew('-MATLAB','tempCtl');\nch = find(sfroot,'-isa','Stateflow.Chart');\nch.ChartUpdate = 'DISCRETE';\nch.SampleTime  = '0.01';\n\nu = Stateflow.Data(ch); u.Name = 'T';    u.Scope = 'Input';\ny = Stateflow.Data(ch); y.Name = 'heat'; y.Scope = 'Output'; y.DataType = 'boolean';\n\noff = Stateflow.State(ch); off.Name='Off'; off.Position=[40 40 120 60];\noff.LabelString = sprintf('Off\\nentry: heat = false;');\non  = Stateflow.State(ch); on.Name='On';  on.Position=[40 150 120 60];\non.LabelString  = sprintf('On\\nentry: heat = true;');\n\nj = Stateflow.Junction(ch); j.Position.Center = [220 40]; j.Position.Radius = 10;\n\nt1 = Stateflow.Transition(ch); t1.Source=off; t1.Destination=on;  t1.LabelString='[T < 18]';\nt2 = Stateflow.Transition(ch); t2.Source=on;  t2.Destination=off; t2.LabelString='[T > 22]';\nsave_system('tempCtl');",
+      "notes": "Requires Stateflow. State actions are written into the LabelString property as text ('Name\\nentry: ...\\nduring: ...'), not as separate properties. Stateflow.Data controls a chart's ports: Scope 'Input'/'Output' create Simulink ports, 'Local'/'Constant'/'Parameter' do not. Stateflow.EMFunction creates a MATLAB function inside the chart; Stateflow.Function creates a graphical function.",
+      "docs": "https://www.mathworks.com/help/stateflow/api/stateflow.chart.html"
+    },
+    {
+      "name": "Stateflow.State",
+      "kind": "api",
+      "description": "The API object for a state inside a chart, box or another state. Creating one with Stateflow.State(parent) adds a state to that parent; its Position property places it on the canvas and its LabelString carries the name together with the entry, during, exit, on-event and bind actions as text. Use it to build state machines from a specification file, to rename or re-lay-out states in bulk, and to read back what a chart contains for documentation or review.",
+      "usage": "s = Stateflow.State(parentChartOrState)\ns.Name = 'Running';\ns.Position = [x y width height];\ns.LabelString = sprintf('Running\\nentry: y = 1;\\nduring: y = y + 1;');",
+      "parameters": [
+        {"name": "Name", "description": "State name; also the first line of LabelString."},
+        {"name": "LabelString", "description": "Full label text: name plus entry/during/exit/on/bind action lines separated by newlines."},
+        {"name": "Position", "description": "[left top width height] in canvas units."},
+        {"name": "Decomposition", "description": "'EXCLUSIVE_OR' or 'PARALLEL_AND' for the state's substates."},
+        {"name": "ExecutionOrder", "description": "Execution order among parallel (AND) siblings."},
+        {"name": "IsSubchart / IsGrouped", "description": "Whether the state is displayed as a subchart or a grouped box."}
+      ],
+      "example": "sfnew('-MATLAB','seq');\nch = find(sfroot,'-isa','Stateflow.Chart');\n\nnames = {'Init','Warmup','Run','Shutdown'};\nprev = [];\nfor k = 1:numel(names)\n    s = Stateflow.State(ch);\n    s.Name = names{k};\n    s.Position = [40, 40 + 110*(k-1), 140, 70];\n    s.LabelString = sprintf('%s\\nentry: step = %d;', names{k}, k);\n    if ~isempty(prev)\n        t = Stateflow.Transition(ch);\n        t.Source = prev; t.Destination = s;\n        t.LabelString = sprintf('after(2, sec)');\n    end\n    prev = s;\nend\nsave_system('seq');",
+      "notes": "Requires Stateflow. Setting Name and LabelString separately can desynchronise them - set LabelString and let Name follow, or set Name first and build LabelString from it. Overlapping Position rectangles make one state a substate of the other, which silently changes the semantics, so lay states out with non-overlapping boxes.",
+      "docs": "https://www.mathworks.com/help/stateflow/api/stateflow.state.html"
+    },
+    {
+      "name": "Stateflow.Transition",
+      "kind": "api",
+      "description": "The API object for a transition. Setting its Source and Destination to states or junctions wires it up, and LabelString carries the full transition label in Stateflow syntax: event, [condition], {condition action} and /transition action. A transition with an empty Source is a default transition, which is how you mark the state entered at startup. Use it to generate transition structures from a table or specification and to audit or rewrite guard conditions across a chart.",
+      "usage": "t = Stateflow.Transition(parentChart)\nt.Source = stateA;  t.Destination = stateB;\nt.LabelString = 'ev [x > 0] {n = n+1;} / y = 1;';\nt.SourceOClock = 6;  t.DestinationOClock = 12;",
+      "parameters": [
+        {"name": "Source / Destination", "description": "Stateflow.State or Stateflow.Junction objects. Leaving Source empty makes it a default transition."},
+        {"name": "LabelString", "description": "'event [condition] {condition_action} / transition_action' - any part may be omitted."},
+        {"name": "SourceOClock / DestinationOClock", "description": "Attachment point on the source/destination boundary, expressed as a clock position 0-12."},
+        {"name": "ExecutionOrder", "description": "Order in which sibling transitions out of the same source are evaluated."},
+        {"name": "MidPoint / SourceEndPoint / DestinationEndPoint", "description": "Geometry controls for routing the arrow."}
+      ],
+      "example": "sfnew('-MATLAB','toggle');\nch = find(sfroot,'-isa','Stateflow.Chart');\n\na = Stateflow.State(ch); a.Name='A'; a.Position=[60 60 120 60];\nb = Stateflow.State(ch); b.Name='B'; b.Position=[60 200 120 60];\n\n% default transition into A\ntd = Stateflow.Transition(ch);\ntd.Destination = a;\ntd.DestinationOClock = 0;\ntd.SourceEndPoint = [120 20];\n\nt1 = Stateflow.Transition(ch);\nt1.Source=a; t1.Destination=b; t1.LabelString='[u > 1]';\nt1.SourceOClock = 6; t1.DestinationOClock = 12;\n\nt2 = Stateflow.Transition(ch);\nt2.Source=b; t2.Destination=a; t2.LabelString='[u <= 1]';\nt2.SourceOClock = 3; t2.DestinationOClock = 3;\nsave_system('toggle');",
+      "notes": "Requires Stateflow. A default transition needs a SourceEndPoint so the little arrow has somewhere to start. ExecutionOrder matters whenever two transitions out of the same state can both be true; Stateflow evaluates them in order and takes the first that passes, so leaving it to chance is a classic source of non-determinism in review.",
+      "docs": "https://www.mathworks.com/help/stateflow/api/stateflow.transition.html"
+    },
+    {
+      "name": "Solver Configuration",
+      "kind": "block",
+      "description": "Every connected Simscape physical network needs exactly one Solver Configuration block; it defines the solver settings for that network - equation formulation, index reduction, consistency tolerance, whether to start from steady state, and optionally a local solver that runs the network at a fixed step independently of the Simulink solver. Attach it to any node of the network. Use the local-solver option to make a physical network real-time capable or to decouple a stiff network from the rest of the model.",
+      "usage": "add_block('nesl_utility/Solver Configuration', [mdl '/Solver Configuration'])\nLibrary Browser: Simscape > Utilities > Solver Configuration",
+      "parameters": [
+        {"name": "Equation formulation", "description": "'Time' (default) or 'Frequency and time' - the latter enables frequency-domain (phasor) analysis for electrical networks."},
+        {"name": "Start simulation from steady state", "description": "Solve for a steady-state initial condition before t = StartTime instead of using the blocks' initial values."},
+        {"name": "Consistency tolerance", "description": "Tolerance used when solving for a consistent initial state; loosen it if initialization fails."},
+        {"name": "Use local solver", "description": "Run this network with its own fixed-step solver; then set Solver type (Backward Euler, Trapezoidal Rule, Partitioning) and Sample time."},
+        {"name": "Solver type / Sample time", "description": "Local solver algorithm and step size. 'Partitioning' splits the network into smaller solvable parts and is usually the fastest for real-time."}
+      ],
+      "example": "mdl = 'rcNet';\nnew_system(mdl); open_system(mdl);\nadd_block('nesl_utility/Solver Configuration', [mdl '/Solver Configuration'], 'Position',[40 40 70 70]);\nadd_block('fl_lib/Electrical/Electrical Elements/Resistor',  [mdl '/R'], 'Position',[160 40 190 80]);\nadd_block('fl_lib/Electrical/Electrical Elements/Capacitor', [mdl '/C'], 'Position',[260 40 290 80]);\nadd_block('fl_lib/Electrical/Electrical Elements/Electrical Reference', [mdl '/Gnd'], 'Position',[160 160 190 190]);\nset_param(mdl,'SolverType','Variable-step','Solver','daessc');\nsave_system(mdl);",
+      "notes": "Requires Simscape. One block per connected network - two disconnected networks need two. ssc_new creates a model that already has the Solver Configuration block and the converters in place. The daessc Simulink solver is designed for Simscape networks and often outperforms ode15s/ode23t on them.",
+      "docs": "https://www.mathworks.com/help/simscape/ref/solverconfiguration.html"
+    },
+    {
+      "name": "Simulink-PS Converter",
+      "kind": "block",
+      "description": "Converts a directional Simulink signal into a physical signal that can drive a Simscape source or variable component. It is the only legal way to get a Simulink value into a physical network, and it also carries the unit declaration for that value, so a control signal in rad/s is checked against the port it feeds. Its input-handling options can supply the first and second time derivatives that some physical blocks need, either by filtering the input or by taking extra input ports.",
+      "usage": "add_block('nesl_utility/Simulink-PS Converter', [mdl '/S-PS'])\nLibrary Browser: Simscape > Utilities > Simulink-PS Converter",
+      "parameters": [
+        {"name": "Input signal unit", "description": "Physical unit assumed for the incoming Simulink signal, e.g. 'V', 'N*m', 'rad/s'. '1' means unitless."},
+        {"name": "Apply affine conversion", "description": "Needed for units with an offset, such as degC or degF."},
+        {"name": "Filtering and derivatives", "description": "'Provide signals' or 'Filter input, derivatives calculated' - how the first/second derivatives required by some blocks are obtained."},
+        {"name": "Provided signals", "description": "'Input only', 'Input and first derivative', or 'Input and first two derivatives' - adds extra input ports."},
+        {"name": "Input filtering time constant", "description": "Time constant of the first-order filter used when derivatives are computed rather than supplied. Too large distorts the signal, too small stiffens the model."}
+      ],
+      "example": "mdl = 'psDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('simulink/Sources/Sine Wave', [mdl '/Cmd'], 'Position',[40 50 70 80]);\nadd_block('nesl_utility/Simulink-PS Converter', [mdl '/S-PS'], 'Position',[120 50 160 80]);\nadd_block('fl_lib/Electrical/Electrical Sources/Controlled Current Source', [mdl '/Is'], 'Position',[220 50 250 90]);\nadd_line(mdl,'Cmd/1','S-PS/1','autorouting','on');\nset_param([mdl '/S-PS'],'unit','A');\nsave_system(mdl);",
+      "notes": "Requires Simscape. A unit mismatch between this block and the port it feeds is a compile-time error, which is a feature - it catches sign and scale mistakes early. If a downstream block warns that derivatives are unavailable, switch Filtering and derivatives to compute them or supply them on extra ports.",
+      "docs": "https://www.mathworks.com/help/simscape/ref/simulinkpsconverter.html"
+    },
+    {
+      "name": "PS-Simulink Converter",
+      "kind": "block",
+      "description": "The reverse bridge: converts a physical signal coming out of a Simscape sensor into a plain Simulink signal for scopes, logging, control loops and code generation. You declare the output unit and Simscape performs the conversion (and errors if the physical signal's unit is incommensurable), which makes the model self-documenting about what a plotted trace actually means. Use one per measured quantity, immediately after the corresponding Simscape sensor block.",
+      "usage": "add_block('nesl_utility/PS-Simulink Converter', [mdl '/PS-S'])\nLibrary Browser: Simscape > Utilities > PS-Simulink Converter",
+      "parameters": [
+        {"name": "Output signal unit", "description": "Unit the Simulink signal should carry, e.g. 'A', 'm/s', 'rpm'. Must be commensurate with the incoming physical signal."},
+        {"name": "Apply affine conversion", "description": "Required for offset units such as degC."}
+      ],
+      "example": "mdl = 'psOut';\nnew_system(mdl); open_system(mdl);\nadd_block('fl_lib/Mechanical/Mechanical Sensors/Ideal Rotational Motion Sensor', [mdl '/Sensor'], 'Position',[60 50 100 100]);\nadd_block('nesl_utility/PS-Simulink Converter', [mdl '/PS-S'], 'Position',[160 50 200 80]);\nadd_block('simulink/Sinks/Scope', [mdl '/Scope'], 'Position',[260 50 290 80]);\nset_param([mdl '/PS-S'],'unit','rpm');\nadd_line(mdl,'PS-S/1','Scope/1','autorouting','on');\nsave_system(mdl);",
+      "notes": "Requires Simscape. Logging a physical signal directly (Simscape logging, simlog) is an alternative that captures every internal variable without converter blocks - use simlog for diagnostics and PS-Simulink Converters for the signals the rest of the model actually consumes.",
+      "docs": "https://www.mathworks.com/help/simscape/ref/pssimulinkconverter.html"
+    },
+    {
+      "name": "Resistor",
+      "kind": "block",
+      "description": "Linear resistor from the Simscape Foundation electrical library, implementing V = I*R between its + and - conserving ports. It is the canonical example of an acausal Simscape component: the ports carry both a Through variable (current) and an Across variable (voltage), and the solver decides the direction of causality from the surrounding network rather than from wiring direction. Use it, together with Capacitor and Inductor from the same sublibrary, to build passive electrical networks.",
+      "usage": "add_block('fl_lib/Electrical/Electrical Elements/Resistor', [mdl '/R1'])\nLibrary Browser: Simscape > Foundation Library > Electrical > Electrical Elements > Resistor\nset_param([mdl '/R1'],'R','100')",
+      "parameters": [
+        {"name": "R", "description": "Resistance, default '1' Ohm. Set as a string, optionally with a unit, e.g. '4.7' or '4.7e3'."},
+        {"name": "Conserving ports + and -", "description": "Electrical ports; positive current is defined as flowing from + to -."},
+        {"name": "Capacitor (same sublibrary)", "description": "'fl_lib/Electrical/Electrical Elements/Capacitor', parameter 'c' plus series resistance and parallel conductance."},
+        {"name": "Inductor (same sublibrary)", "description": "'fl_lib/Electrical/Electrical Elements/Inductor', parameter 'l' plus series resistance and parallel conductance."},
+        {"name": "Electrical Reference (same sublibrary)", "description": "'fl_lib/Electrical/Electrical Elements/Electrical Reference' - the ground node every electrical network needs."}
+      ],
+      "example": "mdl = 'rlc';\nnew_system(mdl); open_system(mdl);\nadd_block('nesl_utility/Solver Configuration', [mdl '/Solver'], 'Position',[40 220 70 250]);\nadd_block('fl_lib/Electrical/Electrical Elements/Resistor',  [mdl '/R'], 'Position',[160 60 190 100]);\nadd_block('fl_lib/Electrical/Electrical Elements/Inductor',  [mdl '/L'], 'Position',[240 60 270 100]);\nadd_block('fl_lib/Electrical/Electrical Elements/Capacitor', [mdl '/C'], 'Position',[320 60 350 100]);\nadd_block('fl_lib/Electrical/Electrical Elements/Electrical Reference', [mdl '/Gnd'], 'Position',[160 200 190 230]);\nset_param([mdl '/R'],'R','10');\nset_param([mdl '/L'],'l','1e-3');\nset_param([mdl '/C'],'c','1e-6');\nsave_system(mdl);",
+      "notes": "Requires Simscape. Every electrical network needs exactly one Electrical Reference block and one Solver Configuration block, or the model fails to compile. Simscape Electrical (a separate add-on) adds nonlinear and switched devices - diodes, MOSFETs, machines, converters - on top of these Foundation elements.",
+      "docs": "https://www.mathworks.com/help/simscape/ref/resistor.html"
+    },
+    {
+      "name": "DC Voltage Source",
+      "kind": "block",
+      "description": "Ideal constant voltage source from the Foundation electrical sources sublibrary: it holds a fixed potential difference across its ports regardless of the current drawn. Use it for supply rails, bias points and step tests. Its controlled siblings in the same sublibrary - Controlled Voltage Source and Controlled Current Source - take a physical-signal input instead of a constant, which is how a Simulink control signal drives a physical network through a Simulink-PS Converter.",
+      "usage": "add_block('fl_lib/Electrical/Electrical Sources/DC Voltage Source', [mdl '/Vs'])\nLibrary Browser: Simscape > Foundation Library > Electrical > Electrical Sources > DC Voltage Source\nset_param([mdl '/Vs'],'v0','12')",
+      "parameters": [
+        {"name": "v0", "description": "Constant voltage, default '1' V."},
+        {"name": "Controlled Current Source", "description": "'fl_lib/Electrical/Electrical Sources/Controlled Current Source' - physical-signal input S sets the current from + to -."},
+        {"name": "Controlled Voltage Source", "description": "'fl_lib/Electrical/Electrical Sources/Controlled Voltage Source' - physical-signal input sets the terminal voltage."},
+        {"name": "AC Voltage Source / DC Current Source", "description": "Other members of the same sublibrary for sinusoidal and constant-current excitation."}
+      ],
+      "example": "mdl = 'srcDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('nesl_utility/Solver Configuration', [mdl '/Solver'], 'Position',[40 220 70 250]);\nadd_block('fl_lib/Electrical/Electrical Sources/DC Voltage Source', [mdl '/Vs'], 'Position',[60 60 90 110]);\nadd_block('fl_lib/Electrical/Electrical Elements/Resistor', [mdl '/RL'], 'Position',[200 60 230 100]);\nadd_block('fl_lib/Electrical/Electrical Elements/Electrical Reference', [mdl '/Gnd'], 'Position',[120 200 150 230]);\nset_param([mdl '/Vs'],'v0','12');\nset_param([mdl '/RL'],'R','48');\nsave_system(mdl);",
+      "notes": "Requires Simscape. An ideal source with no series resistance can create an unsolvable network if it is placed in parallel with another ideal voltage source or in series with an ideal current source - add a small series resistance to regularise such cases.",
+      "docs": "https://www.mathworks.com/help/simscape/ref/dcvoltagesource.html"
+    },
+    {
+      "name": "Mass",
+      "kind": "block",
+      "description": "Ideal mass from the Foundation mechanical translational library: the inertial element whose acceleration follows F = m*a, with a single conserving port referenced implicitly to the global mechanical reference frame. Combined with Translational Spring and Translational Damper from the same sublibrary it gives the classic mass-spring-damper network that is the mechanical counterpart of an RLC circuit. Use it for suspension models, actuator loads and any lumped translational dynamics.",
+      "usage": "add_block('fl_lib/Mechanical/Translational Elements/Mass', [mdl '/m1'])\nLibrary Browser: Simscape > Foundation Library > Mechanical > Translational Elements > Mass\nset_param([mdl '/m1'],'mass','2')",
+      "parameters": [
+        {"name": "mass", "description": "Mass value, default '1' kg."},
+        {"name": "Translational Spring", "description": "'fl_lib/Mechanical/Translational Elements/Translational Spring', parameter 'spr_rate' (N/m), two conserving ports R and C."},
+        {"name": "Translational Damper", "description": "'fl_lib/Mechanical/Translational Elements/Translational Damper', parameter 'D' (N/(m/s))."},
+        {"name": "Mechanical Translational Reference", "description": "'fl_lib/Mechanical/Translational Elements/Mechanical Translational Reference' - the fixed ground the spring and damper react against."},
+        {"name": "Mechanical Rotational Reference", "description": "Rotational equivalent at 'fl_lib/Mechanical/Rotational Elements/Mechanical Rotational Reference'."},
+        {"name": "Ideal Rotational Motion Sensor", "description": "'fl_lib/Mechanical/Mechanical Sensors/Ideal Rotational Motion Sensor' - outputs angle and angular velocity as physical signals."}
+      ],
+      "example": "mdl = 'msd';\nnew_system(mdl); open_system(mdl);\nadd_block('nesl_utility/Solver Configuration', [mdl '/Solver'], 'Position',[40 240 70 270]);\nadd_block('fl_lib/Mechanical/Translational Elements/Mass',               [mdl '/m'],   'Position',[240 60 280 110]);\nadd_block('fl_lib/Mechanical/Translational Elements/Translational Spring',[mdl '/k'],  'Position',[120 60 160 110]);\nadd_block('fl_lib/Mechanical/Translational Elements/Translational Damper',[mdl '/c'],  'Position',[120 150 160 200]);\nadd_block('fl_lib/Mechanical/Translational Elements/Mechanical Translational Reference', [mdl '/Ref'], 'Position',[40 100 70 130]);\nset_param([mdl '/m'],'mass','2');\nset_param([mdl '/k'],'spr_rate','100');\nset_param([mdl '/c'],'D','5');\nsave_system(mdl);",
+      "notes": "Requires Simscape. The Mass block has only one port because the other side is implicitly the global reference frame - do not try to connect it between two nodes. For 3D mechanisms with real geometry and joints use Simscape Multibody instead of lumped translational elements.",
+      "docs": "https://www.mathworks.com/help/simscape/ref/mass.html"
+    },
+    {
+      "name": "Revolute Joint",
+      "kind": "block",
+      "description": "Simscape Multibody joint with one rotational degree of freedom about the z-axis of its base frame - the workhorse for hinges, robot arm joints and rotating shafts in a 3D mechanism. Its dialog exposes the joint's state (position, velocity), internal mechanics (spring stiffness, damping), and whether the primitive is actuated by torque or by motion, plus which quantities are sensed. Use it together with World Frame, Rigid Transform, the solid blocks and Mechanism Configuration to assemble a multibody model.",
+      "usage": "add_block('sm_lib/Joints/Revolute Joint', [mdl '/Hinge'])\nLibrary Browser: Simscape > Multibody > Joints > Revolute Joint",
+      "parameters": [
+        {"name": "Z Revolute Primitive (Rz) > State Targets", "description": "Specify position and velocity targets, with High or Low priority, used when the model assembles."},
+        {"name": "Internal Mechanics", "description": "Equilibrium position, spring stiffness and damping coefficient for the joint primitive."},
+        {"name": "Actuation > Torque / Motion", "description": "'None', 'Provided by Input' or 'Automatically Computed' - choose torque input for forward dynamics, motion input for inverse dynamics."},
+        {"name": "Sensing", "description": "Check boxes that add physical-signal output ports for position, velocity, acceleration and actuator torque."},
+        {"name": "World Frame", "description": "'sm_lib/Frames and Transforms/World Frame' - the inertial ground frame every mechanism needs."},
+        {"name": "Rigid Transform", "description": "'sm_lib/Frames and Transforms/Rigid Transform' - fixed rotation and translation between two frames."},
+        {"name": "Mechanism Configuration", "description": "'sm_lib/Utilities/Mechanism Configuration' - gravity vector and linearization delta for the mechanism."},
+        {"name": "Solid blocks", "description": "Simscape Multibody has no generic 'Solid' block; use 'sm_lib/Body Elements/Brick Solid', 'Cylindrical Solid', 'Spherical Solid', 'Extruded Solid', 'Revolved Solid' or 'File Solid'."}
+      ],
+      "example": "mdl = 'pendulum';\nnew_system(mdl); open_system(mdl);\nadd_block('nesl_utility/Solver Configuration',        [mdl '/Solver'], 'Position',[40 260 70 290]);\nadd_block('sm_lib/Utilities/Mechanism Configuration', [mdl '/Mech'],   'Position',[40 200 70 230]);\nadd_block('sm_lib/Frames and Transforms/World Frame', [mdl '/World'],  'Position',[40 60 70 90]);\nadd_block('sm_lib/Frames and Transforms/Rigid Transform', [mdl '/Xf'], 'Position',[140 60 180 100]);\nadd_block('sm_lib/Joints/Revolute Joint',             [mdl '/Hinge'],  'Position',[240 60 280 100]);\nadd_block('sm_lib/Body Elements/Brick Solid',         [mdl '/Link'],   'Position',[340 60 380 100]);\nset_param([mdl '/Mech'],'GravityVector','[0 0 -9.81]');\nsave_system(mdl);",
+      "notes": "Requires Simscape Multibody (and Simscape). A multibody model needs a World Frame, a Mechanism Configuration and a Solver Configuration block. Note that several sm_lib sublibrary names contain a line break in the diagram ('Frames and\\nTransforms'), but add_block accepts the space-separated form shown here. smnew creates a model pre-populated with these blocks; smimport builds one from a CAD assembly.",
+      "docs": "https://www.mathworks.com/help/sm/ref/revolutejoint.html"
+    },
+    {
+      "name": "ssc_new",
+      "kind": "function",
+      "description": "Creates a new Simulink model already set up for physical modelling: the recommended VariableStepAuto solver, a Solver Configuration block and the Simulink-PS and PS-Simulink Converter blocks on the canvas, plus the domain-specific reference and source blocks when you name a domain. It removes the three or four setup mistakes that a hand-built Simscape model usually starts with. Use it as the first line of any script or session that builds a physical network.",
+      "usage": "ssc_new\nssc_new(modelName)\nssc_new(modelName, domain)",
+      "parameters": [
+        {"name": "modelName", "description": "Name of the new model; empty gives the default 'untitled'."},
+        {"name": "domain", "description": "One of 'electrical', 'gas', 'isothermal_liquid', 'magnetic', 'moist_air', 'rotational', 'thermal', 'thermal_liquid', 'translational', 'two_phase_fluid' - adds that domain's reference and utility blocks. Note the lowercase-with-underscore spelling."},
+        {"name": "default solver", "description": "The new model is configured with the recommended VariableStepAuto solver; change it afterwards with set_param(mdl,'Solver','daessc') if you want the Simscape DAE solver."},
+        {"name": "ssc_build(package)", "description": "Separate function that compiles a folder of Simscape language (.ssc) component files in a MATLAB package into a custom Simulink library named <package>_lib.slx."}
+      ],
+      "example": "ssc_new('motorRig','electrical');\nmdl = bdroot;\nset_param(mdl,'Solver','daessc');\nadd_block('fl_lib/Electrical/Electrical Elements/Resistor', [mdl '/Rarm'], 'Position',[300 60 330 100]);\nset_param([mdl '/Rarm'],'R','0.5');\nsave_system(mdl);\n\n% build a custom Simscape library from +myComponents/*.ssc\n% cd to the folder that CONTAINS +myComponents, then:\n% ssc_build('myComponents');   % -> myComponents_lib.slx",
+      "notes": "Requires Simscape. ssc_build must be run from the directory containing the +package folder and the argument omits the leading '+'. For Simscape Multibody use smnew instead, which seeds a model with World Frame, Mechanism Configuration, Solver Configuration and a solid block.",
+      "docs": "https://www.mathworks.com/help/simscape/ref/ssc_new.html"
+    },
+    {
+      "name": "slbuild",
+      "kind": "function",
+      "description": "Generates C or C++ code from a model and, unless configured otherwise, compiles it into a standalone executable or library according to the model's system target file. It is the programmatic entry point for the whole code-generation chain: set SystemTargetFile to grt.tlc for a generic real-time executable or ert.tlc for embedded production code, set GenCodeOnly to generate without compiling, then call slbuild. Use it in build scripts and CI to produce code deterministically without touching the GUI.",
+      "usage": "slbuild(model)\nslbuild(model, buildSpec)\nslbuild(model, 'Name', Value)\nslbuild(subsystem)",
+      "parameters": [
+        {"name": "model", "description": "Model name or handle. The model must be loadable and must compile."},
+        {"name": "buildSpec", "description": "'StandaloneCoderTarget' (default), 'ModelReferenceCoderTarget', 'ModelReferenceCoderTargetOnly', 'ModelReferenceSimTarget'."},
+        {"name": "SystemTargetFile", "description": "Model parameter selecting the target: 'grt.tlc' (Simulink Coder, generic real-time), 'ert.tlc' (Embedded Coder, production code), 'slrealtime.tlc' (Simulink Real-Time), plus many hardware-specific .tlc files."},
+        {"name": "GenCodeOnly", "description": "Model parameter; 'on' generates source without invoking the compiler - what you usually want in CI."},
+        {"name": "'ForceTopModelBuild'", "description": "true to regenerate top-model code even when the checksums say it is up to date."},
+        {"name": "'OpenBuildStatusAutomatically'", "description": "true to open the Build Status window during the build."}
+      ],
+      "example": "mdl = 'rtwdemo_counter';\nload_system(mdl);\nset_param(mdl, 'SystemTargetFile','ert.tlc', ...\n               'SolverType','Fixed-step', 'Solver','FixedStepDiscrete', ...\n               'FixedStep','0.01', 'GenCodeOnly','on');\nslbuild(mdl);\n\nbuildDir = fullfile(pwd, [mdl '_ert_rtw']);\ndisp(ls(buildDir));\nbdclose(mdl);",
+      "notes": "Requires Simulink Coder for grt.tlc, and Embedded Coder additionally for ert.tlc and its optimisations. rtwbuild is the legacy alias of slbuild and is explicitly marked '(Not recommended)' in current releases: it still exists and still works, but new code should call slbuild. Do not call slbuild/rtwbuild from inside a parfor or spmd block for models configured for parallel referenced-model builds. rtwrebuild re-runs the makefile without regenerating code.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/slbuild.html"
+    },
+    {
+      "name": "Embedded Coder",
+      "kind": "tool",
+      "description": "The app that turns a Simulink model into production-quality C or C++: it adds a C Code (or C++ Code) tab to the toolstrip with the Quick Start wizard, the Code Mappings editor, the Embedded Coder Dictionary, the C/C++ Code Advisor, code generation report and SIL/PIL verification. The Quick Start asks a handful of questions about the target, execution style and goals and sets the fundamental configuration parameters for you, which is the fastest reliable way to get a new model ready for ert.tlc. Use the Code Mappings editor afterwards to name the entry-point functions and control how signals, parameters and states appear in the generated code.",
+      "usage": "Apps tab > Code Generation > Embedded Coder\nC Code tab > Quick Start\nC Code tab > Generate Code (equivalent to slbuild with SystemTargetFile = 'ert.tlc')",
+      "parameters": [
+        {"name": "Quick Start", "description": "Five-step wizard: output type, execution style (rate-based or export-function), target hardware, optimisation goal (RAM/ROM/speed), then it applies the settings."},
+        {"name": "Code Mappings editor", "description": "Assigns storage classes and code-generation names to inports, outports, parameters, signals and states, and renames the entry-point functions."},
+        {"name": "Embedded Coder Dictionary", "description": "Defines custom storage classes, function customization templates and memory sections shared across models."},
+        {"name": "C/C++ Code Advisor", "description": "Checks the model against code-generation objectives (efficiency, traceability, safety precaution, MISRA-oriented guidelines) before you build."},
+        {"name": "SIL/PIL", "description": "Software-in-the-loop and processor-in-the-loop verification of the generated code against the model, also reachable via SimulationMode."}
+      ],
+      "example": "mdl = 'RollAxisAutopilot';\nopen_system(mdl);\n% Apps > Embedded Coder, then C Code tab > Quick Start\n% Equivalent scripted configuration:\nset_param(mdl,'SystemTargetFile','ert.tlc', ...\n              'TargetLang','C', ...\n              'GenerateReport','on', ...\n              'GenCodeOnly','on');\nslbuild(mdl);\ncoder.report.open;",
+      "notes": "Requires Embedded Coder (which requires Simulink Coder and MATLAB Coder). The Simulink Coder app is the cut-down equivalent for grt.tlc. Quick Start overwrites configuration parameters - run it on a copy if the model already has a tuned configuration set.",
+      "docs": "https://www.mathworks.com/help/ecoder/ref/embeddedcoder-app.html"
+    },
+    {
+      "name": "packNGo",
+      "kind": "function",
+      "description": "Packages every file referenced by a completed code generation - generated sources and headers, shared utilities, static libraries, makefiles and any custom code you included - into a single zip archive that can be relocated and built on another machine. Use it to hand generated code to a software team that has no MATLAB installation, or to archive exactly what was built for a release. The package can be flat or hierarchical, and can be split into one archive per model reference.",
+      "usage": "load(fullfile(buildDir,'buildInfo.mat'));\npackNGo(buildInfo)\npackNGo(buildInfo, {'packType','hierarchical','fileName','ship.zip'})",
+      "parameters": [
+        {"name": "buildInfo", "description": "The RTW.BuildInfo object saved as buildInfo.mat in the model's build folder after a successful build."},
+        {"name": "'fileName'", "description": "Name of the zip file; '.zip' is appended if missing. Default is <model>.zip."},
+        {"name": "'packType'", "description": "'flat' (default, single folder, errors on duplicate file names) or 'hierarchical' (mirrors the folder structure)."},
+        {"name": "'nestedZipFiles'", "description": "true to produce a primary zip containing one nested zip per component, false for a single flat archive."},
+        {"name": "'minimalHeaders'", "description": "true (default) to include only the headers the generated code needs, false to include every header found on the include path."},
+        {"name": "'includeReport'", "description": "true to add the HTML code generation report to the package."}
+      ],
+      "example": "mdl = 'rtwdemo_counter';\nload_system(mdl);\nset_param(mdl,'SystemTargetFile','ert.tlc','GenCodeOnly','on');\nslbuild(mdl);\n\nbuildDir = fullfile(pwd, [mdl '_ert_rtw']);\nload(fullfile(buildDir,'buildInfo.mat'));   % defines buildInfo\npackNGo(buildInfo, {'packType','hierarchical', ...\n                    'fileName',[mdl '_ship.zip'], ...\n                    'includeReport', true});",
+      "notes": "Requires Simulink Coder (or MATLAB Coder for MATLAB-generated code). Run it immediately after the build, from the folder that contains the build directory - buildInfo records relative paths. The Code Generation pane also has a 'Package code and artifacts' check box that runs packNGo automatically at the end of every build.",
+      "docs": "https://www.mathworks.com/help/rtw/ref/packngo.html"
+    },
+    {
+      "name": "sltest.testmanager.run",
+      "kind": "function",
+      "description": "Runs every test file currently loaded in the Simulink Test Manager and returns a ResultSet object holding each test case's pass/fail status, logged signals, comparison results and coverage. This is what a CI job calls after sltest.testmanager.load has opened the .mldatx test files. Test cases can be filtered by tag, run in parallel, and forced into a particular simulation mode so the same tests exercise normal, SIL and PIL execution.",
+      "usage": "resultObj = sltest.testmanager.run\nresultObj = sltest.testmanager.run('Parallel', true)\nresultObj = sltest.testmanager.run('Tags', [\"smoke\"])\nresultObj = sltest.testmanager.run('SimulationMode','software-in-the-loop (sil)')",
+      "parameters": [
+        {"name": "'Parallel'", "description": "Logical flag to distribute test cases over a parallel pool (needs Parallel Computing Toolbox)."},
+        {"name": "'Tags'", "description": "String array of test tags; only tagged tests run. Use it to split smoke tests from the full regression suite."},
+        {"name": "'SimulationMode'", "description": "Overrides the mode stored in each test case: 'normal', 'accelerator', 'rapid-accelerator', 'software-in-the-loop (sil)', 'processor-in-the-loop (pil)'."},
+        {"name": "sltest.testmanager.load(file)", "description": "Loads a .mldatx test file into the Test Manager before running."},
+        {"name": "sltest.testmanager.report(resultObj, file)", "description": "Generates a report from the results. The file extension must be .pdf, .docx or .zip; further property/value pairs (Author, Title, IncludeTestRequirement, IncludeSimulationSignalPlots, IncludeComparisonSignalPlots) mirror the Test Manager report dialog."},
+        {"name": "sltest.testmanager.clear / clearResults", "description": "Empties the Test Manager and its results between runs - important in a long-lived CI worker."}
+      ],
+      "example": "sltest.testmanager.clear;\nsltest.testmanager.clearResults;\nsltest.testmanager.load('myTests.mldatx');\n\nrs = sltest.testmanager.run('Tags', \"smoke\");\nfprintf('%d passed, %d failed\\n', rs.NumPassed, rs.NumFailed);\nsltest.testmanager.report(rs, 'testReport.pdf', ...\n    'IncludeSimulationSignalPlots', true, ...\n    'IncludeComparisonSignalPlots', true);\nif rs.NumFailed > 0, error('Simulink Test failures'); end",
+      "notes": "Requires Simulink Test. Run it from matlab -batch for CI. Baseline and equivalence test cases use the same comparison engine as Simulink.sdi.compareRuns, so tolerances behave identically. Pair with Simulink Coverage to fail a build on insufficient coverage as well as on failed assertions.",
+      "docs": "https://www.mathworks.com/help/sltest/ref/sltest.testmanager.run.html"
+    },
+    {
+      "name": "cvsim",
+      "kind": "function",
+      "description": "Simulates a model with model-coverage instrumentation enabled and returns a cvdata object holding the coverage achieved: decision, condition, MCDC, relational boundary, lookup-table and signal-range coverage, per block and per Stateflow object. Use it to measure how thoroughly a test suite exercises a design before code generation, and to find the states, transitions and branches that no test ever reaches. Pair it with a cvtest object when you need to select which metrics are collected or restrict the analysis to a subsystem.",
+      "usage": "cvdo = cvsim(modelName)\ncvdo = cvsim(testObj)\n[cvdo, simOut] = cvsim(testObj, 'ModelParameter', value)\ncvto = cvtest(root, label, setupCmd)",
+      "parameters": [
+        {"name": "modelName / testObj", "description": "Model to simulate, or a cvtest object describing what to analyse and with which settings."},
+        {"name": "cvtest root", "description": "Model name or a subsystem path - restricts coverage collection to that part of the design."},
+        {"name": "cvtest .settings", "description": "Structure of flags: decision, condition, mcdc, tableExec, sigrange, sigsize, overflowsaturation, relationalop."},
+        {"name": "cvtest .setupCmd", "description": "MATLAB command evaluated in the base workspace before the simulation - where you set up the test's inputs."},
+        {"name": "cvdo", "description": "cvdata object. Query it with decisioninfo, conditioninfo, mcdcinfo, sigrangeinfo, or emit a report with cvhtml."}
+      ],
+      "example": "mdl = 'slvnvdemo_ratelim_harness';\nload_system(mdl);\n\ncvto = cvtest(mdl);\ncvto.settings.decision  = true;\ncvto.settings.condition = true;\ncvto.settings.mcdc      = true;\n\n[cvdo, simOut] = cvsim(cvto);\ndec = decisioninfo(cvdo, mdl);\nfprintf('decision coverage: %d/%d\\n', dec(1), dec(2));\ncvhtml('coverage_report.html', cvdo);",
+      "notes": "Requires Simulink Coverage. Coverage instrumentation slows simulation noticeably, so keep it out of the fast inner loop of a parameter sweep. Coverage from several runs is accumulated with the + operator on cvdata objects. Simulink Test can collect the same data across a whole test file, which is usually the better route for a suite.",
+      "docs": "https://www.mathworks.com/help/slcoverage/ref/cvsim.html"
+    },
+    {
+      "name": "sldvrun",
+      "kind": "function",
+      "description": "Runs Simulink Design Verifier on a model or atomic subsystem. Depending on the analysis mode configured for the model it either generates test inputs that drive the design to a coverage objective, proves or falsifies the proof objectives expressed with Proof Assumption and Proof Objective blocks, or hunts for design errors - dead logic, integer overflow, division by zero, out-of-range array indexing. It returns a status code plus the names of the files produced (data file, harness model, report), which makes it usable from a build script.",
+      "usage": "status = sldvrun(model)\nstatus = sldvrun(model, options)\n[status, filenames] = sldvrun(model, options, showUI)\nopts = sldvoptions(model)",
+      "parameters": [
+        {"name": "model / block", "description": "Model name, or an Atomic Subsystem block which is extracted into a new model first."},
+        {"name": "options", "description": "sldvoptions object. Key fields: Mode ('TestGeneration', 'PropertyProving', 'DesignErrorDetection'), ModelCoverageObjectives, MaxProcessingTime, SaveHarnessModel, SaveReport."},
+        {"name": "showUI", "description": "Logical; true shows the analysis progress window, false runs silently for batch use."},
+        {"name": "status", "description": "1 = completed normally, 0 = an error occurred, -1 = the maximum processing time was exceeded."},
+        {"name": "filenames", "description": "Structure naming the generated data file, harness model and report."}
+      ],
+      "example": "mdl = 'sldvdemo_cruise_control';\nload_system(mdl);\n\nopts = sldvoptions(mdl);\nopts.Mode = 'TestGeneration';\nopts.ModelCoverageObjectives = 'MCDC';\nopts.SaveHarnessModel = 'on';\nopts.SaveReport = 'on';\nopts.MaxProcessingTime = 300;\n\n[status, files] = sldvrun(mdl, opts, false);\nfprintf('status = %d\\n', status);\ndisp(files);",
+      "notes": "Requires Simulink Design Verifier. Analysis is formal, so it can be slow or inconclusive on large or heavily nonlinear models - set MaxProcessingTime and check for status -1. Floating-point arithmetic, large lookup tables and S-functions are common sources of 'objective undecided'; stub them or restrict the analysis to a subsystem. Design error detection is the cheapest mode to start with.",
+      "docs": "https://www.mathworks.com/help/sldv/ref/sldvrun.html"
+    },
+    {
+      "name": "makehdl",
+      "kind": "function",
+      "description": "Generates synthesisable VHDL, Verilog or SystemVerilog RTL from a Simulink model, subsystem or model-reference block (the device under test). Property/value pairs control the target language, the output folder, the clock and reset style, the target FPGA/ASIC frequency, and optimisations such as resource sharing, streaming and pipelining. Use it to take a fixed-point Simulink algorithm to an FPGA or ASIC implementation, then makehdltb to generate a matching test bench.",
+      "usage": "makehdl(model)\nmakehdl('model/subsys')\nmakehdl(dut, 'TargetLanguage','Verilog', 'TargetDirectory','hdlsrc')\nmakehdltb(dut)",
+      "parameters": [
+        {"name": "dut", "description": "Model name, or 'model/subsystem' for a subsystem at the top level of the model."},
+        {"name": "'TargetLanguage'", "description": "'VHDL' (default), 'Verilog' or 'SystemVerilog'."},
+        {"name": "'TargetDirectory'", "description": "Output folder for the generated RTL, default 'hdlsrc'."},
+        {"name": "'TargetFrequency' / 'SynthesisTool'", "description": "Target clock frequency in MHz and the synthesis tool ('Xilinx Vivado', 'Altera QUARTUS II', ...) used for timing-driven optimisation."},
+        {"name": "'ResetType' / 'ResetAssertedLevel'", "description": "'async' or 'sync' reset, asserted active-high or active-low."},
+        {"name": "'SharingFactor' / 'StreamingFactor' / 'DistributedPipelining'", "description": "Area/speed optimisation controls."},
+        {"name": "'GenerateHDLTestBench'", "description": "Generate a test bench alongside the RTL; makehdltb does the same as a separate call."}
+      ],
+      "example": "mdl = 'sfir_fixed';\nload_system(mdl);\ndut = [mdl '/symmetric_fir'];\n\nmakehdl(dut, 'TargetLanguage','VHDL', ...\n             'TargetDirectory','hdlsrc', ...\n             'ResetType','async', ...\n             'SharingFactor', 2);\nmakehdltb(dut);",
+      "notes": "Requires HDL Coder. The DUT must be fixed-point (or native floating point where supported), discrete and single-rate or explicitly multirate - run the HDL Code Advisor first. Only a subsystem at the top level of the model can be the DUT. The HDL Coder app gives the same workflow interactively, including the Workflow Advisor that carries the design through synthesis and bitstream generation.",
+      "docs": "https://www.mathworks.com/help/hdlcoder/ref/makehdl.html"
+    },
+    {
+      "name": "slrealtime",
+      "kind": "api",
+      "description": "Constructs an slrealtime.Target object representing a Simulink Real-Time target computer (typically a Speedgoat machine) and is the entry point to the whole hardware-in-the-loop workflow. Through the returned object you connect to the target, load a real-time application built from a model with SystemTargetFile = 'slrealtime.tlc', start and stop it, tune parameters and stream signals back while it runs. Use it for HIL testing, rapid control prototyping and any experiment that must run deterministically outside MATLAB.",
+      "usage": "tg = slrealtime\ntg = slrealtime('TargetPC1')\nconnect(tg); load(tg, 'myModel'); start(tg); stop(tg)\nset_param(mdl,'SystemTargetFile','slrealtime.tlc'); slbuild(mdl)",
+      "parameters": [
+        {"name": "target_name", "description": "Name of a configured target computer, e.g. 'TargetPC1'. Omit it to get the default target."},
+        {"name": "connect / disconnect", "description": "Open and close the link to the target's real-time operating system."},
+        {"name": "load(tg, appName) / start / stop", "description": "Deploy the built real-time application (.mldatx) to the target and control its execution."},
+        {"name": "setparam / getparam", "description": "Tune a block parameter on the running application without rebuilding."},
+        {"name": "isConnected / isLoaded / isRunning", "description": "Status queries suitable for polling from a script."},
+        {"name": "install / setStartupApp", "description": "Standalone mode: install an application that starts automatically when the target boots."}
+      ],
+      "example": "mdl = 'slrt_ex_osc';\nload_system(mdl);\nset_param(mdl,'SystemTargetFile','slrealtime.tlc', ...\n              'SolverType','Fixed-step','FixedStep','0.001');\nslbuild(mdl);\n\ntg = slrealtime('TargetPC1');\nconnect(tg);\nload(tg, mdl);\nstart(tg);\npause(5);\nstop(tg);\ndisconnect(tg);",
+      "notes": "Requires Simulink Real-Time plus Simulink Coder/Embedded Coder and a supported target computer. The older SimulinkRealTime.Target class and the xPC Target API were removed when the product moved to the slrealtime architecture in R2020b - use slrealtime / slrealtime.Target instead; code written against SimulinkRealTime.Target will not run on current releases.",
+      "docs": "https://www.mathworks.com/help/slrealtime/api/slrealtime.html"
+    }
+  ]
+}

@@ -1,0 +1,609 @@
+{
+  "category": "XDC Physical, I/O & Netlist Attribute Constraints",
+  "description": "The second half of the XDC vocabulary: SDC timing refinements not covered by the basic clock/delay commands, I/O electrical properties, placement constraints (BEL, LOCK_PINS, Pblocks), synthesis and implementation attributes applied with set_property, constraint-file scoping (USED_IN, PROCESSING_ORDER) and the GUI wizards that generate constraints. All of these operate on objects returned by get_ports, get_cells, get_nets, get_pins or get_files.",
+  "tools": [
+    {
+      "name": "set_clock_sense",
+      "kind": "tcl-command",
+      "description": "Declare the unateness (sense) of a clock at a pin, or stop clock propagation through it, when the timing engine cannot infer it, for example through an XOR-based clock gate or a MUX where only one polarity is valid. -positive and -negative force the sense, -stop_propagation blocks the clock past that pin without needing set_disable_timing or set_case_analysis.",
+      "usage": "set_clock_sense [-positive] [-negative] [-stop_propagation] [-clocks <clocks>] <pins>",
+      "parameters": [
+        {"name": "-positive / -negative", "description": "Assert that the clock arriving at the pin is non-inverted or inverted relative to its source."},
+        {"name": "-stop_propagation", "description": "Do not propagate the listed clocks beyond this pin; all downstream paths become unconstrained for those clocks."},
+        {"name": "-clocks", "description": "Restrict the command to specific clock objects; default is all clocks reaching the pin."},
+        {"name": "<pins>", "description": "Pin or port objects from get_pins/get_ports."}
+      ],
+      "example": "# Only the non-inverted clock is used after this XOR-based gate\nset_clock_sense -positive [get_pins clk_gate_xor/O]\n\n# Keep the test clock from timing the functional logic\nset_clock_sense -stop_propagation -clocks [get_clocks scan_clk] [get_pins clk_mux/O]",
+      "notes": "Rarely needed in FPGA designs because BUFGCE/BUFGMUX sense is known; mostly used with third-party clock-gating cells or for SDC compatibility. Check the result with report_clock_networks.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_clock_sense"
+    },
+    {
+      "name": "set_system_jitter",
+      "kind": "tcl-command",
+      "description": "Override the device-wide system jitter value (default 0.050 ns, applied to all clocks) that the timing engine adds to clock uncertainty. Use it when the board or power supply is noisier or cleaner than the default assumption. Per-clock source jitter is set separately with set_input_jitter and both feed the total clock uncertainty shown in report_timing.",
+      "usage": "set_system_jitter <jitter_ns>",
+      "parameters": [
+        {"name": "<jitter_ns>", "description": "Peak-to-peak system jitter in nanoseconds applied to every clock; 0 disables it."}
+      ],
+      "example": "set_system_jitter 0.080\nset_input_jitter [get_clocks sys_clk] 0.100\nreport_clocks",
+      "notes": "Discrepancy between system jitter and input jitter causes timing engine to compute different uncertainty for MMCM-derived clocks; check report_timing -path_type full_clock_expanded uncertainty numbers after changing it.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_system_jitter"
+    },
+    {
+      "name": "set_external_delay",
+      "kind": "tcl-command",
+      "description": "Specify the board-level round-trip delay between an output port and an input port when a clock is forwarded off-chip and comes back (for example a clock looped back through an external PHY). The timing engine uses it to time paths that leave the device through one port and re-enter through another. Supports -max and -min for setup and hold.",
+      "usage": "set_external_delay -from <output_port> -to <input_port> [-min|-max] [-add] <delay_ns>",
+      "parameters": [
+        {"name": "-from", "description": "Output port the signal leaves from."},
+        {"name": "-to", "description": "Input port it re-enters through."},
+        {"name": "-min / -max", "description": "Delay used for hold or setup analysis; omit both to set the same value for each."},
+        {"name": "-add", "description": "Add to an existing external delay instead of replacing it."}
+      ],
+      "example": "set_external_delay -from [get_ports clk_out] -to [get_ports clk_fb_in] -max 1.2\nset_external_delay -from [get_ports clk_out] -to [get_ports clk_fb_in] -min 0.8",
+      "notes": "Only meaningful together with a generated clock on the output port and a clock on the feedback input; see MMCM external feedback use cases in UG903.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_external_delay"
+    },
+    {
+      "name": "set_data_check",
+      "kind": "tcl-command",
+      "description": "Define a non-sequential timing check between two data pins, such as a setup/hold-like requirement between a strobe and a data signal on a source-synchronous interface or between a memory's address and enable pins. The check is performed as if the -to pin were a clock pin capturing the -from pin.",
+      "usage": "set_data_check [-from <pin>] [-to <pin>] [-rise_from|-fall_from] [-rise_to|-fall_to] [-setup|-hold] [-clock <clock>] <value_ns> [-quiet]",
+      "parameters": [
+        {"name": "-from / -to", "description": "Data pin being checked and the reference pin acting as the check clock."},
+        {"name": "-setup / -hold", "description": "Apply the value as a setup or a hold requirement (both if neither is given)."},
+        {"name": "-rise_from/-fall_from, -rise_to/-fall_to", "description": "Restrict the check to a given edge on each pin."},
+        {"name": "-clock", "description": "Only apply the check for paths launched by this clock."}
+      ],
+      "example": "# data must be stable 0.5 ns before and 0.3 ns after the strobe pin\nset_data_check -from [get_pins rx_data_reg/D] -to [get_pins rx_strobe_reg/D] -setup 0.5\nset_data_check -from [get_pins rx_data_reg/D] -to [get_pins rx_strobe_reg/D] -hold 0.3",
+      "notes": "Advanced SDC command, seldom needed because FPGA interfaces are constrained at the ports with set_input_delay. Results appear as data-check path types in report_timing.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_data_check"
+    },
+    {
+      "name": "set_load",
+      "kind": "tcl-command",
+      "description": "Set the external capacitive load, in picofarads, seen by an output port so the output delay model and report_datasheet use it instead of the default. Only affects output ports; internal nets are not loaded this way in Vivado.",
+      "usage": "set_load [-rise] [-fall] [-max] [-min] <capacitance_pF> <port_objects>",
+      "parameters": [
+        {"name": "<capacitance_pF>", "description": "Load capacitance in pF."},
+        {"name": "-max / -min", "description": "Apply the value only for the max (setup) or min (hold) delay model."},
+        {"name": "<port_objects>", "description": "Output ports from get_ports."}
+      ],
+      "example": "set_load 10 [get_ports {dout[*]}]\nreport_datasheet -file datasheet.rpt",
+      "notes": "Most designs leave the default; use it when the board has unusually long traces or many receivers on an output.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_load"
+    },
+    {
+      "name": "set_operating_conditions",
+      "kind": "tcl-command",
+      "description": "Set the environmental and power assumptions used by report_power and, for some values, the timing corners: process, junction temperature, ambient temperature, airflow, heatsink, board type, thermal resistance and supply voltages. It replaces the defaults derived from the part's temperature grade.",
+      "usage": "set_operating_conditions [-process typical|maximum] [-voltage {<rail> <V> ...}] [-grade commercial|extended|industrial|military|q-grade] [-junction_temp <C>] [-ambient_temp <C>] [-thetaja <C/W>] [-thetasa <C/W>] [-airflow <LFM>] [-heatsink none|low|medium|high|custom] [-thetajb] [-board jedec|small|medium|large|custom] [-board_layers 4to7|8to11|12to15|16+] [-board_temp <C>] [-design_power <W>] [-supply_current_budget {<rail> <A> ...}]",
+      "parameters": [
+        {"name": "-process", "description": "typical or maximum silicon process for the power estimate."},
+        {"name": "-junction_temp / -ambient_temp", "description": "Force a junction temperature or set the ambient from which it is computed."},
+        {"name": "-airflow / -heatsink / -board", "description": "Thermal environment used for the junction-temperature calculation."},
+        {"name": "-voltage", "description": "Override supply voltages per rail, e.g. {Vccint 0.85 Vccaux 1.8}."},
+        {"name": "-grade", "description": "Temperature grade to assume when it differs from the part."}
+      ],
+      "example": "set_operating_conditions -process maximum -ambient_temp 55 -airflow 250 -heatsink medium\nreport_power -file power_worst.rpt\nreport_operating_conditions",
+      "notes": "Settings are stored in the design and written into checkpoints; reset_operating_conditions restores defaults. report_operating_conditions prints the current values.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_operating_conditions"
+    },
+    {
+      "name": "set_switching_activity",
+      "kind": "tcl-command",
+      "description": "Assign toggle rate and static probability to nets, ports or cells for power estimation when no simulation SAIF is available. -default_* variants set the assumptions used for everything not explicitly annotated, and -type restricts the setting to a signal class such as register outputs, BRAM enables or I/O.",
+      "usage": "set_switching_activity [-toggle_rate <%/cycle>] [-static_probability <0..1>] [-signal_rate <Mtr/s>] [-type <sig_type>] [-all] [-default_toggle_rate <%>] [-default_static_probability <0..1>] [-hier] [-deassert_resets] <objects>",
+      "parameters": [
+        {"name": "-toggle_rate", "description": "Percentage of clock cycles on which the signal toggles (0-200)."},
+        {"name": "-static_probability", "description": "Fraction of time the signal is logic 1."},
+        {"name": "-type", "description": "Signal class: io_output, register, lut, dsp, bram_enable, bram_wr_enable, gt_txdata, gt_rxdata, etc."},
+        {"name": "-deassert_resets", "description": "Assume reset ports are de-asserted so downstream logic is active."},
+        {"name": "-hier", "description": "Apply recursively to everything under the given cells."}
+      ],
+      "example": "set_switching_activity -default_toggle_rate 25 -default_static_probability 0.5\nset_switching_activity -toggle_rate 100 -static_probability 0.5 [get_ports {rx_data[*]}]\nset_switching_activity -type bram_enable -toggle_rate 50 -all\nreport_power -file power.rpt",
+      "notes": "Vector-less estimation is only as good as these numbers; prefer read_saif from a realistic simulation. report_switching_activity prints what is currently annotated, reset_switching_activity clears it.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_switching_activity"
+    },
+    {
+      "name": "set_units",
+      "kind": "tcl-command",
+      "description": "Declare the units used for capacitance, current, voltage, power, resistance and time in subsequent constraints, mainly so that SDC files written for other tools can be read. Vivado's native units are ns, pF, mA, V, mW and ohm; declaring anything else causes conversion of the values that follow.",
+      "usage": "set_units [-capacitance <unit>] [-current <unit>] [-voltage <unit>] [-power <unit>] [-resistance <unit>] [-time <unit>]",
+      "parameters": [
+        {"name": "-time", "description": "e.g. ns or ps; note that Vivado always reports in ns."},
+        {"name": "-capacitance / -current / -voltage / -power / -resistance", "description": "Units such as pF, mA, V, mW, ohm."}
+      ],
+      "example": "set_units -time ps -capacitance fF\nset_load 5000 [get_ports dout]   ;# 5 pF expressed in fF",
+      "notes": "Only affects parsing of the values after it in the same file; report_* commands are unaffected. Usually omitted in native XDC.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_units"
+    },
+    {
+      "name": "set_logic_one / set_logic_zero / set_logic_dc",
+      "kind": "tcl-command",
+      "description": "Tie a port or pin to a constant 1, 0 or don't-care for timing analysis and, in out-of-context or Dynamic Function eXchange flows, for the netlist itself. set_logic_dc marks a pin as unconstrained. They are the SDC way to express what set_case_analysis does with a value, and are used by IP OOC constraint files to tie off unused inputs.",
+      "usage": "set_logic_one <objects>\nset_logic_zero <objects>\nset_logic_dc <objects>",
+      "parameters": [
+        {"name": "<objects>", "description": "Ports or pins from get_ports/get_pins."}
+      ],
+      "example": "# Unused mode pins are tied high for analysis of this OOC module\nset_logic_one  [get_ports {mode[1]}]\nset_logic_zero [get_ports {mode[0]}]\nset_logic_dc   [get_ports scan_en]",
+      "notes": "For timing purposes set_case_analysis is more common because it can be applied to internal pins; set_logic_* is mainly for ports.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_logic_one"
+    },
+    {
+      "name": "set_property DRIVE",
+      "kind": "system-variable",
+      "description": "Output drive strength in milliamps for single-ended LVCMOS/LVTTL output and bidirectional ports. Legal values depend on the I/O standard and family (typically 2, 4, 6, 8, 12, 16, 24 on 7 series; 2-16 on UltraScale HP/HD banks). Higher drive shortens edges and helps timing but increases SSN and reflections.",
+      "usage": "set_property DRIVE <mA> [get_ports <port_pattern>]",
+      "parameters": [
+        {"name": "<mA>", "description": "Drive current, e.g. 4, 8, 12, 16."}
+      ],
+      "example": "set_property IOSTANDARD LVCMOS33 [get_ports {led[*]}]\nset_property DRIVE 8 [get_ports {led[*]}]\nreport_io -file io.rpt",
+      "notes": "Only single-ended standards accept DRIVE; DRC IOSTD-x flags illegal combinations. Pair with SLEW. Also settable in the I/O Ports view of the I/O Planning layout.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/DRIVE"
+    },
+    {
+      "name": "set_property SLEW",
+      "kind": "system-variable",
+      "description": "Output slew-rate control for single-ended output ports: SLOW (default) or FAST on most families, plus MEDIUM on UltraScale/UltraScale+ HP banks. FAST reduces clock-to-out delay at the cost of more ringing and simultaneous-switching noise, so it is used on the critical paths of source-synchronous interfaces.",
+      "usage": "set_property SLEW SLOW|MEDIUM|FAST [get_ports <port_pattern>]",
+      "parameters": [
+        {"name": "SLOW | MEDIUM | FAST", "description": "Slew setting; MEDIUM only on UltraScale-architecture HP I/O."}
+      ],
+      "example": "set_property SLEW FAST  [get_ports {sdram_dq[*]}]\nset_property DRIVE 12   [get_ports {sdram_dq[*]}]\nset_property SLEW SLOW  [get_ports {led[*]}]",
+      "notes": "Ignored on differential standards and on standards with fixed drivers (SSTL, HSTL use output impedance instead: see OUTPUT_IMPEDANCE / DCI).",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/SLEW"
+    },
+    {
+      "name": "set_property PULLTYPE (PULLUP / PULLDOWN / KEEPER)",
+      "kind": "system-variable",
+      "description": "Enable the weak internal pull-up, pull-down or bus-keeper on an I/O port. Typical uses are floating push-button inputs, open-drain I2C lines that need a pull-up during configuration, and tri-stated buses that must not float. The value is applied in the bitstream.",
+      "usage": "set_property PULLTYPE PULLUP|PULLDOWN|KEEPER|NONE [get_ports <port_pattern>]\n# legacy 7 series form\nset_property PULLUP true [get_ports <port>]",
+      "parameters": [
+        {"name": "PULLUP / PULLDOWN", "description": "Weak resistor to VCCO or ground (roughly a few kilo-ohms; see the datasheet)."},
+        {"name": "KEEPER", "description": "Weak bus-hold that retains the last driven level."},
+        {"name": "NONE", "description": "Default: no termination."}
+      ],
+      "example": "set_property PULLTYPE PULLUP [get_ports {btn[*]}]\nset_property PULLTYPE PULLUP [get_ports {i2c_sda i2c_scl}]",
+      "notes": "Unconfigured pins before and during configuration are governed by the BITSTREAM.CONFIG.UNUSEDPIN property, not by PULLTYPE. PULLTYPE has no effect on differential standards.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/PULLTYPE"
+    },
+    {
+      "name": "set_property DIFF_TERM / DIFF_TERM_ADV",
+      "kind": "system-variable",
+      "description": "Turn on the internal 100-ohm differential termination for LVDS/LVDS_25 style input ports so no external resistor is needed. 7 series uses DIFF_TERM TRUE/FALSE; UltraScale and UltraScale+ use DIFF_TERM_ADV with TERM_NONE or TERM_100 and require the bank VCCO to match the standard.",
+      "usage": "set_property DIFF_TERM TRUE [get_ports <diff_port>]        ;# 7 series\nset_property DIFF_TERM_ADV TERM_100 [get_ports <diff_port>] ;# UltraScale/UltraScale+",
+      "parameters": [
+        {"name": "TRUE / FALSE", "description": "7 series switch."},
+        {"name": "TERM_NONE / TERM_100", "description": "UltraScale-architecture value."}
+      ],
+      "example": "set_property IOSTANDARD LVDS [get_ports {clk_p clk_n}]\nset_property DIFF_TERM_ADV TERM_100 [get_ports {clk_p clk_n}]",
+      "notes": "Apply to both P and N ports of the pair. Internal termination is only available in HP banks on UltraScale devices for true LVDS; HD banks need external resistors.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/DIFF_TERM"
+    },
+    {
+      "name": "set_property IN_TERM / ODT",
+      "kind": "system-variable",
+      "description": "Select the on-die input termination for single-ended HSTL/SSTL inputs (untuned split termination) in HP I/O banks. 7 series uses IN_TERM with UNTUNED_SPLIT_40/50/60; UltraScale and UltraScale+ use ODT with RTT_40/48/60 and require DCI calibration in the bank. Memory interface IP such as MIG/DDR4 sets these automatically.",
+      "usage": "set_property IN_TERM UNTUNED_SPLIT_50 [get_ports <port>]   ;# 7 series\nset_property ODT RTT_48 [get_ports <port>]                 ;# UltraScale/UltraScale+",
+      "parameters": [
+        {"name": "UNTUNED_SPLIT_40 / 50 / 60", "description": "7 series split termination values in ohms."},
+        {"name": "RTT_40 / RTT_48 / RTT_60 / RTT_NONE", "description": "UltraScale-architecture ODT values."}
+      ],
+      "example": "set_property IOSTANDARD SSTL15 [get_ports {ddr_dq[*]}]\nset_property IN_TERM UNTUNED_SPLIT_50 [get_ports {ddr_dq[*]}]",
+      "notes": "Requires the bank to have DCI reference resistors on VRP/VRN (and VREF for SSTL); DRC checks such as DCICHECK flag missing reference pins.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/IN_TERM"
+    },
+    {
+      "name": "set_property IOB",
+      "kind": "system-variable",
+      "description": "Force (TRUE) or forbid (FALSE) packing of a port's register into the I/O logic block (ILOGIC/OLOGIC) to obtain the fastest and most repeatable pin-to-register timing. It applies to a port or directly to the register cell, and is the standard fix for input-delay or clock-to-out violations on simple interfaces.",
+      "usage": "set_property IOB TRUE|FALSE [get_ports <port>]\nset_property IOB TRUE [get_cells <reg_cell>]",
+      "parameters": [
+        {"name": "TRUE", "description": "Register must be placed in the IOB; an error results if it cannot be (e.g. fanout > 1, no register directly on the pad)."},
+        {"name": "FALSE", "description": "Keep the register in fabric even if placement could pack it."}
+      ],
+      "example": "set_property IOB TRUE [get_ports {spi_miso}]\nset_property IOB TRUE [get_cells {tx_data_reg[*]}]\nreport_timing -to [get_ports {tx_data[*]}] -max_paths 4",
+      "notes": "The register must have no reset-value conflicts and a single load; otherwise use IOB FALSE plus manual pipelining. Related synthesis attribute IOB on RTL registers.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/IOB"
+    },
+    {
+      "name": "set_property INTERNAL_VREF",
+      "kind": "system-variable",
+      "description": "Enable the internal VREF generator of an I/O bank at the given voltage (e.g. 0.75, 0.9, 0.6) so that single-ended terminated standards such as SSTL, HSTL and HSUL can be used without an external VREF pin. Applied to an iobank object, not a port.",
+      "usage": "set_property INTERNAL_VREF <volts> [get_iobanks <bank_number>]",
+      "parameters": [
+        {"name": "<volts>", "description": "Reference voltage in volts, half of VCCO for most standards (0.75 for SSTL15, 0.675 for SSTL135, 0.6 for SSTL12/POD12)."},
+        {"name": "<bank_number>", "description": "Bank number from get_iobanks or the Package Pins view."}
+      ],
+      "example": "set_property INTERNAL_VREF 0.75 [get_iobanks 34]\nset_property INTERNAL_VREF 0.60 [get_iobanks {64 65 66}]",
+      "notes": "Memory-interface IP generates this constraint in its XDC. When INTERNAL_VREF is used, the bank's VREF pins become normal user I/O.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/INTERNAL_VREF"
+    },
+    {
+      "name": "set_property BEL",
+      "kind": "system-variable",
+      "description": "Fix a cell to a specific Basic Element of Logic within a site, such as a particular LUT or flip-flop position inside a SLICE, or a specific ILOGIC/IDELAY element in an I/O tile. Used together with LOC when replicating a hand-placed structure, matching skew between lanes or reproducing a placement from a previous run.",
+      "usage": "set_property BEL <bel_name> [get_cells <cell>]\nset_property LOC <site> [get_cells <cell>]",
+      "parameters": [
+        {"name": "<bel_name>", "description": "BEL name inside the site, e.g. AFF, BFF, A6LUT, D5LUT, HFF2 (UltraScale+), IDELAYE2, ISERDESE2."}
+      ],
+      "example": "set_property LOC SLICE_X10Y42 [get_cells sync_reg[0]]\nset_property BEL AFF          [get_cells sync_reg[0]]\nset_property LOC SLICE_X10Y42 [get_cells sync_reg[1]]\nset_property BEL BFF          [get_cells sync_reg[1]]\nget_bels -of_objects [get_sites SLICE_X10Y42]",
+      "notes": "A conflicting LOC/BEL pair is a placement error (Place 30-xxx). BEL names differ between families (7 series A5FF/AFF vs UltraScale AFF/AFF2). Query legal names with get_bels -of_objects [get_sites ...].",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/BEL"
+    },
+    {
+      "name": "set_property LOCK_PINS",
+      "kind": "system-variable",
+      "description": "Lock the mapping between a LUT cell's logical input pins (I0..I5) and the physical site pins (A1..A6) so the router cannot swap them. This is used to force the latest-arriving signal onto the fastest LUT input or to keep a hand-crafted physical-pin assignment when re-running route_design.",
+      "usage": "set_property LOCK_PINS {I0:A6 I1:A5 ...} [get_cells <lut_cell>]",
+      "parameters": [
+        {"name": "{Ix:Ay ...}", "description": "List of logical:physical pin pairs; unlisted pins remain free."}
+      ],
+      "example": "# Put the critical input on the fastest (A6) pin of the LUT\nset_property LOCK_PINS {I2:A6} [get_cells crit_lut_inst]\nroute_design",
+      "notes": "Mostly an ECO/timing-closure trick; the physical-optimization step normally chooses pin mapping itself. Check with get_property LOCK_PINS and report_property on the cell.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/LOCK_PINS"
+    },
+    {
+      "name": "add_cells_to_pblock",
+      "kind": "tcl-command",
+      "description": "Assign cells (usually a hierarchical instance) to an existing Pblock so the placer keeps them inside the Pblock's rectangle(s). Use -add_primitives to assign leaf cells individually rather than by hierarchy, and -clear_locs to drop any LOC fixes on the moved cells.",
+      "usage": "add_cells_to_pblock [-add_primitives] [-clear_locs] [-quiet] <pblock> <cells>",
+      "parameters": [
+        {"name": "<pblock>", "description": "Pblock object from get_pblocks or create_pblock."},
+        {"name": "<cells>", "description": "Cells from get_cells; hierarchical cells include everything beneath them."},
+        {"name": "-add_primitives", "description": "Add leaf primitives rather than the hierarchy, so newly added leaf cells are not automatically included."},
+        {"name": "-clear_locs", "description": "Remove existing LOC constraints on the cells being added."}
+      ],
+      "example": "create_pblock pb_dsp_chain\nadd_cells_to_pblock [get_pblocks pb_dsp_chain] [get_cells -hier -filter {NAME =~ *fir_core*}]\nresize_pblock [get_pblocks pb_dsp_chain] -add {SLICE_X40Y100:SLICE_X59Y149 DSP48E2_X8Y40:DSP48E2_X9Y59}\nreport_utilization -pblocks [get_pblocks pb_dsp_chain]",
+      "notes": "Pblocks constrain placement only; add CONTAIN_ROUTING for routing containment. Remove cells with remove_cells_from_pblock. Pblocks are written to XDC as create_pblock/add_cells_to_pblock/resize_pblock triples.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/add_cells_to_pblock"
+    },
+    {
+      "name": "remove_cells_from_pblock",
+      "kind": "tcl-command",
+      "description": "Detach cells from a Pblock so they are free to be placed anywhere again. Typical use is excluding a sub-hierarchy from a larger floorplanned block or cleaning up before re-floorplanning.",
+      "usage": "remove_cells_from_pblock [-quiet] <pblock> <cells>",
+      "parameters": [
+        {"name": "<pblock>", "description": "Pblock object."},
+        {"name": "<cells>", "description": "Cells currently assigned to it."}
+      ],
+      "example": "remove_cells_from_pblock [get_pblocks pb_core] [get_cells u_core/u_debug_ila]",
+      "notes": "Cells in a nested (child) Pblock stay in the child; delete_pblocks removes the Pblock itself.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/remove_cells_from_pblock"
+    },
+    {
+      "name": "resize_pblock",
+      "kind": "tcl-command",
+      "description": "Define, extend, shrink or replace the physical rectangles that make up a Pblock, expressed as ranges of sites (SLICE, RAMB36, DSP48E2, URAM288, clock regions, or whole SLRs). Site ranges of different types can be combined so a Pblock covers exactly the resources it needs.",
+      "usage": "resize_pblock [-add <ranges>] [-remove <ranges>] [-from <ranges>] [-to <ranges>] [-replace] [-locs keep_all|keep_non_pblock|keep_only_pblock|...] [-quiet] <pblock>",
+      "parameters": [
+        {"name": "-add", "description": "Ranges to add, e.g. {SLICE_X0Y0:SLICE_X19Y59} or {CLOCKREGION_X0Y0:CLOCKREGION_X1Y1} or {SLR1}."},
+        {"name": "-remove", "description": "Ranges to remove from the Pblock."},
+        {"name": "-from / -to", "description": "Move a range: replace -from ranges with -to ranges."},
+        {"name": "-replace", "description": "Discard all existing ranges before applying -add."},
+        {"name": "-locs", "description": "What to do with LOC constraints of cells that end up outside the new area."}
+      ],
+      "example": "resize_pblock pb_core -add {CLOCKREGION_X2Y3:CLOCKREGION_X3Y4}\nresize_pblock pb_core -add {RAMB36_X3Y20:RAMB36_X4Y39}\nresize_pblock pb_slr1_logic -replace -add {SLR1}\nreport_utilization -pblocks [get_pblocks pb_core]",
+      "notes": "Pblock ranges must respect site types; a SLICE-only Pblock silently excludes BRAM/DSP cells, which the placer then places outside (or errors on with CONTAIN_ROUTING). Use the Device window's Draw Pblock tool to get valid coordinates interactively.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/resize_pblock"
+    },
+    {
+      "name": "delete_pblocks",
+      "kind": "tcl-command",
+      "description": "Remove Pblocks from the design, releasing their cells. With -hier the child Pblocks are deleted as well; without it children are promoted to the parent level.",
+      "usage": "delete_pblocks [-hier] [-quiet] <pblocks>",
+      "parameters": [
+        {"name": "-hier", "description": "Also delete nested Pblocks."},
+        {"name": "<pblocks>", "description": "From get_pblocks."}
+      ],
+      "example": "delete_pblocks -hier [get_pblocks pb_core]\ndelete_pblocks [get_pblocks]   ;# remove all floorplanning",
+      "notes": "The removal is not written back to the XDC file until save_constraints or write_xdc.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/delete_pblocks"
+    },
+    {
+      "name": "get_pblocks",
+      "kind": "tcl-command",
+      "description": "Return Pblock objects, by name pattern, by the cells they contain (-of_objects), or filtered by property. It is the handle passed to add_cells_to_pblock, resize_pblock, report_utilization -pblocks and set_property for Pblock attributes.",
+      "usage": "get_pblocks [-regexp] [-nocase] [-filter <expr>] [-of_objects <cells>] [-include_nested_pblocks] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Pblocks that contain the given cells."},
+        {"name": "-include_nested_pblocks", "description": "Also return child Pblocks."},
+        {"name": "-filter", "description": "Property filter such as {IS_SOFT == 0}."}
+      ],
+      "example": "foreach pb [get_pblocks] {\n  puts \"$pb: [get_property GRID_RANGES $pb]\"\n}\nget_pblocks -of_objects [get_cells u_core]",
+      "notes": "Useful Pblock properties: GRID_RANGES, CONTAIN_ROUTING, EXCLUDE_PLACEMENT, IS_SOFT, PARENT, CELL_COUNT.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_pblocks"
+    },
+    {
+      "name": "set_property IS_SOFT (Pblock)",
+      "kind": "system-variable",
+      "description": "Make a Pblock a soft placement guide: the placer tries to keep the assigned cells inside but may move some outside to meet timing. Pblocks are soft (TRUE) by default since 2019.x; set FALSE for hard containment, which is mandatory for Dynamic Function eXchange and SLR-assignment floorplans.",
+      "usage": "set_property IS_SOFT TRUE|FALSE [get_pblocks <pblock>]",
+      "parameters": [
+        {"name": "TRUE", "description": "Advisory Pblock (default)."},
+        {"name": "FALSE", "description": "Hard Pblock: all assigned cells must be placed inside."}
+      ],
+      "example": "set_property IS_SOFT FALSE [get_pblocks pb_rp0]\nset_property CONTAIN_ROUTING TRUE [get_pblocks pb_rp0]",
+      "notes": "Use report_utilization -pblocks and the Device window highlight to see how many cells escaped a soft Pblock. Hard Pblocks that are too small cause placer errors rather than timing degradation.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/IS_SOFT"
+    },
+    {
+      "name": "set_property CONTAIN_ROUTING",
+      "kind": "system-variable",
+      "description": "Require that all routing of nets whose drivers and loads are inside the Pblock stays within the Pblock boundary. Required for Dynamic Function eXchange reconfigurable partitions and for reproducible hierarchical/team designs; otherwise the router is free to use resources outside the rectangle.",
+      "usage": "set_property CONTAIN_ROUTING TRUE|FALSE [get_pblocks <pblock>]",
+      "parameters": [
+        {"name": "TRUE / FALSE", "description": "Enable or disable routing containment (default FALSE)."}
+      ],
+      "example": "create_pblock pb_rp_math\nadd_cells_to_pblock [get_pblocks pb_rp_math] [get_cells u_math_rp]\nresize_pblock [get_pblocks pb_rp_math] -add {SLICE_X50Y120:SLICE_X89Y179 DSP48E2_X10Y48:DSP48E2_X11Y71 RAMB36_X6Y24:RAMB36_X7Y35}\nset_property CONTAIN_ROUTING TRUE [get_pblocks pb_rp_math]\nset_property SNAPPING_MODE ON    [get_pblocks pb_rp_math]",
+      "notes": "Routing containment expands routing detours; leave some slack around the Pblock edge. SNAPPING_MODE ON aligns the Pblock to legal DFX boundaries automatically.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/CONTAIN_ROUTING"
+    },
+    {
+      "name": "set_property EXCLUDE_PLACEMENT",
+      "kind": "system-variable",
+      "description": "Prevent cells that are NOT assigned to the Pblock from being placed inside its area, reserving the region exclusively for the Pblock's own cells. Used to keep static logic out of a reconfigurable partition and to reserve room for a late-arriving block in team designs.",
+      "usage": "set_property EXCLUDE_PLACEMENT TRUE|FALSE [get_pblocks <pblock>]",
+      "parameters": [
+        {"name": "TRUE / FALSE", "description": "Turn exclusive placement on or off (default FALSE)."}
+      ],
+      "example": "set_property EXCLUDE_PLACEMENT TRUE [get_pblocks pb_rp_math]\nplace_design\nreport_utilization -pblocks [get_pblocks pb_rp_math]",
+      "notes": "Reserving large areas raises congestion elsewhere; verify with report_design_analysis -congestion.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/EXCLUDE_PLACEMENT"
+    },
+    {
+      "name": "set_property KEEP",
+      "kind": "system-variable",
+      "description": "Keep a net or signal from being absorbed or renamed by synthesis optimizations so it remains visible in the netlist, typically to preserve a signal for debugging, for later MARK_DEBUG insertion, or to keep a manually created pipeline register from being merged. Unlike DONT_TOUCH it does not prevent implementation-time optimizations.",
+      "usage": "set_property KEEP true [get_nets <net>]\n(* keep = \"true\" *) wire my_sig;        // Verilog\nattribute keep : string; attribute keep of my_sig : signal is \"true\";  -- VHDL",
+      "parameters": [
+        {"name": "true / false", "description": "Preserve or release the net."}
+      ],
+      "example": "(* keep = \"true\" *) reg [7:0] state_dbg;\n# or in XDC after elaboration\nset_property KEEP true [get_nets -hier state_dbg*]",
+      "notes": "KEEP is honoured by synthesis only. To prevent opt_design from removing logic use DONT_TOUCH; to keep a register duplication from being merged use KEEP on the duplicate registers' outputs.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/KEEP"
+    },
+    {
+      "name": "set_property KEEP_HIERARCHY",
+      "kind": "system-variable",
+      "description": "Prevent synthesis from flattening a specific hierarchical instance or module, so that its boundary survives into the netlist for floorplanning, Pblock assignment, hierarchical reuse or clearer report_utilization -hierarchical output. It is the per-instance version of synth_design -flatten_hierarchy none.",
+      "usage": "set_property KEEP_HIERARCHY yes|no|soft [get_cells <instance>]\n(* keep_hierarchy = \"yes\" *) module my_block (...);",
+      "parameters": [
+        {"name": "yes", "description": "Keep the boundary through synthesis and implementation."},
+        {"name": "soft", "description": "Keep for synthesis but allow implementation to optimize across it (2018.3+)."},
+        {"name": "no", "description": "Allow flattening (default behaviour under -flatten_hierarchy rebuilt)."}
+      ],
+      "example": "set_property KEEP_HIERARCHY yes [get_cells {u_dsp_chain u_fifo}]\nsynth_design -top top -part xcku5p-ffvb676-2-e\nreport_utilization -hierarchical -hierarchical_depth 2",
+      "notes": "Keeping hierarchy blocks cross-boundary constant propagation and register merging, so apply it selectively. The default synth_design -flatten_hierarchy rebuilt already restores names for most reporting needs.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/KEEP_HIERARCHY"
+    },
+    {
+      "name": "set_property MAX_FANOUT",
+      "kind": "system-variable",
+      "description": "Ask synthesis to replicate the driver of a register or net so that no copy drives more than the given number of loads. It targets high-fanout control signals (resets, enables, valid flags) that limit timing. Vivado synthesis also has a global -fanout_limit option; MAX_FANOUT is the per-object override.",
+      "usage": "set_property MAX_FANOUT <n> [get_cells <reg_cell>]\n(* max_fanout = 50 *) reg rst_sync;",
+      "parameters": [
+        {"name": "<n>", "description": "Maximum loads per driver copy; synthesis inserts ceil(fanout/n) replicas."}
+      ],
+      "example": "set_property MAX_FANOUT 64 [get_cells rst_sync_reg]\nset_property MAX_FANOUT 100 [get_nets -hier -filter {NAME =~ *fifo_wr_en*}]\nsynth_design -top top\nreport_high_fanout_nets -max_nets 20",
+      "notes": "Only registers and combinational nets whose source is not an input port or a BUFG are replicated. Implementation-time replication is done by phys_opt_design (fanout_opt) independently. Excessive replication increases area and can hurt routing.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/MAX_FANOUT"
+    },
+    {
+      "name": "set_property RAM_STYLE",
+      "kind": "system-variable",
+      "description": "Direct synthesis to implement an inferred memory array in a specific resource: block (RAMB), distributed (LUTRAM), registers, ultra (URAM on UltraScale+), mixed, or auto. Use it when inference picks the wrong primitive, for example a small FIFO that wastes a BRAM or a wide buffer that should go into URAM.",
+      "usage": "set_property RAM_STYLE block|distributed|registers|ultra|mixed|auto [get_cells <mem_cell>]\n(* ram_style = \"block\" *) reg [31:0] mem [0:1023];",
+      "parameters": [
+        {"name": "block", "description": "RAMB18/RAMB36 block RAM."},
+        {"name": "distributed", "description": "LUT-based RAM in SLICEM."},
+        {"name": "ultra", "description": "URAM288 (UltraScale+ only)."},
+        {"name": "registers / mixed / auto", "description": "Flip-flops, a mix chosen by the tool, or default heuristics."}
+      ],
+      "example": "(* ram_style = \"ultra\" *) reg [71:0] line_buf [0:4095];\n# XDC applied to the elaborated design\nset_property RAM_STYLE distributed [get_cells u_ctrl/small_lut_ram_reg]",
+      "notes": "Block-RAM inference also needs a synchronous read; an asynchronous read forces distributed RAM regardless of RAM_STYLE. Companion attributes: RAM_DECOMP (power vs. area cascade), CASCADE_HEIGHT, and ROM_STYLE for constant arrays.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/RAM_STYLE"
+    },
+    {
+      "name": "set_property ROM_STYLE",
+      "kind": "system-variable",
+      "description": "Choose the resource used for an inferred ROM (a constant array or large case statement): block for RAMB primitives, distributed for LUTs, or ultra on UltraScale+. Block ROM needs a registered output to be inferred; distributed is the default for small tables.",
+      "usage": "set_property ROM_STYLE block|distributed|ultra [get_cells <rom_cell>]\n(* rom_style = \"block\" *) reg [15:0] sine_lut [0:1023];",
+      "parameters": [
+        {"name": "block / distributed / ultra", "description": "Target primitive family."}
+      ],
+      "example": "(* rom_style = \"block\" *) reg [15:0] sine_rom [0:2047];\nalways @(posedge clk) dout <= sine_rom[addr];   // registered read enables BRAM mapping",
+      "notes": "Initial contents come from an initial block or $readmemh; keep the file in the project so synthesis can find it, or use ROM_STYLE distributed for small tables to avoid a BRAM.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/ROM_STYLE"
+    },
+    {
+      "name": "set_property USE_DSP",
+      "kind": "system-variable",
+      "description": "Control whether arithmetic (multipliers, adders, accumulators, counters) is implemented in DSP48/DSP58 slices or in LUT/carry logic. USE_DSP yes forces DSP use on adders that synthesis would otherwise leave in fabric; no keeps operators out of DSPs when they are scarce; logic and simd select DSP for logic operations or SIMD add/sub modes.",
+      "usage": "set_property USE_DSP yes|no|logic|simd [get_cells <cell>]\n(* use_dsp = \"yes\" *) module accumulator (...);\n(* use_dsp = \"no\" *) wire [47:0] sum = a + b;",
+      "parameters": [
+        {"name": "yes / no", "description": "Force or forbid DSP mapping for the module, signal or operator."},
+        {"name": "logic", "description": "Map bitwise logic operations to the DSP ALU."},
+        {"name": "simd", "description": "Use the DSP SIMD (2x24 / 4x12) add modes."}
+      ],
+      "example": "(* use_dsp = \"yes\" *) reg [47:0] acc;\nalways @(posedge clk) acc <= acc + (a * b);\n# XDC on a whole hierarchy\nset_property USE_DSP no [get_cells u_addr_gen]",
+      "notes": "Historically named USE_DSP48. synth_design -max_dsp limits the total count; DSP inference still requires suitable widths (<= 27x18 signed on DSP48E2 per slice). Check with report_utilization and report_timing on DSP paths, which are slow when not fully pipelined.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/USE_DSP"
+    },
+    {
+      "name": "set_property SHREG_EXTRACT",
+      "kind": "system-variable",
+      "description": "Enable or disable inference of shift-register LUTs (SRL16E/SRLC32E) for chains of registers without reset. Setting it to no on a module or signal keeps each stage as a flip-flop, which is necessary for pipeline registers that must be spread out for timing, for synchronizer chains (ASYNC_REG already implies this) and for registers you want to place individually.",
+      "usage": "set_property SHREG_EXTRACT no|yes [get_cells <cell>]\n(* shreg_extract = \"no\" *) reg [3:0] pipe;",
+      "parameters": [
+        {"name": "yes", "description": "Allow SRL inference (default)."},
+        {"name": "no", "description": "Implement every stage as a discrete flip-flop."}
+      ],
+      "example": "(* shreg_extract = \"no\" *) reg [2:0] data_pipe;\nalways @(posedge clk) data_pipe <= {data_pipe[1:0], din};\n# or for a whole hierarchy in XDC\nset_property SHREG_EXTRACT no [get_cells u_high_speed_pipe]",
+      "notes": "Related: SRL_STYLE (srl, reg_srl, srl_reg, reg_srl_reg) to control which stages become SRL vs. registers, and the global synth_design -shreg_min_size.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/SHREG_EXTRACT"
+    },
+    {
+      "name": "set_property FSM_ENCODING",
+      "kind": "system-variable",
+      "description": "Select the state-encoding synthesis uses for an extracted finite state machine: one_hot, sequential, johnson, gray, auto or none (disable extraction and keep the RTL encoding). Explicit encoding is needed when the design relies on a specific binary state value (e.g. exported to a debug bus) or when safe-state recovery matters.",
+      "usage": "set_property FSM_ENCODING one_hot|sequential|johnson|gray|auto|none [get_cells <state_reg>]\n(* fsm_encoding = \"one_hot\" *) reg [2:0] state;",
+      "parameters": [
+        {"name": "one_hot / sequential / johnson / gray", "description": "Encoding style."},
+        {"name": "auto", "description": "Let synthesis choose based on state count (default)."},
+        {"name": "none", "description": "Do not re-encode; keep the RTL values."}
+      ],
+      "example": "(* fsm_encoding = \"one_hot\", fsm_safe_state = \"reset_state\" *) reg [3:0] state;\n# global control\nsynth_design -top top -fsm_extraction one_hot",
+      "notes": "FSM extraction requires a case statement on an enumerated or constant-assigned state register with a reset; synthesis reports the recognized FSMs and their encodings in the log. FSM_SAFE_STATE adds recovery logic for illegal states.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/FSM_ENCODING"
+    },
+    {
+      "name": "set_property CLOCK_BUFFER_TYPE",
+      "kind": "system-variable",
+      "description": "Tell synthesis which clock buffer to insert on a clock net or port (BUFG, BUFH, BUFIO, BUFMR, BUFR, BUFGCE, BUFGCE_DIV, or NONE to insert none). It is applied to the input port or net of a clock and is the standard way to prevent an automatic BUFG on a clock that will drive an MMCM or to route a regional clock through a BUFR.",
+      "usage": "set_property CLOCK_BUFFER_TYPE BUFG|BUFH|BUFIO|BUFMR|BUFR|BUFGCE|BUFGCE_DIV|NONE [get_ports|get_nets <clock>]",
+      "parameters": [
+        {"name": "<buffer type>", "description": "Buffer primitive to use; availability depends on family (BUFH/BUFR/BUFMR are 7 series, BUFGCE_DIV is UltraScale)."},
+        {"name": "NONE", "description": "Suppress automatic clock-buffer insertion."}
+      ],
+      "example": "# Clock enters an MMCM directly; no global buffer on the input\nset_property CLOCK_BUFFER_TYPE NONE [get_ports clk_in]\n# Regional clock for a source-synchronous receiver\nset_property CLOCK_BUFFER_TYPE BUFR [get_nets rx_clk_ibuf]",
+      "notes": "Synthesis inserts BUFGs on clock ports automatically only when they drive sequential elements directly. IP such as Clocking Wizard instantiates its own buffers.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/CLOCK_BUFFER_TYPE"
+    },
+    {
+      "name": "set_property IO_BUFFER_TYPE",
+      "kind": "system-variable",
+      "description": "Control automatic I/O buffer insertion on a top-level port: IBUF or OBUF to force a specific buffer, or NONE to prevent any buffer from being added. NONE is required on ports that connect to transceiver reference clocks (IBUFDS_GTE*), on ports handled by IP that instantiates its own buffers, and in out-of-context synthesis of sub-modules.",
+      "usage": "set_property IO_BUFFER_TYPE IBUF|OBUF|NONE [get_ports <port>]",
+      "parameters": [
+        {"name": "IBUF / OBUF", "description": "Force the buffer type."},
+        {"name": "NONE", "description": "Do not insert a buffer on this port."}
+      ],
+      "example": "set_property IO_BUFFER_TYPE NONE [get_ports {gt_refclk_p gt_refclk_n}]\nsynth_design -top top -part xcvu9p-flga2104-2L-e",
+      "notes": "synth_design -no_iobuf applies the same rule to every port and is the usual choice for OOC module synthesis. A port with IO_BUFFER_TYPE NONE has no IOSTANDARD or PACKAGE_PIN requirement.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/IO_BUFFER_TYPE"
+    },
+    {
+      "name": "set_property BLACK_BOX",
+      "kind": "system-variable",
+      "description": "Instruct synthesis to treat a module or entity as a black box, keeping its instance and ports but discarding its contents. Used to stub out large blocks during early synthesis runs, to leave a placeholder for a netlist (DCP/EDIF) that is linked later, or to synthesize a hierarchy out of context.",
+      "usage": "set_property BLACK_BOX yes [get_cells <instance>]\n(* black_box *) module big_block (input clk, output [7:0] q);",
+      "parameters": [
+        {"name": "yes / no", "description": "Enable or disable black-boxing for the instance or module."}
+      ],
+      "example": "(* black_box = \"yes\" *) module encrypted_core (input clk, input [63:0] d, output [63:0] q); endmodule\n# later: link the real netlist\nread_checkpoint -cell encrypted_core_inst ./ip/encrypted_core.dcp",
+      "notes": "A design with black boxes cannot produce a bitstream until every black box is resolved (report_compile_order and the synthesis log list them). In Project Mode the empty module body must still be present so elaboration succeeds.",
+      "docs": "https://docs.amd.com/r/en-US/ug901-vivado-synthesis/BLACK_BOX"
+    },
+    {
+      "name": "set_property CFGBVS / CONFIG_VOLTAGE",
+      "kind": "system-variable",
+      "description": "Declare how the configuration bank voltage-select pin is wired (CFGBVS VCCO or GND) and the configuration bank voltage (CONFIG_VOLTAGE 1.8, 2.5 or 3.3) on 7 series and UltraScale devices, so DRCs can check that the chosen I/O standards in bank 0 (and 14/15 or 65 on some parts) are legal. Bitstream generation issues a critical warning or error if they are not set.",
+      "usage": "set_property CFGBVS VCCO|GND [current_design]\nset_property CONFIG_VOLTAGE 1.8|2.5|3.3 [current_design]",
+      "parameters": [
+        {"name": "CFGBVS", "description": "VCCO when the CFGBVS pin is tied to VCCO_0 (2.5/3.3 V config I/O), GND when tied to ground (1.8 V)."},
+        {"name": "CONFIG_VOLTAGE", "description": "Nominal VCCO_0 voltage."}
+      ],
+      "example": "set_property CFGBVS VCCO [current_design]\nset_property CONFIG_VOLTAGE 3.3 [current_design]\nwrite_bitstream -force top.bit",
+      "notes": "UltraScale+ and Versal do not use CFGBVS (bank 0 is always 1.8 V); on those parts only CONFIG_VOLTAGE 1.8 is accepted. Wrong values give DRC CFGBVS-1 and can prevent configuration.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/CFGBVS"
+    },
+    {
+      "name": "set_property USER_SLR_ASSIGNMENT",
+      "kind": "system-variable",
+      "description": "Soft floorplanning constraint for stacked-silicon (SSI) devices: cells carrying the same USER_SLR_ASSIGNMENT string are kept together on one SLR, and a value of SLR0/SLR1/... pins them to that specific die. It steers the placer's SLR partitioning without the rigidity of a Pblock and is the first tool to try when SLR crossings hurt timing.",
+      "usage": "set_property USER_SLR_ASSIGNMENT SLR<n>|<group_name> [get_cells <hierarchical_cells>]",
+      "parameters": [
+        {"name": "SLR0 / SLR1 / SLR2 / SLR3", "description": "Assign the hierarchy to a specific super logic region."},
+        {"name": "<group_name>", "description": "Any other string: cells with the same string are placed on the same (unspecified) SLR."}
+      ],
+      "example": "set_property USER_SLR_ASSIGNMENT SLR1 [get_cells u_pcie_dma]\nset_property USER_SLR_ASSIGNMENT grp_video [get_cells {u_scaler u_frame_buf}]\nplace_design\nreport_utilization -slr\nreport_timing_summary -slack_lesser_than 0",
+      "notes": "Cross-SLR nets should be registered on both sides (Laguna TX/RX flops are used automatically). Companion checks: report_design_analysis -complexity, report_utilization -slr, and the SLR-crossing methodology checks in report_methodology.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/USER_SLR_ASSIGNMENT"
+    },
+    {
+      "name": "set_property USED_IN (constraint scoping)",
+      "kind": "system-variable",
+      "description": "Restrict which flow steps read a source or constraint file. For XDC files the useful values are synthesis, implementation and their combination; a physical-only file (Pblocks, LOCs, routing) is marked implementation-only so synthesis does not complain about objects that do not exist yet, and a synthesis-only file holds attributes such as MAX_FANOUT that must not be re-applied later. USED_IN_SYNTHESIS / USED_IN_IMPLEMENTATION / USED_IN_SIMULATION are the boolean per-step properties behind it.",
+      "usage": "set_property USED_IN {implementation} [get_files <file.xdc>]\nset_property USED_IN_SYNTHESIS false [get_files <file.xdc>]\nset_property USED_IN_IMPLEMENTATION true [get_files <file.xdc>]",
+      "parameters": [
+        {"name": "synthesis / implementation / simulation", "description": "Flow stages in which the file is loaded; list any combination."},
+        {"name": "out_of_context", "description": "Marks an XDC as OOC constraints for IP or hierarchical modules."}
+      ],
+      "example": "add_files -fileset constrs_1 {./constrs/timing.xdc ./constrs/floorplan.xdc}\nset_property USED_IN {implementation} [get_files floorplan.xdc]\nset_property USED_IN_SYNTHESIS false  [get_files floorplan.xdc]\nreport_property [get_files floorplan.xdc] USED_IN*",
+      "notes": "Non-project flows achieve the same thing by reading files at the right point (read_xdc after synth_design). Also used with -mode out_of_context in read_xdc and on the IP's own .xdc files.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/USED_IN"
+    },
+    {
+      "name": "set_property PROCESSING_ORDER",
+      "kind": "system-variable",
+      "description": "Control when a constraints file is processed relative to the others: EARLY files are read first, NORMAL (default) in compile order, LATE last. Because later constraints override earlier ones for the same objects, LATE is used for overrides and for constraints that depend on objects created by earlier files (for example generated clocks on IP clocks).",
+      "usage": "set_property PROCESSING_ORDER EARLY|NORMAL|LATE [get_files <file.xdc>]",
+      "parameters": [
+        {"name": "EARLY / NORMAL / LATE", "description": "Processing bucket; within a bucket the order is the file order in the constraints fileset (reorder_files)."}
+      ],
+      "example": "set_property PROCESSING_ORDER LATE [get_files overrides.xdc]\nreorder_files -fileset constrs_1 -front [get_files board.xdc]\nreport_compile_order -constraints",
+      "notes": "IP XDC files are processed before user files by default (their own EARLY/LATE settings apply). report_compile_order -constraints shows the resolved order.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties/PROCESSING_ORDER"
+    },
+    {
+      "name": "Timing Constraints Wizard",
+      "kind": "tool",
+      "description": "GUI wizard (Tools > Timing > Constraints Wizard, available on a synthesized or implemented design) that walks through the missing timing constraints in three stages: primary clocks found by tracing clock networks, generated clocks and forwarded clocks, then input/output delays, clock groups, asynchronous clocks and false paths. It proposes values from clock-network analysis and writes the accepted constraints to an XDC file in the constraints fileset.",
+      "usage": "Tools > Timing > Constraints Wizard (or Flow Navigator > Synthesized Design > Constraints Wizard); Tcl equivalent: none (the wizard emits standard XDC commands)",
+      "parameters": [
+        {"name": "Primary Clocks page", "description": "Lists unconstrained clock sources with editable period and waveform."},
+        {"name": "Generated Clocks / Forwarded Clocks", "description": "Proposes create_generated_clock for user-logic dividers and ODDR-forwarded clocks."},
+        {"name": "Input/Output Delays, Combinational Delays", "description": "Templates for set_input_delay/set_output_delay including DDR variants."},
+        {"name": "Clock Groups / Asynchronous Clock Groups / False Paths / Multicycle Paths", "description": "set_clock_groups and exception generation with report_clock_interaction feedback."}
+      ],
+      "example": "1. open_run synth_1\n2. Tools > Timing > Constraints Wizard\n3. Accept or edit the proposed periods, skip the I/O delay page for internal-only clocks\n4. Finish: constraints are written to constrs_1/<top>.xdc (or a new file)\n5. report_timing_summary and check_timing to confirm nothing is left unconstrained",
+      "notes": "The wizard only adds; it never removes existing constraints. Review the generated file because the proposed clock groups treat all unrelated clocks as asynchronous.",
+      "docs": "https://docs.amd.com/r/en-US/ug906-vivado-design-analysis/Timing-Constraints-Wizard"
+    },
+    {
+      "name": "Timing Constraints window",
+      "kind": "panel",
+      "description": "Constraint editor opened with Window > Timing Constraints on an open synthesized/implemented design. The left tree lists every constraint type (Clocks, Inputs/Outputs, Assertions, Exceptions), the spreadsheet shows the constraints in the loaded XDC files with their source file and line, and new constraints are entered through per-command forms whose Tcl is previewed before being added. Modified constraints are marked and written with Save Constraints.",
+      "usage": "Window > Timing Constraints; double-click a constraint type to open its form; File > Constraints > Save (save_constraints)",
+      "parameters": [
+        {"name": "Constraint tree", "description": "create_clock, create_generated_clock, set_input_delay, set_clock_groups, set_false_path, set_multicycle_path, set_max_delay, ... grouped by category."},
+        {"name": "Target file", "description": "Constraints are saved to the target XDC of the active constraint set (set_property target_constrs_file)."}
+      ],
+      "example": "set_property target_constrs_file ./constrs/top.xdc [current_fileset -constrset]\n# edit in the Timing Constraints window, then\nsave_constraints\nreport_exceptions",
+      "notes": "Constraints from IP or read-only files are shown but cannot be edited. The Tcl echoed to the console is a good way to learn the exact syntax.",
+      "docs": "https://docs.amd.com/r/en-US/ug906-vivado-design-analysis/Timing-Constraints-Window"
+    },
+    {
+      "name": "write_xdc",
+      "kind": "tcl-command",
+      "description": "Export the constraints currently in memory (timing, physical, attributes, Pblocks) to a single XDC file. Options select whether constraints from IP are included, whether to write only a hierarchy (-cell) with -mode out_of_context for OOC use, and -type to limit output to timing, physical, or specific constraint groups. Commonly used to snapshot everything after a floorplanning session or to extract the constraints stored in a checkpoint.",
+      "usage": "write_xdc [-cell <cell>] [-constraints VALID|INVALID|ALL] [-type <list>] [-no_fixed_only] [-exclude_timing] [-exclude_physical] [-add_netlist_placement] [-sdc] [-mode out_of_context] [-force] [-quiet] <file>",
+      "parameters": [
+        {"name": "-cell", "description": "Write only constraints that apply inside the given hierarchical cell, with names re-rooted for OOC use."},
+        {"name": "-type", "description": "Subset such as {timing io pblock physical clock power waiver}."},
+        {"name": "-exclude_timing / -exclude_physical", "description": "Leave out a whole class of constraints."},
+        {"name": "-add_netlist_placement", "description": "Include LOC/BEL of every placed cell (full placement snapshot)."},
+        {"name": "-sdc", "description": "Write pure SDC (timing only) for third-party tools."},
+        {"name": "-constraints", "description": "VALID (default) writes only constraints that applied cleanly; INVALID lists the ones that failed."}
+      ],
+      "example": "open_checkpoint post_route.dcp\nwrite_xdc -force -exclude_timing ./floorplan_snapshot.xdc\nwrite_xdc -force -constraints INVALID ./bad_constraints.xdc\nwrite_xdc -cell u_core -mode out_of_context -force ./u_core_ooc.xdc",
+      "notes": "Constraints in the file are rewritten in the tool's normalized form (names expanded, filter expressions resolved), so it is a snapshot, not a round-trip of your source XDC.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_xdc"
+    },
+    {
+      "name": "save_constraints",
+      "kind": "tcl-command",
+      "description": "Write constraints that were added or modified in the current session (through the Timing Constraints window, the Device window, the I/O Ports view or set_property in the console) back to the target XDC file of the active constraint set in Project Mode. save_constraints_as writes them to a new fileset instead. Without saving, GUI floorplanning and pin edits are lost when the design is closed.",
+      "usage": "save_constraints [-force] [-quiet]\nsave_constraints_as [-dir <path>] [-target_constrs_file <file>] <new_constrset_name>",
+      "parameters": [
+        {"name": "-force", "description": "Save even if the constraints have dependent runs that will be marked out of date."},
+        {"name": "-target_constrs_file", "description": "File in the new constraint set that receives the unsaved constraints."}
+      ],
+      "example": "set_property PACKAGE_PIN AB12 [get_ports led0]\nset_property IOSTANDARD LVCMOS18 [get_ports led0]\nsave_constraints -force\n# alternatively keep the original set untouched\nsave_constraints_as -target_constrs_file new_pins.xdc constrs_2",
+      "notes": "Only the active constraint set's target file receives changes; set it with set_property target_constrs_file. Non-project flows use write_xdc instead.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/save_constraints"
+    }
+  ]
+}

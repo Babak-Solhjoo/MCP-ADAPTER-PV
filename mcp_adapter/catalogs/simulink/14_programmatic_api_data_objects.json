@@ -1,0 +1,596 @@
+{
+  "category": "Programmatic API: model editing, data objects & simulation inputs (extended)",
+  "description": "MATLAB functions and classes beyond the core new_system/add_block/set_param/sim set: navigating and reorganising block diagrams, searching and exporting models, SimulationInput methods and batch runs, design-data objects (buses, signals, parameters, types, lookup tables, enumerations, variants), data dictionaries, configuration sets and the Simulation Data Inspector API.",
+  "tools": [
+    {
+      "name": "bdroot",
+      "kind": "function",
+      "description": "Returns the name of the top-level model (block diagram) that contains a block or system, or of the current top-level model when called without arguments. Used in callbacks and scripts to get the model name from a block path.",
+      "usage": "mdl = bdroot\nmdl = bdroot(obj)   % obj: block path or handle",
+      "parameters": [
+        {"name": "obj", "description": "Block/system path or handle; with a handle input the output is also a handle."}
+      ],
+      "example": "mdl = bdroot(gcb);\nset_param(mdl, 'StopTime', '20');",
+      "notes": "Inside a library link, bdroot returns the model containing the link, not the library.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/bdroot.html"
+    },
+    {
+      "name": "gcb",
+      "kind": "function",
+      "description": "Returns the full path of the current block: the most recently selected or clicked block in the current system, or the block whose callback is executing. Convenient for interactive scripting and mask callbacks.",
+      "usage": "blk = gcb\nblk = gcb(sys)",
+      "parameters": [
+        {"name": "sys", "description": "System in which to return the current block."}
+      ],
+      "example": "blk = gcb;\ndisp(get_param(blk, 'BlockType'));\nset_param(gcb, 'Gain', '5');",
+      "notes": "Avoid gcb in production scripts: the current block changes with user clicks. Use explicit paths or handles instead.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/gcb.html"
+    },
+    {
+      "name": "gcbh",
+      "kind": "function",
+      "description": "Returns the numeric handle of the current block. Handles are faster than paths for repeated get_param/set_param calls and survive block renaming.",
+      "usage": "h = gcbh",
+      "parameters": [],
+      "example": "h = gcbh;\nget_param(h, 'Name')\nset_param(h, 'BackgroundColor', 'yellow');",
+      "notes": "Handles are valid only for the current MATLAB session and model load; do not store them across sessions.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/gcbh.html"
+    },
+    {
+      "name": "getfullname",
+      "kind": "function",
+      "description": "Returns the full path name of a block, line, port or annotation given its handle (or array of handles). Typically paired with find_system or Simulink.findBlocks results that return handles.",
+      "usage": "path = getfullname(h)",
+      "parameters": [
+        {"name": "h", "description": "Handle or vector of handles; a vector returns a cell array of paths."}
+      ],
+      "example": "h = Simulink.findBlocksOfType('vdp', 'Integrator');\nnames = getfullname(h)",
+      "notes": "Path components containing '/' are escaped as '//'.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/getfullname.html"
+    },
+    {
+      "name": "hilite_system",
+      "kind": "function",
+      "description": "Highlights a block, line or system in the Simulink Editor, opening its parent diagram if needed. Useful for pointing reviewers or users at the results of a programmatic search or check.",
+      "usage": "hilite_system(obj)\nhilite_system(obj, hilite)",
+      "parameters": [
+        {"name": "obj", "description": "Path or handle of the element to highlight."},
+        {"name": "hilite", "description": "Highlight scheme, e.g. 'find' (default), 'none' (clear), 'unique', 'different', 'user1'..'user5'."}
+      ],
+      "example": "h = find_system('vdp', 'BlockType', 'Integrator');\nhilite_system(h{1});\npause(2); hilite_system(h{1}, 'none');",
+      "notes": "Highlighting is display-only and does not dirty the model.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/hilite_system.html"
+    },
+    {
+      "name": "Simulink.BlockDiagram.arrangeSystem",
+      "kind": "function",
+      "description": "Improves the layout of a block diagram by realigning, resizing and moving blocks and straightening signal lines. Particularly useful after building a model programmatically with add_block/add_line.",
+      "usage": "Simulink.BlockDiagram.arrangeSystem(bd)",
+      "parameters": [
+        {"name": "bd", "description": "Model or subsystem name/handle; the diagram must be open or loaded."}
+      ],
+      "example": "new_system('auto'); open_system('auto');\n% ... add_block / add_line calls ...\nSimulink.BlockDiagram.arrangeSystem('auto');",
+      "notes": "Equivalent to Format > Auto Arrange in the toolstrip. Does not recurse into subsystems; call it for each subsystem you want arranged.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.blockdiagram.arrangesystem.html"
+    },
+    {
+      "name": "Simulink.BlockDiagram.expandSubsystem",
+      "kind": "function",
+      "description": "Replaces a virtual subsystem with its contents in the parent diagram, the inverse of Simulink.BlockDiagram.createSubsystem. Ports are replaced with direct connections.",
+      "usage": "Simulink.BlockDiagram.expandSubsystem(subsys)",
+      "parameters": [
+        {"name": "subsys", "description": "Path or handle of the subsystem to flatten."}
+      ],
+      "example": "Simulink.BlockDiagram.expandSubsystem('myModel/Controller');",
+      "notes": "Only unmasked, unlinked, uncommented virtual subsystems can be expanded; atomic or conditional subsystems change behaviour and are rejected.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.blockdiagram.expandsubsystem.html"
+    },
+    {
+      "name": "Simulink.BlockDiagram.getChecksum",
+      "kind": "function",
+      "description": "Returns a checksum of a model computed from its structural and functional content, compiling the model if necessary. Compare checksums to detect whether a change affects simulation or generated code.",
+      "usage": "[checksum, details] = Simulink.BlockDiagram.getChecksum(model)",
+      "parameters": [
+        {"name": "model", "description": "Model name."}
+      ],
+      "example": "c1 = Simulink.BlockDiagram.getChecksum('myModel');\nset_param('myModel/Gain', 'Position', [100 100 140 130]);\nc2 = Simulink.BlockDiagram.getChecksum('myModel');\nisequal(c1, c2)   % true: layout changes do not affect the checksum",
+      "notes": "Use Simulink.SubSystem.getChecksum for an individual atomic subsystem.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.blockdiagram.getchecksum.html"
+    },
+    {
+      "name": "Simulink.BlockDiagram.copyContentsToSubsystem",
+      "kind": "function",
+      "description": "Copies all blocks, lines and annotations of a block diagram into an empty subsystem. Used to turn a referenced model (or any model) back into a subsystem.",
+      "usage": "Simulink.BlockDiagram.copyContentsToSubsystem(bd, subsys)",
+      "parameters": [
+        {"name": "bd", "description": "Source model."},
+        {"name": "subsys", "description": "Destination subsystem; must be empty."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Subsystem', 'top/Ctrl');\nSimulink.SubSystem.deleteContents('top/Ctrl');\nSimulink.BlockDiagram.copyContentsToSubsystem('ctrlModel', 'top/Ctrl');",
+      "notes": "Configuration parameters and model workspace data are not copied; move them separately.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.blockdiagram.copycontentstosubsystem.html"
+    },
+    {
+      "name": "Simulink.BlockDiagram.deleteContents",
+      "kind": "function",
+      "description": "Deletes all blocks, lines and annotations from a model, leaving an empty diagram with its configuration intact. Useful when regenerating a model from a script.",
+      "usage": "Simulink.BlockDiagram.deleteContents(bd)",
+      "parameters": [
+        {"name": "bd", "description": "Model name or handle."}
+      ],
+      "example": "load_system('generated');\nSimulink.BlockDiagram.deleteContents('generated');\n% rebuild with add_block/add_line",
+      "notes": "Use Simulink.SubSystem.deleteContents for a subsystem.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.blockdiagram.deletecontents.html"
+    },
+    {
+      "name": "Simulink.SubSystem.copyContentsToBlockDiagram",
+      "kind": "function",
+      "description": "Copies the graphical contents of a subsystem into an empty model, for example to test a subsystem in isolation or to prepare a manual model-reference conversion.",
+      "usage": "Simulink.SubSystem.copyContentsToBlockDiagram(subsys, bd)",
+      "parameters": [
+        {"name": "subsys", "description": "Source subsystem."},
+        {"name": "bd", "description": "Destination model; must be loaded and empty."}
+      ],
+      "example": "new_system('unitTest');\nSimulink.SubSystem.copyContentsToBlockDiagram('plant/Controller', 'unitTest');\nsave_system('unitTest');",
+      "notes": "For a full conversion including interfaces and data, use Simulink.SubSystem.convertToModelReference.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.subsystem.copycontentstoblockdiagram.html"
+    },
+    {
+      "name": "Simulink.SubSystem.deleteContents",
+      "kind": "function",
+      "description": "Deletes all blocks, lines and annotations inside a subsystem while keeping the Subsystem block itself.",
+      "usage": "Simulink.SubSystem.deleteContents(subsys)",
+      "parameters": [
+        {"name": "subsys", "description": "Subsystem path or handle."}
+      ],
+      "example": "Simulink.SubSystem.deleteContents('myModel/Plant');",
+      "notes": "Deleting the Inport/Outport blocks removes the subsystem's ports, which disconnects lines in the parent.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.subsystem.deletecontents.html"
+    },
+    {
+      "name": "Simulink.findBlocks",
+      "kind": "function",
+      "description": "Finds blocks in a model or subsystem and returns their handles, optionally filtered by parameter name/value pairs and controlled by a Simulink.FindOptions object (search depth, regular expressions, variants, links). A faster, handle-based alternative to find_system for blocks.",
+      "usage": "bl = Simulink.findBlocks(sys)\nbl = Simulink.findBlocks(sys, Param1, Value1, ..., options)",
+      "parameters": [
+        {"name": "sys", "description": "Model or subsystem path/handle."},
+        {"name": "Param, Value", "description": "Block parameter constraints, e.g. 'BlockType','Gain'."},
+        {"name": "options", "description": "Simulink.FindOptions('SearchDepth',1,'RegExp',true,'FollowLinks',true, ...)."}
+      ],
+      "example": "opts = Simulink.FindOptions('SearchDepth', 1);\nh = Simulink.findBlocks('vdp', 'BlockType', 'Gain', opts);\ngetfullname(h)",
+      "notes": "Returns handles, not paths. Use Simulink.FindOptions MatchFilter with @Simulink.match.activeVariants to respect variants.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.findblocks.html"
+    },
+    {
+      "name": "Simulink.findBlocksOfType",
+      "kind": "function",
+      "description": "Finds all blocks of a given BlockType in a model or subsystem, optionally with further parameter constraints and FindOptions, returning handles.",
+      "usage": "bl = Simulink.findBlocksOfType(sys, type)\nbl = Simulink.findBlocksOfType(sys, type, Param1, Value1, ..., options)",
+      "parameters": [
+        {"name": "type", "description": "BlockType value such as 'Gain', 'Integrator', 'SubSystem', 'ModelReference'."}
+      ],
+      "example": "h = Simulink.findBlocksOfType('myModel', 'Gain', 'Gain', '1');   % unity gains\nset_param(h, 'BackgroundColor', 'orange');",
+      "notes": "BlockType differs from the library name for masked blocks (e.g. many library blocks are 'SubSystem' with a MaskType).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.findblocksoftype.html"
+    },
+    {
+      "name": "find_mdlrefs",
+      "kind": "function",
+      "description": "Finds the models referenced by a model, directly or through the whole hierarchy, and optionally the Model blocks that reference them. Use it to load, build or analyse every model in a hierarchy.",
+      "usage": "[models, blocks] = find_mdlrefs(system, Name, Value)",
+      "parameters": [
+        {"name": "AllLevels", "description": "true (default) searches the entire hierarchy; false returns only direct references."},
+        {"name": "MatchFilter", "description": "Function handle such as @Simulink.match.activeVariants to limit to active variants."},
+        {"name": "IncludeProtectedModels", "description": "Include protected (.slxp) models."},
+        {"name": "KeepModelsLoaded", "description": "Keep models loaded after the search."}
+      ],
+      "example": "[refs, blks] = find_mdlrefs('topModel', 'AllLevels', true);\ncellfun(@load_system, refs);",
+      "notes": "The top model is returned as the last element of the list.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/find_mdlrefs.html"
+    },
+    {
+      "name": "Simulink.exportToVersion",
+      "kind": "function",
+      "description": "Saves a model, library or subsystem in the format of an earlier Simulink release so colleagues on older versions can open it. Features unsupported in the target release are removed or replaced with empty masked subsystems.",
+      "usage": "Simulink.exportToVersion(sys, file, version)\nSimulink.exportToVersion(sys, file, version, 'BreakUserLinks', true)",
+      "parameters": [
+        {"name": "file", "description": "Output file name (.slx or .mdl) - must differ from the current file."},
+        {"name": "version", "description": "Target release such as 'R2020b'."},
+        {"name": "BreakUserLinks", "description": "true replaces user library links with copies."}
+      ],
+      "example": "Simulink.exportToVersion('myModel', 'myModel_R2021a.slx', 'R2021a');",
+      "notes": "Exporting to releases older than about seven years may not be supported; export step by step if needed.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.exporttoversion.html"
+    },
+    {
+      "name": "Simulink.ModelReference.protect",
+      "kind": "function",
+      "description": "Creates a protected model (.slxp) that hides the contents of a referenced model while still allowing others to simulate it, view a read-only web view, or generate code from it, optionally with password protection. Used to share IP with suppliers or customers.",
+      "usage": "[harnessHandle, neededVars] = Simulink.ModelReference.protect(model, Name, Value)",
+      "parameters": [
+        {"name": "Mode", "description": "'Normal' (simulation), 'Accelerator', 'CodeGeneration' or 'ViewOnly'."},
+        {"name": "Path", "description": "Output folder."},
+        {"name": "Webview", "description": "true includes a read-only web view."},
+        {"name": "Report", "description": "true generates a protected-model report."},
+        {"name": "Harness", "description": "true creates a harness model with a Model block referencing the protected model."}
+      ],
+      "example": "Simulink.ModelReference.protect('supplierCtrl', 'Mode', 'CodeGeneration', 'Report', true, 'Harness', true);",
+      "notes": "The protected model can only be used through a Model block. Encrypting with a password requires setting passwords via Simulink.ModelReference.ProtectedModel.setPasswordForSimulation (and similar) first.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.modelreference.protect.html"
+    },
+    {
+      "name": "Simulink.ID.getSID",
+      "kind": "function",
+      "description": "Returns the Simulink Identifier (SID) of a block or other model element, a persistent 'model:number' string that survives renaming and moving. SIDs are used by requirements links, code traceability and review tools.",
+      "usage": "sid = Simulink.ID.getSID(obj)\nh = Simulink.ID.getHandle(sid)",
+      "parameters": [
+        {"name": "obj", "description": "Block path, handle or Stateflow object."}
+      ],
+      "example": "sid = Simulink.ID.getSID('vdp/Mu')     % e.g. 'vdp:3'\nh = Simulink.ID.getHandle(sid);\nhilite_system(h);",
+      "notes": "SIDs are unique within a model and stored in the model file.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.id.getsid.html"
+    },
+    {
+      "name": "setVariable",
+      "kind": "function",
+      "description": "Method of Simulink.SimulationInput that sets a variable value for a single simulation without modifying the base workspace, data dictionary or model workspace. The value overrides the variable of the same name for that run only.",
+      "usage": "simIn = setVariable(simIn, varName, value)\nsimIn = setVariable(simIn, varName, value, 'Workspace', modelName)",
+      "parameters": [
+        {"name": "varName", "description": "Variable name; dot notation such as 'params.Kp' sets a struct field."},
+        {"name": "value", "description": "Value, including Simulink.Parameter objects."},
+        {"name": "Workspace", "description": "Model name to target a model workspace variable instead of global scope."}
+      ],
+      "example": "simIn = Simulink.SimulationInput('myModel');\nsimIn = simIn.setVariable('Kp', 2.5);\nsimIn = simIn.setVariable('Ts', 1e-3, 'Workspace', 'myModel');\nout = sim(simIn);",
+      "notes": "Works with Fast Restart only for tunable parameters. Inspect overrides with simIn.showContents or simIn.Variables.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationinput.setvariable.html"
+    },
+    {
+      "name": "setModelParameter",
+      "kind": "function",
+      "description": "Method of Simulink.SimulationInput that overrides model configuration parameters such as StopTime, Solver or SimulationMode for one simulation, leaving the saved model unchanged.",
+      "usage": "simIn = setModelParameter(simIn, Param1, Value1, ...)",
+      "parameters": [
+        {"name": "Param, Value", "description": "Model parameter name/value pairs (values as character vectors)."}
+      ],
+      "example": "simIn = Simulink.SimulationInput('myModel');\nsimIn = simIn.setModelParameter('StopTime', '50', 'SimulationMode', 'accelerator');\nout = sim(simIn);",
+      "notes": "Changes that require recompilation are not allowed with Fast Restart.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationinput.setmodelparameter.html"
+    },
+    {
+      "name": "setBlockParameter",
+      "kind": "function",
+      "description": "Method of Simulink.SimulationInput that overrides block parameters for one simulation run, e.g. the gain of a Gain block or the frequency of a Sine Wave.",
+      "usage": "simIn = setBlockParameter(simIn, blockPath, Param, Value, ...)",
+      "parameters": [
+        {"name": "blockPath", "description": "Full path of the block."},
+        {"name": "Param, Value", "description": "Block parameter name and value (character vector)."}
+      ],
+      "example": "simIn = Simulink.SimulationInput('myModel');\nsimIn = simIn.setBlockParameter('myModel/Gain', 'Gain', '4', 'myModel/Sine Wave', 'Frequency', '10');",
+      "notes": "Prefer setVariable when the block parameter references a workspace variable; it is cleaner for sweeps.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationinput.setblockparameter.html"
+    },
+    {
+      "name": "setExternalInput",
+      "kind": "function",
+      "description": "Method of Simulink.SimulationInput that specifies data to drive the root-level Inport blocks for one simulation (a Dataset, timeseries, structure, array or comma-separated list of variables).",
+      "usage": "simIn = setExternalInput(simIn, data)",
+      "parameters": [
+        {"name": "data", "description": "Simulink.SimulationData.Dataset, [t u] matrix, structure with time or expression string."}
+      ],
+      "example": "t = (0:0.01:10)';\nds = Simulink.SimulationData.Dataset;\nds = ds.addElement(timeseries(sin(t), t), 'u');\nsimIn = Simulink.SimulationInput('myModel');\nsimIn = simIn.setExternalInput(ds);\nout = sim(simIn);",
+      "notes": "Equivalent to setting LoadExternalInput='on' and ExternalInput for that run.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationinput.setexternalinput.html"
+    },
+    {
+      "name": "setInitialState",
+      "kind": "function",
+      "description": "Method of Simulink.SimulationInput that sets the initial state of a simulation, typically a Simulink.op.ModelOperatingPoint saved from a previous run, so a simulation can resume from a steady state.",
+      "usage": "simIn = setInitialState(simIn, state)",
+      "parameters": [
+        {"name": "state", "description": "Simulink.op.ModelOperatingPoint, Dataset of states or structure."}
+      ],
+      "example": "out1 = sim('myModel', 'SaveFinalState', 'on', 'SaveOperatingPoint', 'on', 'FinalStateName', 'xFinal', 'StopTime', '100');\nsimIn = Simulink.SimulationInput('myModel');\nsimIn = simIn.setInitialState(out1.xFinal);\nsimIn = simIn.setModelParameter('StopTime', '200');\nout2 = sim(simIn);",
+      "notes": "Operating points are tied to the model structure and release; rebuild them after model changes.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationinput.setinitialstate.html"
+    },
+    {
+      "name": "setPostSimFcn",
+      "kind": "function",
+      "description": "Method of Simulink.SimulationInput that registers a MATLAB function to run after each simulation, receiving the SimulationOutput and returning a reduced or post-processed result. With parsim and batchsim this runs on the worker, shrinking the data sent back.",
+      "usage": "simIn = setPostSimFcn(simIn, @(simOut) myPostFcn(simOut))",
+      "parameters": [
+        {"name": "fcnHandle", "description": "Function handle taking a Simulink.SimulationOutput and returning a struct or SimulationOutput."}
+      ],
+      "example": "simIn = simIn.setPostSimFcn(@(o) struct('peak', max(o.logsout.get('y').Values.Data)));\nout = parsim(simIn);\npeaks = arrayfun(@(o) o.peak, out);",
+      "notes": "setPreSimFcn is the counterpart that runs before each simulation.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.simulationinput.setpostsimfcn.html"
+    },
+    {
+      "name": "batchsim",
+      "kind": "function",
+      "description": "Offloads one or many simulations (an array of Simulink.SimulationInput objects) to a cluster or local parallel pool as a batch job, freeing the MATLAB session. Retrieve results later with fetchOutputs on the returned Simulink.Simulation.Job.",
+      "usage": "job = batchsim(simIn)\njob = batchsim(cluster, simIn, Name, Value)",
+      "parameters": [
+        {"name": "cluster", "description": "parcluster object; the default profile is used when omitted."},
+        {"name": "Pool", "description": "Number of workers for a parallel pool inside the batch job (parsim-style execution)."},
+        {"name": "ShowProgress", "description": "'on' logs progress to the job diary."},
+        {"name": "TransferBaseWorkspaceVariables / SetupFcn / AttachedFiles", "description": "Environment setup on the workers."},
+        {"name": "UseFastRestart", "description": "'on' runs simulations with Fast Restart."}
+      ],
+      "example": "simIn(1:20) = Simulink.SimulationInput('myModel');\nfor k = 1:20, simIn(k) = simIn(k).setVariable('Kp', k/10); end\njob = batchsim(parcluster('local'), simIn, 'Pool', 4);\nwait(job);\nout = fetchOutputs(job);",
+      "notes": "Requires Parallel Computing Toolbox (and MATLAB Parallel Server for clusters). You can close MATLAB while the job runs.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/batchsim.html"
+    },
+    {
+      "name": "Simulink.Bus",
+      "kind": "api",
+      "description": "Bus object that defines the interface of a bus: element names, order, hierarchy, data types, dimensions and units via an array of Simulink.BusElement. Referenced as a data type ('Bus: MyBus') by Bus Creator, Inport, In/Out Bus Element and data objects to validate and specify bus interfaces, especially across model references and in generated code structs.",
+      "usage": "b = Simulink.Bus; b.Elements = [el1 el2]; set_param(blk, 'OutDataTypeStr', 'Bus: b')",
+      "parameters": [
+        {"name": "Elements", "description": "Array of Simulink.BusElement objects."},
+        {"name": "DataScope", "description": "'Auto', 'Exported' or 'Imported' - controls typedef generation."},
+        {"name": "HeaderFile", "description": "Header containing or receiving the struct typedef."},
+        {"name": "Description", "description": "Free text."}
+      ],
+      "example": "e1 = Simulink.BusElement; e1.Name = 'speed'; e1.DataType = 'double';\ne2 = Simulink.BusElement; e2.Name = 'gear';  e2.DataType = 'int8';\nVehicleBus = Simulink.Bus; VehicleBus.Elements = [e1 e2];\nset_param('m/In1', 'OutDataTypeStr', 'Bus: VehicleBus');",
+      "notes": "Create bus objects from existing blocks with Simulink.Bus.createObject, from C headers with Simulink.importExternalCTypes, and edit them in the Type Editor. Store them in a data dictionary for shared use.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.bus.html"
+    },
+    {
+      "name": "Simulink.BusElement",
+      "kind": "api",
+      "description": "Describes one element of a Simulink.Bus: its name, data type (which can itself be another bus), dimensions, complexity, range, unit and dimension mode.",
+      "usage": "el = Simulink.BusElement; el.Name = 'x'; el.DataType = 'single';",
+      "parameters": [
+        {"name": "Name", "description": "Element name (valid identifier)."},
+        {"name": "DataType", "description": "Data type string, e.g. 'double', 'fixdt(1,16,8)', 'Bus: Inner', 'Enum: Mode'."},
+        {"name": "Dimensions / DimensionsMode", "description": "Size and 'Fixed' or 'Variable' dimension mode."},
+        {"name": "Min / Max / Unit / Complexity", "description": "Design range, physical unit and 'real'/'complex'."}
+      ],
+      "example": "el = Simulink.BusElement;\nel.Name = 'pos'; el.DataType = 'double'; el.Dimensions = 3; el.Unit = 'm';",
+      "notes": "Nested buses are defined by setting DataType to 'Bus: OtherBus'.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.buselement.html"
+    },
+    {
+      "name": "Simulink.Signal",
+      "kind": "api",
+      "description": "Data object that specifies and enforces signal properties (data type, dimensions, range, unit, initial value) and code-generation storage class for a named signal line, Data Store Memory or state. The line resolves to the object when 'Signal name must resolve to Simulink signal object' is set.",
+      "usage": "sig = Simulink.Signal; sig.DataType = 'single'; sig.CoderInfo.StorageClass = 'ExportedGlobal';",
+      "parameters": [
+        {"name": "DataType / Dimensions / Complexity", "description": "Signal attributes validated during update diagram."},
+        {"name": "InitialValue", "description": "Initial value, e.g. for a Data Store Memory."},
+        {"name": "Min / Max / Unit", "description": "Design range and unit."},
+        {"name": "CoderInfo.StorageClass", "description": "'Auto', 'Model default', 'ExportedGlobal', 'ImportedExtern', 'ImportedExternPointer' or a custom class."},
+        {"name": "SampleTime", "description": "Expected sample time."}
+      ],
+      "example": "speed = Simulink.Signal;\nspeed.DataType = 'single'; speed.CoderInfo.StorageClass = 'ExportedGlobal';\nph = get_param('m/Plant', 'PortHandles');\nset_param(ph.Outport(1), 'Name', 'speed', 'MustResolveToSignalObject', 'on');",
+      "notes": "In Embedded Coder models, prefer configuring storage classes through the Code Mappings editor instead of signal objects.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.signal.html"
+    },
+    {
+      "name": "Simulink.Parameter",
+      "kind": "api",
+      "description": "Data object that stores a parameter value together with its data type, dimensions, range, unit and code-generation storage class. Referencing it in block parameters makes the value tunable and appear as a named variable in generated code.",
+      "usage": "p = Simulink.Parameter(value); p.DataType = 'single'; p.CoderInfo.StorageClass = 'ExportedGlobal';",
+      "parameters": [
+        {"name": "Value", "description": "Numeric value, structure, or expression (prefix '=' for an expression, e.g. p.Value = '=2*K')."},
+        {"name": "DataType", "description": "Data type; 'auto' inherits from the block."},
+        {"name": "Min / Max / Unit / Description", "description": "Range checking, unit and documentation."},
+        {"name": "CoderInfo.StorageClass", "description": "'Auto', 'Model default', 'ExportedGlobal', 'ImportedExtern', 'Const', custom classes."}
+      ],
+      "example": "Kp = Simulink.Parameter(2.5);\nKp.DataType = 'single'; Kp.Min = 0; Kp.Max = 10;\nKp.CoderInfo.StorageClass = 'ExportedGlobal';\nset_param('m/Gain', 'Gain', 'Kp');",
+      "notes": "Stored in the base workspace, model workspace or a data dictionary. Model arguments in referenced models also use Simulink.Parameter.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.parameter.html"
+    },
+    {
+      "name": "Simulink.AliasType",
+      "kind": "api",
+      "description": "Creates an alias name for a data type (built-in, fixed-point, enumeration or NumericType), e.g. 'Speed_T' for 'single'. Changing the alias's BaseType retypes every signal that uses it, and the alias appears as a typedef in generated code.",
+      "usage": "T = Simulink.AliasType(baseType); T.HeaderFile = 'types.h';",
+      "parameters": [
+        {"name": "BaseType", "description": "Underlying type, e.g. 'single' or 'fixdt(1,16,10)'."},
+        {"name": "DataScope", "description": "'Auto', 'Exported' or 'Imported' typedef handling."},
+        {"name": "HeaderFile", "description": "Header file for the typedef."}
+      ],
+      "example": "Speed_T = Simulink.AliasType('single');\nSpeed_T.HeaderFile = 'app_types.h';\nset_param('m/Gain', 'OutDataTypeStr', 'Speed_T');",
+      "notes": "Keep alias types in a data dictionary shared by all models of a project.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.aliastype.html"
+    },
+    {
+      "name": "Simulink.NumericType",
+      "kind": "api",
+      "description": "Object describing a numeric data type, in particular fixed-point types (signedness, word length, fraction length or slope/bias). fixdt returns one; set IsAlias to true to generate a typedef with the object's name.",
+      "usage": "T = Simulink.NumericType; T.DataTypeMode = 'Fixed-point: binary point scaling'; T.WordLength = 16; T.FractionLength = 8;",
+      "parameters": [
+        {"name": "DataTypeMode", "description": "'Double', 'Single', 'Boolean', 'Fixed-point: binary point scaling', 'Fixed-point: slope and bias scaling', ..."},
+        {"name": "Signedness", "description": "'Signed' or 'Unsigned'."},
+        {"name": "WordLength / FractionLength / Slope / Bias", "description": "Fixed-point scaling."},
+        {"name": "IsAlias", "description": "true generates a typedef named after the object."}
+      ],
+      "example": "Q8 = fixdt(1, 16, 8);          % Simulink.NumericType\nQ8.IsAlias = true;\nset_param('m/Conv', 'OutDataTypeStr', 'Q8');",
+      "notes": "Fixed-Point Designer is needed to simulate most fixed-point types beyond simple integers.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.numerictype.html"
+    },
+    {
+      "name": "Simulink.LookupTable",
+      "kind": "api",
+      "description": "Object that stores the table data and breakpoint sets of an n-D lookup table with types, units and code-generation settings, so lookup table blocks reference one object instead of separate variables. Supports explicit, evenly spaced or shared (Simulink.Breakpoint) breakpoints and generates a struct in code for calibration.",
+      "usage": "LUT = Simulink.LookupTable; LUT.Table.Value = ...; LUT.Breakpoints(1).Value = ...;",
+      "parameters": [
+        {"name": "Table.Value / Table.DataType", "description": "Table data and its type."},
+        {"name": "Breakpoints(k).Value", "description": "Breakpoint vector of dimension k."},
+        {"name": "BreakpointsSpecification", "description": "'Explicit values', 'Even spacing' or 'Reference' (to Simulink.Breakpoint objects)."},
+        {"name": "StructTypeInfo", "description": "Name of the generated struct type."}
+      ],
+      "example": "LUT = Simulink.LookupTable;\nLUT.Table.Value = [0 1 4 9 16];\nLUT.Breakpoints(1).Value = 0:4;\nset_param('m/1-D Lookup Table', 'DataSpecification', 'Lookup table object', 'LookupTableObject', 'LUT');",
+      "notes": "Used heavily with ASAP2/A2L and AUTOSAR calibration workflows.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.lookuptable.html"
+    },
+    {
+      "name": "Simulink.Breakpoint",
+      "kind": "api",
+      "description": "Object that stores a breakpoint set that several lookup tables can share, with its own data type and storage settings. Use it with Prelookup blocks and Simulink.LookupTable objects whose BreakpointsSpecification is 'Reference'.",
+      "usage": "bp = Simulink.Breakpoint; bp.Breakpoints.Value = ...;",
+      "parameters": [
+        {"name": "Breakpoints.Value / Breakpoints.DataType", "description": "Breakpoint data and type."},
+        {"name": "SupportTunableSize", "description": "Allow the number of breakpoints used to vary in code."}
+      ],
+      "example": "bpSpeed = Simulink.Breakpoint;\nbpSpeed.Breakpoints.Value = [0 10 20 40 80];\nset_param('m/Prelookup', 'BreakpointsSpecification', 'Breakpoint object', 'BreakpointObject', 'bpSpeed');",
+      "notes": "Sharing breakpoints avoids redundant index searches when many tables use the same axis.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.breakpoint.html"
+    },
+    {
+      "name": "Simulink.defineIntEnumType",
+      "kind": "function",
+      "description": "Defines an integer-based enumerated data type without writing a MATLAB classdef file, for use as 'Enum: Name' on signals, parameters and Stateflow data. Options control the default value, storage type and code-generation header.",
+      "usage": "Simulink.defineIntEnumType(ClassName, CellOfEnums, IntValues, Name, Value)",
+      "parameters": [
+        {"name": "DefaultValue", "description": "Enumeration member used as the default."},
+        {"name": "StorageType", "description": "Integer type in code, e.g. 'uint8'."},
+        {"name": "DataScope / HeaderFile", "description": "'Auto', 'Exported' or 'Imported' and the header for the enum typedef."},
+        {"name": "AddClassNameToEnumNames", "description": "true prefixes enumerator names with the class name in code."}
+      ],
+      "example": "Simulink.defineIntEnumType('GearMode', {'Park','Reverse','Neutral','Drive'}, [0;1;2;3], ...\n    'DefaultValue', 'Park', 'StorageType', 'uint8', 'HeaderFile', 'gearmode.h', 'DataScope', 'Exported');\nset_param('m/Const', 'OutDataTypeStr', 'Enum: GearMode', 'Value', 'GearMode.Drive');",
+      "notes": "Enumerations can also be stored in a data dictionary (Simulink.data.dictionary.EnumTypeDefinition).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.defineintenumtype.html"
+    },
+    {
+      "name": "Simulink.data.dictionary.create",
+      "kind": "function",
+      "description": "Creates a new Simulink data dictionary (.sldd) file and returns a Simulink.data.Dictionary object. Dictionaries hold design data, configuration sets and other data persistently, shared across models and managed under source control.",
+      "usage": "dd = Simulink.data.dictionary.create(filename)",
+      "parameters": [
+        {"name": "filename", "description": "Name/path of the .sldd file to create."}
+      ],
+      "example": "dd = Simulink.data.dictionary.create('project.sldd');\nsec = getSection(dd, 'Design Data');\naddEntry(sec, 'Kp', Simulink.Parameter(2));\nsaveChanges(dd);\nset_param('myModel', 'DataDictionary', 'project.sldd');",
+      "notes": "Dictionaries can reference other dictionaries (addDataSource) to build hierarchies. Remember saveChanges; unsaved changes are discarded by close(dd,'DiscardChanges').",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.data.dictionary.create.html"
+    },
+    {
+      "name": "Simulink.data.dictionary.open",
+      "kind": "function",
+      "description": "Opens an existing data dictionary and returns a Simulink.data.Dictionary object whose sections ('Design Data', 'Configurations', 'Other Data') give access to entries via getEntry, getValue, setValue, addEntry and deleteEntry.",
+      "usage": "dd = Simulink.data.dictionary.open(filename)",
+      "parameters": [
+        {"name": "filename", "description": ".sldd file on the path."}
+      ],
+      "example": "dd = Simulink.data.dictionary.open('project.sldd');\nsec = getSection(dd, 'Design Data');\ne = getEntry(sec, 'Kp');\np = getValue(e); p.Value = 3; setValue(e, p);\nsaveChanges(dd); close(dd);",
+      "notes": "Simulink.data.dictionary.closeAll closes every open dictionary; use it in test teardown.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.data.dictionary.open.html"
+    },
+    {
+      "name": "Simulink.VariantManager.activateModel",
+      "kind": "function",
+      "description": "Validates and activates variant choices across a model hierarchy, either for the current workspace values of variant control variables or for a named variant configuration. It checks variant constraints and pushes control-variable values to their data sources.",
+      "usage": "Simulink.VariantManager.activateModel(modelName)\nSimulink.VariantManager.activateModel(modelName, 'Configuration', configName)",
+      "parameters": [
+        {"name": "modelName", "description": "Top model of the hierarchy."},
+        {"name": "Configuration", "description": "Name of a variant configuration defined in the Variant Manager."}
+      ],
+      "example": "Simulink.VariantManager.activateModel('vehicle', 'Configuration', 'EV_Europe');\nout = sim('vehicle');",
+      "notes": "Requires the Variant Manager for Simulink support package. Related: Simulink.VariantManager.applyConfiguration and getConfigurationData.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.variantmanager.activatemodel.html"
+    },
+    {
+      "name": "Simulink.VariantVariable",
+      "kind": "api",
+      "description": "Variant parameter object: holds several candidate values, each tied to a variant condition, so a block parameter takes the value of the active choice. Lets you model calibration variants (e.g. per vehicle) without variant blocks.",
+      "usage": "V = Simulink.VariantVariable('Choices', {cond1, val1, cond2, val2, ...})",
+      "parameters": [
+        {"name": "Choices", "description": "Cell array alternating condition expressions and values; '(default)' is allowed."},
+        {"name": "Specification", "description": "Simulink.Parameter name or object defining type/storage properties for all choices."}
+      ],
+      "example": "MassVC = Simulink.VariantControl('Value', 1, 'ActivationTime', 'update diagram');\nMass = Simulink.VariantVariable('Choices', {'MassVC==1', 1200, 'MassVC==2', 1800});\nset_param('m/Gain', 'Gain', 'Mass');",
+      "notes": "With activation time 'code compile' all choices appear in code under preprocessor conditionals.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.variantvariable-class.html"
+    },
+    {
+      "name": "Simulink.VariantControl",
+      "kind": "api",
+      "description": "Variant control variable object that binds a control value to a variant activation time ('update diagram', 'update diagram analyze all choices', 'code compile', 'startup'). Variant blocks and variant parameters whose conditions reference it inherit that activation time.",
+      "usage": "V = Simulink.VariantControl('Value', val, 'ActivationTime', time)",
+      "parameters": [
+        {"name": "Value", "description": "Control value (numeric, enumeration or Simulink.Parameter)."},
+        {"name": "ActivationTime", "description": "When the variant is resolved."}
+      ],
+      "example": "EngineType = Simulink.VariantControl('Value', 2, 'ActivationTime', 'startup');\n% Variant Subsystem choices: 'EngineType == 1', 'EngineType == 2'",
+      "notes": "Use 'startup' to switch variants at simulation start (with Fast Restart) or at code startup without rebuilding.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.variantcontrol-class.html"
+    },
+    {
+      "name": "getActiveConfigSet",
+      "kind": "function",
+      "description": "Returns the active configuration set (Simulink.ConfigSet or Simulink.ConfigSetRef) of a model. get_param/set_param on the returned object reads and writes configuration parameters, and the object can be copied to other models.",
+      "usage": "cs = getActiveConfigSet(model)",
+      "parameters": [
+        {"name": "model", "description": "Model name or handle."}
+      ],
+      "example": "cs = getActiveConfigSet('myModel');\nget_param(cs, 'SolverName')\nset_param(cs, 'StopTime', '30');",
+      "notes": "If the model uses a configuration reference, resolve it with getRefConfigSet before editing.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/getactiveconfigset.html"
+    },
+    {
+      "name": "Simulink.ConfigSet",
+      "kind": "api",
+      "description": "A model configuration set: the object holding every Configuration Parameters setting (solver, data import/export, diagnostics, hardware, code generation). Configuration sets can be copied, saved as MATLAB scripts, attached to models or stored in a data dictionary and referenced by many models via Simulink.ConfigSetRef.",
+      "usage": "cs = Simulink.ConfigSet; set_param(cs, 'Solver', 'ode4'); cs2 = copy(cs);",
+      "parameters": [
+        {"name": "Name", "description": "Configuration set name shown in Model Explorer."},
+        {"name": "saveAs(cs, file)", "description": "Export the settings as a MATLAB function or script."},
+        {"name": "copy(cs)", "description": "Create an independent copy."}
+      ],
+      "example": "cs = copy(getActiveConfigSet('ref'));\ncs.Name = 'FixedStep1ms';\nset_param(cs, 'SolverType', 'Fixed-step', 'FixedStep', '0.001');\nattachConfigSet('newModel', cs, true);\nsetActiveConfigSet('newModel', 'FixedStep1ms');",
+      "notes": "Use Simulink.ConfigSetRef plus a data dictionary to enforce one shared configuration across a project.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.configset.html"
+    },
+    {
+      "name": "attachConfigSet",
+      "kind": "function",
+      "description": "Attaches a configuration set (or configuration reference) to a model so it can be made active with setActiveConfigSet. Models can hold several configuration sets, e.g. one for simulation and one for code generation.",
+      "usage": "attachConfigSet(model, cs)\nattachConfigSet(model, cs, allowRename)",
+      "parameters": [
+        {"name": "cs", "description": "Simulink.ConfigSet or Simulink.ConfigSetRef object."},
+        {"name": "allowRename", "description": "true renames the set if a set with the same name already exists."}
+      ],
+      "example": "attachConfigSet('myModel', csCodegen, true);\nsetActiveConfigSet('myModel', csCodegen.Name);\nslbuild('myModel');",
+      "notes": "Related functions: setActiveConfigSet, detachConfigSet, getConfigSets, getConfigSet.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/attachconfigset.html"
+    },
+    {
+      "name": "Simulink.sdi.clear",
+      "kind": "function",
+      "description": "Deletes all runs and plotted signals from the Simulation Data Inspector repository without changing its preferences. Call it at the start of scripted studies to keep memory and disk usage under control.",
+      "usage": "Simulink.sdi.clear",
+      "parameters": [],
+      "example": "Simulink.sdi.clear;\nout = sim('myModel');\nSimulink.sdi.view;",
+      "notes": "Clearing is irreversible for unsaved data; save a session with Simulink.sdi.save first if needed.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.sdi.clear.html"
+    },
+    {
+      "name": "Simulink.sdi.Run",
+      "kind": "api",
+      "description": "Object representing a run in the Simulation Data Inspector with its metadata (name, model, timestamps, simulation settings) and access to its Simulink.sdi.Signal objects. Get runs with Simulink.sdi.Run.getLatest, Simulink.sdi.getRun or create them from workspace data with Simulink.sdi.Run.create.",
+      "usage": "run = Simulink.sdi.Run.getLatest\nrun = Simulink.sdi.getRun(runID)\nsig = getSignalByIndex(run, k)",
+      "parameters": [
+        {"name": "Name / Description / Tag", "description": "Editable run metadata."},
+        {"name": "SignalCount / id", "description": "Number of signals and numeric run ID."},
+        {"name": "export(run)", "description": "Export the run data as a Simulink.SimulationData.Dataset."}
+      ],
+      "example": "sim('vdp');\nrun = Simulink.sdi.Run.getLatest;\nrun.Name = 'baseline';\nsig = getSignalByIndex(run, 1);\nplot(sig.Values);",
+      "notes": "Compare runs with Simulink.sdi.compareRuns using run IDs (run.id).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.sdi.run.html"
+    },
+    {
+      "name": "Simulink.sdi.save",
+      "kind": "function",
+      "description": "Saves the current Simulation Data Inspector session (runs, signals and visualization layout) to an MLDATX file that can be reloaded with Simulink.sdi.load or shared with colleagues.",
+      "usage": "Simulink.sdi.save(filename)",
+      "parameters": [
+        {"name": "filename", "description": "Session file name with .mldatx extension."}
+      ],
+      "example": "sim('myModel');\nSimulink.sdi.save('baseline_session.mldatx');\n% later\nSimulink.sdi.load('baseline_session.mldatx');",
+      "notes": "Use Simulink.sdi.saveView to save only the plot layout without data.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.sdi.save.html"
+    }
+  ]
+}

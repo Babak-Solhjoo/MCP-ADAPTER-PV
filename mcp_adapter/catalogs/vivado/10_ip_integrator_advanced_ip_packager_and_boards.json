@@ -1,0 +1,493 @@
+{
+  "category": "IP Integrator Advanced, IP Packager (ipx::) & Board Files",
+  "description": "Block-design commands beyond the basic create/connect set (address segments, interface pins, RTL module references, block design containers, platform/PFM properties, board automation), the IP Packager Tcl namespace (ipx::) used to turn RTL or a project into an IP-XACT core with bus interfaces, parameters and GUI, and the board-file mechanism that lets IP Integrator connect to named board interfaces.",
+  "tools": [
+    {
+      "name": "close_bd_design",
+      "kind": "tcl-command",
+      "description": "Close an open block design and release its in-memory objects, optionally without saving. Used at the end of a scripted BD build after generate_target/make_wrapper, or to discard edits made by an experiment.",
+      "usage": "close_bd_design [-quiet] <bd_design>",
+      "parameters": [
+        {"name": "<bd_design>", "description": "Block design object from current_bd_design or get_bd_designs."}
+      ],
+      "example": "save_bd_design\nclose_bd_design [current_bd_design]\nopen_bd_design [get_files system.bd]",
+      "notes": "Unsaved changes are lost silently; call save_bd_design first. get_bd_designs lists every design open in the project.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/close_bd_design"
+    },
+    {
+      "name": "disconnect_bd_net / disconnect_bd_intf_net",
+      "kind": "tcl-command",
+      "description": "Detach specific pins or ports from a net (or interface pins from an interface net) without deleting the net or the other connections. This is the way to rewire one endpoint of an existing connection, for example moving a clock from clk_wiz output 1 to output 2, without deleting the whole net with delete_bd_objs.",
+      "usage": "disconnect_bd_net [-quiet] <net> <pins_or_ports>\ndisconnect_bd_intf_net [-quiet] <intf_net> <intf_pins_or_ports>",
+      "parameters": [
+        {"name": "<net>", "description": "Net from get_bd_nets."},
+        {"name": "<pins_or_ports>", "description": "The endpoints to remove from the net."}
+      ],
+      "example": "disconnect_bd_net [get_bd_nets clk_wiz_0_clk_out1] [get_bd_pins axi_dma_0/m_axi_mm2s_aclk]\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out2] [get_bd_pins axi_dma_0/m_axi_mm2s_aclk]",
+      "notes": "A net with no remaining endpoints is removed automatically. For interface nets the interface pin, not the individual signals, is disconnected.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/disconnect_bd_net"
+    },
+    {
+      "name": "create_bd_intf_pin",
+      "kind": "tcl-command",
+      "description": "Create an interface pin (AXI4, AXI4-Lite, AXI4-Stream, clock, reset, UART, GPIO ...) on a hierarchical cell of a block design, so the interface can be connected inside and outside the hierarchy. The interface type is given as a VLNV of the interface definition and -mode Master/Slave/Monitor.",
+      "usage": "create_bd_intf_pin -mode Master|Slave|Monitor|MirroredMaster|MirroredSlave -vlnv <intf_vlnv> [-quiet] <hier_cell/pin_name>",
+      "parameters": [
+        {"name": "-vlnv", "description": "Interface definition, e.g. xilinx.com:interface:aximm_rtl:1.0, xilinx.com:interface:axis_rtl:1.0, xilinx.com:signal:clock_rtl:1.0, xilinx.com:signal:reset_rtl:1.0, xilinx.com:interface:uart_rtl:1.0."},
+        {"name": "-mode", "description": "Master or Slave (from the point of view of the hierarchy); Monitor for pass-through debug."}
+      ],
+      "example": "create_bd_cell -type hier video_pipe\ncreate_bd_intf_pin -mode Slave  -vlnv xilinx.com:interface:axis_rtl:1.0 video_pipe/s_axis_video\ncreate_bd_intf_pin -mode Master -vlnv xilinx.com:interface:aximm_rtl:1.0 video_pipe/m_axi_mm2s\ncreate_bd_pin -dir I -type clk video_pipe/aclk\nconnect_bd_intf_net [get_bd_intf_pins video_pipe/s_axis_video] [get_bd_intf_pins video_pipe/v_tpg_0/m_axis_video]",
+      "notes": "Interface pins on hierarchies are created automatically by make_bd_intf_pins_external / group_bd_cells; explicit creation is for scripted hierarchies. Signal-level pins use create_bd_pin.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_bd_intf_pin"
+    },
+    {
+      "name": "make_bd_pins_external / make_bd_intf_pins_external",
+      "kind": "tcl-command",
+      "description": "Promote pins or interface pins of a cell to external ports of the block design (or of the enclosing hierarchy) in one step, creating the port and the net. It is the Tcl behind the right-click Make External command and is used for every signal that must reach the FPGA pins (clocks, resets, GPIO, DDR, AXI to the wrapper).",
+      "usage": "make_bd_pins_external [-name <port_name>] [-quiet] <pins>\nmake_bd_intf_pins_external [-name <port_name>] [-quiet] <intf_pins>",
+      "parameters": [
+        {"name": "-name", "description": "Name for the created external port (default derived from the pin, e.g. gpio_rtl_0)."}
+      ],
+      "example": "make_bd_intf_pins_external -name led_gpio [get_bd_intf_pins axi_gpio_0/GPIO]\nmake_bd_pins_external -name sys_clk [get_bd_pins clk_wiz_0/clk_in1]\nset_property CONFIG.FREQ_HZ 100000000 [get_bd_ports sys_clk]",
+      "notes": "Ports created this way carry the interface type, so the wrapper exposes them as Verilog/VHDL port groups; CONFIG.FREQ_HZ and CONFIG.POLARITY must be set on external clock and reset ports.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/make_bd_pins_external"
+    },
+    {
+      "name": "create_bd_addr_seg",
+      "kind": "tcl-command",
+      "description": "Manually create an address segment mapping a slave's address block into a master's address space at a given offset and range, when assign_bd_address's automatic choice is not acceptable (e.g. a fixed peripheral address expected by software). The slave segment object comes from get_bd_addr_segs and the master address space from get_bd_addr_spaces.",
+      "usage": "create_bd_addr_seg -range <size> -offset <address> [-quiet] <master_addr_space> <slave_addr_seg> <segment_name>",
+      "parameters": [
+        {"name": "-range", "description": "Size, e.g. 0x10000 or 64K."},
+        {"name": "-offset", "description": "Base address in the master's space."},
+        {"name": "<master_addr_space>", "description": "e.g. [get_bd_addr_spaces processing_system7_0/Data]."},
+        {"name": "<slave_addr_seg>", "description": "e.g. [get_bd_addr_segs axi_gpio_0/S_AXI/Reg]."}
+      ],
+      "example": "create_bd_addr_seg -range 0x00010000 -offset 0x41200000 \\\n  [get_bd_addr_spaces processing_system7_0/Data] \\\n  [get_bd_addr_segs axi_gpio_0/S_AXI/Reg] SEG_axi_gpio_0_Reg\nassign_bd_address   ;# assign the rest automatically",
+      "notes": "Alternatively run assign_bd_address and then set_property offset/range on the created segment. Address Editor in the GUI shows the same objects.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_bd_addr_seg"
+    },
+    {
+      "name": "set_property offset / range (address segment)",
+      "kind": "system-variable",
+      "description": "Change the base address (offset) and size (range) of an existing address segment created by assign_bd_address, which is the usual way to pin a peripheral to a software-visible address or to shrink a segment. Values must be aligned to the range and lie inside the master's address space; validate_bd_design checks for overlaps.",
+      "usage": "set_property offset <address> [get_bd_addr_segs <master>/<space>/<segment>]\nset_property range <size> [get_bd_addr_segs <master>/<space>/<segment>]",
+      "parameters": [
+        {"name": "offset", "description": "Base address, e.g. 0x40000000."},
+        {"name": "range", "description": "Size as power of two: 4K, 64K, 1M, 0x10000 ..."}
+      ],
+      "example": "assign_bd_address\nset_property offset 0x40000000 [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_gpio_0_Reg}]\nset_property range 64K        [get_bd_addr_segs {processing_system7_0/Data/SEG_axi_gpio_0_Reg}]\nvalidate_bd_design",
+      "notes": "Segment names follow SEG_<slave>_<block>; list them with get_bd_addr_segs. The address map ends up in the .xsa and in xparameters.h for software.",
+      "docs": "https://docs.amd.com/r/en-US/ug994-vivado-ip-subsystems/Address-Editor"
+    },
+    {
+      "name": "exclude_bd_addr_seg / include_bd_addr_seg",
+      "kind": "tcl-command",
+      "description": "Remove (or restore) a slave from a particular master's address map while leaving it mapped for other masters, e.g. hide a DMA's own control registers from the DMA's data master, or keep a peripheral out of a MicroBlaze's instruction space. Excluded segments appear greyed in the Address Editor.",
+      "usage": "exclude_bd_addr_seg [-target_address_space <space>] [-quiet] <addr_seg>\ninclude_bd_addr_seg [-target_address_space <space>] [-quiet] <addr_seg>",
+      "parameters": [
+        {"name": "-target_address_space", "description": "Master address space to exclude the segment from; needed when the segment is reachable from several masters."},
+        {"name": "<addr_seg>", "description": "Slave segment object from get_bd_addr_segs."}
+      ],
+      "example": "exclude_bd_addr_seg -target_address_space [get_bd_addr_spaces microblaze_0/Instruction] \\\n  [get_bd_addr_segs axi_uartlite_0/S_AXI/Reg]",
+      "notes": "Exclusions matter for the generated interconnect decoders as well as the software address map.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/exclude_bd_addr_seg"
+    },
+    {
+      "name": "get_bd_addr_segs / get_bd_addr_spaces",
+      "kind": "tcl-command",
+      "description": "Query the address-map objects of a block design: address spaces belong to masters (e.g. processing_system7_0/Data, microblaze_0/Instruction, axi_dma_0/Data_MM2S), address segments belong to slaves (axi_gpio_0/S_AXI/Reg) and to the mapped instances in each master space (SEG_* names). They are the handles for create_bd_addr_seg, set_property offset/range and exclude_bd_addr_seg, and for scripts that dump the memory map.",
+      "usage": "get_bd_addr_segs [-of_objects <objs>] [-addressables] [-addressing] [-excluded] [-regexp] [-filter <expr>] [-quiet] [<patterns>]\nget_bd_addr_spaces [-of_objects <cells|intf_pins>] [-regexp] [-filter <expr>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-addressables", "description": "Return slave segments (the things that can be addressed)."},
+        {"name": "-addressing", "description": "Return the master-side mapped segments (SEG_*)."},
+        {"name": "-excluded", "description": "Only excluded segments."},
+        {"name": "-of_objects", "description": "Segments of a cell, interface pin or address space."}
+      ],
+      "example": "foreach s [get_bd_addr_segs -addressing -of_objects [get_bd_addr_spaces processing_system7_0/Data]] {\n  puts [format \"%-40s 0x%08X %s\" $s [get_property OFFSET $s] [get_property RANGE $s]]\n}",
+      "notes": "OFFSET and RANGE are the properties to read; the high address is offset+range-1 (the Address Editor computes it for display).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_bd_addr_segs"
+    },
+    {
+      "name": "get_bd_nets / get_bd_intf_nets / get_bd_ports / get_bd_intf_ports",
+      "kind": "tcl-command",
+      "description": "Query block-design connectivity objects: signal nets and interface nets (with -of_objects on pins to find what a pin is connected to), and the external ports and interface ports of the design. Used in scripts that rewire a design, that check every clock pin is driven, or that annotate ports with CONFIG.FREQ_HZ before validation.",
+      "usage": "get_bd_nets [-of_objects <pins|ports|cells>] [-hierarchical] [-boundary_type upper|lower|both] [-regexp] [-filter <expr>] [-quiet] [<patterns>]\nget_bd_intf_nets [-of_objects <intf_pins|intf_ports|cells>] [-hierarchical] [-regexp] [-filter <expr>] [-quiet] [<patterns>]\nget_bd_ports [-of_objects <nets>] [-regexp] [-filter <expr>] [-quiet] [<patterns>]\nget_bd_intf_ports [-of_objects <intf_nets>] [-regexp] [-filter <expr>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Nets attached to the given pins or cells; ports attached to the given nets."},
+        {"name": "-hierarchical", "description": "Search inside hierarchical cells."},
+        {"name": "-filter", "description": "Properties: TYPE (clk, rst, data, intr), DIR, CONFIG.FREQ_HZ, VLNV (interface nets)."}
+      ],
+      "example": "# unconnected clock pins in the whole design\nforeach p [get_bd_pins -hierarchical -filter {TYPE == clk && DIR == I}] {\n  if {[get_bd_nets -of_objects $p -quiet] eq \"\"} { puts \"undriven clock: $p\" }\n}\nget_bd_intf_nets -of_objects [get_bd_intf_pins axi_dma_0/M_AXI_S2MM]\nset_property CONFIG.FREQ_HZ 200000000 [get_bd_ports clk_200]",
+      "notes": "Interface nets bundle all signals of an AXI/AXIS connection; the individual signals are not visible as bd_nets. Net names default to <cell>_<pin>.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_bd_nets"
+    },
+    {
+      "name": "create_bd_cell -type module (RTL module reference)",
+      "kind": "tcl-command",
+      "description": "Instantiate a user RTL module (Verilog/SystemVerilog/VHDL file in the project sources) directly in a block design without packaging it as IP, the 'Add Module' feature. IP Integrator infers clock, reset, AXI and AXI-Stream interfaces from port names and the X_INTERFACE_INFO / X_INTERFACE_PARAMETER attributes in the RTL, and keeps the reference live so RTL edits are picked up with update_module_reference.",
+      "usage": "create_bd_cell -type module -reference <rtl_module_name> <instance_name>\nupdate_module_reference <cells>\n(* X_INTERFACE_INFO = \"xilinx.com:interface:axis:1.0 S_AXIS TDATA\" *) input [31:0] s_axis_tdata,",
+      "parameters": [
+        {"name": "-reference", "description": "Module/entity name from the sources fileset (must be elaboratable)."},
+        {"name": "X_INTERFACE_INFO", "description": "RTL attribute that maps a port to an interface signal: \"<vlnv> <intf_name> <signal>\"."},
+        {"name": "X_INTERFACE_PARAMETER", "description": "Attribute for interface parameters, e.g. \"ASSOCIATED_BUSIF S_AXIS:M_AXIS, ASSOCIATED_RESET rst_n, FREQ_HZ 100000000\" on a clock port."}
+      ],
+      "example": "add_files ./rtl/axis_filter.sv\nupdate_compile_order -fileset sources_1\ncreate_bd_cell -type module -reference axis_filter axis_filter_0\nset_property CONFIG.TAPS 16 [get_bd_cells axis_filter_0]   ;# RTL parameter\nconnect_bd_intf_net [get_bd_intf_pins axis_filter_0/S_AXIS] [get_bd_intf_pins axi_dma_0/M_AXIS_MM2S]",
+      "notes": "Module references cannot be shared across projects like packaged IP and do not support IP-XACT GUI customisation; parameters become CONFIG.* properties. Generics with types other than integer/string/bool may not be supported.",
+      "docs": "https://docs.amd.com/r/en-US/ug994-vivado-ip-subsystems/Referencing-RTL-Modules"
+    },
+    {
+      "name": "Block Design Container (create_bd_cell -type container)",
+      "kind": "tcl-command",
+      "description": "A block design container instantiates one block design inside another (2020.2+), so large systems can be split into independently developed and simulated sub-designs, with several source BDs selectable as variants of the same container (e.g. a real and a simulation-only implementation). Containers are created from a hierarchy (right-click > Create Block Design Container) or from Tcl, and their generation can be set to out-of-context per container.",
+      "usage": "create_bd_cell -type container -reference <child_bd_name> <instance_name>\nset_property -dict [list CONFIG.ACTIVE_SYNTH_BD {child_v2.bd} CONFIG.ACTIVE_SIM_BD {child_sim.bd} CONFIG.ENABLE_DFX {false}] [get_bd_cells <instance>]",
+      "parameters": [
+        {"name": "-reference", "description": "Name of the child block design (.bd) already in the project."},
+        {"name": "CONFIG.ACTIVE_SYNTH_BD / CONFIG.ACTIVE_SIM_BD", "description": "Which source BD variant to use for synthesis and simulation."},
+        {"name": "CONFIG.ENABLE_DFX", "description": "Mark the container as a reconfigurable partition for DFX block-design flows."},
+        {"name": "CONFIG.LIST_SYNTH_BD / LIST_SIM_BD", "description": "Comma-separated list of allowed variants."}
+      ],
+      "example": "create_bd_design child_dsp\n# ... build child, save_bd_design\ncurrent_bd_design [get_bd_designs top_system]\ncreate_bd_cell -type container -reference child_dsp child_dsp_inst\nconnect_bd_intf_net [get_bd_intf_pins child_dsp_inst/S_AXI] [get_bd_intf_pins smartconnect_0/M00_AXI]",
+      "notes": "The child BD's ports must match the container's boundary; changing child ports requires update of the parent (right-click > Update Container or update_bd_boundaries). Containers with DFX enabled drive the DFX-in-IPI flow.",
+      "docs": "https://docs.amd.com/r/en-US/ug994-vivado-ip-subsystems/Block-Design-Containers"
+    },
+    {
+      "name": "regenerate_bd_layout",
+      "kind": "tcl-command",
+      "description": "Re-run the automatic placement and routing of the block-design diagram (cells, ports, net routing) or only re-route the nets, for readability after scripted edits. Purely cosmetic; it changes the layout stored in the .bd file, not the design.",
+      "usage": "regenerate_bd_layout [-hierarchy <hier_cell>] [-layout_file <f>] [-routing] [-quiet]",
+      "parameters": [
+        {"name": "-hierarchy", "description": "Only relayout inside the given hierarchical cell."},
+        {"name": "-routing", "description": "Keep cell positions, re-route the connections only."}
+      ],
+      "example": "regenerate_bd_layout\nsave_bd_design\nwrite_bd_layout -format pdf -orientation landscape ./doc/system_bd.pdf",
+      "notes": "write_bd_layout exports the diagram as pdf/svg for documentation.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/regenerate_bd_layout"
+    },
+    {
+      "name": "apply_board_connection",
+      "kind": "tcl-command",
+      "description": "Connect an IP interface pin to a named interface of the current board part (e.g. the board's DDR4, LEDs, UART, clock) using the board file's pin, I/O-standard and parameter definitions, so no manual XDC is needed. It is what the Board tab drag-and-drop and Connect Board Component do, and it requires set_property board_part on the project.",
+      "usage": "apply_board_connection [-board_interface <intf_name>] [-ip_intf <cell/intf_pin>] [-diagram <bd_name>] [-quiet]",
+      "parameters": [
+        {"name": "-board_interface", "description": "Interface name from get_board_part_interfaces (e.g. ddr4_sdram, led_8bits, sys_diff_clock, rs232_uart)."},
+        {"name": "-ip_intf", "description": "The IP's interface pin to connect."},
+        {"name": "-diagram", "description": "Block design name."}
+      ],
+      "example": "set_property board_part xilinx.com:kcu105:part0:1.7 [current_project]\ncreate_bd_design system\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio axi_gpio_0\napply_board_connection -board_interface led_8bits -ip_intf axi_gpio_0/GPIO -diagram system\napply_bd_automation -rule xilinx.com:bd_rule:board -config {Board_Interface \"sys_diff_clock\"} [get_bd_intf_pins clk_wiz_0/CLK_IN1_D]",
+      "notes": "The board part sets CONFIG.* on the IP (e.g. GPIO width) and adds the pin constraints to the generated XDC. get_board_part_interfaces and get_board_part_pins list what a board provides.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/apply_board_connection"
+    },
+    {
+      "name": "set_property board_part / board repository (board.repoPaths)",
+      "kind": "system-variable",
+      "description": "Select a board definition for the project so IP Integrator's Board tab, board automation rules and preset IP configurations (DDR, PS presets, clocks) become available. Board files ship with Vivado for AMD evaluation boards and are installed for third-party boards (Digilent, Avnet, Numato ...) through the Vivado Store or by adding directories to the board repository with set_param board.repoPaths (or the Tools > Settings > Board Repository setting, persisted in init.tcl).",
+      "usage": "set_param board.repoPaths [list <dir1> <dir2>]\nget_board_parts [-filter <expr>]\nset_property board_part <vendor>:<board>:part0:<version> [current_project]\nset_property board_part_repo_paths <dirs> [current_project]   ;# 2021.1+ project property",
+      "parameters": [
+        {"name": "board.repoPaths", "description": "Parameter listing extra board-file directories, each containing <vendor>/<board>/<version>/board.xml."},
+        {"name": "board_part", "description": "Project property with the board's VLNV-like id, e.g. digilentinc.com:zybo-z7-20:part0:1.1 or xilinx.com:zcu102:part0:3.4."},
+        {"name": "board_connections", "description": "Project property mapping board connectors to daughter cards (FMC)."}
+      ],
+      "example": "set_param board.repoPaths [list C:/Xilinx/board_files]\nget_board_parts -filter {NAME =~ *zcu104*}\nset_property board_part xilinx.com:zcu104:part0:1.1 [current_project]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:zynq_ultra_ps_e zynq_ultra_ps_e_0\napply_bd_automation -rule xilinx.com:bd_rule:zynq_ultra_ps_e -config {apply_board_preset \"1\"} [get_bd_cells zynq_ultra_ps_e_0]",
+      "notes": "Setting board_part also sets the part. Vivado Store (Tools > Vivado Store > Boards) downloads AMD and partner board files into XILINX_LOCAL_USER_DATA. board.xml, part0_pins.xml and preset.xml are the files that define a board (UG895).",
+      "docs": "https://docs.amd.com/r/en-US/ug895-vivado-system-level-design-entry/Using-Board-Files"
+    },
+    {
+      "name": "get_board_parts / get_boards / get_board_part_interfaces",
+      "kind": "tcl-command",
+      "description": "Query the board repository: get_boards lists board definitions, get_board_parts lists the selectable board parts (name, part number, file version) and get_board_part_interfaces / get_board_part_pins / get_board_components expose what a selected board offers for apply_board_connection and pin assignment.",
+      "usage": "get_boards [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]\nget_board_parts [-regexp] [-nocase] [-filter <expr>] [-latest_file_version] [-latest_hw_revision] [-quiet] [<patterns>]\nget_board_part_interfaces [-of_objects <board_part>] [-filter <expr>] [<patterns>]\nget_board_part_pins [-of_objects <board_part_interfaces>] [-filter <expr>] [<patterns>]",
+      "parameters": [
+        {"name": "-latest_file_version", "description": "Only the newest version of each board part."},
+        {"name": "-filter", "description": "Properties: NAME, PART_NAME, BOARD_NAME, VENDOR_NAME, FILE_VERSION."}
+      ],
+      "example": "get_board_parts -latest_file_version -filter {VENDOR_NAME == digilentinc.com}\nget_board_part_interfaces -of_objects [get_board_parts xilinx.com:kcu105:part0:1.7]\nget_board_part_pins -of_objects [get_board_part_interfaces led_8bits]",
+      "notes": "Interfaces have MODE, VLNV and preset properties; components (get_board_components) describe the physical parts on the board (FPGA, DDR chips, clock generators).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_board_parts"
+    },
+    {
+      "name": "Platform (PFM) properties for Vitis (set_property PFM.*)",
+      "kind": "system-variable",
+      "description": "Properties placed on block-design objects to declare which resources an acceleration or embedded platform exposes to Vitis: PFM_NAME on the design, PFM.AXI_PORT on unused AXI master/slave ports of the PS or interconnect (with memport type M_AXI_GP, S_AXI_HP, S_AXI_ACP, S_AXI_HPC, MIG and sptag), PFM.CLOCK on clock outputs (with id, is_default, proc_sys_reset, status), PFM.IRQ on interrupt-controller inputs, and platform.* project properties (platform.design_intent.*, platform.extensible, platform.name). write_hw_platform then packages an extensible .xsa that v++ links kernels against.",
+      "usage": "set_property PFM_NAME {vendor:board:name:1.0} [get_files system.bd]\nset_property PFM.AXI_PORT {M_AXI_HPM0_FPD {memport \"M_AXI_GP\"} S_AXI_HP0_FPD {memport \"S_AXI_HP\" sptag \"HP0\" memory \"zynq_ultra_ps_e_0 HP0_DDR_LOW\"}} [get_bd_cells zynq_ultra_ps_e_0]\nset_property PFM.CLOCK {clk_out1 {id \"0\" is_default \"true\" proc_sys_reset \"/proc_sys_reset_0\" status \"fixed\"}} [get_bd_cells clk_wiz_0]\nset_property PFM.IRQ {In0 {} In1 {}} [get_bd_cells xlconcat_0]\nset_property platform.extensible true [current_project]\nwrite_hw_platform -hw -force ./platform.xsa",
+      "parameters": [
+        {"name": "PFM_NAME", "description": "Platform identifier (vendor:board:name:version) on the .bd file."},
+        {"name": "PFM.AXI_PORT", "description": "AXI ports available to kernels with memport type and optional sptag/memory."},
+        {"name": "PFM.CLOCK", "description": "Clocks with id, default flag and associated proc_sys_reset."},
+        {"name": "PFM.IRQ", "description": "Free interrupt inputs (xlconcat pins or AXI INTC)."},
+        {"name": "platform.extensible / platform.design_intent.*", "description": "Project properties: extensible platform, embedded vs datacenter, server_managed/external_host."}
+      ],
+      "example": "# Platform Setup window in the GUI (Window > Platform Setup) writes these properties;\n# in Tcl they can be applied after the BD is built, then:\nvalidate_bd_design\ngenerate_target all [get_files system.bd]\nwrite_hw_platform -hw -force -file ./xsa/zcu104_custom.xsa",
+      "notes": "Introduced as the replacement for the SDSoC/DSA flow. Extensible platforms require the pre-synth .xsa (-hw) rather than a fixed one (-fixed). The Vitis platform then adds the Linux/standalone domain in a separate step (UG1393 / UG1400).",
+      "docs": "https://docs.amd.com/r/en-US/ug1393-vitis-application-acceleration/Creating-an-Extensible-Platform"
+    },
+    {
+      "name": "config_ip_cache / IP cache",
+      "kind": "tcl-command",
+      "description": "Control the IP synthesis cache that stores out-of-context synthesis results keyed by IP configuration and part, so identical IP across projects (or after project clean) is not re-synthesized. The cache can be per-project (default <project>.cache) or a shared directory for a team; config_ip_cache manages location, size, purging and reports of what is cached.",
+      "usage": "config_ip_cache [-use_cache_location <dir>] [-use_project_cache] [-disable_cache] [-clear_output_repo] [-clear_local_cache] [-cache_root] [-report] [-purge] [-max_entries <n>] [-max_size <MB>] [-quiet]\nset_property ip_cache_permissions {read write} [current_project]",
+      "parameters": [
+        {"name": "-use_cache_location", "description": "Point to a shared cache directory."},
+        {"name": "-disable_cache", "description": "Turn caching off (e.g. when debugging IP synthesis)."},
+        {"name": "-report", "description": "List cached entries, sizes and hit statistics."},
+        {"name": "-clear_output_repo / -purge", "description": "Delete cached results."},
+        {"name": "ip_cache_permissions", "description": "Project property: read, write or both."}
+      ],
+      "example": "config_ip_cache -use_cache_location /shared/vivado_ip_cache\nset_property ip_cache_permissions {read write} [current_project]\nconfig_ip_cache -report\nconfig_ip_cache -clear_output_repo",
+      "notes": "Only IP generated with generate_synth_checkpoint true (OOC per IP) are cached. A corrupted cache can produce stale netlists; -clear_output_repo is the first thing to try when IP behaves inconsistently between machines.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/config_ip_cache"
+    },
+    {
+      "name": "create_ip_run / reset_target / synth_ip",
+      "kind": "tcl-command",
+      "description": "Out-of-context IP handling in Project Mode: create_ip_run creates the OOC synthesis run (<ip>_synth_1) for an IP or a block design so it can be launched independently with launch_runs; synth_ip synthesizes an IP immediately in-memory producing its .dcp; reset_target deletes generated output products (synthesis, simulation, instantiation template) so they are regenerated on the next generate_target, which is the fix for stale or corrupted IP outputs.",
+      "usage": "create_ip_run [-force] [-quiet] <ip_or_bd_file>\nsynth_ip [-force] [-quiet] <ip_objects>\nreset_target [-quiet] <targets: all|synthesis|simulation|instantiation_template|implementation> <ip_or_bd_file>\ndelete_ip_run [-force] <ip_or_bd_file>",
+      "parameters": [
+        {"name": "<targets>", "description": "Which output products to delete/regenerate."},
+        {"name": "-force", "description": "Create the run even if one exists / synthesize even if up to date."}
+      ],
+      "example": "set ip [get_ips axi_dma_0]\nreset_target all [get_files [get_property IP_FILE $ip]]\ngenerate_target all [get_files axi_dma_0.xci]\ncreate_ip_run [get_files axi_dma_0.xci]\nlaunch_runs axi_dma_0_synth_1 -jobs 4\nwait_on_run axi_dma_0_synth_1",
+      "notes": "Whether an IP is OOC or global is controlled by set_property generate_synth_checkpoint on its .xci. Global synthesis re-synthesizes the IP with the top and is needed when the IP must see top-level parameters or when hierarchy must be flattened across it.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_ip_run"
+    },
+    {
+      "name": "upgrade_ip -log / report_ip_status -name (IP version management)",
+      "kind": "tcl-command",
+      "description": "Managing IP across Vivado releases: report_ip_status lists every IP with its version, whether it is locked (created by an older release or missing repository) and the upgrade recommendation; upgrade_ip -vlnv moves cells to a newer IP version (or -srcset for block designs) writing a log with parameter changes; IP with breaking changes require reviewing the log and the change-log file in the IP catalog. Locked IP cannot be regenerated, only used with its existing output products.",
+      "usage": "report_ip_status [-name <win>] [-file <f>] [-return_string] [-quiet]\nupgrade_ip [-srcset <fileset>] [-vlnv <vlnv>] [-log <file>] [-quiet] <ip_objects>\nget_ip_upgrade_results [-srcset <fileset>] <ips>\nupgrade_bd_cells [-latest] <bd_cells>",
+      "parameters": [
+        {"name": "-vlnv", "description": "Target version, otherwise the latest available in the catalog."},
+        {"name": "-log", "description": "Write the upgrade log (parameter renames, defaults changed)."},
+        {"name": "upgrade_bd_cells", "description": "Block-design variant applied to cells inside a BD; followed by validate_bd_design."}
+      ],
+      "example": "report_ip_status\nupgrade_ip -log ./ip_upgrade.log [get_ips -filter {UPGRADE_VERSIONS != \"\"}]\nopen_bd_design [get_files system.bd]\nupgrade_bd_cells -latest [get_bd_cells] ;# or use the GUI Report IP Status > Upgrade Selected\nvalidate_bd_design\nsave_bd_design",
+      "notes": "Always archive the project before upgrading. IP whose interfaces changed (e.g. clocking wizard 5.x to 6.x) may need reconnection in the BD. The IP_LOCKED / IS_LOCKED property and UPGRADE_VERSIONS tell what can be done.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/upgrade_ip"
+    },
+    {
+      "name": "ipx::package_project",
+      "kind": "tcl-command",
+      "description": "Start packaging the current project (or the RTL in a directory with -root_dir) into an IP-XACT core: it infers ports, bus interfaces, parameters and file groups, creates the in-memory core object (ipx::current_core) and, with -set_current, makes it the target of the subsequent ipx:: edits. It is the Tcl behind Tools > Create and Package New IP > Package your current project.",
+      "usage": "ipx::package_project -root_dir <dir> [-vendor <v>] [-library <l>] [-taxonomy <path>] [-import_files] [-set_current true|false] [-force] [-archive_source_project] [-generated_files] [-quiet]",
+      "parameters": [
+        {"name": "-root_dir", "description": "Output directory for component.xml and the copied sources."},
+        {"name": "-vendor / -library / -taxonomy", "description": "VLNV vendor and library, and catalog category such as /UserIP."},
+        {"name": "-import_files", "description": "Copy the source files into root_dir instead of referencing them."},
+        {"name": "-set_current", "description": "Make the packaged core the current core for further ipx:: commands."},
+        {"name": "-generated_files", "description": "Package generated output products of IP used inside the project."}
+      ],
+      "example": "create_project -force pkg_prj ./pkg_prj -part xc7z020clg400-1\nadd_files [glob ./rtl/*.v]\nupdate_compile_order -fileset sources_1\nipx::package_project -root_dir ./ip_repo/my_axis_filter -vendor mycompany.com -library user -taxonomy /UserIP -import_files -set_current true\nset_property name    my_axis_filter [ipx::current_core]\nset_property version 1.0            [ipx::current_core]\nset_property display_name {AXI-Stream Filter} [ipx::current_core]\nset_property supported_families {zynq Production artix7 Production kintexu Production} [ipx::current_core]",
+      "notes": "Followed by ipx::infer_bus_interface / ipx::add_bus_interface edits, ipx::create_xgui_files, ipx::update_checksums, ipx::check_integrity and ipx::save_core. Use ipx::package_checkpoint_project for netlist-only (encrypted/DCP) IP.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::current_core / ipx::open_core / ipx::open_ipxact_file / ipx::unload_core",
+      "kind": "tcl-command",
+      "description": "Core object management for the IP Packager: ipx::open_core (or ipx::open_ipxact_file) loads an existing component.xml for editing, ipx::current_core returns the core object that the other ipx:: commands and set_property act on, and ipx::unload_core releases it from memory. Together with ipx::save_core they allow batch modification of packaged IP (bumping versions, adding supported families) without the GUI.",
+      "usage": "ipx::open_core [-set_current true|false] <component.xml>\nipx::open_ipxact_file <component.xml>\nipx::current_core [<core>]\nipx::unload_core [<core>]\nipx::edit_ip_in_project -upgrade true -name <edit_prj> -directory <dir> <component.xml>",
+      "parameters": [
+        {"name": "-set_current", "description": "Make the opened core current (default true)."},
+        {"name": "ipx::edit_ip_in_project", "description": "Open a temporary project on the IP sources for the Package IP editor GUI."}
+      ],
+      "example": "ipx::open_core ./ip_repo/my_axis_filter/component.xml\nset core [ipx::current_core]\nset_property version 1.1 $core\nset_property core_revision [expr {[get_property core_revision $core] + 1}] $core\nipx::update_checksums $core\nipx::save_core $core\nipx::unload_core $core\nupdate_ip_catalog -rebuild",
+      "notes": "core_revision must increase for Vivado to notice a change in an IP with the same version. Properties on the core object: name, version, vendor, library, display_name, description, taxonomy, supported_families, company_url, core_revision.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::infer_bus_interface / ipx::infer_bus_interfaces",
+      "kind": "tcl-command",
+      "description": "Recognise a bus interface from the port names of the core and create it with the right port map: ipx::infer_bus_interface takes the list of ports and the interface VLNV (AXI4, AXI4-Lite, AXI4-Stream, clock, reset, interrupt) and ipx::infer_bus_interfaces tries every known interface definition automatically. Port names must follow the AMD naming (s_axi_awaddr, m_axis_tdata, aclk, aresetn) for inference to work; otherwise use ipx::add_bus_interface with explicit port maps.",
+      "usage": "ipx::infer_bus_interface <port_list> <interface_vlnv> [ipx::current_core]\nipx::infer_bus_interfaces <interface_vlnv_list> [ipx::current_core]",
+      "parameters": [
+        {"name": "<port_list>", "description": "Ports that make up the interface, e.g. {s_axi_awaddr s_axi_awvalid ...}."},
+        {"name": "<interface_vlnv>", "description": "xilinx.com:interface:aximm_rtl:1.0, xilinx.com:interface:axis_rtl:1.0, xilinx.com:signal:clock_rtl:1.0, xilinx.com:signal:reset_rtl:1.0, xilinx.com:signal:interrupt_rtl:1.0."}
+      ],
+      "example": "ipx::infer_bus_interfaces xilinx.com:interface:aximm_rtl:1.0 [ipx::current_core]\nipx::infer_bus_interface aclk    xilinx.com:signal:clock_rtl:1.0 [ipx::current_core]\nipx::infer_bus_interface aresetn xilinx.com:signal:reset_rtl:1.0 [ipx::current_core]\nipx::infer_bus_interface irq     xilinx.com:signal:interrupt_rtl:1.0 [ipx::current_core]\nipx::associate_bus_interfaces -busif s_axi -clock aclk [ipx::current_core]",
+      "notes": "Interfaces get names from the port prefix (s_axi, m_axis). Inference sets interface mode (master/slave) from port directions.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::add_bus_interface / ipx::add_port_map / ipx::add_bus_parameter",
+      "kind": "tcl-command",
+      "description": "Manually define a bus interface on a packaged core when inference fails or a custom interface is used: ipx::add_bus_interface creates the interface, set_property sets its abstraction_type_vlnv, bus_type_vlnv and interface_mode, ipx::add_port_map maps each logical signal (TDATA, AWADDR, CLK, RST) to a physical port, and ipx::add_bus_parameter attaches parameters such as ASSOCIATED_BUSIF and FREQ_HZ on clock interfaces or POLARITY on reset interfaces.",
+      "usage": "ipx::add_bus_interface <name> [ipx::current_core]\nset_property abstraction_type_vlnv <vlnv_rtl> [ipx::get_bus_interfaces <name> -of_objects [ipx::current_core]]\nset_property bus_type_vlnv <vlnv> [ipx::get_bus_interfaces <name> -of_objects [ipx::current_core]]\nset_property interface_mode master|slave|monitor [ipx::get_bus_interfaces <name> ...]\nipx::add_port_map <logical_name> [ipx::get_bus_interfaces <name> ...]\nset_property physical_name <port> [ipx::get_port_maps <logical_name> -of_objects [ipx::get_bus_interfaces <name> ...]]\nipx::add_bus_parameter <PARAM> [ipx::get_bus_interfaces <name> ...]\nset_property value <v> [ipx::get_bus_parameters <PARAM> -of_objects [ipx::get_bus_interfaces <name> ...]]",
+      "parameters": [
+        {"name": "abstraction_type_vlnv / bus_type_vlnv", "description": "e.g. xilinx.com:interface:axis_rtl:1.0 and xilinx.com:interface:axis:1.0."},
+        {"name": "interface_mode", "description": "master, slave, monitor (mirrored modes for hierarchies)."},
+        {"name": "ASSOCIATED_BUSIF", "description": "Clock bus parameter listing the interfaces clocked by this clock, colon separated."},
+        {"name": "ASSOCIATED_RESET / POLARITY / FREQ_HZ", "description": "Other standard bus parameters."}
+      ],
+      "example": "set core [ipx::current_core]\nipx::add_bus_interface m_axis $core\nset bif [ipx::get_bus_interfaces m_axis -of_objects $core]\nset_property abstraction_type_vlnv xilinx.com:interface:axis_rtl:1.0 $bif\nset_property bus_type_vlnv         xilinx.com:interface:axis:1.0     $bif\nset_property interface_mode master $bif\nforeach {logical physical} {TDATA out_data TVALID out_valid TREADY out_ready TLAST out_last} {\n  ipx::add_port_map $logical $bif\n  set_property physical_name $physical [ipx::get_port_maps $logical -of_objects $bif]\n}\nset clk [ipx::get_bus_interfaces aclk -of_objects $core]\nipx::add_bus_parameter ASSOCIATED_BUSIF $clk\nset_property value m_axis:s_axis [ipx::get_bus_parameters ASSOCIATED_BUSIF -of_objects $clk]",
+      "notes": "Missing ASSOCIATED_BUSIF is the usual cause of 'interface not associated with a clock' errors in IP Integrator. Custom interfaces need their own bus/abstraction definitions created with ipx::create_bus_definition / ipx::create_abstraction_definition.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::add_file_group / ipx::add_file",
+      "kind": "tcl-command",
+      "description": "Manage the file groups of a packaged core: synthesis sources (xilinx_anylanguagesynthesis), simulation sources (xilinx_anylanguagebehavioralsimulation), implementation constraints (xilinx_implementation), software drivers (xilinx_softwaredriver), documentation, block-design Tcl (xilinx_blockdiagram) and example designs. ipx::add_file adds a file to a group with properties type, library_name and is_include; get/remove variants exist. Use it to add an OOC XDC, a driver directory or a testbench after automatic packaging.",
+      "usage": "ipx::add_file_group [-type <type>] <group_name> [ipx::current_core]\nipx::add_file <file> [ipx::get_file_groups <group_name> -of_objects [ipx::current_core]]\nset_property type <file_type> [ipx::get_files <file> -of_objects [ipx::get_file_groups <group> ...]]\nipx::remove_file <file> [ipx::get_file_groups <group> ...]\nipx::get_file_groups [-of_objects <core>] [<patterns>]",
+      "parameters": [
+        {"name": "-type", "description": "Group type: synthesis, simulation, implementation (XDC used in implementation), software_driver, examples, documentation, blockdiagram."},
+        {"name": "file properties", "description": "type (verilogSource, systemVerilogSource, vhdlSource, xdc, tclSource, cSource ...), library_name, is_include, used_in."}
+      ],
+      "example": "set core [ipx::current_core]\nipx::add_file_group -type implementation {} $core\nset grp [ipx::get_file_groups xilinx_implementation -of_objects $core]\nipx::add_file constraints/my_ip_ooc.xdc $grp\nset_property type xdc [ipx::get_files constraints/my_ip_ooc.xdc -of_objects $grp]\nset_property used_in {implementation out_of_context} [ipx::get_files constraints/my_ip_ooc.xdc -of_objects $grp]\nipx::add_file_group -type software_driver {} $core\nipx::add_file drivers/my_ip_v1_0/src/xmy_ip.c [ipx::get_file_groups xilinx_softwaredriver -of_objects $core]",
+      "notes": "Standard group names are xilinx_anylanguagesynthesis, xilinx_anylanguagebehavioralsimulation, xilinx_implementation, xilinx_softwaredriver, xilinx_documentation, xilinx_blockdiagram, xilinx_examples. Scoped XDC (per-instance) requires PROCESSING_ORDER and scoped_to_ref properties on the file.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::add_user_parameter / ipgui:: customisation GUI",
+      "kind": "tcl-command",
+      "description": "Expose RTL parameters or generics as IP parameters with value ranges, defaults and dependencies, and lay out the Customize IP dialog: ipx::add_user_parameter creates the parameter (linked to the HDL parameter of the same name, which automatic packaging creates from the RTL), set_property on it sets value_format, value_resolve_type, value_validation_type (range_long, list, pairs), value_validation_range_minimum/maximum, enablement_tcl_expr and display_name; the ipgui:: commands (ipgui::add_page, ipgui::add_group, ipgui::add_param, ipgui::add_static_text, ipgui::move_param) build the GUI pages stored in xgui/<ip>.tcl and are created initially by ipx::create_xgui_files.",
+      "usage": "ipx::add_user_parameter <NAME> [ipx::current_core]\nset_property value_validation_type range_long [ipx::get_user_parameters <NAME> -of_objects [ipx::current_core]]\nset_property value_validation_range_minimum 1 [ipx::get_user_parameters <NAME> ...]\nset_property value_validation_range_maximum 64 [ipx::get_user_parameters <NAME> ...]\nset_property value 8 [ipx::get_user_parameters <NAME> ...]\nset_property value 8 [ipx::get_hdl_parameters <NAME> ...]\nipx::create_xgui_files [ipx::current_core]\nipgui::add_param -name <NAME> -component [ipx::current_core] -parent [ipgui::get_pagespec -name \"Page 0\" -component [ipx::current_core]] -widget comboBox",
+      "parameters": [
+        {"name": "value_validation_type", "description": "none, list, pairs, range_long, range_float."},
+        {"name": "value_validation_list / value_validation_pairs", "description": "Allowed values, or display-name/value pairs for combo boxes."},
+        {"name": "enablement_tcl_expr / enablement_dependency", "description": "Tcl expression on other parameters ($USE_FIFO == 1) that greys out the parameter."},
+        {"name": "ipgui widget types", "description": "textEdit, comboBox, checkBox, radioGroup, hexEdit, slider (via -widget)."}
+      ],
+      "example": "set core [ipx::current_core]\nset p [ipx::get_user_parameters DATA_WIDTH -of_objects $core]\nset_property display_name {Data width (bits)} $p\nset_property value_validation_type list $p\nset_property value_validation_list {8 16 32 64} $p\nset_property value 32 $p\nset_property value 32 [ipx::get_hdl_parameters DATA_WIDTH -of_objects $core]\nipx::create_xgui_files $core\nipgui::add_param -name DATA_WIDTH -component $core -parent [ipgui::get_pagespec -name \"Page 0\" -component $core] -widget comboBox",
+      "notes": "Parameters used in RTL must exist in both user and hdl parameter lists with matching values. Interface widths that depend on parameters need bus parameters with value expressions (e.g. TDATA_NUM_BYTES = DATA_WIDTH/8) so IP Integrator can validate connections.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::add_address_space / ipx::add_memory_map / ipx::add_address_block / ipx::add_register",
+      "kind": "tcl-command",
+      "description": "Describe the addressable structure of a core so IP Integrator's Address Editor and the software drivers know it: a slave AXI interface gets a memory map with one or more address blocks (base address, range, usage register/memory), optionally with registers and bit fields (ipx::add_register, ipx::add_register_field) documented in the generated register map; a master AXI interface gets an address space with a range/width. Automatic packaging creates the map for inferred AXI slaves; these commands refine it or build it for custom interfaces.",
+      "usage": "ipx::add_memory_map <name> [ipx::current_core]\nset_property slave_memory_map_ref <name> [ipx::get_bus_interfaces s_axi -of_objects [ipx::current_core]]\nipx::add_address_block <block> [ipx::get_memory_maps <name> -of_objects [ipx::current_core]]\nset_property range 4096 [ipx::get_address_blocks <block> -of_objects [ipx::get_memory_maps <name> ...]]\nset_property usage register [ipx::get_address_blocks <block> ...]\nipx::add_register <reg> [ipx::get_address_blocks <block> ...]\nset_property address_offset 0x04 [ipx::get_registers <reg> -of_objects [ipx::get_address_blocks <block> ...]]\nipx::add_address_space <space> [ipx::current_core]\nset_property master_address_space_ref <space> [ipx::get_bus_interfaces m_axi -of_objects [ipx::current_core]]",
+      "parameters": [
+        {"name": "range / width", "description": "Size in bytes and data width of the block or space."},
+        {"name": "usage", "description": "register or memory (memory blocks are cacheable and may be used for BRAM-style mapping)."},
+        {"name": "address_offset / size / access", "description": "Register properties (read-write, read-only, write-only)."}
+      ],
+      "example": "set core [ipx::current_core]\nipx::add_memory_map s_axi $core\nset_property slave_memory_map_ref s_axi [ipx::get_bus_interfaces s_axi -of_objects $core]\nset mm [ipx::get_memory_maps s_axi -of_objects $core]\nipx::add_address_block reg0 $mm\nset blk [ipx::get_address_blocks reg0 -of_objects $mm]\nset_property range 65536 $blk\nset_property usage register $blk\nipx::add_register CTRL $blk\nset_property address_offset 0x00 [ipx::get_registers CTRL -of_objects $blk]\nset_property size 32 [ipx::get_registers CTRL -of_objects $blk]",
+      "notes": "The address block name appears in Address Editor segment names (SEG_<ip>_<block>). Registers are optional but show up in the IP's documentation and can be used by AXI VIP/driver generators.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::create_xgui_files / ipx::update_checksums / ipx::check_integrity / ipx::save_core",
+      "kind": "tcl-command",
+      "description": "Finalisation sequence of every packaging script: ipx::create_xgui_files (re)generates the xgui/<name>_v<ver>.tcl customization GUI from the parameters, ipx::update_checksums refreshes the file checksums stored in component.xml so Vivado detects modified sources, ipx::check_integrity validates the core (missing port maps, unassociated clocks, parameter inconsistencies) and prints warnings/errors, and ipx::save_core writes component.xml. ipx::archive_core additionally zips the core for distribution.",
+      "usage": "ipx::create_xgui_files [ipx::current_core]\nipx::update_checksums [ipx::current_core]\nipx::check_integrity [-quiet] [ipx::current_core]\nipx::save_core [ipx::current_core]\nipx::archive_core <file.zip> [ipx::current_core]\nipx::merge_project_changes files|ports|hdl_parameters [ipx::current_core]",
+      "parameters": [
+        {"name": "ipx::merge_project_changes", "description": "Re-scan the source project for new files, ports or parameters and merge them into the core."},
+        {"name": "ipx::update_source_project_archive", "description": "Refresh the archived source project stored with the IP."}
+      ],
+      "example": "set core [ipx::current_core]\nipx::merge_project_changes hdl_parameters $core\nipx::create_xgui_files $core\nipx::update_checksums $core\nipx::check_integrity $core\nipx::save_core $core\nclose_project\n# make it visible in another project\nset_property ip_repo_paths ./ip_repo [current_project]\nupdate_ip_catalog -rebuild",
+      "notes": "ipx::check_integrity errors (not warnings) prevent the IP from being instantiated in a BD. After saving, update_ip_catalog -rebuild (or -add_ip) in consuming projects picks up the change, and instances must be upgraded with upgrade_ip if the version changed.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "ipx::create_bus_definition / ipx::create_abstraction_definition (custom interfaces)",
+      "kind": "tcl-command",
+      "description": "Define a custom bus interface type (IP-XACT bus definition plus RTL abstraction definition listing the logical ports with direction, width and presence) so that user IP can expose a proprietary interface that IP Integrator can connect and validate as a single interface net. The GUI equivalent is Tools > Create Interface Definition; the resulting <name>.xml and <name>_rtl.xml are placed in an interfaces directory of the IP repository.",
+      "usage": "ipx::create_bus_definition <vendor> <library> <name> <version>\nipx::create_abstraction_definition <vendor> <library> <name>_rtl <version>\nset_property bus_type_vlnv <vendor>:<library>:<name>:<version> [ipx::current_busabs]\nipx::add_bus_abstraction_port <PORT> [ipx::current_busabs]\nset_property master_direction out [ipx::get_bus_abstraction_ports <PORT> -of_objects [ipx::current_busabs]]\nset_property slave_direction in  [ipx::get_bus_abstraction_ports <PORT> ...]\nset_property master_width 32 [ipx::get_bus_abstraction_ports <PORT> ...]\nipx::save_bus_definition [ipx::current_busdef]\nipx::save_abstraction_definition [ipx::current_busabs]",
+      "parameters": [
+        {"name": "master_direction / slave_direction", "description": "Direction of each logical port from the master and slave side."},
+        {"name": "master_width / slave_width", "description": "Fixed widths, or leave unset for parameterised widths."},
+        {"name": "master_presence / slave_presence", "description": "required, optional or illegal."}
+      ],
+      "example": "ipx::create_bus_definition mycompany.com interface sensor_bus 1.0\nset_property xml_file_name ./ip_repo/interfaces/sensor_bus.xml [ipx::current_busdef]\nipx::create_abstraction_definition mycompany.com interface sensor_bus_rtl 1.0\nset_property xml_file_name ./ip_repo/interfaces/sensor_bus_rtl.xml [ipx::current_busabs]\nset_property bus_type_vlnv mycompany.com:interface:sensor_bus:1.0 [ipx::current_busabs]\nforeach {p dir w} {DATA out 16 VALID out 1 READY in 1} {\n  ipx::add_bus_abstraction_port $p [ipx::current_busabs]\n  set bp [ipx::get_bus_abstraction_ports $p -of_objects [ipx::current_busabs]]\n  set_property master_direction $dir $bp\n  set_property slave_direction [expr {$dir eq \"out\" ? \"in\" : \"out\"}] $bp\n  set_property master_width $w $bp\n}\nipx::save_bus_definition [ipx::current_busdef]\nipx::save_abstraction_definition [ipx::current_busabs]\nupdate_ip_catalog -rebuild",
+      "notes": "The interface directory must be under an ip_repo_paths entry for IP Integrator to find it. Custom interfaces cannot use board automation but do support validation of widths via bus parameters.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip/Creating-a-Custom-Interface-Definition"
+    },
+    {
+      "name": "Create and Package New IP wizard",
+      "kind": "tool",
+      "description": "GUI wizard (Tools > Create and Package New IP) with four entry points: package the current project, package a block design, package a specified directory of sources, or create a new AXI4 peripheral from a template (AXI4-Lite slave with N registers, AXI4-Stream, AXI4 full master/slave with example driver and testbench). The result opens in the Package IP editor where Identification, Compatibility, File Groups, Customization Parameters, Ports and Interfaces, Addressing and Memory, Customization GUI and Review and Package pages correspond to the ipx:: command families.",
+      "usage": "Tools > Create and Package New IP... > Packaging Options: Package your current project | Package a block design from the current project | Package a specified directory | Create a new AXI4 peripheral",
+      "parameters": [
+        {"name": "Create AXI4 Peripheral", "description": "Generates a parameterised AXI4-Lite/Full/Stream skeleton (myip_v1_0.v with myip_v1_0_S00_AXI.v), optional driver, example design and testbench, then opens Edit IP or Add to repository."},
+        {"name": "Package IP editor", "description": "Editing session on a temporary project; Review and Package > Package IP writes component.xml and closes the session (ipx::save_core)."},
+        {"name": "Merge changes", "description": "Buttons appear on File Groups/Ports pages when sources changed (ipx::merge_project_changes)."}
+      ],
+      "example": "1. Tools > Create and Package New IP > Create a new AXI4 peripheral\n2. Name my_ctrl, Interface S00_AXI, Type Lite, Data width 32, Registers 8\n3. Next > Edit IP: add the user logic to my_ctrl_v1_0_S00_AXI.v (slv_reg* registers)\n4. Review and Package > Package IP\n5. In the target project: Settings > IP > Repository > add ip_repo; the IP appears under User Repository in the IP Catalog",
+      "notes": "Every action in the editor echoes an ipx:: command to the Tcl console, which is the easiest way to build a packaging script. Packaged IP lives in <repo>/<name>_1.0/ with component.xml, hdl/, xgui/, drivers/, bd/ (bd.tcl for BD-level hooks).",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "component.xml (IP-XACT)",
+      "kind": "format",
+      "description": "The IEEE 1685-2009 IP-XACT description at the root of every packaged Vivado IP: VLNV identity, bus interfaces with port maps and parameters, memory maps/address spaces, model views (synthesis/simulation with their file sets and language), ports with wire widths and defaults, parameters with validation rules and dependencies, supported families and the checksums of the source files. Vivado's IP catalog indexes these files from every directory in ip_repo_paths; the vendor namespace xilinx (spirit:vendorExtensions) stores Vivado-specific data such as taxonomy, core_revision and GUI page layout references.",
+      "usage": "<ip_repo>/<name>_<ver>/component.xml  (plus hdl/, xgui/<name>_v<ver>.tcl, bd/bd.tcl, drivers/, ttcl/, doc/)",
+      "parameters": [
+        {"name": "spirit:vendor/library/name/version", "description": "The VLNV used in create_bd_cell -vlnv and create_ip -vlnv."},
+        {"name": "spirit:busInterfaces", "description": "Bus interfaces, port maps, bus parameters (ASSOCIATED_BUSIF, FREQ_HZ ...)."},
+        {"name": "spirit:fileSets", "description": "File groups with fileType and userFileType (used_in) attributes."},
+        {"name": "spirit:parameters + xilinx:parameters", "description": "User parameters, validation and enablement expressions."}
+      ],
+      "example": "<spirit:component xmlns:spirit=\"http://www.spiritconsortium.org/XMLSchema/SPIRIT/1685-2009\" ...>\n  <spirit:vendor>mycompany.com</spirit:vendor>\n  <spirit:library>user</spirit:library>\n  <spirit:name>my_axis_filter</spirit:name>\n  <spirit:version>1.0</spirit:version>\n  <spirit:busInterfaces> ... </spirit:busInterfaces>\n  <spirit:fileSets> ... </spirit:fileSets>\n</spirit:component>",
+      "notes": "Hand-editing is possible but ipx::update_checksums must be run afterwards; otherwise Vivado reports the IP as modified. Interface definitions (<name>.xml/<name>_rtl.xml) use the same schema with busDefinition/abstractionDefinition root elements.",
+      "docs": "https://docs.amd.com/r/en-US/ug1118-vivado-creating-packaging-custom-ip"
+    },
+    {
+      "name": "AXI4 / AXI4-Lite / AXI4-Stream interface definitions (xilinx.com:interface:*)",
+      "kind": "reference",
+      "description": "The standard interface types that IP Integrator connects, validates and automates. aximm (xilinx.com:interface:aximm:1.0 / aximm_rtl) covers AXI3, AXI4 and AXI4-Lite with the PROTOCOL bus parameter, address/data widths, ID width, and read/write channel presence (READ_WRITE_MODE); axis (xilinx.com:interface:axis:1.0) covers AXI4-Stream with TDATA_NUM_BYTES, HAS_TLAST/TKEEP/TSTRB/TREADY, TUSER/TID/TDEST widths; signal interfaces clock (FREQ_HZ, PHASE, ASSOCIATED_BUSIF, ASSOCIATED_RESET, CLK_DOMAIN), reset (POLARITY ACTIVE_LOW/ACTIVE_HIGH, TYPE INTERCONNECT/PROCESSOR/PERIPHERAL) and interrupt (SENSITIVITY LEVEL_HIGH/EDGE_RISING). Other common ones: bram (xilinx.com:interface:bram:1.0), lmb, mbdebug, uart, iic, spi, gpio, diff_clock (xilinx.com:interface:diff_clock:1.0), ddr4, pcie_7x_mgt, gt.",
+      "usage": "get_property CONFIG.PROTOCOL [get_bd_intf_pins axi_gpio_0/S_AXI]      ;# AXI4LITE\nget_property CONFIG.TDATA_NUM_BYTES [get_bd_intf_pins axis_data_fifo_0/S_AXIS]\nset_property CONFIG.POLARITY ACTIVE_LOW [get_bd_ports ext_reset]\nset_property CONFIG.FREQ_HZ 125000000 [get_bd_intf_ports sys_diff_clk]",
+      "parameters": [
+        {"name": "aximm parameters", "description": "PROTOCOL (AXI4/AXI3/AXI4LITE), DATA_WIDTH, ADDR_WIDTH, ID_WIDTH, READ_WRITE_MODE, MAX_BURST_LENGTH, NUM_READ_OUTSTANDING, SUPPORTS_NARROW_BURST, HAS_BURST/LOCK/PROT/CACHE/QOS/REGION/WSTRB/BRESP/RRESP."},
+        {"name": "axis parameters", "description": "TDATA_NUM_BYTES, TUSER_WIDTH, TID_WIDTH, TDEST_WIDTH, HAS_TREADY, HAS_TSTRB, HAS_TKEEP, HAS_TLAST, LAYERED_METADATA."},
+        {"name": "clock/reset parameters", "description": "FREQ_HZ, FREQ_TOLERANCE_HZ, PHASE, CLK_DOMAIN, ASSOCIATED_BUSIF, ASSOCIATED_RESET; POLARITY, INSERT_VIP."}
+      ],
+      "example": "# validate_bd_design errors like 'TDATA_NUM_BYTES mismatch' or 'clock domain crossing' come from these\n# parameters; fix with a data-width converter / clock converter or by aligning the producer's config:\nset_property CONFIG.TDATA_NUM_BYTES 8 [get_bd_cells axis_data_fifo_0]",
+      "notes": "Parameters propagate along nets during validate_bd_design (propagation rules in bd.tcl of each IP). Interface definitions shipped with Vivado are in <install>/data/ip/interfaces.",
+      "docs": "https://docs.amd.com/r/en-US/ug1037-vivado-axi-reference-guide"
+    },
+    {
+      "name": "get_ipdefs / IP catalog queries",
+      "kind": "tcl-command",
+      "description": "Query the IP catalog itself (as opposed to IP instances): get_ipdefs returns IP definition objects for every core visible in the catalog with VLNV, display name, supported families and license status, so scripts can pick the latest version of a core, check availability on a part, or list user-repository IP. -all includes older versions, -filter selects by property.",
+      "usage": "get_ipdefs [-name] [-all] [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-all", "description": "Include every version, not only the latest."},
+        {"name": "-name", "description": "Return names instead of objects."},
+        {"name": "-filter", "description": "Properties: VLNV, NAME, DISPLAY_NAME, VENDOR, LIBRARY, VERSION, SUPPORTED_FAMILIES, TAXONOMY (use report_property on an ipdef to see the full list, including license-related fields)."}
+      ],
+      "example": "get_ipdefs -filter {NAME =~ *axi_dma*}\nget_ipdefs -all xilinx.com:ip:clk_wiz:*\nset latest [lindex [lsort -dictionary [get_ipdefs -all -filter {NAME == smartconnect}]] end]\nreport_property [get_ipdefs xilinx.com:ip:axi_gpio:2.0]",
+      "notes": "VLNVs without version in create_bd_cell -vlnv pick the latest catalog version. update_ip_catalog must run after changing ip_repo_paths for user IP to appear.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_ipdefs"
+    },
+    {
+      "name": "instantiate_example_design / open_example_project",
+      "kind": "tcl-command",
+      "description": "Generate the vendor-provided example design for an IP (or for a template block design): open_example_project creates a new project around the IP's example design (with testbench, constraints and often a block design), which is the fastest way to learn an IP's usage or to get a known-good starting point for PCIe, DDR, Ethernet or transceiver IP. instantiate_example_design and get_example_designs handle the block-design based example designs of newer IP (e.g. Versal CIPS/NoC, HDMI).",
+      "usage": "open_example_project [-dir <dir>] [-force] [-in_process] [-quiet] <ip_objects>\nget_example_designs [-filter <expr>] [<patterns>]\ninstantiate_example_design [-design <name>] [-hier <cell>] [-options <opts>] [-quiet] <example_design>\ninstantiate_template_bd_design -design <template> [-hier <cell>] [-options <opts>]",
+      "parameters": [
+        {"name": "-dir", "description": "Directory for the generated example project."},
+        {"name": "-in_process", "description": "Open the example project in the current Vivado process instead of a new one."}
+      ],
+      "example": "create_ip -name ddr4 -vendor xilinx.com -library ip -module_name ddr4_0\nset_property -dict [list CONFIG.C0.DDR4_TimePeriod {833} CONFIG.C0.DDR4_MemoryPart {MT40A512M16HA-083E}] [get_ips ddr4_0]\nopen_example_project -dir ./ddr4_example -force [get_ips ddr4_0]\n# template block designs (e.g. MicroBlaze base system)\nget_template_bd_designs\ninstantiate_template_bd_design -design base_microblaze_design -hier {}",
+      "notes": "The GUI equivalent is right-click on the IP in Sources > Open IP Example Design. Example designs are also the reference for the IP's constraint requirements.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_example_project"
+    },
+    {
+      "name": "write_ip_tcl / write_bd_layout / export_bd_synth",
+      "kind": "tcl-command",
+      "description": "Export helpers around IP and block designs: write_ip_tcl emits the create_ip + set_property script that recreates a configured IP instance (the IP equivalent of write_bd_tcl and write_project_tcl); write_bd_layout renders the diagram to PDF/SVG for documentation; export_bd_synth writes a synthesized checkpoint of a block design for use as a black box in another project.",
+      "usage": "write_ip_tcl [-no_ip_version] [-ip_name <name>] [-show_defaults] [-multiple_files] [-force] [-quiet] <ip> <file.tcl>\nwrite_bd_layout -format pdf|svg [-orientation portrait|landscape] [-hierarchy <cell>] [-scope all|visible] [-force] <file>\nexport_bd_synth [-force] [-quiet] <bd_file>",
+      "parameters": [
+        {"name": "-no_ip_version", "description": "Omit the version so the script uses the latest catalog IP."},
+        {"name": "-show_defaults", "description": "Include parameters at default values."},
+        {"name": "-multiple_files", "description": "One script per IP when several are given."}
+      ],
+      "example": "write_ip_tcl -force [get_ips clk_wiz_0] ./scripts/clk_wiz_0.tcl\nwrite_bd_layout -format pdf -orientation landscape -force ./doc/system.pdf\nexport_bd_synth -force [get_files system.bd]",
+      "notes": "write_bd_tcl -no_ip_version / -include_layout are the block-design equivalents. Scripts from write_ip_tcl are version-sensitive: parameter names change between IP versions.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_ip_tcl"
+    },
+    {
+      "name": "IP Integrator canvas & Address Editor (Window > IP Integrator)",
+      "kind": "panel",
+      "description": "The block-design workspace: Diagram tab (drag IP from the '+' Add IP dialog, Run Connection Automation / Run Block Automation banners, Designer Assistance, interface-pin expansion, hierarchy grouping, Regenerate Layout, Validate Design (F6), Optimize routing), Address Editor tab (per-master address map with offset/range, exclusion and auto-assign), Address Map view (2021.1+ graphical memory map), Board tab (board interfaces to drag onto the canvas), and the Sources view's Design Sources > .bd node (Generate Output Products, Create HDL Wrapper, Reset Output Products, View Instantiation Template).",
+      "usage": "Flow Navigator > IP Integrator > Create Block Design / Open Block Design; Window > IP Integrator; Diagram toolbar: Add IP (Ctrl+I), Validate Design (F6), Regenerate Layout, Zoom to fit",
+      "parameters": [
+        {"name": "Run Connection Automation", "description": "apply_bd_automation with the axi4/clkrst/board rules for unconnected interfaces."},
+        {"name": "Run Block Automation", "description": "IP-specific automation (PS presets, MicroBlaze local memory/debug/clock, IBERT/JTAG cores)."},
+        {"name": "Generate Output Products", "description": "generate_target with Synthesis Options Global vs Out-of-context per IP (default OOC) and Run Settings jobs."},
+        {"name": "Create HDL Wrapper", "description": "make_wrapper -top -import (let Vivado manage) or user-copied wrapper."}
+      ],
+      "example": "1. Create Block Design 'system' > + > Zynq UltraScale+ MPSoC > Run Block Automation (apply board preset)\n2. + AXI GPIO > Run Connection Automation (S_AXI to M_AXI_HPM0_FPD via SmartConnect, GPIO to board led_8bits)\n3. Address Editor: check offsets; Validate Design (F6)\n4. Sources > system.bd > Generate Output Products (Out-of-context per IP) > Create HDL Wrapper\n5. Generate Bitstream; File > Export > Export Hardware (write_hw_platform -include_bit)",
+      "notes": "Every canvas action echoes Tcl; write_bd_tcl captures the result. Critical warnings in Validate Design about CONFIG.FREQ_HZ or unassigned addresses must be fixed before generation.",
+      "docs": "https://docs.amd.com/r/en-US/ug994-vivado-ip-subsystems"
+    }
+  ]
+}

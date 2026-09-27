@@ -1,0 +1,406 @@
+{
+  "category": "User Language: syntax, types, operators and statements",
+  "description": "The EAGLE User Language (ULP) itself: writing and running a program (RUN, argc/argv, exit codes), directives #include/#require/#usage, lexical rules, data types char/int/real/string, conversions, definitions, operators, expressions and control statements, builtin constants and variables, and the builtin statements board(), schematic(), library(), deviceset(), symbol(), sheet(), module(), footprint() and output() that open data contexts and output files. Source: EAGLE 9.6.0 built-in help (User Language section).",
+  "tools": [
+    {
+      "name": "Writing a ULP",
+      "kind": "reference",
+      "description": "A User Language Program (ULP) is a plain-text .ulp file written in a C-like syntax and made of definitions (constants, variables, functions) and statements. Without a main() function the top-level statements run in the order they appear; if a function main() exists it is called as the entry point and its return value becomes the program's result. ULPs read the drawing through builtin statements such as board() and schematic(), write files with output()/printf() and can hand editor commands back with exit().",
+      "usage": "#usage \"<description shown in the Control Panel>\"\n// definitions: enum constants, variables, functions\n// statements: executed top to bottom (or define: int main() { ... })\nif (board) board(B) { ... }            // open a data context\noutput(\"file.txt\", \"wt\") { printf(...); }  // write a file\nexit(\"EDITOR COMMAND;\");                // optional: commands run after RUN",
+      "example": "#usage \"Counts the elements of the current board\\n\"\n       \"Usage: RUN count-elements.ulp\"\n\nint CountElements()\n{\n  int n = 0;\n  board(B) B.elements(E) ++n;\n  return n;\n}\n\nif (!board) {\n   dlgMessageBox(\":Start this ULP from a board window.\");\n   exit(1);\n   }\nstring msg;\nsprintf(msg, \"The board has %d elements.\", CountElements());\ndlgMessageBox(msg);",
+      "notes": "Object data is read-only: to change a design, build editor commands (or write a .scr file) and return them with exit(\"command;...\") so the editor executes them after RUN. Any text editor that does not add control characters can be used, as can EAGLE's built-in text editor. Everything must be defined before it is used, and functions cannot call themselves."
+    },
+    {
+      "name": "Executing a ULP (RUN, return value)",
+      "kind": "reference",
+      "description": "ULPs are started with the RUN editor command, typed on an editor window's command line, placed in a script file, assigned to a button or menu, or passed to eagle -C. Arguments after the file name reach the program through argc/argv. The program's result is 0 for normal termination (the default) and any other value for an abnormal end; when RUN is executed from a script, a non-zero result stops that script.",
+      "usage": "RUN file_name [argument ...]\nexit(int result);        // end the ULP with a return value\nexit(string command);    // end the ULP and execute command in the editor (result EXIT_SUCCESS)",
+      "example": "RUN bom.ulp\nRUN export-parts.ulp D:/out/parts.csv /quiet\n\n# from a Windows shell (opens the editor, runs the ULP, quits):\neagle -C \"RUN export-parts.ulp D:/out/parts.csv; QUIT\" board.brd",
+      "notes": "When a ULP is started from an object's context menu, that object is put into a group (any previous group is dropped), so ingroup() identifies it; for a wire the group bits tell which end point was clicked. Pressing the STOP button also ends the program with a non-zero result. Since the June 2026 licensing shutdown, starting the editor (and therefore RUN or eagle -C) needs a working Autodesk sign-in; automation must not perform that sign-in."
+    },
+    {
+      "name": "argc, argv",
+      "kind": "system-variable",
+      "description": "Builtin variables holding the command-line arguments given to the RUN command. argc is the number of entries in argv, argv[0] is the full file name of the running ULP and argv[1] ... argv[argc-1] are the arguments typed after the file name. Use them to pass options, file names or modes to a ULP so it can also run unattended from scripts.",
+      "usage": "int argc;       // number of arguments including argv[0]\nstring argv[];  // argv[0] = full ULP file name, argv[1..argc-1] = RUN arguments",
+      "example": "// RUN export-parts.ulp D:/out/parts.csv /quiet\nstring OutFile = \"parts.csv\";\nint Quiet = 0;\nif (argc > 1) OutFile = argv[1];\nfor (int i = 2; i < argc; ++i)\n    if (strupr(argv[i]) == \"/QUIET\") Quiet = 1;\n// the ULP's own directory, e.g. for helper files:\nstring UlpDir = filedir(argv[0]);",
+      "notes": "Check argc before reading argv[i]. Arguments are separated by blanks on the RUN command line. argv[0] is handy with filedir()/filesetext() to locate files that ship next to the ULP."
+    },
+    {
+      "name": "#include",
+      "kind": "reference",
+      "description": "Directive that inserts another ULP source file so its functions, constants and variables can be reused. The file is looked up first in the directory of the file containing the directive and then in the directories of the ULP path (Options/Directories). Each file is processed only once, which prevents duplicate definitions, and includes can be nested up to 10 levels.",
+      "usage": "#include \"filename\"",
+      "example": "// helpers.ulp defines: string csvQuote(string s) { ... }\n#include \"helpers.ulp\"\n\nboard(B) output(filesetext(B.name, \".csv\"), \"wt\") {\n  B.elements(E) printf(\"%s;%s\\n\", csvQuote(E.name), csvQuote(E.value));\n  }",
+      "notes": "For portability always write directory separators as forward slashes (also on Windows) and avoid drive letters in the include path. Only the #usage of the main program (the file started with RUN) is used, so include files may carry their own #usage text."
+    },
+    {
+      "name": "#require",
+      "kind": "reference",
+      "description": "Directive declaring the minimum EAGLE version a ULP needs. When the program is started in an older EAGLE, the user gets a clear message instead of confusing syntax errors caused by newer User Language features. The version is written as a real constant V.RRrr with version V, release RR and optional revision rr, each padded to two digits.",
+      "usage": "#require V.RRrr     // e.g. 5.0102 for 5.1.2, 9.0100 for 9.1.0",
+      "example": "#require 9.0100    // uses footprint()/UL_FOOTPRINT, new in EAGLE 9.1\n#usage \"Lists the contacts of the footprint being edited\"\n\nif (footprint) footprint(F) {\n   output(\"contacts.txt\", \"wt\")\n     F.contacts(C) printf(\"%s\\t%.3f\\t%.3f\\n\", C.name, u2mm(C.x), u2mm(C.y));\n   }",
+      "notes": "The directive was introduced with EAGLE 4.11r06; older versions do not understand it. Put it at the top of the file."
+    },
+    {
+      "name": "#usage",
+      "kind": "reference",
+      "description": "Directive holding the program's description, usage and author information. The Control Panel shows this text for the ULP, and the program can read it at run time through the builtin string constant usage (for example to show help in dlgMessageBox()). Several languages can be provided as separate comma-separated texts that each start with a two-letter language code and a colon; the text matching language() is used, otherwise the first one.",
+      "usage": "#usage \"text\" [, \"text\" ...]\n#usage \"en: English text\", \"de: Deutscher Text\"\nstring usage;   // builtin constant with the text of the #usage directive",
+      "example": "#usage \"en: <b>Export part list</b>\\n\"\n           \"<p>Writes name, value and package of all elements to a CSV file.</p>\"\n           \"<p>Usage: RUN export-parts.ulp [file]</p>\"\n           \"<author>Author: someone@example.com</author>\",\n       \"de: <b>Bauteilliste exportieren</b>\\n\"\n           \"<p>Aufruf: RUN export-parts.ulp [Datei]</p>\"\n\nif (argc > 1 && argv[1] == \"/?\") {\n   dlgMessageBox(usage);\n   exit(0);\n   }",
+      "notes": "The texts must be string constants (adjacent constants are concatenated) and may contain the supported HTML tags. Place #usage at the beginning of the file so the Control Panel does not have to parse the whole program. Only the #usage of the main file takes effect; the first text should normally be English."
+    },
+    {
+      "name": "Comments and whitespace",
+      "kind": "reference",
+      "description": "Blanks, tabs, newlines and comments are whitespace and are discarded when the ULP is parsed, except inside string literals. Block comments /* ... */ may span several lines but do not nest (the first */ ends the comment); line comments start with // and run to the end of the line. A backslash immediately before the end of a line joins it with the next line.",
+      "usage": "/* block comment, may span lines, does not nest */\n// line comment up to the end of the line\n\"text continued \\\non the next line\"          // backslash-newline joins the two lines",
+      "example": "/*\n * export-parts.ulp - writes a CSV part list\n * Author: someone@example.com\n */\nstring Header = \"Name;Value;\"   // adjacent string constants are concatenated\n                \"Package\\n\";",
+      "notes": "Because comments do not nest, commenting out a block that already contains /* ... */ ends early at the inner */; use // comments or a block without inner comments instead."
+    },
+    {
+      "name": "Keywords and identifiers",
+      "kind": "reference",
+      "description": "Keywords are reserved words of the language; the names of all builtins (functions, statements, constants, variables) and object types are reserved as well. Identifiers name user constants, variables and functions: they consist of letters, digits and underscores, must start with a letter or underscore, are case-sensitive and may be up to 100 characters long (all significant).",
+      "usage": "Keywords: break case char continue default do else enum for if int numeric real return string switch void while\nIdentifier: [A-Za-z_][A-Za-z0-9_]*   (max. 100 characters, case-sensitive)",
+      "example": "int Number, number;       // two different variables\nstring partName;          // fine\n// string filename;       // error: filename() is a builtin function\n// int time;              // error: time() is a builtin function",
+      "notes": "A frequent error is naming a variable like a builtin, e.g. filename, status, round, time, variant, sheet or board; choose names such as fileName or curStatus."
+    },
+    {
+      "name": "Literal constants (character, integer, real, string)",
+      "kind": "reference",
+      "description": "Constants written directly in the program. A character constant is one character or escape sequence in single quotes (type char); integer constants are decimal, octal (leading 0) or hexadecimal (leading 0x/0X) and have type int; real constants follow [-]int.frac[e|E[+-]exp] and have type real; string constants are characters in double quotes (type string) of any length. Adjacent string constants are concatenated.",
+      "usage": "'a'   '='   '\\n'                 // char\n16    020 (octal = 16)   0x10     // int\n23.45e6   .0   0.   1.   -1.23   2e-5   3E+10   // real\n\"Hello world\\n\"   \"Hello\" \" world\"            // string (concatenated)",
+      "example": "char   Sep   = ';';\nint    Mask  = 0x0F;\nreal   Pitch = 2.54;\nstring Title = \"Parts list \"\n               \"(generated by ULP)\\n\";",
+      "notes": "Pitfall: a leading zero makes an integer octal, so 010 is 8, not 10. In a real constant either the integer or the fraction part may be omitted (not both), and either the decimal point or the exponent (not both)."
+    },
+    {
+      "name": "Escape sequences",
+      "kind": "reference",
+      "description": "Backslash sequences that put special characters into character and string constants: control characters such as newline and tab, the quote characters, the backslash itself, and arbitrary codes given in octal or hexadecimal. Any other character after a backslash stands for itself.",
+      "usage": "\\a bell   \\b backspace   \\f form feed   \\n new line   \\r carriage return\n\\t horizontal tab   \\v vertical tab   \\\\ backslash   \\' single quote   \\\" double quote\n\\O  (O = up to 3 octal digits)     \\xH  (H = up to 2 hex digits)",
+      "example": "printf(\"Name\\tValue\\n\");                  // tab separated line\nstring Quoted = \"\\\"R1\\\"\";                   // \"R1\" including the quotes\nstring I18N = \"en\\vde\\v\";                   // \\v as field separator for lookup()\ndlgLabel(\"Miller \\\\& Co.\");                 // shows: Miller & Co.",
+      "notes": "Dialog texts treat & (hotkey), + and - (default/cancel button) specially; to show them literally they need a backslash in the dialog text, which must itself be written as \\\\ in the ULP source (see Escape Character under dialogs)."
+    },
+    {
+      "name": "Punctuators",
+      "kind": "reference",
+      "description": "Characters that structure a program: brackets for array definitions and subscripts (including single characters of a string), parentheses for grouping, conditions and function calls, braces for compound statements and array initializers, commas between arguments, initializer values and variable names, semicolons to end statements and separate the parts of a for statement, colons after case labels and the equal sign for initialization and assignment.",
+      "usage": "[]  ()  {}  ,  ;  :  =\nint ai[] = { 1, 2, 3 };   n = ai[2];   char c = s[2];\nfor (int i = 0; i < 3; ++i) { ... }   case 'a': ...",
+      "example": "int Widths[] = { 8, 10, 16 };\nstring s = \"Layout\";\nchar c = s[2];                      // 'y'\nfor (int i = 0; i < 3; ++i) {\n    if (Widths[i] > 9) printf(\"%d\\n\", Widths[i]);\n    }",
+      "notes": "Commas that separate function arguments or variable definitions are delimiters, not the comma operator."
+    },
+    {
+      "name": "char",
+      "kind": "reference",
+      "description": "Data type for a single character or a small unsigned number, stored in 8 bits with the range 0..255. Character constants such as 'A' and the elements read from a char array (e.g. binary data from fileread()) have this type. It is the smallest of the arithmetic types char < int < real.",
+      "usage": "char identifier [= value];\nchar buffer[];   // byte array, e.g. for fileread()/netget() binary data",
+      "example": "char Sep = ';';\nchar c = 'a';\nc = toupper(c);             // 'A'\nif (isdigit(c)) printf(\"%c is a digit\\n\", c);",
+      "notes": "Bitwise operators work with char and int only. A lossless conversion from a string element to char is possible for standard ASCII strings."
+    },
+    {
+      "name": "int",
+      "kind": "reference",
+      "description": "Data type for signed integral values, 32 bits wide with the range -2147483648..2147483647 (INT_MIN..INT_MAX). All coordinates and sizes of EAGLE objects (x, y, width, drill, radius...) are int values in internal units of 1/320000 mm, as are flags, layer numbers and counters.",
+      "usage": "int identifier [= value] [, identifier ...];\nint array[] [= { v1, v2, ... }];",
+      "example": "int Count = 0, MinDrill = INT_MAX;\nboard(B) B.signals(S) S.vias(V) {\n  ++Count;\n  MinDrill = min(MinDrill, V.drill);   // internal units\n  }\nstring s;\nsprintf(s, \"%d vias, smallest drill %.2f mm\", Count, u2mm(MinDrill));\ndlgMessageBox(s);",
+      "notes": "Never print coordinates as raw ints: convert with u2mm(), u2mil(), u2inch() or u2mic(), and convert user values back with mm2u() etc. Integer division truncates (7/2 is 3); cast one operand to real if needed."
+    },
+    {
+      "name": "real",
+      "kind": "reference",
+      "description": "Data type for signed floating point values, 64 bits wide, covering about +-2.2e-308 to +-1.7e+308 with 15 significant digits. Angles (E.angle, arc angles), the grid distance and the results of u2mm()/u2mil() and the math functions are real values.",
+      "usage": "real identifier [= value] [, identifier ...];",
+      "example": "real x = u2mm(1234567);       // internal units -> mm\nboard(B) output(\"rotated.txt\", \"wt\") B.elements(E) {\n  real a = E.angle;              // 0.0 ... 359.9\n  if (a != 0.0) printf(\"%s is rotated by %.1f deg\\n\", E.name, a);\n  }",
+      "notes": "Casting a real to int with int(x) truncates the fraction; use round() first when rounding is wanted. See REAL_MAX, REAL_MIN and REAL_EPSILON for the limits."
+    },
+    {
+      "name": "string",
+      "kind": "reference",
+      "description": "Data type for text such as part, net or file names. Strings have no fixed size and grow automatically; they are stored like zero-terminated C strings. Single characters are accessed with s[index] starting at 0 (the element type is int), and writing a 0 into a position cuts the string off there.",
+      "usage": "string identifier [= \"text\"] [, identifier ...];\nstring array[];                 // dynamic string array\ns[i]                            // character i (0-based), s[strlen(s)] == 0",
+      "example": "string s = \"Layout\";\nprintf(\"Third char is: %c\\n\", s[2]);    // 'y'\nfor (int i = 0; s[i]; ++i)              // walk until the terminating 0\n    if (s[i] == 'o') printf(\"o at %d\\n\", i);\ns[3] = 0;                               // s is now \"Lay\" (rest is lost)",
+      "notes": "Strings are concatenated with + and +=, compared with == < > etc., and tested for emptiness with !s. Use strlen(), strsub(), strstr(), strsplit() and friends for processing, sprintf() to format numbers into strings and strtol()/strtod() to parse them. Truncation by writing 0 is permanent: restoring the character does not bring the rest back."
+    },
+    {
+      "name": "numeric string",
+      "kind": "reference",
+      "description": "The keyword numeric in front of a string array definition makes sort() order the strings alphanumerically, taking a trailing number into account: IC1, IC2, ... IC9, IC10 instead of the plain alphabetical IC1, IC10, IC2. It is also useful for arrays shown in a dlgListView, which then sorts its rows the same way.",
+      "usage": "numeric string identifier[];",
+      "example": "numeric string Names[];\nint n = 0;\nboard(B) B.elements(E) Names[n++] = E.name;\nsort(n, Names);                 // C1 C2 ... C9 C10 R1 R2 ...\noutput(\"names.txt\", \"wt\")\n  for (int i = 0; i < n; ++i) printf(\"%s\\n\", Names[i]);",
+      "notes": "numeric applies to string arrays only. For multi-array sorting pass an int index array first: sort(n, index, NumericNames, Values)."
+    },
+    {
+      "name": "Type conversions and typecasts",
+      "kind": "reference",
+      "description": "In an arithmetic expression that mixes char, int and real, the result takes the larger of the operand types (char < int < real), so int + real gives real. A typecast type(expression) converts an arithmetic expression explicitly to char, int or real. Converting real to int truncates the fractional part.",
+      "usage": "char(expression)   int(expression)   real(expression)\nnumber -> string:  sprintf(s, \"%d\", i);   sprintf(s, \"%.3f\", r);\nstring -> number:  strtol(s)   strtod(s)",
+      "example": "int  a = 7, b = 2;\nreal q1 = a / b;            // 3.0  (int division, then converted)\nreal q2 = real(a) / b;      // 3.5\nint  n  = int(2.99);        // 2 (truncated)\nint  r  = int(round(2.7));  // 3\nstring s;\nsprintf(s, \"%d mm\", n);     // number to string",
+      "notes": "There is no implicit number-to-text conversion: \"W=\" + n appends the character with code n, not its decimal digits, so use sprintf(). Typecasts only exist for the arithmetic types, not for string or object types."
+    },
+    {
+      "name": "enum (constant definitions)",
+      "kind": "reference",
+      "description": "Defines named integer constants. Without explicit values the constants are numbered 0, 1, 2, ...; a constant can be given a value, and the following ones continue counting from it. The constants can be used wherever an integer constant is expected, for example as case labels in a switch.",
+      "usage": "enum { name1 [= value], name2 [= value], ... };",
+      "example": "enum { colName, colValue, colPackage };      // 0, 1, 2\nenum { modeTop = 1, modeBottom, modeBoth };  // 1, 2, 3\nint Mode = modeBoth;\nswitch (Mode) {\n  case modeTop:    printf(\"top\\n\"); break;\n  case modeBottom: printf(\"bottom\\n\"); break;\n  default:         printf(\"both\\n\");\n  }",
+      "notes": "The scope of a constant runs from its definition to the end of the enclosing block, or to the end of the program when defined outside any block."
+    },
+    {
+      "name": "Variable definitions and arrays",
+      "kind": "reference",
+      "description": "Defines variables of a data type (char, int, real, string) or an object type (UL_...), optionally with an initializer; several variables of one type are separated by commas. Appending [] defines an array whose size is adjusted automatically at run time. Without an initializer data variables start as 0 or \"\" and object variables are invalid; the scope runs from the definition to the end of the enclosing block (or program).",
+      "usage": "[numeric] type identifier [= initializer] [, ...];\ntype identifier[] [= { v1, v2, ... }];",
+      "example": "int i;\nstring s = \"Hello\";\nreal a, b = 1.0, c;\nint n[] = { 1, 2, 3 };\nnumeric string names[];\nboard(B) {\n  UL_ELEMENT First;                // object variable, invalid until assigned\n  B.elements(E) { First = E; break; }\n  if (First) printf(\"first element: %s\\n\", First.name);\n  }",
+      "notes": "Members of array elements of object types cannot be accessed directly: copy the element into a plain variable first (UL_SIGNAL s = signals[0]; printf(\"%s\", s.name);). Arrays have no fixed length; keep your own element counter. Use an object in a logical expression (if (First)) to test whether it holds valid data."
+    },
+    {
+      "name": "Function definitions and main()",
+      "kind": "reference",
+      "description": "Defines a user function that is called like a builtin function. The return type is a data or object type, or void for functions without a value; parameters are passed by value, so changes inside the function do not affect the caller's variables. A function must be defined before it is called and cannot call itself (no recursion). If the program defines main(), it is called as the entry point and its return value is the program's result.",
+      "usage": "type identifier(type param1, type param2, ...)\n{\n  statements\n  return expression;      // omitted/plain return; for void\n}\nint main() { ... }        // optional program entry point",
+      "example": "int CountDots(string s)\n{\n  int dots = 0;\n  for (int i = 0; s[i]; ++i)\n      if (s[i] == '.') ++dots;\n  return dots;\n}\n\nvoid WriteLine(string name, real x, real y)\n{\n  printf(\"%s;%.3f;%.3f\\n\", name, x, y);   // goes to the active output() file\n}",
+      "notes": "A function's scope starts after its closing brace, so define helpers above their callers. Use exit() to end the whole program from inside a function. Only builtin functions have reference (&) parameters such as strsplit(string &array[], ...); for results beyond the return value use global variables."
+    },
+    {
+      "name": "Operator precedence",
+      "kind": "reference",
+      "description": "Table of all User Language operators from the highest to the lowest precedence. All operators associate left to right except the unary, conditional and assignment operators, which associate right to left. Parentheses override the normal precedence.",
+      "usage": "Unary           ! ~ + - ++ --\nMultiplicative  * / %\nAdditive        + -\nShift           << >>\nRelational      < <= > >=\nEquality        == !=\nBitwise AND     &\nBitwise XOR     ^\nBitwise OR      |\nLogical AND     &&\nLogical OR      ||\nConditional     ?:\nAssignment      = *= /= %= += -= &= ^= |= <<= >>=\nComma           ,",
+      "example": "// & binds weaker than ==, so parenthesize flag tests:\nboard(B) output(\"nostop.txt\", \"wt\") B.elements(E) E.footprint.contacts(C)\n  if (C.pad && (C.pad.flags & PAD_FLAG_STOP) == 0)\n     printf(\"%s.%s has no stop mask\\n\", E.name, C.name);",
+      "notes": "As in C, a & b == 0 means a & (b == 0); always write (a & b) == 0."
+    },
+    {
+      "name": "Arithmetic operators",
+      "kind": "reference",
+      "description": "Operators for char, int and real values: unary plus and minus, pre/post increment and decrement, multiply, divide, remainder, add and subtract, plus the compound assignments. ++, --, % and %= are not available for real operands.",
+      "usage": "Unary:      +  -  ++  --\nBinary:     *  /  %  +  -\nAssignment: =  *=  /=  %=  +=  -=",
+      "example": "int n = 0;\nreal total = 0;\nboard(B) B.signals(S) S.wires(W) {\n  if (W.layer == LAYER_TOP) {\n     ++n;\n     total += u2mm(W.width);\n     }\n  }\nreal avg = n ? total / n : 0;",
+      "notes": "For strings, + and += mean concatenation (see String operators). int / int is an integer division."
+    },
+    {
+      "name": "Bitwise operators",
+      "kind": "reference",
+      "description": "Operators on the bits of char and int values: one's complement, shifts, AND, XOR and OR plus their compound assignments. They are used to test and combine flag values such as PAD_FLAG_..., SMD_FLAG_..., FRAME_BORDER_... or ATTRIBUTE_DISPLAY_FLAG_....",
+      "usage": "Unary:      ~\nBinary:     <<  >>  &  ^  |\nAssignment: &=  ^=  |=  <<=  >>=",
+      "example": "library(L) output(\"nocream.txt\", \"wt\") L.footprints(F) F.contacts(C) {\n  if (C.smd) {\n     int f = C.smd.flags;\n     if ((f & SMD_FLAG_CREAM) == 0)\n        printf(\"%s/%s: no cream\\n\", F.name, C.name);\n     }\n  }",
+      "notes": "Bitwise operators work only with char and int. Mind the precedence: & is weaker than ==."
+    },
+    {
+      "name": "Logical operators",
+      "kind": "reference",
+      "description": "Logical NOT, AND and OR work with expressions of any type and give 0 or non-zero. Applied to a string they test whether it is non-empty; applied to an object they test whether it contains valid data, which is how you check optional members such as W.arc, C.pad, E.package3d or DS.activedevice.",
+      "usage": "!expr     expr1 && expr2     expr1 || expr2",
+      "example": "board(B) B.elements(E) {\n  if (!E.value) printf(\"%s has no value\\n\", E.name);          // empty string\n  if (E.populate && !E.package3d) printf(\"%s has no 3D model\\n\", E.name);\n  }",
+      "notes": "Object types cannot be compared with == or !=; use them in a logical context instead."
+    },
+    {
+      "name": "Comparison operators",
+      "kind": "reference",
+      "description": "Relational and equality operators compare values of any data type (char, int, real, string) and return 1 or 0. Strings can be compared directly with == and !=, which makes name matching simple; object types cannot be compared.",
+      "usage": "<   <=   >   >=   ==   !=",
+      "example": "string Wanted = \"GND\";\nboard(B) B.signals(S) {\n  if (strupr(S.name) == Wanted) printf(\"found %s\\n\", S.name);\n  }\nif (EAGLE_VERSION < 9) dlgMessageBox(\"!This ULP needs EAGLE 9 or newer\");",
+      "notes": "String comparison is case-sensitive; normalize with strupr()/strlwr() for case-insensitive matches. Avoid == on real values that result from calculations; compare with a tolerance."
+    },
+    {
+      "name": "String operators",
+      "kind": "reference",
+      "description": "Concatenation operators for building text: + joins a string with another string or appends a character, and += appends to a string variable. The left operand must always be a string; the right operand may be a string, char or int, where char and int values are appended as a character code.",
+      "usage": "string + string     string + char     string += string|char",
+      "example": "string Cmd = \"\";\nboard(B) B.elements(E)\n  if (ingroup(E)) Cmd += \"SMASH \" + E.name + \";\\n\";\nstring Sep = \"Layer\" + ' ' + \"Top\";    // a char can be appended\nif (Cmd) exit(Cmd);",
+      "notes": "Pitfall: \"Count: \" + 42 appends the character with code 42 ('*'), not the text 42; format numbers with sprintf(). A char or int cannot be the left operand, so start the expression with a string (\"\" + c)."
+    },
+    {
+      "name": "Conditional and comma operators (?: ,)",
+      "kind": "reference",
+      "description": "The conditional operator cond ? a : b chooses between two values inside an expression, like a compact if/else. The comma operator evaluates several expressions from left to right and yields the type and value of the rightmost one; it is mainly used in the init and increment parts of a for loop.",
+      "usage": "condition ? expression_if_true : expression_if_false\nexpr1, expr2, ..., exprN      // value of exprN",
+      "example": "board(B) B.elements(E)\n  printf(\"%s;%s\\n\", E.name, E.mirror ? \"bottom\" : \"top\");\n\nstring A[] = { \"a\", \"b\", \"c\", \"d\" };\nint n = 4;\nfor (int i = 0, j = n - 1; i < j; ++i, --j) {\n    string t = A[i]; A[i] = A[j]; A[j] = t;     // reverse an array\n    }",
+      "notes": "Commas in argument lists and multiple variable definitions are separators, not the comma operator."
+    },
+    {
+      "name": "Expressions",
+      "kind": "reference",
+      "description": "An expression is an arithmetic expression (numeric operands with arithmetic or bitwise operators), an assignment expression (variable = value, +=, ...), a string expression (string/char operands with string operators), a comma expression, a conditional expression or a function call. Expressions can be nested and grouped with parentheses. In a function call the actual argument values replace the formal parameters.",
+      "usage": "a + b      c++      m << 1               // arithmetic\na = x + 42      b += c      s = \"Hello\"    // assignment\ns + \".brd\"      t + 'x'                    // string\ni++, j++, k++                              // comma\na ? \"True\" : \"False\"                       // conditional\nstrchr(s, 'b')                             // function call",
+      "example": "board(B) {\n  string Out = filesetext(B.name, \"\") + \"_bom\" + \".csv\";\n  int Pos = strrchr(Out, '_');\n  B.wires(W) {\n    real MidX = (u2mm(W.x1) + u2mm(W.x2)) / 2;\n    }\n  }",
+      "notes": "The result type of mixed arithmetic follows the Type conversions rules."
+    },
+    {
+      "name": "Compound, expression and empty statements",
+      "kind": "reference",
+      "description": "A compound statement (block) is a possibly empty list of statements in braces; it counts as one statement and limits the scope of identifiers declared inside it. An expression statement is an expression followed by a semicolon, usually an assignment or function call, whose side effects are complete before the next statement. A lone semicolon is the empty statement, useful where the syntax needs a statement but no action is required.",
+      "usage": "{ statement ... }        // compound statement, may be nested\nexpression;              // expression statement\n;                        // empty statement",
+      "example": "int Found = 0;\nboard(B) {\n  B.elements(E) {\n    int isIc = strstr(E.name, \"IC\") == 0;   // local to this block\n    if (isIc) ++Found;\n    }\n  }\nstring s = \"board.brd\";\nint i;\nfor (i = 0; s[i] && s[i] != '.'; ++i) ;     // empty statement as loop body",
+      "notes": "Statements run sequentially unless a control statement changes the flow. Builtin statements (board(), output(), ...) and definitions are statements too."
+    },
+    {
+      "name": "if...else",
+      "kind": "reference",
+      "description": "Executes a statement when the condition is non-zero and optionally another statement otherwise. The condition can be any expression; strings test non-empty and objects test valid. An else always belongs to the nearest preceding if without an else, so use braces when a different pairing is intended.",
+      "usage": "if (expression)\n   t_statement\n[else\n   f_statement]",
+      "example": "if (board) {\n   board(B) { /* ... */ }\n   }\nelse if (schematic) {\n   schematic(S) { /* ... */ }\n   }\nelse {\n   dlgMessageBox(\":Run this ULP in a board or schematic window.\");\n   exit(EXIT_FAILURE);\n   }",
+      "notes": "if (board) board(B) {...} is the usual guard, since board() without a board drawing terminates the ULP with an error."
+    },
+    {
+      "name": "switch",
+      "kind": "reference",
+      "description": "Transfers control to one of several case labels depending on the value of an integral expression, with an optional default label for unmatched values. Each case expression must be a constant integer that is unique within the switch. Execution falls through subsequent labels, so end each group with break.",
+      "usage": "switch (sw_exp) {\n  case case_exp: case_statement\n  ...\n  [default: def_statement]\n  }",
+      "example": "string Dir(int d)\n{\n  switch (d) {\n    case PIN_DIRECTION_IN:  return \"in\";\n    case PIN_DIRECTION_OUT: return \"out\";\n    case PIN_DIRECTION_IO:  return \"io\";\n    case PIN_DIRECTION_PWR:\n    case PIN_DIRECTION_SUP: return \"power\";\n    default:                return \"other\";\n    }\n}",
+      "notes": "sw_exp must be integral (char/int); switching on strings is not possible, use if/else with ==. At most one default label is allowed."
+    },
+    {
+      "name": "for",
+      "kind": "reference",
+      "description": "Loop with optional initialization, test and increment expressions: init runs once, then the statement runs while test is non-zero (or forever if test is missing), with inc evaluated after each pass. The init part may define the loop variable, whose scope extends to the end of the block enclosing the for loop.",
+      "usage": "for ([init]; [test]; [inc]) statement",
+      "example": "string Names[];\nint n = strsplit(Names, \"R1,R2,C1\", ',');\nfor (int i = 0; i < n; ++i)\n    printf(\"%d: %s\\n\", i, Names[i]);\n\nstring s = \"Trust no one!\";\nint sum = 0;\nfor (int k = 0; s[k]; ++k) sum += s[k];",
+      "notes": "Loop members of objects (B.elements(E) ...) are the usual way to iterate over design data; for is for arrays, strings and counters. Make sure test eventually becomes zero or leave the loop with break/return."
+    },
+    {
+      "name": "while",
+      "kind": "reference",
+      "description": "Repeats a statement as long as the condition is non-zero. The condition is checked before each pass, so the statement may not run at all. The statement (or the condition) must change the tested value, or the loop must be left with break or return.",
+      "usage": "while (condition) statement",
+      "example": "string lines[];\nint n = fileread(lines, \"parts.txt\");\nint i = 0;\nwhile (i < n && lines[i] != \"END\") {\n      printf(\"%s\\n\", lines[i]);\n      ++i;\n      }",
+      "notes": "For a loop that must run at least once use do...while."
+    },
+    {
+      "name": "do...while",
+      "kind": "reference",
+      "description": "Executes a statement and then repeats it while the condition is non-zero. Because the test comes after the statement, the body always runs at least once. The body must change the condition or leave with break/return to avoid an endless loop.",
+      "usage": "do statement while (condition);",
+      "example": "// iterate the positive partial polygons of a calculated signal polygon\nboard(B) B.signals(S) S.polygons(P) {\n  int i = 1, active;\n  do {\n     active = 0;\n     P.contours(W, i) { active = 1; /* use W */ }\n     ++i;\n     } while (active);\n  }",
+      "notes": "Note the semicolon after the closing parenthesis."
+    },
+    {
+      "name": "break",
+      "kind": "reference",
+      "description": "Immediately leaves the nearest enclosing do...while, for, switch or while statement. It also works inside object loop members (e.g. B.elements(E) { ... break; }), which makes it the way to stop an object loop early once the wanted object is found.",
+      "usage": "break;",
+      "example": "UL_ELEMENT Found;\nboard(B) {\n  B.elements(E) {\n    if (E.name == \"U1\") {\n       Found = E;\n       break;              // leaves the elements() loop\n       }\n    }\n  }",
+      "notes": "With nested loops and switches, break only exits the innermost one; check that it leaves the statement you intend."
+    },
+    {
+      "name": "continue",
+      "kind": "reference",
+      "description": "Skips the rest of the current loop pass: control goes to the test of the nearest enclosing do...while, while or for statement, and for a for loop to its increment expression first. Use it to filter items early in a loop body.",
+      "usage": "continue;",
+      "example": "string Names[];\nint n = fileread(Names, \"names.txt\");\nfor (int i = 0; i < n; ++i) {\n    if (!Names[i] || Names[i][0] == '#') continue;   // skip empty and comment lines\n    printf(\"%s\\n\", Names[i]);\n    }",
+      "notes": "continue affects loops only (not switch); in nested loops it applies to the innermost one. The help documents continue for do...while, while and for only (unlike break, not for object loop members), so inside B.elements(E) { ... } and similar loops skip items with if instead."
+    },
+    {
+      "name": "return",
+      "kind": "reference",
+      "description": "Ends the current function. A function with a non-void return type must contain at least one return with an expression compatible with that type, and the value becomes the result of the call; a void function may use return without an expression to leave early. To end the whole program use exit() instead.",
+      "usage": "return expression;     // non-void function\nreturn;                // void function",
+      "example": "string Side(int mirror)\n{\n  if (mirror) return \"bottom\";\n  return \"top\";\n}\n\nvoid Check(string name)\n{\n  if (!name) return;\n  printf(\"%s\\n\", name);\n}",
+      "notes": "In main(), the returned value becomes the program's return value."
+    },
+    {
+      "name": "EAGLE_VERSION, EAGLE_RELEASE, EAGLE_SIGNATURE, OS_SIGNATURE",
+      "kind": "system-variable",
+      "description": "Builtin constants that identify the running program and platform: EAGLE_VERSION and EAGLE_RELEASE are the program's version and release numbers as int, EAGLE_SIGNATURE is a string with program name, version and copyright, and OS_SIGNATURE is a string identifying the operating system (starting with e.g. Mac..., Windows... or Linux). Use them for version checks, log headers and OS-specific code such as system() calls.",
+      "usage": "int    EAGLE_VERSION;     // program version number\nint    EAGLE_RELEASE;     // program release number\nstring EAGLE_SIGNATURE;   // name, version and copyright text\nstring OS_SIGNATURE;      // operating system signature",
+      "example": "output(\"report.txt\", \"wt\") {\n  printf(\"Created by %s\\n\", EAGLE_SIGNATURE);\n  printf(\"on %s\\n\", OS_SIGNATURE);\n  }\nif (EAGLE_VERSION < 9 || (EAGLE_VERSION == 9 && EAGLE_RELEASE < 1))\n   dlgMessageBox(\"!Needs EAGLE 9.1 or newer\");\nint IsWindows = strstr(OS_SIGNATURE, \"Windows\") == 0;",
+      "notes": "To refuse older versions before the program is even parsed, use the #require directive instead."
+    },
+    {
+      "name": "EAGLE_PATH, EAGLE_DIR, EAGLE_HOME, eagle_epf",
+      "kind": "system-variable",
+      "description": "Builtin string constants with installation and user paths: EAGLE_PATH is the complete path of the EAGLE executable, EAGLE_DIR the installation directory ($EAGLEDIR), EAGLE_HOME the user's home directory at start-up ($HOME) and eagle_epf the complete path of the eagle.epf project file currently in use. Use them to locate shipped files or to place helper files in a user-writable place.",
+      "usage": "string EAGLE_PATH;   // full path of the EAGLE executable\nstring EAGLE_DIR;    // installation directory ($EAGLEDIR)\nstring EAGLE_HOME;   // user's home directory ($HOME)\nstring eagle_epf;    // full path of the eagle.epf in use",
+      "example": "string Dtd = EAGLE_DIR + \"/doc/eagle.dtd\";\nstring Tmp = EAGLE_HOME + \"/ulp-temp.txt\";\noutput(Tmp, \"wt\") printf(\"project file: %s\\n\", eagle_epf);",
+      "notes": "Build file names with '/' as separator; it works on all platforms. Paths may contain blanks, so quote them when passing to system()."
+    },
+    {
+      "name": "INT_MAX, INT_MIN, REAL_MAX, REAL_MIN, REAL_EPSILON, PI",
+      "kind": "system-variable",
+      "description": "Numeric builtin constants: INT_MAX and INT_MIN are the largest and smallest int values; REAL_MAX is the largest real value (the most negative is -REAL_MAX), REAL_MIN the smallest positive real value and REAL_EPSILON the smallest positive real for which 1.0 + REAL_EPSILON != 1.0. PI is the real value of pi, used with the trigonometric functions, which work in radians.",
+      "usage": "int  INT_MAX, INT_MIN;\nreal REAL_MAX, REAL_MIN, REAL_EPSILON;\nreal PI;   // 3.14159...",
+      "example": "int xmin = INT_MAX, xmax = INT_MIN;\nboard(B) B.elements(E) {\n  xmin = min(xmin, E.x);\n  xmax = max(xmax, E.x);\n  }\nreal rad = 45.0 * PI / 180;          // degrees -> radians\nreal dx = cos(rad);",
+      "notes": "Initialize minimum/maximum searches with INT_MAX/INT_MIN (or REAL_MAX/-REAL_MAX). Compare reals with a tolerance rather than ==."
+    },
+    {
+      "name": "path_lbr[], path_dru[], path_ulp[], path_scr[], path_cam[], path_epf[], used_libraries[]",
+      "kind": "system-variable",
+      "description": "String-array constants with the directories set in the Options/Directories dialog, with $HOME and $EAGLEDIR already expanded: libraries, design rules, User Language programs, scripts, CAM jobs and projects. Each path may hold several directories, one per array element, terminated by the first empty element. used_libraries[] lists the libraries currently in use through the USE command.",
+      "usage": "string path_lbr[];   // Libraries\nstring path_dru[];   // Design Rules\nstring path_ulp[];   // User Language Programs\nstring path_scr[];   // Scripts\nstring path_cam[];   // CAM Jobs\nstring path_epf[];   // Projects\nstring used_libraries[];",
+      "example": "output(\"libdirs.txt\", \"wt\")\n  for (int i = 0; path_lbr[i]; ++i) {\n      string f[];\n      int n = fileglob(f, path_lbr[i] + \"/*.lbr\");\n      printf(\"%s: %d libraries\\n\", path_lbr[i], n);\n      }\nstring MyLib = path_lbr[0] + '/' + \"mylib.lbr\";",
+      "notes": "The directory strings have no trailing separator: add '/' yourself when building file names. Loop until the first empty element rather than relying on a count."
+    },
+    {
+      "name": "board()",
+      "kind": "function",
+      "description": "Builtin statement that opens a board context: if the current editor window holds a board, a UL_BOARD variable with the given name is created and the statement is executed with access to it. Used without an argument, board is an integer constant that is 1 when a board is being edited and 0 otherwise. With the prefix project, the board belonging to a schematic can be read from the schematic window.",
+      "usage": "board(identifier) statement\nif (board) ...                       // 1 if the current window holds a board\nproject.board(identifier) statement  // board of the project, e.g. from the schematic",
+      "example": "if (board) board(B) {\n   output(filesetext(B.name, \".xy\"), \"wt\") {\n     printf(\"Name;Value;Package;X(mm);Y(mm);Angle;Side\\n\");\n     B.elements(E)\n       printf(\"%s;%s;%s;%.3f;%.3f;%.1f;%s\\n\", E.name, E.value, E.footprint.name,\n              u2mm(E.x), u2mm(E.y), E.angle, E.mirror ? \"bottom\" : \"top\");\n     }\n   }\nelse dlgMessageBox(\":Start this ULP in a board window.\");",
+      "notes": "Without a board drawing, board(B) gives an error and terminates the ULP, so guard it with if (board). project.board(B) needs an editor window with that board open somewhere; guard it with if (project.board). B.name is the full file name of the .brd."
+    },
+    {
+      "name": "schematic()",
+      "kind": "function",
+      "description": "Builtin statement that opens a schematic context: if the current editor window holds a schematic, a UL_SCHEMATIC variable is created and the statement is executed with access to parts, nets, sheets, modules and attributes. Without an argument, schematic is 1 when a schematic is being edited and 0 otherwise. With the prefix project, the schematic of a board can be read from the board window.",
+      "usage": "schematic(identifier) statement\nif (schematic) ...\nproject.schematic(identifier) statement",
+      "example": "if (schematic) schematic(SCH) {\n   output(filesetext(SCH.name, \".bom.txt\"), \"wt\") {\n     SCH.allparts(P)                       // includes virtual parts of module instances\n       if (P.device.footprint && P.populate)\n          printf(\"%-8s %-12s %s\\n\", P.name, P.value, P.device.footprint.name);\n     }\n   }",
+      "notes": "Use sheet() for the sheet currently shown and module() for the module being edited. project.schematic needs the schematic open in an editor window. parts() only returns the parts of the main schematic; allparts() and allnets() also include the virtual parts/nets created by module instances."
+    },
+    {
+      "name": "library()",
+      "kind": "function",
+      "description": "Builtin statement that opens a library context when the current editor window holds a library: a UL_LIBRARY variable is created and gives access to devicesets, devices, footprints, 3D packages, symbols and layers. Without an argument, library is 1 if a library is being edited and 0 otherwise.",
+      "usage": "library(identifier) statement\nif (library) ...",
+      "example": "if (library) library(L) {\n   output(filesetext(L.name, \".txt\"), \"wt\") {\n     L.devicesets(DS) {\n       printf(\"%s (prefix %s)\\n\", DS.name, DS.prefix);\n       DS.devices(D)\n         printf(\"  %s -> %s\\n\", D.name, D.footprint ? D.footprint.name : \"(no footprint)\");\n       }\n     }\n   }",
+      "notes": "L.name is the full file name when opened from a library window, but only the library name when a UL_LIBRARY is reached from a board or schematic (B.libraries(L)). description and headline are only available in a library drawing."
+    },
+    {
+      "name": "deviceset()",
+      "kind": "function",
+      "description": "Builtin statement that opens a device set context when the current editor window shows a device (device set) in the library editor. A UL_DEVICESET variable is created, giving access to its gates, devices and, via activedevice, the package variant selected with the PACKAGE command. Without an argument, deviceset is 1 when a device drawing is being edited and 0 otherwise.",
+      "usage": "deviceset(identifier) statement\nif (deviceset) ...",
+      "example": "if (deviceset) deviceset(DS) {\n   string s = DS.name + \" gates:\";\n   DS.gates(G) s += \" \" + G.name + \"(\" + G.symbol.name + \")\";\n   if (DS.activedevice) s += \"\\nactive variant: \" + DS.activedevice.name;\n   dlgMessageBox(s);\n   }",
+      "notes": "Only works in a library editor window that currently shows a device; in the library overview or a symbol/footprint drawing it fails, so guard with if (deviceset)."
+    },
+    {
+      "name": "symbol()",
+      "kind": "function",
+      "description": "Builtin statement that opens a symbol context when the current library editor window shows a symbol drawing. A UL_SYMBOL variable is created, giving access to the pins, texts, wires and other drawing objects of the symbol. Without an argument, symbol is 1 when a symbol is being edited and 0 otherwise.",
+      "usage": "symbol(identifier) statement\nif (symbol) ...",
+      "example": "if (symbol) symbol(S) {\n   output(\"pins.txt\", \"wt\")\n     S.pins(P)\n       printf(\"%s\\t%.2f\\t%.2f\\tdir=%d\\n\", P.name, u2mm(P.x), u2mm(P.y), P.direction);\n   }",
+      "notes": "Pin coordinates are in internal units; symbols are normally drawn on a 0.1 inch grid, so u2inch() or u2mil() are often more readable than u2mm()."
+    },
+    {
+      "name": "sheet()",
+      "kind": "function",
+      "description": "Builtin statement that opens a sheet context for the schematic sheet currently shown in the editor window. A UL_SHEET variable is created with access to the sheet's instances, nets (with segments), busses, module instances and drawing objects. Without an argument, sheet is 1 when a sheet drawing is being edited and 0 otherwise.",
+      "usage": "sheet(identifier) statement\nif (sheet) ...",
+      "example": "if (sheet) sheet(SH) {\n   output(\"sheet-nets.txt\", \"wt\") {\n     printf(\"Sheet %d\\n\", SH.number);\n     SH.nets(N) N.segments(SEG) SEG.pinrefs(P)\n       printf(\"%s: %s.%s\\n\", N.name, P.part.name, P.pin.name);\n     }\n   }",
+      "notes": "Net segments, labels and junctions are only reachable in a sheet context (UL_SHEET.nets()), not through UL_SCHEMATIC.nets(). To visit all sheets use schematic(S) S.sheets(SH) ..."
+    },
+    {
+      "name": "module()",
+      "kind": "function",
+      "description": "Builtin statement that opens a module context when a module (hierarchical sub-circuit) is currently being edited in the schematic editor window. A UL_MODULE variable is created with access to the module's parts, ports, sheets and variant definitions. Without an argument, module is 1 when a module drawing is being edited and 0 otherwise.",
+      "usage": "module(identifier) statement\nif (module) ...",
+      "example": "if (module) module(M) {\n   string s = \"Module \" + M.name + \" ports:\";\n   M.ports(P) s += \" \" + P.name;\n   dlgMessageBox(s);\n   }\nelse dlgMessageBox(\"No module is being edited.\");",
+      "notes": "To visit all modules of a design use schematic(S) S.modules(M) ... instead."
+    },
+    {
+      "name": "footprint()",
+      "kind": "function",
+      "description": "Builtin statement (new in EAGLE 9.1) that opens a footprint context when the current library editor window shows a footprint (package) drawing. A UL_FOOTPRINT variable is created with access to contacts (pads/SMDs), holes, wires, texts and other objects of the footprint. Without an argument, footprint is 1 when a footprint is being edited and 0 otherwise.",
+      "usage": "footprint(identifier) statement      // EAGLE 9.1+, alias: package(identifier)\nif (footprint) ...",
+      "example": "#require 9.0100\nif (footprint) footprint(F) {\n   int pads = 0, smds = 0;\n   F.contacts(C) { if (C.pad) ++pads; else if (C.smd) ++smds; }\n   string s;\n   sprintf(s, \"%s: %d pads, %d SMDs\", F.name, pads, smds);\n   dlgMessageBox(s);\n   }",
+      "notes": "For older EAGLE versions the same statement is called package(), which remains available as an alias."
+    },
+    {
+      "name": "output()",
+      "kind": "function",
+      "description": "Builtin statement that opens a file for the printf() calls executed inside its statement and closes it afterwards. The mode string controls append or overwrite, text or binary, deletion at session end and whether design file names may be written. If the file cannot be opened, an error is shown and the ULP ends; output statements can be nested as long as they write to different files.",
+      "usage": "output(string filename[, string mode]) statement\nmode (default \"wt\"):\n  a  append (create if missing)      w  create/overwrite\n  t  text mode                       b  binary mode\n  D  delete the file when the EAGLE session ends (only with w)\n  F  force this file name (*.brd, *.sch, *.lbr are otherwise rejected)",
+      "example": "board(B) {\n  string File = dlgFileSave(\"Save part list\", filesetext(B.name, \".csv\"), \"*.csv\");\n  if (!File) exit(0);\n  fileerror();\n  output(File, \"wt\") {\n    printf(\"Name;Value;Package\\n\");\n    B.elements(E) printf(\"%s;%s;%s\\n\", E.name, E.value, E.footprint.name);\n    }\n  if (fileerror()) exit(1);\n  }",
+      "notes": "A relative file name is written into the project directory, so pass an absolute path (e.g. from dlgFileSave() or filesetext(B.name, ...)) when the location matters. Of a/w and t/b only the last one given counts (\"abtw\" equals \"wt\"). Use mode \"wtD\" for temporary script files handed to exit(\"SCRIPT ...\"). A common pattern is to write a .scr with output() and then exit(\"SCRIPT 'file.scr'\")."
+    }
+  ]
+}

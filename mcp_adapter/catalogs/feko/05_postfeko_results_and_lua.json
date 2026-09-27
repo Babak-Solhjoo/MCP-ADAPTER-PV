@@ -1,0 +1,261 @@
+{
+  "category": "POSTFEKO: results, visualisation, data export and Lua",
+  "description": "POSTFEKO reads the solver's .fek/.bof pair and turns it into 3D views, Cartesian/polar/Smith graphs and exported data. Every result type Feko can compute is listed here with the quantity names to look for, followed by the pf Lua API used for headless extraction (postfeko --non-interactive --run-script) and the export formats other tools can consume. Names were verified on an installed POSTFEKO (config.Excitations, config.Power, GetDataSet axes/quantities) and against the POSTFEKO API reference.",
+  "tools": [
+    {
+      "name": "Opening results (pf.GetApplication, OpenFile, Models, Configurations)",
+      "kind": "api",
+      "description": "A POSTFEKO script starts from the application object, opens one or more solved models (.fek with the .bof next to it) and walks Models -> Configurations -> result collections: FarFields, NearFields, Excitations (the sources), Loads, Networks, TransmissionLines, SParameters, Power (one item), SurfaceCurrents, WireCurrents, SAR, ReceivingAntennas, ErrorEstimates, CharacteristicModes, TRCoefficients, Rays, SpiceProbes, FarFieldPowerIntegrals, NearFieldPowerIntegrals, ReciprocalExcitations, plus the configuration Mesh and StartFrequency/EndFrequency.",
+      "usage": "app = pf.GetApplication(); app:NewProject(); app:OpenFile(path); model = app.Models[1] (or app.Models[\"name\"]); cfg = model.Configurations[1] (or by label such as \"StandardConfiguration1\")",
+      "parameters": [],
+      "example": "app = pf.GetApplication()\napp:OpenFile([[D:/work/dipole.fek]])\nmodel = app.Models[1]\ncfg = model.Configurations[1]\nprint(cfg.Label, cfg.FarFields.Count, cfg.Excitations.Count)\nprintlist(app.Models:Items())",
+      "notes": "Index collections by number or by the request label given in CADFEKO. There is no cfg.Sources, cfg.Powers or cfg.Currents: use Excitations, Power, SurfaceCurrents/WireCurrents.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/solutionconfiguration.htm"
+    },
+    {
+      "name": "Far-field results (gain, directivity, realised gain, E-field, axial ratio, polarisation)",
+      "kind": "result",
+      "description": "Per frequency and theta/phi sample the data set holds EFieldTheta and EFieldPhi (complex, V) and the linear DirectivityFactor, GainFactor and RealisedGainFactor; traces and plots derive total/theta/phi/LHC/RHC/Ludwig-3 components, axial ratio, handedness, total radiated power and, with plane-wave sources, RCS. POSTFEKO also derives beamwidth, sidelobe level and front-to-back ratio with graph annotations.",
+      "usage": "ff = cfg.FarFields[1]; ds = ff:GetDataSet(); v = ds[iFreq][iTheta][iPhi]; gain = (|v.EFieldTheta|^2 + |v.EFieldPhi|^2) * v.GainFactor; 10*math.log10(gain) gives dBi; ds.Axes[\"Theta\"]:ValueAt(i)",
+      "parameters": [
+        {
+          "name": "coordinate system",
+          "description": "Spherical about the request origin; can be re-oriented in the request workplane."
+        }
+      ],
+      "example": "ff = cfg.FarFields[1]\nds = ff:GetDataSet()\nprint(ds)  -- lists axes Frequency, Theta, Phi and the quantities\nlocal v = ds[1][19][1]  -- theta = 90 deg on a 5-degree grid\nlocal et, ep = v.EFieldTheta, v.EFieldPhi\nlocal e2 = et.re^2 + et.im^2 + ep.re^2 + ep.im^2\nprint(string.format(\"gain at theta=90: %.2f dBi\", 10*math.log10(e2 * v.GainFactor)))  -- 2.12 dBi for the half-wave dipole",
+      "notes": "Gain assumes lossless matching; use RealisedGainFactor for mismatch-inclusive numbers. Total radiated power appears under 'Power'. DirectivityFactor, GainFactor and RealisedGainFactor are per-frequency scale factors, not the pattern itself: directivity/gain = (|EFieldTheta|^2 + |EFieldPhi|^2) x factor (run-verified on 2026.1: 2.12 dBi broadside for a half-wave dipole; 10*log10(GainFactor) alone gives a wrong 3.6 dBi).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/farfielddata.htm"
+    },
+    {
+      "name": "Far-field plots: 3D pattern, polar and Cartesian cuts",
+      "kind": "menu",
+      "description": "3D views render the pattern surface on the model (linear or dB scale, colour by quantity, optional phase animation); polar graphs show cuts (theta or phi fixed) with beamwidth/sidelobe annotations; Cartesian graphs plot gain versus angle or frequency. Traces choose the quantity type and component and the independent axis, and fix the remaining axes.",
+      "usage": "Home > Far field (3D view) / Polar graph / Cartesian graph; Lua: g = app.CartesianGraphs:Add() (or app.PolarGraphs:Add()); t = g.Traces:Add(cfg.FarFields[1]); t.Quantity.Type = pf.Enums.FarFieldQuantityTypeEnum.Gain; t.Quantity.Component = pf.Enums.FarFieldQuantityComponentEnum.Total; t.Quantity.ValuesScaledToDB = true; t.IndependentAxis = \"Theta\"; t:SetFixedAxisValue(\"Frequency\", 1.0, \"GHz\"); v = app.Views[1]; plot = v.Plots:Add(cfg.FarFields[1])",
+      "parameters": [],
+      "example": "g = app.PolarGraphs:Add()\nt = g.Traces:Add(cfg.FarFields[1])\nt.Quantity.Type = pf.Enums.FarFieldQuantityTypeEnum.Gain\nt.Quantity.ValuesScaledToDB = true\nt.IndependentAxis = \"Theta\"\nt:SetFixedAxisValue(\"Phi\", 0, \"deg\")\ng:ExportImage([[D:/work/cut]], \"png\", 1200, 800)",
+      "notes": "Set IndependentAxis to \"Frequency\" to plot gain versus frequency at a fixed direction; printlist(t.IndependentAxesAvailable) lists the options.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/farfieldtrace.htm"
+    },
+    {
+      "name": "RCS results (monostatic and bistatic)",
+      "kind": "result",
+      "description": "With a plane-wave source the far-field request yields radar cross section (total and polarisation components); monostatic RCS versus angle comes from a multiple-incidence-angle source with the far field observed in the incident direction (IncidentTheta/IncidentPhi axes), bistatic RCS from one incidence and a full pattern.",
+      "usage": "t.Quantity.Type = pf.Enums.FarFieldQuantityTypeEnum.RCS; t.Quantity.ValuesScaledToDB = true (dBsm); IndependentAxis = \"Theta\" for bistatic or the incidence-angle axis for monostatic sweeps",
+      "parameters": [],
+      "example": "t = g.Traces:Add(cfg.FarFields[1])\nt.Quantity.Type = pf.Enums.FarFieldQuantityTypeEnum.RCS\nt.Quantity.ValuesScaledToDB = true",
+      "notes": "For RCS request the far field only in the incident direction (AddRequestInPlaneWaveIncidentDirection) to keep the run fast; example C.2 (RCS of a dielectric sphere).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/enum/farfieldquantitytypeenum.htm"
+    },
+    {
+      "name": "Near-field results (E, H, Poynting vector, potentials)",
+      "kind": "result",
+      "description": "Complex E and H components (EFieldComp1..3, HFieldComp1..3 in the request's coordinate system), magnitudes, phase, Poynting vector (power density), flux densities and potentials on the requested grids; shown as colour maps, iso-surfaces, vector arrows and line plots or exported to .efe/.hfe. GetMediaDataSet returns the medium at each point.",
+      "usage": "nf = cfg.NearFields[1]; ds = nf:GetDataSet(); v = ds[iFreq][ix][iy][iz].EFieldComp1; plot quantity: pf.Enums.NearFieldQuantityTypeEnum.EField | HField | Poynting | SAR ...",
+      "parameters": [],
+      "example": "nf = cfg.NearFields[\"NearField1\"]\nds = nf:GetDataSet()\ne = ds[1][1][1][1].EFieldComp3\nprint(e.re, e.im)",
+      "notes": "Field values are per 1 V source unless power scaling is set in the model.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/nearfielddata.htm"
+    },
+    {
+      "name": "Currents and charges on the mesh",
+      "kind": "result",
+      "description": "Surface current density (A/m) and wire currents (A), electric/magnetic currents and charge density, plotted as colour/arrows on the geometry with phase animation; the fastest diagnostic for feed problems, resonances, symmetry errors and coupling paths. Exported as .os/.ol.",
+      "usage": "sc = cfg.SurfaceCurrents[1]; wc = cfg.WireCurrents[1]; ds = sc:GetDataSet(); plot = app.Views[1].Plots:Add(sc); plot.Quantity.Type = pf.Enums.SurfaceCurrentsQuantityTypeEnum.ElectricCurrents | MagneticCurrents | Charges",
+      "parameters": [],
+      "example": "plot = app.Views[1].Plots:Add(cfg.SurfaceCurrents[1])\nplot:SetFixedAxisValue(\"Frequency\", 1.0, \"GHz\")\nplot.Visualisation.FlatShaded = true",
+      "notes": "Animate phase (view.Animation.Type = pf.Enums.AnimationTypeEnum.Phase) to see standing versus travelling waves.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/surfacecurrentsdata.htm"
+    },
+    {
+      "name": "S-parameters, Smith chart and Touchstone export",
+      "kind": "result",
+      "description": "Scattering parameters from an S-parameter configuration: magnitude (linear/dB), phase, real/imag, VSWR, on Cartesian graphs or the Smith chart; the data set has a Frequency axis and an S-parameter axis (\"Arbitrary\", values such as \"S2,1\") with the complex quantity SParameter; export to Touchstone .sNp for circuit simulators or to CSV/tab text.",
+      "usage": "sp = cfg.SParameters[1]; ds = sp:GetDataSet(); s21 = ds[iFreq][iPort].SParameter; t = g.Traces:Add(sp); t:SetFixedAxisValue(\"S-parameter\", \"S2,1\"); sp:ExportData(filename, pf.Enums.FrequencyUnitEnum.GHz, pf.Enums.NetworkParameterTypeEnum.Scattering, pf.Enums.NetworkParameterFormatEnum.RI, 50, samples)",
+      "parameters": [],
+      "example": "sp = app.Models[1].Configurations[\"SParameterConfiguration1\"].SParameters[1]\ng = app.CartesianGraphs:Add()\nt = g.Traces:Add(sp)\nt:SetFixedAxisValue(\"S-parameter\", \"S1,1\")\nt.Quantity.ValuesScaledToDB = true\nsp:ExportData([[D:/work/filter]], pf.Enums.FrequencyUnitEnum.GHz, pf.Enums.NetworkParameterTypeEnum.Scattering, pf.Enums.NetworkParameterFormatEnum.RI, 50, 201)",
+      "notes": "Feko normalises S-parameters to the reference impedances set in the request; app.SmithCharts:Add() plots impedance loci.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/sparameterdata.htm"
+    },
+    {
+      "name": "Source (excitation) data: input impedance, admittance, reflection coefficient, VSWR, power",
+      "kind": "result",
+      "description": "For every source (voltage/current/waveguide/modal): the data set has a Frequency axis with the quantities Impedance (complex, Ohm), Admittance (S), Voltage (V), Current (A), Power (W), MismatchLoss and SourceType; traces add ReflectionCoefficient, VSWR, SourcePower and MismatchPowerLoss relative to the reference impedance. S11 of a single-port antenna comes from here when no S-parameter configuration exists.",
+      "usage": "ex = cfg.Excitations[1]; ds = ex:GetDataSet(); z = ds[iFreq].Impedance; z.re, z.im; t = g.Traces:Add(ex); t.Quantity.Type = pf.Enums.ImpedanceQuantityTypeEnum.ReflectionCoefficient; t.Quantity.ValuesScaledToDB = true; ds = pf.Excitation.GetDataSet(\"model.StandardConfiguration1.VoltageSource1\")",
+      "parameters": [],
+      "example": "ds = cfg.Excitations[1]:GetDataSet()\nfor i = 1, ds.Axes[\"Frequency\"].Count do\n  local z = ds[i].Impedance\n  print(ds.Axes[\"Frequency\"]:ValueAt(i), z.re, z.im)\nend",
+      "notes": "The same numbers are printed in the .out file under 'DATA OF THE VOLTAGE SOURCE NO. n'. The enum is ImpedanceQuantityTypeEnum (there is no SourceQuantityTypeEnum and no pf.Source object).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/excitationdata.htm"
+    },
+    {
+      "name": "Load, transmission line and network data",
+      "kind": "result",
+      "description": "Voltage, current, impedance and power at every load, transmission line port and network port, used for receiving antennas, matching networks and cable terminations; network and load data sets have a Frequency axis and a port axis (\"Arbitrary\").",
+      "usage": "cfg.Loads[1]:GetDataSet(); cfg.TransmissionLines[1]:GetDataSet(); cfg.Networks[1]:GetDataSet(); trace quantity: pf.Enums.NetworkQuantityTypeEnum.Power | Voltage | Current | Impedance | InPower",
+      "parameters": [],
+      "example": "ld = cfg.Loads[1]\nprint(ld:GetDataSet())\nt = g.Traces:Add(cfg.Networks[\"MatchingNetwork\"])\nt.Quantity.Type = pf.Enums.NetworkQuantityTypeEnum.Power",
+      "notes": "Power in loads is what a receiver would see (link budget).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/networkdata.htm"
+    },
+    {
+      "name": "Power: radiated, source, loss and efficiency",
+      "kind": "result",
+      "description": "Power budget per configuration: active source power, losses (dielectric, lossy metal, loads, mismatch, networks, cables) and the resulting efficiency; the basis of antenna efficiency numbers. The configuration holds exactly one Power item.",
+      "usage": "pw = cfg.Power[1]; ds = pw:GetDataSet(); ds[iFreq].ActivePower; trace quantity: pf.Enums.PowerQuantityTypeEnum.ActivePower | LossPower | Efficiency",
+      "parameters": [],
+      "example": "pw = cfg.Power[1]\nprint(pw:GetDataSet())",
+      "notes": "Efficiency needs a full 3D far-field request (or the power request) to integrate radiated power; the .out file has the 'SUMMARY OF LOSSES' block.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/powerdata.htm"
+    },
+    {
+      "name": "SAR results",
+      "kind": "result",
+      "description": "Spatial-peak (1 g/10 g) and volume-average SAR values and their locations, as 3D colour plots inside phantoms and as maxima tables; scaled by the model's power settings.",
+      "usage": "sar = cfg.SAR[1]; ds = sar:GetDataSet(); plot = app.Views[1].Plots:Add(sar); trace quantity: pf.Enums.SARQuantityTypeEnum.PeakSAR | AverageOverRequestedDomain | AverageOverTotalDomain",
+      "parameters": [],
+      "example": "sar = cfg.SAR[1]\nprint(sar:GetDataSet())",
+      "notes": "Compare against limits (e.g. 1.6 W/kg 1 g, 2 W/kg 10 g) at the specified input power; the .out file block is 'SPATIAL-PEAK SPECIFIC ABSORPTION RATE'.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/sardata.htm"
+    },
+    {
+      "name": "Characteristic mode results (eigenvalues, modal significance, characteristic angle)",
+      "kind": "result",
+      "description": "From a CMA configuration: EigenValue, ModalSignificance (1 at resonance), CharacteristicAngle (180 deg at resonance), ModalExcitationCoefficient and ModalWeightingCoefficient per mode versus frequency (axes Frequency and Mode), plus modal currents and modal far fields on 3D views.",
+      "usage": "cm = cfg.CharacteristicModes[1]; ds = cm:GetDataSet(); ds[iFreq][iMode].EigenValue; t = g.Traces:Add(cm); t.IndependentAxis = \"Frequency\"; t:SetFixedAxisValue(\"Mode index\", 2, \"\"); t.Quantity.Type = pf.Enums.CharacteristicModeQuantityTypeEnum.ModalSignificance",
+      "parameters": [],
+      "example": "cm = app.Models[1].Configurations[\"CharacteristicModeConfiguration1\"].CharacteristicModes[1]\nt = app.CartesianGraphs:Add().Traces:Add(cm)\nt.IndependentAxis = \"Frequency\"\nt:SetFixedAxisValue(\"Mode index\", 1, \"\")",
+      "notes": "Mode tracking must be enabled in the request for consistent mode numbering across frequency; the POSTFEKO macros 'Characteristic Mode Analysis plotter' and 'Characteristic Mode Synthesis and Design' automate typical plots.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/characteristicmodedata.htm"
+    },
+    {
+      "name": "Receiving antenna and error-estimate results",
+      "kind": "result",
+      "description": "Received power, loss power, efficiency and relative signal phase at ideal receiving antennas (ReceivingAntennaQuantityTypeEnum); error estimate plots highlight mesh regions with poor accuracy (ErrorEstimateQuantityTypeEnum per element type).",
+      "usage": "cfg.ReceivingAntennas[1]:GetDataSet(); app.Views[1].Plots:Add(cfg.ErrorEstimates[1])",
+      "parameters": [],
+      "example": "rx = cfg.ReceivingAntennas[\"FarFieldReceivingAntenna1\"]\nprint(rx:GetDataSet())",
+      "notes": "Received power relative to source power gives the coupling in dB; the .out block is 'RECEIVED POWER FOR IDEAL RECEIVING ANTENNA'.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/receivingantennadata.htm"
+    },
+    {
+      "name": "Cable results",
+      "kind": "result",
+      "description": "Currents and voltages at cable probes and connector loads, powers at terminations and shield currents; used for induced-signal (immunity) and emission studies of harnesses. Cable probe and load results are opened like other results from the configuration (loads under Loads; SPICE circuit probes under SpiceProbes) and plotted versus frequency.",
+      "usage": "cfg.Loads[\"CableLoad1\"]:GetDataSet(); cfg.SpiceProbes[1]; Cartesian graph traces with NetworkQuantityTypeEnum quantities",
+      "parameters": [],
+      "example": "-- Cartesian graph: cable load voltage vs frequency\nt = app.CartesianGraphs:Add().Traces:Add(cfg.Loads[1])\nt.Quantity.Type = pf.Enums.NetworkQuantityTypeEnum.Voltage",
+      "notes": "Convert to dBuV for EMC limit comparison with a math script or trace math expression; the exact collection holding cable-probe results in the installed release was not verified, check printlist(cfg.Loads:Items()) and the result palette.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/cables_intro_feko_c-cadfeko.htm"
+    },
+    {
+      "name": "Time-domain analysis (frequency to time transform)",
+      "kind": "tool",
+      "description": "POSTFEKO converts broadband frequency-domain results (from a discrete or continuous sweep) into time signals for a chosen excitation pulse (Gaussian, ramp, triangular, custom): transient currents, fields, port signals and time-domain RCS/pulse responses without an explicit time-domain solver. The results are stored as time-domain stored data (TimeFarField, TimeNearField, TimeSource, TimeLoad).",
+      "usage": "Home > Time analysis: define the pulse and select the result; stored data types pf.Enums.StoredDataTypeEnum.TimeFarField / TimeNearField / TimeSource / TimeLoad and math script types pf.Enums.MathScriptTypeEnum.TimeFarField etc.",
+      "parameters": [
+        {
+          "name": "pulse",
+          "description": "Type, width/rise time, delay; bandwidth must fit the simulated frequency range."
+        }
+      ],
+      "example": "-- GUI: Time analysis > Gaussian pulse 1 ns > near-field probe -> time trace (example G.1 in the Example Guide)",
+      "notes": "The frequency sweep must be fine and wide enough (Nyquist) for a clean time signal; no dedicated pf.TimeAnalysis object was found in the API reference, so set the time analysis up in the GUI or through the Time* math script types.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/postfeko/time_domain_intro_feko_c-postfeko.htm"
+    },
+    {
+      "name": "Data sets (pf.DataSet): axes, quantities, indexing and math",
+      "kind": "api",
+      "description": "Every result is a DataSet with Axes (e.g. Frequency, Theta, Phi, X/Y/Z, Mode, Arbitrary) and Quantities (scalar, complex, enum). Values are addressed by one index per axis (ds[i] for one axis, ds[i][j][k] for three), complex values expose .re and .im, and helper functions iterate, combine and store data sets for plotting or export.",
+      "usage": "ds = request:GetDataSet([samplePoints] | [startFreq, endFreq, samplePoints]); ds.Axes[\"Frequency\"].Count; #ds.Axes[\"Theta\"]; ds.Axes[\"Theta\"]:ValueAt(i); ds.Quantities[i].Name; v = ds[i][j][k]; gain = (|v.EFieldTheta|^2 + |v.EFieldPhi|^2) * v.GainFactor; print(ds) describes the structure; inspect(ds) lists the contents",
+      "parameters": [],
+      "example": "ds = cfg.Excitations[1]:GetDataSet()\nfor f = 1, ds.Axes[\"Frequency\"].Count do\n  local z = ds[f].Impedance\n  print(ds.Axes[\"Frequency\"]:ValueAt(f), z.re, z.im)\nend",
+      "notes": "Field names of quantities follow the request type (EFieldTheta/EFieldPhi/DirectivityFactor/GainFactor/RealisedGainFactor for far fields; Impedance/Admittance/Voltage/Current/Power for excitations; SParameter for S-parameters); print(ds) lists them for the installed version.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/dataset.htm"
+    },
+    {
+      "name": "Math scripts and custom quantities",
+      "kind": "tool",
+      "description": "Math scripts are Lua snippets attached to the session that return a DataSet built from existing results (e.g. axial ratio in dB across a band, efficiency, coupling S21 minus S11, dBuV conversions); they behave like any other result for plotting and export and re-run when the .bof files change. They are created per result type (FarField, NearField, Source, SParameter, Custom ...) and use the static path-based accessors.",
+      "usage": "ms = app.MathScripts:Add(pf.Enums.MathScriptTypeEnum.FarField); ms.Script = [[ ... return dataSet ]]; ms:Run(); plot = app.Views[1].Plots:Add(ms); inside the script: pf.FarField.GetDataSet(\"model.StandardConfiguration1.FarField1\", samples), pf.Excitation.GetDataSet(\"model.StandardConfiguration1.VoltageSource1\"), pf.SParameter.GetDataSet(...)",
+      "parameters": [],
+      "example": "ms = app.MathScripts:Add(pf.Enums.MathScriptTypeEnum.FarField)\nms.Script = [[\nds = pf.FarField.GetDataSet(\"dipole.StandardConfiguration1.FarField1\", 51)\nfor f = 1, #ds.Axes[\"Frequency\"] do for t = 1, #ds.Axes[\"Theta\"] do for p = 1, #ds.Axes[\"Phi\"] do\n  ds[f][t][p].EFieldTheta = ds[f][t][p].EFieldTheta * 2\nend end end\nreturn ds\n]]\nms:Run()",
+      "notes": "Result paths use model.configuration.request labels; copy them from the project browser. A Custom math script builds a data set from scratch with pf.DataSet.New().",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/mathscript.htm"
+    },
+    {
+      "name": "Graphs: Cartesian, polar, Smith chart, traces and formatting",
+      "kind": "api",
+      "description": "Create graphs, add traces from requests, stored data or math scripts, choose the quantity/component/dB scaling, fix the independent axis (Frequency, Theta, Phi ...), set axis ranges, titles, legends and markers, add annotations (beamwidth, bandwidth, min/max) and export the image or the trace data.",
+      "usage": "g = app.CartesianGraphs:Add() | app.PolarGraphs:Add() | app.SmithCharts:Add(); t = g.Traces:Add(data); t.Quantity.Type / Component / ValuesScaledToDB; t.IndependentAxis; t:SetFixedAxisValue(axis, value, unit); g.Legend.Position = pf.Enums.GraphLegendPositionEnum.OverlayBottomRight; g.HorizontalAxis / VerticalAxis; g:SetSize(w, h); g:ZoomToExtents(); g:ExportImage(filename, \"png\"[, width, height]); g:ExportTraces(filename, samples)",
+      "parameters": [],
+      "example": "g = app.CartesianGraphs:Add()\nt = g.Traces:Add(cfg.Excitations[1])\nt.Quantity.Type = pf.Enums.ImpedanceQuantityTypeEnum.ReflectionCoefficient\nt.Quantity.ValuesScaledToDB = true\ng:SetSize(800, 400)\ng:ExportImage([[D:/work/s11]], \"png\", 1200, 800)\ng:ExportTraces([[D:/work/s11.txt]], 201)",
+      "notes": "ExportImage takes the file name without extension plus the format string; ExportTraces writes a tab-separated file. DuplicateAsPolar/DuplicateAsSmith/DuplicateAsCartesian convert graph types.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/cartesiangraph.htm"
+    },
+    {
+      "name": "3D views: plots, annotations, animation and image export",
+      "kind": "api",
+      "description": "3D views show the mesh/geometry with far-field surfaces, near-field planes/iso-surfaces, current colour maps, SAR, error estimates, rays and custom data; scripts add plots, choose the plot type and fixed axes, set legends/ranges, orient the camera and export images or animations (phase, frequency, theta/phi rotation, time step).",
+      "usage": "v = app.Views[1] | app.Views:Add(cfg); plot = v.Plots:Add(request); plot.PlotType = \"Phi cut\" (see plot.PlotTypesAvailable); plot:SetFixedAxisValue(\"Frequency\", 7.0, \"GHz\"); plot.Quantity.Type; plot.Legend.LinearRange.Type = pf.Enums.LinearScaleRangeTypeEnum.Fixed; v:SetViewDirection(pf.Enums.ViewDirectionEnum.Top); v:ZoomToExtents(); v:ExportImage(filename, \"png\", w, h); v.Animation.Type = pf.Enums.AnimationTypeEnum.Phase; v:ExportAnimation(filename, pf.Enums.AnimationFormatEnum.AVI, pf.Enums.AnimationQualityEnum.Normal, 800, 600, 25)",
+      "parameters": [],
+      "example": "v = app.Views[1]\nffp = v.Plots:Add(cfg.FarFields[1])\nffp.Quantity.Type = pf.Enums.FarFieldQuantityTypeEnum.Gain\nffp.Quantity.ValuesScaledToDB = true\nv:ZoomToExtents()\nv:ExportImage([[D:/work/pattern3d]], \"png\", 1600, 1200)",
+      "notes": "Set the plot legend range explicitly (Legend.LinearRange.FixedRangeMin/Max) for comparable images across runs.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/view.htm"
+    },
+    {
+      "name": "Data export: .ffe/.efe/.hfe/.os, Touchstone, CSV/text, MAT",
+      "kind": "tool",
+      "description": "Result exports for other tools: far fields (.ffe, also usable as equivalent sources), near fields (.efe/.hfe), currents (.os/.ol), transmission/reflection (.tr), S-parameters (Touchstone), any graph's traces as tab-separated text, custom stored data as text and data sets to MATLAB .mat. Enabled per request in CADFEKO (export during solve, DA card) or done in POSTFEKO afterwards.",
+      "usage": "ff:ExportData(filename, pf.Enums.FarFieldsExportTypeEnum.Gain | Directivity | RCS | RealisedGain, samples); nf:ExportData(filename, pf.Enums.NearFieldsExportTypeEnum.Both | Electric | Magnetic, samples); currents:ExportData(filename, pf.Enums.CurrentsExportTypeEnum.Both, samples); sp:ExportData(filename, FrequencyUnitEnum, NetworkParameterTypeEnum, NetworkParameterFormatEnum[, referenceImpedance], samples); cfg:ExportFarFields(filename, quantity, samples); cfg:ExportNearFields(filename, components, samples); graph:ExportTraces(filename, samples); ds:ExportMatFile(filename, varname)",
+      "parameters": [
+        {
+          "name": "samples",
+          "description": "Number of frequency samples to export (continuous results are resampled)."
+        }
+      ],
+      "example": "ff = cfg.FarFields[1]\nff:ExportData([[D:/work/pattern]], pf.Enums.FarFieldsExportTypeEnum.Gain, 2)\nds = cfg.Excitations[1]:GetDataSet()\nds:ExportMatFile([[D:/work/zin.mat]], \"zin\")",
+      "notes": "ExportData with a single string argument is rejected; pass the quantity/component enum and the sample count. The .ffe/.efe formats are documented text headers plus columns and are easy to parse in Python/MATLAB. The sample count must be at least 2 (1 raises an error on 2026.1).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/farfielddata.htm"
+    },
+    {
+      "name": "Importing external data (measurements, Touchstone, .ffe/.efe/.hfe from other tools)",
+      "kind": "tool",
+      "description": "POSTFEKO overlays measured or third-party data with simulations: Touchstone files, Feko far-field and near-field files, all becoming import sets whose ImportedData items can be plotted, subtracted or used in math scripts; changing the import set's file name re-imports.",
+      "usage": "set = app:ImportResults(filename, pf.Enums.ImportFileTypeEnum.Touchstone | FEKOFarField | FEKONearField | FEKOElectricNearField | FEKOMagneticNearField); data = set.ImportedData[1]; set.Filename; set:Refresh(); app.ImportedDataSets",
+      "parameters": [],
+      "example": "meas = app:ImportResults([[D:/meas/antenna.s1p]], pf.Enums.ImportFileTypeEnum.Touchstone)\nt = g.Traces:Add(meas.ImportedData[1])\nt.Label = \"measured\"",
+      "notes": "Match units (Hz vs GHz) and dB conventions when comparing.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/importset.htm"
+    },
+    {
+      "name": "Reports and sessions (.pfs)",
+      "kind": "tool",
+      "description": "Sessions store views, graphs, imported data, stored data and math scripts (.pfs) and can be reopened on new .bof results after re-solving, which makes a fixed report layout; quick reports export all windows into a PDF/Word/PowerPoint document with captions, and report templates (.dotx/.potx with tags) produce formatted documents.",
+      "usage": "app:SaveAs([[session.pfs]]); app:Save(); report = app:CreateQuickReport(filename, pf.Enums.ReportDocumentTypeEnum.PDF | MSWord | MSPowerPoint); report.DocumentHeading = ...; report:SetPageIncluded(windowTitle, false); report:Generate() | GenerateAndOpen(); tpl = app.Reports:Add(templateFile, pf.Enums.ReportDocumentTypeEnum.MSWord); tpl.TagSettings:Modify({tag = windowTitle}); tpl:Generate(filename); app:ExportAllWindowsAsImages(directory, \"png\")",
+      "parameters": [],
+      "example": "report = app:CreateQuickReport([[D:/work/report]], pf.Enums.ReportDocumentTypeEnum.PDF)\nreport.DocumentHeading = \"Dipole results\"\nreport:Generate()",
+      "notes": "Word/PowerPoint reports need Microsoft Office installed (app.MSWordInstalled); run 'postfeko --non-interactive --run-script make_report.lua' after every solve for a consistent report.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_postfeko_auto_generated/object/quickreport.htm"
+    },
+    {
+      "name": "Headless extraction pattern (postfeko --non-interactive --run-script)",
+      "kind": "reference",
+      "description": "The reproducible way to get numbers out of Feko without clicking: solve with runfeko, then run a POSTFEKO Lua script headless that opens the .fek, reads the needed data sets, computes derived values and writes CSV/JSON/images. External scripts (Python, MATLAB) then parse those files. Lua's io library and math.log10 are available.",
+      "usage": "postfeko --non-interactive --run-script extract.lua",
+      "parameters": [],
+      "example": "-- extract.lua\napp = pf.GetApplication()\napp:OpenFile([[D:/work/dipole.fek]])\ncfg = app.Models[1].Configurations[1]\nds = cfg.Excitations[1]:GetDataSet()\nf = io.open([[D:/work/impedance.csv]], \"w\")\nfor i = 1, ds.Axes[\"Frequency\"].Count do\n  local z = ds[i].Impedance\n  f:write(string.format(\"%g,%g,%g\\n\", ds.Axes[\"Frequency\"]:ValueAt(i), z.re, z.im))\nend\nf:close()\nff = cfg.FarFields[1]:GetDataSet()\nprint(10*math.log10(ff[1][1][1].GainFactor))",
+      "notes": "Use forward slashes or [[...]] paths on Windows; the working directory is set to the script's folder. There is no postfeko_batch executable.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/scripting/script_command_line_options_feko_r.htm"
+    },
+    {
+      "name": "Reading the .out file directly",
+      "kind": "reference",
+      "description": "For quick automation the text .out file already contains the key numbers in labelled blocks: 'EXCITATION BY VOLTAGE SOURCE AT A SEGMENT' and 'DATA OF THE VOLTAGE SOURCE NO. n' (current, admittance, impedance), 'DATA FOR WAVEGUIDE PORTS' and mode expansion data, 'VALUES OF THE CURRENT DENSITY VECTOR ON TRIANGLES', 'VALUES OF THE ELECTRIC FIELD STRENGTH', 'VALUES OF THE SCATTERED ELECTRIC FIELD STRENGTH IN THE FAR FIELD', 'SPATIAL-PEAK SPECIFIC ABSORPTION RATE', 'SCATTERING PARAMETERS' with 'S-PARAMETER REFERENCE IMPEDANCES AT PORTS', 'RECEIVED POWER FOR IDEAL RECEIVING ANTENNA', 'POWER LOSS METAL', 'SUMMARY OF LOSSES' (efficiency) and 'SUMMARY OF REQUIRED TIMES IN SECONDS' plus WARNING/ERROR/NOTE messages with numbers.",
+      "usage": "Open model.out; search for the block headings above.",
+      "parameters": [],
+      "example": "findstr /n \"Impedance in Ohm\" dipole.out\ngrep -n \"SUMMARY OF LOSSES\" -A 12 dipole.out",
+      "notes": "Column layouts are stable within a release but can change between major versions; parse by keyword, not by column. The DA card / request export settings can suppress bulky field tables in the .out while keeping the .bof.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/output_file/output_file_intro_feko_c.htm"
+    }
+  ]
+}

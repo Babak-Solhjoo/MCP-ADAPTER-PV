@@ -1,0 +1,380 @@
+{
+  "category": "CADFEKO Lua API (extended): geometry, media, import/export and meshing objects",
+  "description": "Deeper coverage of the cf object model beyond the basic primitives: further primitives and curves, FSS shapes, geometry repair/find tools, part methods, face/region/edge properties, importer and exporter objects, media models and the media library, mesh refinement rules, mesher and mesh-info objects, windscreen tools and unit cells. Names come from the installed 2019-format wrapper (project.Geometry, project.Media, project.Importer ...) cross-checked with the online reference (project.Contents / project.Definitions); where the two differ both are given.",
+  "tools": [
+    {
+      "name": "cf.Point and the cf namespace basics",
+      "kind": "api",
+      "description": "cf is the CADFEKO API namespace: cf.GetApplication() returns the application, cf.Point(x, y, z) builds a point from three numbers (a Point has .X/.Y/.Z or, in workplane terms, U/V/N and DistanceTo(other)), cf.Enums holds every enumeration, and cf.<ObjectType>.GetDefaultProperties() returns a properties table for the table-based Add/SetProperties calls. Most collections support Item(index|label), Items(), Contains(label), UniqueName(base) and the # length operator.",
+      "usage": "app = cf.GetApplication(); p = cf.Point(0, 0, 0.5); d = p:DistanceTo(cf.Point(0,0,0)); props = cf.Cuboid.GetDefaultProperties(); obj:GetProperties() / obj:SetProperties(props); inspect(obj)",
+      "parameters": [
+        {"name": "GetDefaultProperties", "description": "Static function on object types (cf.Cuboid, cf.PlaneWave, cf.ImpedanceOptimisationGoal ...) returning the table expected by the properties-table overloads."}
+      ],
+      "example": "props = cf.Cuboid.GetDefaultProperties()\ninspect(props)  -- prints the keys (Base, Width, Depth, Height, Label, LocalWorkplane ...)\nprops.Width = \"w\"; props.Depth = \"d\"; props.Height = 0.01\nbox = project.Geometry:AddCuboid(props)",
+      "notes": "cf.Point does not accept expression strings; use the properties-table form (Base.U = \"x0\") to bind coordinates to variables. print(obj) shows the object label, inspect(obj) its members.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/scripting/script_basics_feko_c.htm"
+    },
+    {
+      "name": "Application methods (Save, SaveAs, CloseProject, Undo/Redo, NonInteractiveModeEnabled, MessageWindow, Views)",
+      "kind": "api",
+      "description": "Beyond NewProject/OpenFile the application object saves the session, closes the project, undoes/redoes model operations, reports whether the script runs in --non-interactive mode, exposes the message window for coloured log output (LogHeading, LogMessage, LogNote, LogWarning, LogError), the 3D views (app.Views:Add(), view:ExportImage, view:SetViewDirection, view:ZoomToExtents) and window arrangement (TileWindows, CascadeWindows, CloseAllWindows).",
+      "usage": "app:Save(); app:SaveAs(path); app:CloseProject(); app:Undo(); app:Redo(); app:NonInteractiveModeEnabled(); app.MessageWindow:LogMessage(text); app.MessageWindow:LogError(text); v = app.Views:Add(); v:SetViewDirection(cf.Enums.ViewDirectionEnum.<dir>); v:ZoomToExtents(); v:ExportImage(file, format[, w, h]); app.Views:ShowCableSchematic(); app.Views:ShowNetworkSchematic()",
+      "parameters": [],
+      "example": "if app:NonInteractiveModeEnabled() then print(\"headless run\") end\napp.MessageWindow:LogHeading(\"Build\")\napp.MessageWindow:LogMessage(\"model built\")\napp:SaveAs([[D:/work/model.cfx]])",
+      "notes": "The new-format Application additionally has Load({path}), Exit(), getApplicationVersion() and the MediaLibrary collection.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/messagewindow.htm"
+    },
+    {
+      "name": "Workplane object and LocalWorkplane",
+      "kind": "api",
+      "description": "A Workplane holds Origin, UVector and VVector (read-only after creation; change it through SetProperties or its Transforms collection) and can be made the default; every placed entity (primitive, source, request, cable path) has a LocalWorkplane referencing a workplane so scripts can build tilted or offset geometry without transforming afterwards.",
+      "usage": "wp = project.Workplanes:Add(label, origin, uVector, vVector); wp.Origin, wp.UVector, wp.VVector; wp:SetAsDefault(); project.Workplanes:GetDefault(); part.LocalWorkplane; wp.Transforms:AddRotate(origin, axis, angle)",
+      "parameters": [],
+      "example": "wp = project.Workplanes:Add(\"Roof\", cf.Point(0,0,1.5), cf.Point(1,0,0), cf.Point(0,1,0))\nwp:SetAsDefault()\npatch = project.Geometry:AddRectangle(cf.Point(0,0,0), 0.04, 0.03)  -- created in the roof plane",
+      "notes": "Workplanes live under project.Workplanes (new format: project.Definitions.Workplanes with DefaultWorkplane).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/workplane.htm"
+    },
+    {
+      "name": "NamedPoint object (Point, SetPosition)",
+      "kind": "api",
+      "description": "A named point stores parametric coordinates (x, y, z expressions) that can be reused in dialogs and scripts; NamedPoints:Add accepts numbers, expression strings or Variable objects for each coordinate, and SetPosition moves it.",
+      "usage": "np = project.NamedPoints:Add(name, x, y, z); np:SetPosition(x, y, z); np.Point (Point with U/V/N components)",
+      "parameters": [],
+      "example": "np = project.NamedPoints:Add(\"feed\", 0, 0, \"h\")\nnp:SetPosition(0, 0, \"h+0.001\")",
+      "notes": "Named points are definitions, not geometry; use their coordinates when building primitives via properties tables.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/namedpointcollection.htm"
+    },
+    {
+      "name": "Variable object (Expression, EvaluatedValue, Description, limits, SetExpressions)",
+      "kind": "api",
+      "description": "A Variable has an Expression (string, may reference other variables), the read-only EvaluatedValue, a Description and optional limits (LimitEnabled, Minimum, Maximum) used by the optimiser; VariableCollection:SetExpressions changes several expressions in one step and Add can copy another variable's label as expression. The predefined constants c0, eps0, mu0, pi and zf0 are variables too.",
+      "usage": "v = project.Variables:Add(name, expression, description); v.Expression = \"2*len\"; v.EvaluatedValue; v.LimitEnabled = true; v.Minimum = 0.4; v.Maximum = 0.5; project.Variables:SetExpressions({len = \"0.48\", w = \"0.01\"}); c0 = project.Variables:Item(\"c0\").EvaluatedValue",
+      "parameters": [],
+      "example": "freq = project.Variables:Add(\"freq\", 46e6, \"The operating frequency\")\nlam = project.Variables:Add(\"lambda\", \"c0/freq\")\nprint(lam.Expression, lam.EvaluatedValue)",
+      "notes": "Expressions must be scalar; an expression containing pt( is rejected.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/variable.htm"
+    },
+    {
+      "name": "AddCuboidAtCentre / AddRectangleAtCentre / AddCylinderWithTopCentre / AddSpheroid",
+      "kind": "api",
+      "description": "Alternative definitions of the basic solids: cuboid and rectangle by base centre instead of corner, cylinder by base centre plus top centre point (oblique cylinders), spheroid with three radii along U, V and N.",
+      "usage": "project.Geometry:AddCuboidAtCentre(centre, width, depth, height); AddRectangleAtCentre(centre, width, depth); AddCylinderWithTopCentre(baseCentre, radius, topCentre); AddSpheroid(centre, radiusU, radiusV, radiusN)",
+      "parameters": [],
+      "example": "gnd = project.Geometry:AddRectangleAtCentre(cf.Point(0,0,0), 0.2, 0.2)\ncyl = project.Geometry:AddCylinderWithTopCentre(cf.Point(0,0,0), 0.01, cf.Point(0.02,0,0.1))",
+      "notes": "Definition methods are also selectable afterwards (cf.Enums.CuboidDefinitionMethodEnum.BaseAtCentre/BaseAtCorner, CylinderDefinitionMethodEnum.Height/TopCoordinate).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/geometrycollection.htm"
+    },
+    {
+      "name": "AddCone variants (AddConeWithAngleAndHeight, AddConeWithTopRadiusAndTopCentre, AddConeWithAngleAndTopCentre)",
+      "kind": "api",
+      "description": "Cones and truncated cones defined by base centre and base radius plus either top radius and height, side angle and height, top radius and top centre point, or side angle and top centre point (oblique cones); used for conical horns, nose cones and tapered feeds.",
+      "usage": "project.Geometry:AddCone(base, baseRadius, topRadius, height); AddConeWithAngleAndHeight(base, baseRadius, angle, height); AddConeWithTopRadiusAndTopCentre(base, baseRadius, topRadius, topCentre); AddConeWithAngleAndTopCentre(base, baseRadius, angle, topCentre)",
+      "parameters": [],
+      "example": "horn = project.Geometry:AddConeWithAngleAndHeight(cf.Point(0,0,0), 0.01, 15, 0.08)",
+      "notes": "A topRadius of 0 gives a sharp tip; the cone is a solid with one region (delete the base face for an open horn).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/cone.htm"
+    },
+    {
+      "name": "AddFlare variants (AddFlareWithBaseCorner, AddFlareWithBaseCentreAndFlareAngles, AddFlareWithBaseCornerAndTopCorner)",
+      "kind": "api",
+      "description": "Pyramidal flares (rectangular horns, tapered waveguide transitions) defined by base centre or base corner with bottom/top width and depth and height, by flare angles in U and V, or by base and top corner points.",
+      "usage": "project.Geometry:AddFlare(baseCentre, bottomWidth, bottomDepth, height, topWidth, topDepth); AddFlareWithBaseCorner(baseCorner, bottomWidth, bottomDepth, height, topWidth, topDepth); AddFlareWithBaseCentreAndFlareAngles(baseCentre, bottomWidth, bottomDepth, height, angleU, angleV); AddFlareWithBaseCornerAndTopCorner(baseCorner, topCorner, bottomWidth, bottomDepth)",
+      "parameters": [],
+      "example": "flare = project.Geometry:AddFlareWithBaseCentreAndFlareAngles(cf.Point(0,0,0.1), 0.0229, 0.0102, 0.15, 20, 15)",
+      "notes": "Union the flare with the feeding waveguide section and delete the shared face; example A.11.x horn models.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/flare.htm"
+    },
+    {
+      "name": "AddHelix / AddHelixWithTurns / AddHelixWithHeight",
+      "kind": "api",
+      "description": "Helical wires: variable-radius helix by base and end radius, height, number of turns and handedness; constant-radius helix by radius, pitch angle and turns (height implied) or by radius, height and pitch angle (turns implied). The result is a wire part fed with a wire port.",
+      "usage": "project.Geometry:AddHelix(baseCentre, baseRadius, endRadius, height, turns, leftHandRotated); AddHelixWithTurns(baseCentre, radius, pitchAngle, turns, leftHandRotated); AddHelixWithHeight(baseCentre, radius, height, pitchAngle, leftHandRotated)",
+      "parameters": [
+        {"name": "leftHandRotated", "description": "true for a left-handed helix; required boolean."}
+      ],
+      "example": "helix = project.Geometry:AddHelixWithTurns(cf.Point(0,0,0), 0.02, 12, 6, false)\nport = project.Ports:AddWirePort(helix.Wires[1])\nport.Location = cf.Enums.WirePortLocationEnum.Start",
+      "notes": "The five-argument form AddHelix(centre, r1, r2, h, turns) without the boolean is rejected. The HE card is the EDITFEKO equivalent.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/helix.htm"
+    },
+    {
+      "name": "AddFittedSpline / AddAnalyticalCurve / AddParabolicArc / AddHyperbolicArc",
+      "kind": "api",
+      "description": "Further wire curves: a spline fitted through a list of points, analytical curves defined by expressions of a parameter in Cartesian, cylindrical or spherical coordinates (spirals, sinuous shapes), parabolic arcs (reflector profiles to spin) and hyperbolic arcs (sub-reflector profiles).",
+      "usage": "project.Geometry:AddFittedSpline({points}); AddAnalyticalCurve(startParam, endParam, uExpr, vExpr, nExpr); AddAnalyticalCurveCylindrical(start, end, rhoExpr, phiExpr, nExpr); AddAnalyticalCurveSpherical(start, end, rExpr, thetaExpr, phiExpr); AddParabolicArc(baseCentre, radius, focalDepth); AddParabolicArcAtApertureCentre(apertureCentre, radius, depth); AddHyperbolicArc(baseCentre, depth, radius, eccentricity)",
+      "parameters": [],
+      "example": "spiral = project.Geometry:AddAnalyticalCurveCylindrical(0, 720, \"0.01*(1+t/360)\", \"t\", 0)  -- t is the curve parameter\narc = project.Geometry:AddParabolicArc(cf.Point(0,0,0), 0.5, 0.2)\ndish = project.Geometry:Spin(arc, cf.Point(0,0,0), cf.Point(0,0,1), 360)",
+      "notes": "Check the parameter name used in analytical-curve expressions in the recorder (the dialog exposes it); arcs spun about an axis give reflector surfaces.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/analyticalcurve.htm"
+    },
+    {
+      "name": "Periodic-structure shapes (AddCross, AddRing, AddSplitRing, AddOpenRing, AddHexagon, AddStripCross, AddSpiralCross, AddTCross, AddTrifilar)",
+      "kind": "api",
+      "description": "Ready-made planar unit-cell shapes for frequency selective surfaces and metasurfaces: cross, strip cross, spiral cross, T-cross, trifilar, ring, split ring, open ring, hexagon and strip hexagon, each created at a centre point with its characteristic dimensions; they are also available as shapes for unit-cell definitions.",
+      "usage": "project.Geometry:AddCross(centre, armLengthU, armLengthV, stripWidth); AddRing(centre, outerRadius, innerRadius); AddSplitRing(centre, outerRadius, innerRadius, gapAngle, startAngle); AddOpenRing(...); AddHexagon(centre, width); AddStripHexagon(centre, width, stripWidth); AddStripCross(centre, armLengthU, armLengthV, stripWidth, slotWidth); AddSpiralCross(centre, armLength, edgeLength, spiralLength, stripWidth); AddTCross(centre, armLength, edgeLength, stripWidth); AddTrifilar(position, length, stripWidth)",
+      "parameters": [],
+      "example": "srr = project.Geometry:AddSplitRing(cf.Point(0,0,0), 0.005, 0.004, 20, 0)\npbc = project.SolutionSettings.PeriodicBoundary\npbc:SetTwoDimensions(cf.Point(-0.006,-0.006,0), cf.Point(0.006,-0.006,0), cf.Point(-0.006,0.006,0))",
+      "notes": "Combine with a plane wave and cfg.TransmissionReflection:Add(0,0,0) for the FSS response (examples C.4/C.5).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/geometrycollection.htm"
+    },
+    {
+      "name": "AddNurbsSurface",
+      "kind": "api",
+      "description": "Creates a NURBS surface from a 2D table of control points and a matching table of weights; the polynomial orders in U and V follow from the table sizes. Used for smooth free-form surfaces (radome sections, fairings) without CAD import.",
+      "usage": "project.Geometry:AddNurbsSurface(pointTable, weightTable); nurbs:SetPointsAndWeights(...); nurbs:GetPoints(); nurbs:GetWeights()",
+      "parameters": [],
+      "example": "pts = { {cf.Point(0,0,0), cf.Point(1,0,0.2)}, {cf.Point(0,1,0.1), cf.Point(1,1,0.4)} }\nw = { {1, 1}, {1, 1} }\nsurf = project.Geometry:AddNurbsSurface(pts, w)",
+      "notes": "The NU card with DP control points (and weights) is the EDITFEKO equivalent.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/nurbssurface.htm"
+    },
+    {
+      "name": "Stitch, SplitPlaneUN / SplitPlaneVN, ProjectGeometry",
+      "kind": "api",
+      "description": "Stitch sews separate surface parts into one part within a tolerance (imported CAD faces), the split variants cut a part with the UN or VN plane of the workplane instead of UV, and ProjectGeometry projects curves/faces onto a target part (printing antenna outlines onto curved surfaces).",
+      "usage": "project.Geometry:Stitch({parts}[, tolerance]); SplitPlaneUN(part, origin, rotationU, rotationN); SplitPlaneVN(part, origin, rotationV, rotationN); ProjectGeometry({parts}, targetPart) | ProjectGeometry(part, targetPart)",
+      "parameters": [],
+      "example": "shell = project.Geometry:Stitch({panel1, panel2}, 1e-4)\nhalf = project.Geometry:SplitPlaneUN(shell, cf.Point(0,0,0), 0, 0)",
+      "notes": "Split returns a list of parts; ProjectGeometry results are new operator parts that still reference their inputs.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/stitch.htm"
+    },
+    {
+      "name": "Loft variants (LoftEdges, LoftFaces) and PathSweepParallel",
+      "kind": "api",
+      "description": "LoftEdges lofts between two edges or wires copied out of their parts, LoftFaces between two faces (no holes), and PathSweepParallel sweeps a profile along a path keeping the profile orientation parallel (versus the normal-aligned PathSweep), with twist angle, scale factor and end flipping.",
+      "usage": "project.Geometry:LoftEdges(edge1, edge2[, properties]); LoftFaces(face1, face2[, properties]); PathSweepParallel(profile, path, twistAngle, scaleFactor, flipEnds)",
+      "parameters": [],
+      "example": "transition = project.Geometry:LoftFaces(rect.Faces[1], circle.Faces[1])\nduct = project.Geometry:PathSweepParallel(profile, path, 0, 1, false)",
+      "notes": "Loft settings (cf.Enums.PathSweepAlignmentEnum for sweeps) are exposed through the properties table.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/loft.htm"
+    },
+    {
+      "name": "Geometry repair tools (Repair:RepairParts, SimplifyParts, RepairEdges, RepairAndSewFaces, RemoveSmallFeatures, Rebuild:FillHole)",
+      "kind": "api",
+      "description": "The Repair grouping on project.Geometry fixes imported CAD: RepairParts heals faulty parts, SimplifyParts simplifies the part representation (blend handling per cf.Enums.SimplifyBlendTypeEnum), RepairEdges and RepairAndSewFaces close gaps and sew faces, RemoveSmallFeatures deletes holes/fillets below a size, and Rebuild:FillHole closes openings; each has a settings object (RepairPartsSettings, RemoveSmallFeaturesSettings ...) with RestoreDefaults().",
+      "usage": "rep = project.Geometry.Repair; rep.RepairPartsSettings.RemoveSmallEdgesEnabled = true; rep:RepairParts({parts}); rep:SimplifyParts({parts}); rep:RepairEdges({parts}); rep:RepairAndSewFaces({parts}); rep:RemoveSmallFeatures({parts}); project.Geometry.Rebuild:FillHole(...)",
+      "parameters": [],
+      "example": "rep = project.Geometry.Repair\nfixed = rep:RepairParts({imported})\nrep:RemoveSmallFeatures(fixed)",
+      "notes": "Convert a primitive first if needed (part:ConvertToPrimitive()); check part.Faulty and project.Geometry.FaultyParts afterwards.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/geometryrepair.htm"
+    },
+    {
+      "name": "Geometry find tools (Find:GetClashingGeometry, Find:EdgeLoop, FaultyParts)",
+      "kind": "api",
+      "description": "Validation helpers: GetClashingGeometry lists parts that intersect without being unioned, EdgeLoop returns the loop of edges connected to an edge (for lofts/fills), FaultyParts lists parts with geometry faults, and mesh-level checks (HasDistortedElements, HasOversizedElements, HasIntersectingElements, CountIntersectingElements) live on the MeshFind object of unlinked meshes.",
+      "usage": "clashes = project.Geometry.Find:GetClashingGeometry(...); loop = project.Geometry.Find:EdgeLoop(edge); bad = project.Geometry.FaultyParts; mesh:HasDistortedElements(minAngle); mesh:HasIntersectingElements()",
+      "parameters": [],
+      "example": "for _, p in pairs(project.Geometry.FaultyParts) do print(\"faulty:\", p.Label) end",
+      "notes": "The validation toolset in the GUI (Solve/Run > Validate) runs the same checks.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/find.htm"
+    },
+    {
+      "name": "Part methods (ConvertToPrimitive, Explode, ReverseFaceNormals, UnlinkMesh, DeleteSimulationMesh, Duplicate, Delete, Locked, Included)",
+      "kind": "api",
+      "description": "Every geometry part supports ConvertToPrimitive (drop the parametric history), Explode (split into separate surface/edge parts), ReverseFaceNormals (all or a face list; matters for PO and dielectric boundaries), UnlinkMesh (turn the simulation mesh into an editable mesh part), DeleteSimulationMesh, Duplicate and Delete, plus Locked (keep the mesh while transforming), Included (exclude from the solution), LocalMeshSettingsEnabled/MeshSettings and EnableProximityRefinement (2025.1).",
+      "usage": "prim = part:ConvertToPrimitive(); parts = part:Explode(); part:ReverseFaceNormals(); part:ReverseFaceNormals({faces}); mesh = part:UnlinkMesh(); part:DeleteSimulationMesh(); part.Locked = true; part.Included = false; part.LocalMeshSettingsEnabled = true; part.MeshSettings.TriangleEdgeLength = 0.005",
+      "parameters": [],
+      "example": "radome.Included = false  -- solve without the radome first\nplatform.Locked = true    -- keep its mesh while moving the antenna",
+      "notes": "ConvertToPrimitive invalidates the original reference; use the returned object.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/primitive.htm"
+    },
+    {
+      "name": "Geometry groups (CreateGroup, MoveIn, MoveOut, Disassemble)",
+      "kind": "api",
+      "description": "Groups collect parts for bookkeeping and joint transforms without unioning them (an antenna assembly moved as one unit); a group has its own Transforms and CopyAnd* methods and can be dissolved again.",
+      "usage": "group = project.Geometry:CreateGroup(); group:MoveIn({parts}); group:MoveOut({parts}); group:Disassemble(); group.Transforms:AddTranslate(from, to); project.Geometry:UnionWithGroups({parts}, {groups})",
+      "parameters": [],
+      "example": "grp = project.Geometry:CreateGroup()\ngrp:MoveIn({cuboid, flare})\ngrp.Transforms:AddTranslate(cf.Point(0,0,0), cf.Point(1,1,1))",
+      "notes": "Documented for the new-format API (GeometryGroup); the legacy wrapper exposes assemblies through project.Geometry.AssemblyCollection.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/geometrygroup.htm"
+    },
+    {
+      "name": "Face properties (Medium, SolutionMethod, Coating, Thickness, IntegralEquation, LocalMeshSize, FaceAbsorbingSettings, Windscreen, BasisFunctionSettings)",
+      "kind": "api",
+      "description": "A Face carries the electromagnetic settings of a surface: Medium (PEC, metal, dielectric boundary, sheet), SolutionMethod (FaceSolutionMethodEnum), Coating with CoatingEnabled and CoatingThickness, Thickness/ThicknessEnabled for lossy metals, IntegralEquation (EFIE/MFIE/CFIE for closed PEC, only with SolutionMethod None), LocalMeshSize, PreserveEntityEnabled, FaceAbsorbingSettings (RL-GO), Windscreen settings, BasisFunctionSettings (local HOBF), CharacterisedSurfaceReferenceDirection and read-only CentreOfGravity, BoundingBox, Faulty.",
+      "usage": "face.Medium = m; face.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.<None|POFullRayTracing|LEPOFullRayTracing|RLGO|UTD|FacetedUTD|Windscreen|Aperture>; face.Coating = layered; face.Thickness = t; face.IntegralEquation = cf.Enums.IntegralEquationTypeEnum.CombinedField; face.LocalMeshSize = s; face:ShortestDistanceTo(point)",
+      "parameters": [],
+      "example": "for _, f in pairs(hull.Faces) do\n  f.IntegralEquation = cf.Enums.IntegralEquationTypeEnum.CombinedField  -- closed PEC hull for MLFMM convergence\nend",
+      "notes": "CFIE faces must form a closed surface with outward normals and cannot be combined with symmetry or PO/UTD/FEM hybrids.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/face.htm"
+    },
+    {
+      "name": "Region properties (Medium, SolutionMethod, SolutionMedium, LocalMeshSize, UTDCylinder, ReferenceWorkplane)",
+      "kind": "api",
+      "description": "A Region (closed volume of a part) has Medium (free space, dielectric, PEC/PMC solid), SolutionMethod (RegionSolutionMethodEnum: SEP, FEM, VEP, UTD for cylinders, DSIA), the read-only effective SolutionMedium, LocalMeshSize, BasisFunctionSettings (SEP), UTDCylinder termination settings and a ReferenceWorkplane/DefinitionMethod for 3D anisotropic media orientation.",
+      "usage": "region = part.Regions[1]; region.Medium = m; region.SolutionMethod = cf.Enums.RegionSolutionMethodEnum.FEM; region.LocalMeshSize = 0.002",
+      "parameters": [],
+      "example": "for _, r in pairs(phantom.Regions) do\n  r.SolutionMethod = cf.Enums.RegionSolutionMethodEnum.FEM\n  r.LocalMeshSize = \"lam_tissue/8\"\nend",
+      "notes": "Regions of imported solids default to PEC or free space depending on import settings; a region made of PEC medium is a solid conductor (only its surface is meshed).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/region.htm"
+    },
+    {
+      "name": "Edge, wire and face queries (Faces:ClosestTo, Edges:ClosestTo, Wires:ClosestTo, ShortestDistanceTo, CentreOfGravity, BoundingBox)",
+      "kind": "api",
+      "description": "Select topology geometrically instead of by index: the Faces, Edges and Wires collections return the entity closest to a point, faces and edges report the shortest distance to a point, and every entity exposes CentreOfGravity and BoundingBox, which makes scripts robust against renumbering after booleans or CAD re-import. Edges can be marked as windscreen elements (EdgeSolutionMethodEnum) and carry LocalMeshSize.",
+      "usage": "face = part.Faces:ClosestTo(point); edge = part.Edges:ClosestTo(point); wire = part.Wires:ClosestTo(point); d = face:ShortestDistanceTo(point); c = face.CentreOfGravity; b = part.BoundingBox",
+      "parameters": [],
+      "example": "feedEdge = patch.Edges:ClosestTo(cf.Point(0, -0.015, 0.0016))\nport = project.Ports:AddMicrostripPort({feedEdge})",
+      "notes": "Ties are broken by returning the older entity; use labels for entities you create yourself.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/facecollection.htm"
+    },
+    {
+      "name": "GeometryImporter settings (ImportScaleFactor, HealingType, SimplifyModelEnabled, StitchTrimmedFacesEnabled, AutoMergeWires, ExtrudeEnabled)",
+      "kind": "api",
+      "description": "Properties of project.Importer.Geometry that control CAD import: scale factor (>0), healing (None/Standard/Advanced), model simplification, stitching of trimmed faces, auto stitching of touching faces, auto merging of touching wires, extrusion of 2D drawings and the legacy two-step import.",
+      "usage": "gi = project.Importer.Geometry; gi.ImportScaleFactor = 0.001; gi.HealingType = cf.Enums.ImportHealingTypeEnum.Advanced; gi.SimplifyModelEnabled = true; gi.AutoStitchFaces = true; gi:Import(file)",
+      "parameters": [],
+      "example": "gi = project.Importer.Geometry\ngi.ImportScaleFactor = 0.0254  -- inches\ngi:Import([[D:/cad/bracket.x_t]])",
+      "notes": "New-format method name is ImportFile; ImportParasolid targets .x_t/.x_b directly.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/geometryimporter.htm"
+    },
+    {
+      "name": "MeshImporter settings (ScaleFactor, WireRadius, VertexTolerance, element type switches, GroupPartsByLabelEnabled, ConversionType)",
+      "kind": "api",
+      "description": "Properties of the mesh importer: scale factor for non-metre files, default wire radius, vertex merge tolerance, which element types to import (triangles, segments, quadrangles, tetrahedra, polygons, cylinders), grouping into parts by label, NASTRAN relabelling via .map, voxel-mesh conversion (Automatic/Tetrahedra/Triangles) and medium merging for voxel phantoms.",
+      "usage": "mi = project.Importer.Mesh (new format: project.Importer.MeshImporter); mi.ScaleFactor = 0.001; mi.WireRadius = 0.0005; mi.GroupPartsByLabelEnabled = true; mi.ConversionType = cf.Enums.ImportMeshConversionTypeEnum.Tetrahedra; meshes = mi:Import(file)",
+      "parameters": [],
+      "example": "mi = project.Importer.Mesh\nmi.GroupPartsByLabelEnabled = true\nparts = mi:Import([[D:/mesh/car.nas]])\nfor _, m in pairs(parts) do print(m.Label) end",
+      "notes": "Imported meshes appear in project.Meshes and can be given media (mesh.Faces[i].Medium) and solution methods.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/meshimporter.htm"
+    },
+    {
+      "name": "CFXModel import, KBL import and PCB import",
+      "kind": "api",
+      "description": "Other importers: a complete CADFEKO model (.cfx) can be merged into the current one (component-style reuse, with settings for what to import), KBL cable-harness description files import cable paths and connectors, and PCB layouts import from Gerber/ODB++ and EDA formats (cf.Enums.PCBImportTypeEnum: AltiumDesigner, CadenceAllegro, MentorXpedition, ODBPlusPlus, IPC2581, ZukenCR5000 ...).",
+      "usage": "project.Importer.CFXModel:Import(file); project.Importer.CFXModel.Settings:RestoreDefaults(); project.Importer.KBL:Import(file); project.Importer.PCB (PCB importer object, new-format API)",
+      "parameters": [],
+      "example": "project.Importer.CFXModel:Import([[D:/lib/horn_feed.cfx]])",
+      "notes": "Model protection (password) lets a .cfx be shared as a black-box component that only shows its representation geometry.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/importer.htm"
+    },
+    {
+      "name": "GeometryExporter (Export, ExportParts, ExportFileFormat, ExportSTEP/ExportIGES/ExportParasolid/ExportACIS/ExportCATIAV4/ExportCATIAV5, versions)",
+      "kind": "api",
+      "description": "Exports all or selected geometry parts to CAD formats; the format is set by ExportFileFormat (ExportGeometryFileFormatEnum: STEP, IGES, Parasolid, ACIS, CATIAV4, CATIAV5) or implied by the format-specific methods of the legacy wrapper, with version properties (ACISVersion, CATIAV5Version, ParasolidVersion, ParasolidTopologyType).",
+      "usage": "ge = project.Exporter.Geometry; ge.ExportFileFormat = cf.Enums.ExportGeometryFileFormatEnum.Parasolid; ge:Export(file); ge:ExportParts(file, {parts}); ge:ExportSTEP(file) | ExportIGES(file) | ExportParasolid(file) | ExportACIS(file) | ExportCATIAV4(file) | ExportCATIAV5(file)",
+      "parameters": [],
+      "example": "project.Exporter.Geometry:ExportParts([[D:/out/antenna.step]], {antenna})",
+      "notes": "Only geometry (not meshes) is exported here; use the mesh exporter for meshes.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/geometryexporter.htm"
+    },
+    {
+      "name": "MeshExporter (Export, ExportParts, ExportFileFormat, ExportMeshType, ScaleToMetreEnabled)",
+      "kind": "api",
+      "description": "Exports the simulation mesh (or selected geometry/mesh parts) to NASTRAN, STL, UNV, DXF (with projection onto XY), Gerber (with mirroring), Feko HyperMesh or CADFEKO mesh formats; options select the mesh type, bounding faces only for volume meshes and scaling to metres.",
+      "usage": "me = project.Exporter.Mesh; me.ExportFileFormat = cf.Enums.ExportMeshFileFormatEnum.NASTRAN | STL | UNV | DXF | Gerber | FekoHyperMesh | CADFEKOMesh; me.ExportMeshType; me.ScaleToMetreEnabled = true; me:Export(file); me:ExportParts(file, {geometryParts}, {meshParts})",
+      "parameters": [],
+      "example": "project.Mesher:Mesh()\nme = project.Exporter.Mesh\nme.ExportFileFormat = cf.Enums.ExportMeshFileFormatEnum.STL\nme:Export([[D:/out/model.stl]])",
+      "notes": "The Feko HyperMesh format is the exchange format with Altair HyperMesh/HyperWorks.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/meshexporter.htm"
+    },
+    {
+      "name": "Media library (app.MediaLibrary:AddToModel) and LibraryMedium",
+      "kind": "api",
+      "description": "The application-level media library holds Altair-supplied and user media (dielectrics, metals, impedance sheets); AddToModel copies one into the project by name (AddToModelWithLabel renames it), and each LibraryMedium reports its MediumType and Source (AltairFeko or User). Project media can be pushed back with medium:AddToLibrary.",
+      "usage": "m = app.MediaLibrary:AddToModel(\"Aluminium\"); m2 = app.MediaLibrary:AddToModelWithLabel(name, label); lib = app.MediaLibrary:Item(\"FR4\"); lib.MediumType (cf.Enums.LibraryMediumTypeEnum.Dielectric|Metal|ImpedanceSheet); lib.Source (cf.Enums.LibraryMediumSourceEnum.AltairFeko|User); medium:AddToLibrary(...)",
+      "parameters": [],
+      "example": "al = app.MediaLibrary:AddToModel(\"Aluminium\")\nplate.Faces[1].Medium = al",
+      "notes": "Library names are those shown in the Media library dialog (Home > Media library); the wrapper's MediaLibrary.Replace is not supported.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/librarymedium.htm"
+    },
+    {
+      "name": "Medium property models (DielectricModelling, MagneticModelling, Metal.DefinitionMethod/FrequencyPoints/SurfaceRoughness, ImpedanceSheet.DefinitionMethod, XML medium files)",
+      "kind": "api",
+      "description": "Media have sub-objects for frequency dependence: a Dielectric's DielectricModelling selects FrequencyIndependent, DebyeRelaxation, ColeCole, HavriliakNegami, DjordjevicSarkar or FrequencyList (with conductivity or loss tangent) and MagneticModelling adds permeability; a Metal has DefinitionMethod (FrequencyIndependent/FrequencyList), Conductivity, RelativePermeability, LossTangent and SurfaceRoughness; an ImpedanceSheet has DefinitionMethod, ImpedanceReal/ImpedanceImaginary or FrequencyPoints; all can be defined from an XML medium file (SourceDefinitionMethod = ImportFromFile, Filename).",
+      "usage": "diel.DielectricModelling.DefinitionMethod = cf.Enums.MediumDielectricDefinitionMethodEnum.DebyeRelaxation; diel.DielectricModelling.ConductivityType = cf.Enums.MediumDielectricConductivityTypeEnum.Conductivity; metal.DefinitionMethod = cf.Enums.MediumMetallicDefinitionMethodEnum.FrequencyList; metal.FrequencyPoints:Add(...); metal.SurfaceRoughness = 1e-6; medium:SetProperties({SourceDefinitionMethod = cf.Enums.MediumSourceDefinitionMethodEnum.ImportFromFile, Filename = [[medium.xml]]})",
+      "parameters": [],
+      "example": "cu = project.Media:AddMetal(1, 0, 5.8e7)\ncu.SurfaceRoughness = 2e-6  -- enables roughness losses\ninspect(fr4.DielectricModelling)",
+      "notes": "Property names inside DielectricModelling differ per model; inspect() the object or record the dialog to see them.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/dielectric.htm"
+    },
+    {
+      "name": "Anisotropic and layered anisotropic media (AddAnisotropicDielectric, AddLayeredAnisotropicDielectric)",
+      "kind": "api",
+      "description": "3D anisotropic dielectrics are defined by full, diagonal, complex or Polder (ferrite, with a magnetostatic bias field) tensors and oriented by the region's reference workplane; layered anisotropic dielectrics stack layers with a principal direction and principal/orthogonal media for thin anisotropic sheets and coatings.",
+      "usage": "project.Media:AddAnisotropicDielectric(properties); project.Media:AddLayeredAnisotropicDielectric({thicknesses}, {directions}, {principalMedia}, {orthogonalMedia}); region.ReferenceWorkplane / region.DefinitionMethod",
+      "parameters": [],
+      "example": "props = cf.AnisotropicDielectric.GetDefaultProperties()\ninspect(props)  -- tensor rows RowU/RowV/RowN with ColumnU/V/N entries\naniso = project.Media:AddAnisotropicDielectric(props)",
+      "notes": "EDITFEKO equivalents: DI (anisotropic), DL (anisotropic layered), CR (orientation) and SB (magnetostatic bias) cards.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/layereddielectriccollection.htm"
+    },
+    {
+      "name": "Mesh refinement rules (AddPointRefinement, AddPolylineRefinement, AddEdgeRefinement, AddErrorEstimateRefinement)",
+      "kind": "api",
+      "description": "Model-level rules that refine the mesh near a point (radius and target size), along a polyline (corners, radius, size), on an edge (size) or adaptively from a solved error estimate; the rule objects expose MeshSize, Radius, Position/Corners and can be modified or deleted later. Relative factors for adaptive refinement are set on the collection.",
+      "usage": "rules = project.MeshRefinementRules; r = rules:AddPointRefinement(point, radius, size); rules:AddPolylineRefinement({points}, radius, size); rules:AddEdgeRefinement(size, edge); rules:AddErrorEstimateRefinement(); r.MeshSize = 0.002; r.Radius = 0.01; rules:SetErrorLevelThreshold(...)",
+      "parameters": [],
+      "example": "r = project.MeshRefinementRules:AddPolylineRefinement({cf.Point(0,0,0), cf.Point(0.1,0,0)}, 0.005, 0.001)",
+      "notes": "Point refinement argument order is (centre, radius, size); rules survive variable changes and re-meshing.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/meshrefinementrulecollection.htm"
+    },
+    {
+      "name": "MeshSettings properties (MeshSizeOption, TriangleEdgeLength, WireSegmentLength, TetrahedronEdgeLength, WireRadius, Advanced, Scope)",
+      "kind": "api",
+      "description": "The MeshSettings object (global on project.Mesher.Settings, local on parts) holds MeshSizeOption (Coarse/Standard/Fine/Custom), the custom edge lengths for triangles, wire segments and tetrahedra (only used with Custom), the wire radius, the meshing Scope (whole model or selected parts) and Advanced settings (curvature refinement, small features, smoothing, proximity refinement).",
+      "usage": "s = project.Mesher.Settings; s.MeshSizeOption = cf.Enums.MeshSizeOptionEnum.Custom; s.TriangleEdgeLength = 0.01; s.WireSegmentLength = 0.005; s.TetrahedronEdgeLength = 0.02; s.WireRadius = 0.001; adv = s.Advanced; inspect(adv); part.MeshSettings (with part.LocalMeshSettingsEnabled = true)",
+      "parameters": [],
+      "example": "s = project.Mesher.Settings\ns.MeshSizeOption = cf.Enums.MeshSizeOptionEnum.Fine\ns.WireRadius = \"rad\"\nprops = s:GetProperties(); inspect(props)",
+      "notes": "WavelengthBasedSize is read-only; TriangleEdgeLength is ignored while automatic sizing is active.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/meshsettings.htm"
+    },
+    {
+      "name": "Mesher methods (Mesh, MeshSelective, VoxelMeshUsingFixedGrid, VoxelMeshFromPoints, VoxelSettings, UnlinkMeshes)",
+      "kind": "api",
+      "description": "The Mesher generates the simulation mesh for the whole model or selected parts, creates FDTD voxel meshes on a fixed grid (fixed cell size or variable count) or from points, exposes voxel settings (grid info, max growth rate, aspect ratio) and unlinks meshes from geometry for editing.",
+      "usage": "project.Mesher:Mesh(); project.Mesher:MeshSelective({geometryParts}, {meshParts}); project.Mesher:VoxelMeshUsingFixedGrid(...); project.Mesher:VoxelMeshUsingFixedGridVariableCount(...); project.Mesher:VoxelMeshFromPoints(...); vs = project.Mesher.VoxelSettings; vs:GetVoxelMeshMaxGrowthRate(); meshes = project.Mesher:UnlinkMeshes({parts})",
+      "parameters": [],
+      "example": "project.Mesher:MeshSelective({antenna}, {})\nprint(antenna.SimulationMeshInfo.TriangleCount)",
+      "notes": "Meshing can be cancelled in the GUI (2025.1); automatic meshing can be disabled in the preferences for large models.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/mesher.htm"
+    },
+    {
+      "name": "Mesh information (SimulationMeshInfo, ModelMeshInfo: element counts and edge-length statistics)",
+      "kind": "api",
+      "description": "Read-only statistics of a part's simulation mesh or an unlinked mesh: TriangleCount, CurvilinearTriangleCount, SegmentCount, TetrahedronCount, VoxelCount, PolygonCount, CableSegmentCount, MeshElementCount, IsMeshAvailable, and minimum/maximum/average/standard deviation of edge, segment, tetrahedron and voxel lengths plus MinimumElementAngle/MaximumElementAngle; used to estimate memory and detect bad elements.",
+      "usage": "info = part.SimulationMeshInfo; info.TriangleCount; info.AverageEdgeLength; info.MinimumElementAngle; mesh = part:UnlinkMesh(); mesh.ModelMeshInfo.SegmentCount",
+      "parameters": [],
+      "example": "total = 0\nfor _, p in pairs(project.Geometry) do total = total + p.SimulationMeshInfo.TriangleCount end\nprint(\"triangles:\", total, \"approx. MoM unknowns:\", 1.5*total)",
+      "notes": "MoM memory is roughly 16 bytes x unknowns^2 (double precision); check MinimumElementAngle for slivers before solving.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/simulationmeshinfo.htm"
+    },
+    {
+      "name": "Editable meshes (project.Meshes, Mesh methods: Faces/Wires/TetrahedronRegions, CreateTriangle, DeleteTriangles, MergeTopology, ModifyVertex, Regroup, Replace, Repair)",
+      "kind": "api",
+      "description": "Unlinked or imported meshes are Mesh objects with Faces (triangle faces), Wires (segment wires), TetrahedronRegions, Cylinders/Plates (unmeshed UTD parts) and BoundaryEdges/BoundaryFaces; they can be edited (AddTriangle/CreateTriangle, DeleteTriangles/DeleteSegments/DeleteVertices, ModifyVertex, ModifySegmentRadius, MergeTopology, Regroup by label, ReverseElementNormals, Replace by another mesh) and repaired through project.Meshes.Repair (MergeVertices, RemoveDuplicates, RemoveCollapsed, FindOverlappingEntities).",
+      "usage": "mesh = project.Meshes[1] (or part:UnlinkMesh()); mesh.Faces[1].Medium = m; mesh.Faces[1].SolutionMethod = ...; mesh:HasDistortedElements(5); mesh:ModifyVertex(vertexRef, point); mesh:ReverseElementNormals(); project.Meshes.Repair:MergeVertices(...); mesh:Delete()",
+      "parameters": [],
+      "example": "mesh = platform:UnlinkMesh()\nmesh:ReverseElementNormals()\nfor _, f in pairs(mesh.Faces) do f.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.LEPOFullRayTracing end",
+      "notes": "Mesh ports (AddWireMeshPort, AddEdgeMeshPort ...) attach sources to mesh entities; mesh parts keep their mesh when the geometry changes.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/mesh.htm"
+    },
+    {
+      "name": "Windscreen tools API (WorkSurfaces:Add, AddConstrainedSurface, AddSurfaceLine, AddSurfaceBezierCurve, AddSurfaceRegularLines)",
+      "kind": "api",
+      "description": "Builds windscreen antenna models: a constrained surface interpolates a cloud of points/normals (optionally with U'V' parameters) as the curved reference, a work surface is created on it, and surface lines, surface Bezier curves and regular line arrays are drawn in the surface's UV coordinates to form heating grids and antenna elements that follow the glass curvature.",
+      "usage": "cs = project.Geometry:AddConstrainedSurface({positions}, {normals}, {uvPoints}); ws = project.WorkSurfaces:Add(...); project.Geometry:AddSurfaceLine(ws, u0, v0, u1, v1); project.Geometry:AddSurfaceBezierCurve(ws, u0, v0, tu0, tv0, tu1, tv1, u1, v1); project.Geometry:AddSurfaceRegularLines(ws, u0, v0, u1, v1, numberOfLines)",
+      "parameters": [],
+      "example": "heater = project.Geometry:AddSurfaceRegularLines(ws, 0.05, 0.1, 0.95, 0.9, 12)",
+      "notes": "Assign the windscreen medium and FaceSolutionMethodEnum.Windscreen / EdgeSolutionMethodEnum.Windscreen to the elements; new-format path project.Definitions.WorkSurfaces.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/windscreen_tools_intro_feko_c.dita-cadfeko.htm"
+    },
+    {
+      "name": "Unit cells and periodic structure definitions (PeriodicStructures.Shapes, UnitCells:AddUnitCell, BuildGeometry)",
+      "kind": "api",
+      "description": "Unit-cell definitions describe multilayer periodic structures (FSS/metasurfaces) from shapes (ring, cross, hexagon ...) per layer with an aperture or patch method, rotation, cell dimensions and skew, and BuildGeometry generates the geometry with the periodic boundary already set.",
+      "usage": "shape = project.PeriodicStructures.Shapes:AddRing(outerRadius, innerRadius) (documented under project.Definitions.PeriodicStructures); props = cf.UnitCell.GetDefaultProperties(); props.Layers[1].Method = cf.Enums.UnitCellLayerMethodTypeEnum.Aperture; props.Layers[1].Shape = shape; cell = project.PeriodicStructures.UnitCells:AddUnitCell(props); geom = cell:BuildGeometry(true)",
+      "parameters": [],
+      "example": "ring = project.Definitions.PeriodicStructures.Shapes:AddRing(1.0, 0.9)\nprops = cf.UnitCell.GetDefaultProperties()\nprops.Layers[1].Method = cf.Enums.UnitCellLayerMethodTypeEnum.Aperture\nprops.Layers[1].Shape = ring\ncell = project.Definitions.PeriodicStructures.UnitCells:AddUnitCell(props)\ncell:BuildGeometry(true)",
+      "notes": "Documented for the new-format API; not part of the legacy wrapper index, so use the new-format path shown in the example.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/unitcell.htm"
+    },
+    {
+      "name": "Legacy (2019-format) versus new-format CADFEKO API",
+      "kind": "reference",
+      "description": "The installed cf namespace is a backwards-compatibility layer (FEKO_HOME/shared/lua/BackwardsCompatibility/CADFEKO_2019_*.lua) that maps the legacy tree onto the current object model: cf.GetApplication() -> cf.Application.GetInstance(); app:OpenFile(path) -> application:Load({path}); project.Geometry/Media/Variables/NamedPoints/Workplanes/Ports/SolutionConfigurations/SolutionSettings/Launcher -> project.Contents.Geometry, project.Definitions.Media (with Dielectric/Metallic/ImpedanceSheet/LayeredDielectric sub-collections), project.Definitions.Variables/NamedPoints/Workplanes, project.Contents.Ports/SolutionConfigurations/SolutionSettings, application.Launcher; cfg.SAR -> configuration.SAR; Media:AddDielectric(eps, tand, rho) -> Media.Dielectric:AddDielectric(eps, tand, rho). The recorder writes the new form; the online API reference documents it.",
+      "usage": "Read the wrapper sources to confirm a legacy name; grep -n \"function cf_v2019\" CADFEKO_2019_*.lua lists every wrapped method.",
+      "parameters": [],
+      "example": "-- same model in both forms\napp = cf.GetApplication(); project = app:NewProject(); project.Geometry:AddLine(cf.Point(0,0,0), cf.Point(0,0,1))\napplication = cf.Application.GetInstance(); project = application:NewProject(); project.Contents.Geometry:AddLine(cf.Point(0,0,0), cf.Point(0,0,1))",
+      "notes": "Legacy scripts written before 2022.1 can be migrated to the new format (Altair Community describes a conversion utility); mixing forms in one script works because both resolve to the same objects.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/scripting/intro_script_api_feko_c.htm"
+    }
+  ]
+}

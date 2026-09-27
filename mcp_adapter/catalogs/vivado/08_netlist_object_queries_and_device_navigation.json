@@ -1,0 +1,460 @@
+{
+  "category": "Netlist Object Queries & Device Navigation (Tcl)",
+  "description": "The get_* and all_* query commands that return first-class design objects (nets, pins, clocks, timing arcs, library cells, debug cores) and device objects (sites, BELs, tiles, clock regions, SLRs, package pins, I/O banks), plus the option idioms (-hierarchical, -filter, -of_objects, -regexp) and helper commands (filter, current_instance, group_path, highlight/mark) that every XDC file and analysis script is built from.",
+  "tools": [
+    {
+      "name": "get_nets",
+      "kind": "tcl-command",
+      "description": "Return net objects from the current design, matched by name pattern, by connection to given pins/ports/cells (-of_objects), or by property filter. -hierarchical searches every level of hierarchy, -segments returns all hierarchical segments of a net (needed when the same electrical net has different names at different levels), and -top_net_of_hierarchical_group returns the top-most segment.",
+      "usage": "get_nets [-hierarchical] [-hsc <sep>] [-regexp] [-nocase] [-filter <expr>] [-of_objects <objs>] [-match_style sdc|ucf] [-top_net_of_hierarchical_group] [-segments] [-boundary_type upper|lower|both] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-hierarchical (-hier)", "description": "Search all hierarchy levels; patterns then match the full hierarchical name."},
+        {"name": "-of_objects", "description": "Nets connected to the given pins, ports, cells, clocks or timing paths."},
+        {"name": "-filter", "description": "Property expression, e.g. {TYPE == GLOBAL_CLOCK && ROUTE_STATUS != ROUTED}."},
+        {"name": "-segments", "description": "Return every hierarchical segment of the matching nets."},
+        {"name": "-top_net_of_hierarchical_group", "description": "Collapse hierarchical segments to the top-level net."}
+      ],
+      "example": "# all global clock nets\nget_nets -hier -filter {TYPE == GLOBAL_CLOCK}\n# the net driven by a pin, including every hierarchical alias\nget_nets -segments -of_objects [get_pins u_clk/mmcm_inst/CLKOUT0]\n# nets still unrouted after route_design\nget_nets -hier -filter {ROUTE_STATUS == UNROUTED}\nset_property MARK_DEBUG true [get_nets -hier *fifo_full*]",
+      "notes": "Bus bits are separate net objects named bus[3], bus[2] ...; quote patterns with brackets in braces. Net properties worth knowing: TYPE, ROUTE_STATUS, FLAT_PIN_COUNT, IS_INTERNAL, MARK_DEBUG, DONT_TOUCH.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_nets"
+    },
+    {
+      "name": "get_pins",
+      "kind": "tcl-command",
+      "description": "Return pin objects of cells (hierarchical or leaf), for use as start/end points in timing constraints and as the objects that create_generated_clock, set_case_analysis, set_disable_timing and set_max_delay act on. -leaf drops hierarchical pins and returns the leaf-cell pins actually connected, and -of_objects selects the pins of given cells or nets.",
+      "usage": "get_pins [-hierarchical] [-regexp] [-nocase] [-leaf] [-filter <expr>] [-of_objects <cells|nets|timing_paths>] [-match_style sdc|ucf] [-include_replicated_objects] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-leaf", "description": "Return leaf-primitive pins only, skipping hierarchical pins."},
+        {"name": "-of_objects", "description": "Pins belonging to cells or connected to nets."},
+        {"name": "-filter", "description": "Common properties: DIRECTION (IN/OUT), REF_PIN_NAME, IS_CLOCK, IS_LEAF, SETUP_SLACK."},
+        {"name": "-include_replicated_objects", "description": "Also match pins on replicated cells created by phys_opt_design."}
+      ],
+      "example": "# clock pins of every register in a hierarchy\nget_pins -of_objects [get_cells -hier -filter {PRIMITIVE_GROUP == REGISTER}] -filter {REF_PIN_NAME == C}\n# leaf loads of a hierarchical output pin\nget_pins -leaf -of_objects [get_nets u_core/data_out]\nset_case_analysis 0 [get_pins u_clkmux/S]\nset_max_delay -datapath_only 5.0 -from [get_pins sync_src_reg/C] -to [get_pins sync_dst_reg/D]",
+      "notes": "Pin names are cell/pin (e.g. u_fifo/wr_ptr_reg[3]/Q); REF_PIN_NAME is the primitive pin name without the instance path. Prefer pins over cells in timing exceptions when only one edge or one output is meant.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_pins"
+    },
+    {
+      "name": "get_clocks",
+      "kind": "tcl-command",
+      "description": "Return clock objects (primary, generated, auto-derived and virtual) by name pattern, by the pins/nets/ports they propagate through (-of_objects), or by property such as IS_GENERATED or PERIOD. It is the argument type expected by set_clock_groups, set_input_delay -clock, set_multicycle_path -start/-end and report_timing -group.",
+      "usage": "get_clocks [-regexp] [-nocase] [-filter <expr>] [-of_objects <ports|pins|nets|cells>] [-match_style sdc|ucf] [-include_generated_clocks] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Clocks that reach the given objects; used to find the clock name on an MMCM output pin."},
+        {"name": "-include_generated_clocks", "description": "Add generated clocks derived from the matched master clocks."},
+        {"name": "-filter", "description": "Properties: PERIOD, IS_GENERATED, IS_VIRTUAL, IS_USER_GENERATED, SOURCE_PINS, MASTER_CLOCK."}
+      ],
+      "example": "# all clocks faster than 200 MHz\nget_clocks -filter {PERIOD < 5.0}\n# clock arriving at a register\nget_clocks -of_objects [get_pins u_rx/data_reg[0]/C]\nset_clock_groups -asynchronous \\\n  -group [get_clocks -include_generated_clocks sys_clk] \\\n  -group [get_clocks -include_generated_clocks gt_rxclk]",
+      "notes": "Auto-derived clock names come from the MMCM/PLL output net (e.g. clk_out1_clk_wiz_0); report_clocks lists all names. get_generated_clocks is the same query restricted to generated clocks.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_clocks"
+    },
+    {
+      "name": "get_generated_clocks",
+      "kind": "tcl-command",
+      "description": "Return only generated clock objects (user-created with create_generated_clock or auto-derived from MMCM/PLL/BUFGCE_DIV). Handy for scripting clock-group constraints or for renaming derived clocks with -of_objects on the generating pin.",
+      "usage": "get_generated_clocks [-regexp] [-nocase] [-filter <expr>] [-of_objects <objs>] [-match_style sdc|ucf] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Generated clocks propagating through the given pins/nets."},
+        {"name": "-filter", "description": "e.g. {MASTER_CLOCK == sys_clk} or {IS_USER_GENERATED == 1}."}
+      ],
+      "example": "foreach g [get_generated_clocks] {\n  puts \"$g <- [get_property MASTER_CLOCK $g] period [get_property PERIOD $g]\"\n}",
+      "notes": "Renaming an auto-derived clock is done with create_generated_clock -name <new> [get_pins <mmcm>/CLKOUT0] with no other options, which keeps the auto-derived relationship.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_generated_clocks"
+    },
+    {
+      "name": "get_sites",
+      "kind": "tcl-command",
+      "description": "Return device site objects (SLICE_X0Y0, RAMB36_X1Y10, DSP48E2_X2Y3, IOB_X0Y5, MMCME4_ADV_X0Y0, GTHE4_CHANNEL_X0Y4 ...) by name, by range (-range), by containing tile/clock region/Pblock/package pin (-of_objects) or by property. Sites are the targets of LOC constraints, Pblock ranges and place_cell, and they are what the Device window shows when you hover over the fabric.",
+      "usage": "get_sites [-regexp] [-nocase] [-filter <expr>] [-range <site1 site2>] [-of_objects <tiles|clock_regions|pblocks|package_pins|slrs|cells>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-range", "description": "Two site names giving a rectangular range, e.g. {SLICE_X0Y0 SLICE_X9Y9}."},
+        {"name": "-of_objects", "description": "Sites inside the given tiles, clock regions, Pblocks or SLRs, or the site a cell is placed on."},
+        {"name": "-filter", "description": "Properties: SITE_TYPE, IS_USED, IS_RESERVED, CLOCK_REGION, SLR, PROHIBIT."}
+      ],
+      "example": "# free BRAM sites in clock region X2Y3\nget_sites -of_objects [get_clock_regions X2Y3] -filter {SITE_TYPE == RAMB36 && IS_USED == 0}\n# site a cell was placed on\nget_sites -of_objects [get_cells u_ctrl/state_reg[0]]\n# forbid placement in some sites\nset_property PROHIBIT true [get_sites -range {SLICE_X0Y0 SLICE_X3Y59}]",
+      "notes": "Site names are family-specific; SLICEL vs SLICEM is a SITE_TYPE, not part of the name. PROHIBIT on sites is written to XDC and is the way to reserve area without a Pblock.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_sites"
+    },
+    {
+      "name": "get_bels",
+      "kind": "tcl-command",
+      "description": "Return Basic Element of Logic objects inside sites (LUTs, flip-flops, carry chains, MUXes, IDELAY elements, DSP sub-blocks). Used to discover the legal BEL names for a family before writing BEL constraints and to inspect which BELs a placed cell occupies.",
+      "usage": "get_bels [-regexp] [-nocase] [-filter <expr>] [-of_objects <sites|cells|pins>] [-include_routing_bels] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "BELs within the given sites, or the BEL a cell sits on."},
+        {"name": "-include_routing_bels", "description": "Also return routing BELs (site muxes) rather than only logic BELs."},
+        {"name": "-filter", "description": "Properties: TYPE (e.g. FF, LUT6, CARRY8), IS_USED, NAME."}
+      ],
+      "example": "get_bels -of_objects [get_sites SLICE_X20Y40] -filter {TYPE =~ *FF*}\n# BEL of a placed cell\nget_bels -of_objects [get_cells u_sync/meta_reg]\nset_property BEL AFF [get_cells u_sync/meta_reg]",
+      "notes": "BEL names returned are fully qualified as SITE/BEL; the BEL property on a cell takes only the BEL part.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_bels"
+    },
+    {
+      "name": "get_tiles",
+      "kind": "tcl-command",
+      "description": "Return device tile objects (CLEL_R_X10Y20, INT_X10Y20, BRAM_X5Y15, DSP_X3Y10 ...), the physical grid unit that contains sites and the interconnect switch box. Used for low-level routing analysis, congestion scripting and for translating between sites, clock regions and interconnect resources.",
+      "usage": "get_tiles [-regexp] [-nocase] [-filter <expr>] [-of_objects <sites|clock_regions|slrs|nodes|pips>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Tiles containing the given sites or in the given clock regions/SLRs."},
+        {"name": "-filter", "description": "Properties: TILE_TYPE, TYPE, GRID_POINT_X, GRID_POINT_Y, ROW, COLUMN."}
+      ],
+      "example": "get_tiles -of_objects [get_sites SLICE_X10Y20]\nllength [get_tiles -filter {TILE_TYPE == INT}]\nget_tiles -of_objects [get_clock_regions X0Y0] -filter {TYPE =~ BRAM*}",
+      "notes": "Rarely needed in constraints; used by report_design_analysis scripts and Vivado's device-model exploration (get_nodes -of_objects [get_tiles ...]).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_tiles"
+    },
+    {
+      "name": "get_clock_regions",
+      "kind": "tcl-command",
+      "description": "Return clock region objects (X0Y0 ... XnYm), the building blocks for coarse floorplanning and for interpreting clock-routing and report_clock_utilization output. Pblocks can be defined as clock-region ranges and USER_SLR_ASSIGNMENT / SLR queries build on them.",
+      "usage": "get_clock_regions [-regexp] [-nocase] [-filter <expr>] [-of_objects <sites|cells|slrs|pblocks>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Clock regions containing the given sites/cells, or belonging to an SLR."},
+        {"name": "-filter", "description": "Properties: ROW_INDEX, COLUMN_INDEX, SLR, NUM_SITES..."}
+      ],
+      "example": "get_clock_regions -of_objects [get_slrs SLR1]\nresize_pblock pb_a -add [get_clock_regions {X0Y2 X1Y2}]\nreport_clock_utilization -clock_roots_only",
+      "notes": "UltraScale-architecture clock regions are 60 CLBs tall and have 24 global clock tracks each; exceeding that in one region is a routing failure that report_clock_utilization exposes early.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_clock_regions"
+    },
+    {
+      "name": "get_slrs",
+      "kind": "tcl-command",
+      "description": "Return super logic region objects (SLR0, SLR1, ...) of a stacked-silicon device. Combined with -of_objects it tells which SLR a cell, site or clock region is on, and it is the argument for Pblocks spanning whole dies and for report_utilization -slr style analysis.",
+      "usage": "get_slrs [-regexp] [-nocase] [-filter <expr>] [-of_objects <cells|sites|clock_regions|tiles|nodes>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "SLRs containing the given objects."},
+        {"name": "-filter", "description": "SLR_INDEX, NUM_CLOCK_REGIONS, IS_MASTER."}
+      ],
+      "example": "foreach c [get_cells -hier -filter {PRIMITIVE_TYPE =~ *GT*CHANNEL*}] {\n  puts \"$c on [get_slrs -of_objects $c]\"\n}\nresize_pblock pb_slr2 -add [get_slrs SLR2]",
+      "notes": "Single-die parts return one SLR (SLR0). The master SLR (the one holding configuration logic) is flagged with IS_MASTER.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_slrs"
+    },
+    {
+      "name": "get_package_pins",
+      "kind": "tcl-command",
+      "description": "Return package pin objects (AB12, H7, ...) with their bank, pin function, differential-pair partner and the site they connect to. Used in pin-assignment scripts, to look up which pins are clock-capable (IS_CLK_CAPABLE / IS_GLOBAL_CLK), to check bank membership and to map from a port to its physical pin.",
+      "usage": "get_package_pins [-regexp] [-nocase] [-filter <expr>] [-of_objects <iobanks|ports|sites>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Pins of an I/O bank, of a port (the assigned pin) or of a site."},
+        {"name": "-filter", "description": "Properties: BANK, PIN_FUNC, IS_CLK_CAPABLE, IS_GLOBAL_CLK, IS_DIFFERENTIAL, DIFF_PAIR_PIN, IS_BONDED, IS_GT, IS_VREF."}
+      ],
+      "example": "# clock-capable pins in bank 34\nget_package_pins -of_objects [get_iobanks 34] -filter {IS_CLK_CAPABLE}\n# pin of a port and its differential partner\nset p [get_package_pins -of_objects [get_ports clk_p]]\nget_property DIFF_PAIR_PIN $p\n# unbonded / power pins excluded\nget_package_pins -filter {IS_BONDED && PIN_FUNC =~ IO_*}",
+      "notes": "PIN_FUNC encodes the datasheet function string (e.g. IO_L12P_T1_MRCC_34). Pin assignment itself is done with set_property PACKAGE_PIN on the port.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_package_pins"
+    },
+    {
+      "name": "get_iobanks",
+      "kind": "tcl-command",
+      "description": "Return I/O bank objects, the unit that shares VCCO, VREF and DCI settings. Query banks by number, by the ports/pins they contain or by properties such as BANK_TYPE (BT_HIGH_PERFORMANCE, BT_HIGH_RANGE, BT_HIGH_DENSITY), and use them for INTERNAL_VREF, DCI_CASCADE and for checking VCCO conflicts before running the I/O DRCs.",
+      "usage": "get_iobanks [-regexp] [-nocase] [-filter <expr>] [-of_objects <package_pins|ports|sites|slrs>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Banks that contain the given ports, package pins or sites."},
+        {"name": "-filter", "description": "Properties: BANK_TYPE, NUM_PINS, VCCO (derived), IS_HPIO (family dependent)."}
+      ],
+      "example": "foreach b [get_iobanks -filter {BANK_TYPE == BT_HIGH_PERFORMANCE}] {\n  puts \"HP bank $b: [llength [get_ports -of_objects $b]] ports\"\n}\nset_property INTERNAL_VREF 0.9 [get_iobanks -of_objects [get_ports {ddr4_dq[*]}]]",
+      "notes": "Ports without PACKAGE_PIN have no bank yet; the I/O Planning layout's Package view groups pins per bank visually.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_iobanks"
+    },
+    {
+      "name": "get_io_standards",
+      "kind": "tcl-command",
+      "description": "Return the I/O standard objects supported by the target device (LVCMOS18, LVDS, SSTL12_DCI, POD12, HSTL_I, ...) together with properties such as VCCO, differential capability, drive/slew options and the bank types that accept them. Useful to validate constraint scripts across parts and to list legal standards for a bank before pin planning.",
+      "usage": "get_io_standards [-regexp] [-nocase] [-filter <expr>] [-of_objects <ports|iobanks>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Standards currently assigned to the given ports or legal in the given banks."},
+        {"name": "-filter", "description": "Properties: IS_DIFFERENTIAL, VCCO, DRIVE_STRENGTH, SLEW, IS_DCI, INPUT_VREF..."}
+      ],
+      "example": "get_io_standards -filter {IS_DIFFERENTIAL && VCCO == 1.8}\nreport_property [get_io_standards LVDS]\nget_io_standards -of_objects [get_iobanks 66]",
+      "notes": "The list depends on the current part; open a design or set a part first.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_io_standards"
+    },
+    {
+      "name": "all_fanout",
+      "kind": "tcl-command",
+      "description": "Trace forward from pins/ports/nets through combinational logic and return every pin (or cell with -only_cells) in the transitive fanout, stopping at sequential elements unless -endpoints_only or -flat is changed. -levels limits the depth, -trace_arcs all follows clock and timing arcs too. It is the classic way to find all registers clocked by a net, all loads of a control signal or the cone reached from a reset.",
+      "usage": "all_fanout [-endpoints_only] [-only_cells] [-flat] [-levels <n>] [-pin_levels <n>] [-trace_arcs timing|enabled|all] [-quiet] <from_objects>",
+      "parameters": [
+        {"name": "<from_objects>", "description": "Starting ports, pins or nets."},
+        {"name": "-endpoints_only", "description": "Return only path endpoints (sequential data pins, output ports)."},
+        {"name": "-only_cells", "description": "Return the cells instead of pins."},
+        {"name": "-flat", "description": "Return leaf-level pins, ignoring hierarchy."},
+        {"name": "-levels", "description": "Maximum number of cell levels to traverse."},
+        {"name": "-trace_arcs", "description": "timing (default: data arcs), enabled (arcs not disabled by case analysis), all (including clock arcs)."}
+      ],
+      "example": "# every register reached by a synchronous reset within two LUT levels\nall_fanout -flat -endpoints_only -only_cells -levels 2 [get_nets rst_sync]\n# loads of a clock net, needed e.g. for a set_multicycle_path on a whole domain\nllength [all_fanout -flat -endpoints_only [get_pins u_clk/bufg_slow/O] -trace_arcs all]",
+      "notes": "Slow on huge nets; prefer get_pins -of_objects [get_nets ...] -leaf when you only need direct loads. all_fanin is the mirror-image command.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/all_fanout"
+    },
+    {
+      "name": "all_fanin",
+      "kind": "tcl-command",
+      "description": "Trace backward from pins/ports/nets through combinational logic to the driving startpoints (register outputs, input ports) and return the pins or cells on the way. Options mirror all_fanout: -startpoints_only, -only_cells, -flat, -levels, -trace_arcs. Use it to find which registers feed a timing endpoint, which port a signal ultimately comes from, or to build a false-path list for a debug cone.",
+      "usage": "all_fanin [-startpoints_only] [-only_cells] [-flat] [-levels <n>] [-pin_levels <n>] [-trace_arcs timing|enabled|all] [-quiet] <to_objects>",
+      "parameters": [
+        {"name": "<to_objects>", "description": "Ending pins, ports or nets."},
+        {"name": "-startpoints_only", "description": "Return only path startpoints."},
+        {"name": "-only_cells / -flat / -levels / -trace_arcs", "description": "As for all_fanout."}
+      ],
+      "example": "# registers that drive the failing endpoint pin\nall_fanin -flat -startpoints_only -only_cells [get_pins u_alu/result_reg[15]/D]\n# source of a clock net through buffers and MMCM\nall_fanin -flat -startpoints_only [get_pins u_core/state_reg[0]/C] -trace_arcs all",
+      "notes": "Both fan tracers stop at sequential elements by default; with -trace_arcs all they also cross clock and enable arcs.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/all_fanin"
+    },
+    {
+      "name": "all_inputs / all_outputs",
+      "kind": "tcl-command",
+      "description": "Return every top-level input (or bidirectional) port and every output (or bidirectional) port respectively. They are the SDC shortcuts for constraining all ports at once: default input/output delays, blanket false paths on unconstrained pins, or iterating over ports to check IOSTANDARD/PACKAGE_PIN assignments.",
+      "usage": "all_inputs [-quiet]\nall_outputs [-quiet]",
+      "parameters": [],
+      "example": "# default delays for everything, then override the critical interfaces\nset_input_delay  -clock sys_clk 2.0 [all_inputs]\nset_output_delay -clock sys_clk 1.0 [all_outputs]\nset_false_path -from [get_ports {btn[*]}]\n# ports without a package pin\nforeach p [concat [all_inputs] [all_outputs]] {\n  if {[get_property PACKAGE_PIN $p] eq \"\"} { puts \"unassigned: $p\" }\n}",
+      "notes": "Clock ports are included in all_inputs; set_input_delay on a clock port is meaningless and should be excluded with [remove_from_collection [all_inputs] [get_ports clk]] or a get_ports -filter.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/all_inputs"
+    },
+    {
+      "name": "all_clocks",
+      "kind": "tcl-command",
+      "description": "Return every clock object in the design, including generated, auto-derived and virtual clocks. Used to apply a constraint uniformly (clock uncertainty, jitter) or to loop over clocks in reporting scripts.",
+      "usage": "all_clocks [-quiet]",
+      "parameters": [],
+      "example": "set_clock_uncertainty -setup 0.150 [all_clocks]\nforeach c [all_clocks] {\n  puts [format \"%-30s %6.3f ns\" $c [get_property PERIOD $c]]\n}",
+      "notes": "Equivalent to get_clocks with no pattern. Blanket clock uncertainty is a common over-constraint technique for timing closure; remove it before sign-off.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/all_clocks"
+    },
+    {
+      "name": "all_rams / all_ffs / all_dsps / all_latches",
+      "kind": "tcl-command",
+      "description": "Family of shortcuts returning every block RAM/LUTRAM cell, every flip-flop, every DSP cell or every latch in the design. They are faster than a get_cells -hier -filter on PRIMITIVE_GROUP and are used for bulk attributes (e.g. switching activity on all BRAMs), latch detection after synthesis, or counting resources per hierarchy.",
+      "usage": "all_rams [-quiet]\nall_ffs [-quiet]\nall_dsps [-quiet]\nall_latches [-quiet]",
+      "parameters": [],
+      "example": "puts \"latches: [llength [all_latches]]\"   ;# should be 0 in a synchronous design\nset_switching_activity -toggle_rate 20 -static_probability 0.5 [get_pins -of_objects [all_rams] -filter {REF_PIN_NAME =~ EN*}]\nreport_property [lindex [all_dsps] 0]",
+      "notes": "all_ffs includes I/O logic flops and SRL-based shift registers are not FFs. all_cpus and all_hsios exist for embedded processor and HSIO objects.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/all_rams"
+    },
+    {
+      "name": "filter",
+      "kind": "tcl-command",
+      "description": "Apply a property-based filter expression to an existing collection of objects and return the subset that matches, the same expression syntax as the -filter option of the get_* commands. Expressions combine property names, comparison operators (==, !=, <, >, =~ glob, !~), && / || and parentheses.",
+      "usage": "filter [-regexp] [-nocase] [-quiet] <objects> <filter_expression>",
+      "parameters": [
+        {"name": "<objects>", "description": "Any collection returned by a get_* or all_* command."},
+        {"name": "<filter_expression>", "description": "e.g. {IS_PRIMITIVE && PRIMITIVE_TYPE =~ CLB.LUT.*} or {SETUP_SLACK < 0}."},
+        {"name": "-regexp", "description": "Treat =~ patterns as regular expressions instead of globs."}
+      ],
+      "example": "set regs [all_ffs]\nset async_regs [filter $regs {ASYNC_REG == 1}]\nset big_pblocks [filter [get_pblocks] {CELL_COUNT > 5000}]\nset failing [filter [get_timing_paths -max_paths 100] {SLACK < 0}]",
+      "notes": "Properties available for filtering are listed by list_property <object> and report_property; boolean properties can be tested by name alone. Expressions must be in braces so Tcl does not expand them.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/filter"
+    },
+    {
+      "name": "current_instance",
+      "kind": "tcl-command",
+      "description": "Set (or query) the hierarchical instance that subsequent get_* queries and constraints are scoped to, so an XDC file written for a sub-module can use relative names. IP and hierarchical OOC constraints rely on it, and Vivado automatically wraps IP XDC files in current_instance calls. Calling it with no argument prints the current scope; -quiet with an empty string resets to the top.",
+      "usage": "current_instance [-quiet] [<instance>]\ncurrent_instance          ;# back to top level",
+      "parameters": [
+        {"name": "<instance>", "description": "Hierarchical cell to scope to; relative names are resolved from the current scope."}
+      ],
+      "example": "current_instance u_rx_path/u_deserializer\nset_property IOB TRUE [get_cells {data_reg[*]}]\nset_false_path -to [get_pins sync_reg[0]/D]\ncurrent_instance\n# equivalent explicit form\nset_property IOB TRUE [get_cells {u_rx_path/u_deserializer/data_reg[*]}]",
+      "notes": "Timing constraints inside a scoped block still refer to top-level clocks by their global names. Use get_property SCOPED_TO_CELLS on an XDC file to scope a whole file to one or more instances instead.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/current_instance"
+    },
+    {
+      "name": "group_path",
+      "kind": "tcl-command",
+      "description": "Assign timing paths to a named path group so they are reported and optimized separately, with optional -weight to bias the placer/router toward that group. Paths are selected by -from/-to/-through or by clock; -default returns them to the default group. Vivado already groups paths per destination clock; user groups are used for critical interfaces and for isolating a problem region in report_timing_summary.",
+      "usage": "group_path [-name <group>] [-weight 1|2] [-default] [-from <objs>] [-to <objs>] [-through <objs>] [-quiet]",
+      "parameters": [
+        {"name": "-name", "description": "Path group name; appears as a section in timing reports and in report_timing -group."},
+        {"name": "-weight", "description": "1 (default) or 2 for higher optimization priority."},
+        {"name": "-from / -to / -through", "description": "Path selectors, same objects as set_false_path."},
+        {"name": "-default", "description": "Move the matching paths back to the default group."}
+      ],
+      "example": "group_path -name pcie_user -weight 2 -to [get_cells -hier -filter {NAME =~ *pcie_user_logic*}]\nreport_timing -group pcie_user -max_paths 10\nget_path_groups",
+      "notes": "Too many groups dilute optimization effort. get_path_groups lists the existing groups (clock names plus **async_default** for asynchronous paths).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/group_path"
+    },
+    {
+      "name": "get_path_groups",
+      "kind": "tcl-command",
+      "description": "List the timing path groups in the design: one per clock, **async_default** for recovery/removal paths and any user groups created with group_path. Used to iterate report_timing per group or to check that a group_path command took effect.",
+      "usage": "get_path_groups [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Group names to match, default all."}
+      ],
+      "example": "foreach g [get_path_groups] {\n  report_timing -group $g -max_paths 1 -file timing_${g}.rpt\n}",
+      "notes": "Groups are created automatically as clocks are defined; a group disappears when its constraints are removed.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_path_groups"
+    },
+    {
+      "name": "get_lib_cells / get_lib_pins",
+      "kind": "tcl-command",
+      "description": "Query the device primitive library: get_lib_cells returns the primitive definitions available for the target part (FDRE, LUT6, RAMB36E2, DSP48E2, BUFGCE, ...) and get_lib_pins their pins with direction and function. Used to check which primitives a part supports, to script create_cell -reference in ECO flows, and to look up pin names before writing BEL/pin constraints.",
+      "usage": "get_lib_cells [-regexp] [-nocase] [-filter <expr>] [-of_objects <cells|libs>] [-include_unsupported] [-quiet] [<patterns>]\nget_lib_pins [-regexp] [-nocase] [-filter <expr>] [-of_objects <lib_cells|pins>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Library-qualified names such as xilinx.com/UltraScale/FDRE or wildcard */LUT6."},
+        {"name": "-of_objects", "description": "The library cell of a netlist cell, or the pins of a library cell."},
+        {"name": "-include_unsupported", "description": "Also list primitives not supported on this part."}
+      ],
+      "example": "get_lib_cells [get_libs]/*DSP*\nget_lib_pins -of_objects [get_lib_cells [get_libs]/DSP48E2] -filter {DIRECTION == IN}\n# ECO: add a register\ncreate_cell -reference FDRE eco_reg\nreport_property [get_lib_cells -of_objects [get_cells eco_reg]]",
+      "notes": "get_libs returns the single device library (e.g. xilinx.com/UltraScale). Library cell properties include PRIMITIVE_GROUP, PRIMITIVE_SUBGROUP and NUM_PINS.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_lib_cells"
+    },
+    {
+      "name": "get_timing_arcs",
+      "kind": "tcl-command",
+      "description": "Return the timing arcs (from-pin to to-pin delay relationships) of cells or between pins, with their sense, type and delays, including arcs disabled by set_disable_timing or by case analysis. Useful for understanding why a path is or is not timed, for verifying that a set_disable_timing took effect and for inspecting MUX/LUT arcs before writing exceptions.",
+      "usage": "get_timing_arcs [-from <pins>] [-to <pins>] [-of_objects <cells>] [-filter <expr>] [-quiet]",
+      "parameters": [
+        {"name": "-from / -to", "description": "Restrict arcs to those starting or ending on the given pins."},
+        {"name": "-of_objects", "description": "All arcs of the given cells."},
+        {"name": "-filter", "description": "Properties: IS_DISABLED, SENSE (positive_unate/negative_unate/...), TYPE (combinational/setup/hold/recovery/...), DELAY_MIN_RISE etc."}
+      ],
+      "example": "get_timing_arcs -of_objects [get_cells u_mux/clk_sel_LUT]\nget_timing_arcs -filter {IS_DISABLED} -of_objects [get_cells -hier -filter {PRIMITIVE_TYPE =~ *BUFGMUX*}]\nset_disable_timing -from I1 -to O [get_cells u_mux/clk_sel_LUT]\nreport_disable_timing",
+      "notes": "Arc objects print as cell/pin1-->cell/pin2. The delays are timing-corner dependent; report_timing shows the ones actually used.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_timing_arcs"
+    },
+    {
+      "name": "get_net_delays",
+      "kind": "tcl-command",
+      "description": "Return net-delay objects describing the routed (or estimated) delay from a net's driver to each load pin, for fast/slow corners, with the option to restrict to specific -to pins and to use -interconnect_only. Used for skew analysis on hand-routed nets, matched-length checks and for validating clock-tree delays without a full report_timing.",
+      "usage": "get_net_delays -of_objects <nets> [-to <pins>] [-interconnect_only] [-filter <expr>] [-quiet]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Nets to analyse."},
+        {"name": "-to", "description": "Only the delays to these load pins."},
+        {"name": "-interconnect_only", "description": "Exclude the driver's intrinsic delay, report the wire delay only."},
+        {"name": "properties", "description": "FAST_MAX, FAST_MIN, SLOW_MAX, SLOW_MIN in ps."}
+      ],
+      "example": "foreach d [get_net_delays -of_objects [get_nets lane_clk_fwd]] {\n  puts \"$d slow_max=[get_property SLOW_MAX $d] ps\"\n}",
+      "notes": "Values are in picoseconds; before route_design they are estimates. For a full slack picture use report_timing -path_type full_clock_expanded.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_net_delays"
+    },
+    {
+      "name": "get_nodes / get_pips / get_wires",
+      "kind": "tcl-command",
+      "description": "Low-level routing-resource queries: nodes are the routable wire segments, PIPs (programmable interconnect points) are the switches between them, and wires are the per-tile pieces of a node. -of_objects on a routed net returns the nodes/PIPs it uses, which is how a route is inspected, copied (set_property ROUTE / FIXED_ROUTE) or reserved (set_property IS_ROUTE_FIXED). Rarely needed outside custom routing or analysis scripts.",
+      "usage": "get_nodes [-of_objects <nets|pips|tiles|wires|site_pins>] [-uphill|-downhill] [-flyover] [-filter <expr>] [-regexp] [-quiet] [<patterns>]\nget_pips [-of_objects <nets|nodes|tiles|sites>] [-uphill|-downhill] [-filter <expr>] [-quiet] [<patterns>]\nget_wires [-of_objects <nodes|tiles|pips>] [-filter <expr>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Routing resources used by a net, or reachable from a node/pip/tile."},
+        {"name": "-uphill / -downhill", "description": "Nodes or PIPs driving into, or driven by, the given object."},
+        {"name": "-flyover", "description": "Include nodes that pass over the tile without connecting."}
+      ],
+      "example": "set n [get_nets u_serdes/dq_dly]\nget_nodes -of_objects $n\nget_pips  -of_objects $n\n# lock the route so route_design reuses it\nset_property IS_ROUTE_FIXED 1 $n\nget_property ROUTE $n",
+      "notes": "The ROUTE property string (a nested list of node names) and FIXED_ROUTE constraints are the way to make a route reproducible across runs. Node names are tile/wire, e.g. INT_X10Y20/EE2_E_BEG0.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_nodes"
+    },
+    {
+      "name": "get_site_pins",
+      "kind": "tcl-command",
+      "description": "Return the site pins (the physical pins of a site such as SLICE_X1Y1/A6 or RAMB36_X0Y0/CLKARDCLK) that a net or a cell pin is connected to. Bridges the logical netlist (cell pins) and the physical device (nodes), and is used when writing LOCK_PINS constraints or tracing a route from a pin.",
+      "usage": "get_site_pins [-regexp] [-nocase] [-filter <expr>] [-of_objects <sites|nets|pins|nodes|bel_pins>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Site pins belonging to a site, connected to a net, or mapped from a cell pin."},
+        {"name": "-filter", "description": "Properties: DIRECTION, IS_INPUT, IS_OUTPUT, IS_USED, IS_CLOCK."}
+      ],
+      "example": "get_site_pins -of_objects [get_pins u_ctrl/state_reg[2]/D]\nget_site_pins -of_objects [get_sites SLICE_X10Y42] -filter {IS_USED}",
+      "notes": "A cell pin maps to a site pin only after placement; before place_design the query returns nothing.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_site_pins"
+    },
+    {
+      "name": "get_debug_cores / get_debug_ports",
+      "kind": "tcl-command",
+      "description": "Return the debug cores (ILA, VIO, dbg_hub) present in the netlist-insertion debug flow and their ports (probe0, clk, ...). Used together with create_debug_core, create_debug_port, connect_debug_port and set_property C_* to script debug insertion, and to inspect what a checkpoint already contains before implement_debug_core.",
+      "usage": "get_debug_cores [-regexp] [-nocase] [-filter <expr>] [-of_objects <debug_ports>] [-quiet] [<patterns>]\nget_debug_ports [-regexp] [-nocase] [-filter <expr>] [-of_objects <debug_cores>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-of_objects", "description": "Cores owning the given ports, or ports of the given cores."},
+        {"name": "-filter", "description": "Core properties: C_DATA_DEPTH, C_NUM_OF_PROBES, C_ADV_TRIGGER; port properties: PORT_WIDTH, MATCH_TYPE."}
+      ],
+      "example": "foreach core [get_debug_cores -filter {NAME != dbg_hub}] {\n  puts \"$core depth=[get_property C_DATA_DEPTH $core] probes=[llength [get_debug_ports -of_objects $core]]\"\n}\nreport_debug_core",
+      "notes": "The hub core dbg_hub is always present once any debug core exists; its C_CLK_INPUT_FREQ_HZ and C_ENABLE_CLK_DIVIDER properties control JTAG-to-hub timing.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_debug_cores"
+    },
+    {
+      "name": "get_drc_violations / get_methodology_violations / get_cdc_violations",
+      "kind": "tcl-command",
+      "description": "Return the violation objects produced by the last report_drc, report_methodology or report_cdc run, filterable by check ID, severity or affected objects. They let scripts iterate over violations, extract the cells involved (get_cells -of_objects), decide pass/fail in CI, and generate waivers with create_waiver -of_objects.",
+      "usage": "get_drc_violations [-name <report_name>] [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]\nget_methodology_violations [-name <report_name>] [-filter <expr>] [-quiet] [<patterns>]\nget_cdc_violations [-name <report_name>] [-filter <expr>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-name", "description": "Name given to the report with report_drc -name / report_methodology -name; default is the last unnamed run."},
+        {"name": "-filter", "description": "Properties: SEVERITY, CHECK, DESCRIPTION, IS_WAIVED."}
+      ],
+      "example": "report_drc -name drc_impl -ruledecks {default}\nset errs [get_drc_violations -name drc_impl -filter {SEVERITY == Error}]\nif {[llength $errs]} { error \"[llength $errs] DRC errors\" }\nforeach v [get_methodology_violations -filter {CHECK == TIMING-6}] {\n  puts \"$v : [get_property DESCRIPTION $v]\"\n}",
+      "notes": "Violation objects live only while the named report exists (delete with reset_drc / reset_methodology). Use create_waiver to suppress justified violations and report_waivers to review them.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_drc_violations"
+    },
+    {
+      "name": "get_hierarchy_separator / set_hierarchy_separator",
+      "kind": "tcl-command",
+      "description": "Query or change the character used to separate hierarchy levels in object names ('/' by default). Changing it is only needed for legacy scripts written with '.' separators; the -hsc option on get_* commands does the same per query.",
+      "usage": "get_hierarchy_separator\nset_hierarchy_separator [-quiet] <separator>",
+      "parameters": [
+        {"name": "<separator>", "description": "Single character, typically / or ."}
+      ],
+      "example": "puts [get_hierarchy_separator]   ;# /\nget_cells -hsc . top.u_core.state_reg\nset_hierarchy_separator /",
+      "notes": "Generated netlist names from write_verilog keep '/' escaped; do not change the separator inside XDC files that IP also reads.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_hierarchy_separator"
+    },
+    {
+      "name": "get_selected_objects / select_objects",
+      "kind": "tcl-command",
+      "description": "Bridge between the GUI selection and Tcl: get_selected_objects returns whatever is currently selected in the Device, Schematic, Netlist or Timing windows, and select_objects selects objects from Tcl so the GUI views jump to them. Used interactively to apply constraints to a hand-picked set or to inspect properties of what was clicked.",
+      "usage": "get_selected_objects [-quiet]\nselect_objects [-add] [-quiet] <objects>\nunselect_objects [<objects>]",
+      "parameters": [
+        {"name": "-add", "description": "Add to the existing selection rather than replacing it."}
+      ],
+      "example": "# pick cells in the Device window, then:\nset_property IS_LOC_FIXED true [get_selected_objects]\nselect_objects [get_cells -hier -filter {PRIMITIVE_TYPE =~ *MMCM*}]",
+      "notes": "Only meaningful with the GUI open; in batch mode the selection is empty. Related: get_highlighted_objects, get_marked_objects.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_selected_objects"
+    },
+    {
+      "name": "highlight_objects / mark_objects / show_objects",
+      "kind": "tcl-command",
+      "description": "GUI helpers callable from Tcl: highlight_objects colours cells, nets, sites or Pblocks in the Device and Schematic windows (-color / -color_index, -leaf_cells), mark_objects places a marker on them, and show_objects opens a Find Results style window listing the collection. They are the scripted equivalents of the right-click Highlight / Mark / Show commands and are invaluable for visualising a filter result (e.g. all cells of a failing path).",
+      "usage": "highlight_objects [-color_index <1-20>] [-rgb {r g b}] [-color <name>] [-leaf_cells] [-quiet] <objects>\nunhighlight_objects [-color_index <n>] [-rgb {r g b}] [-color <name>] [-leaf_cells] [<objects>]\nmark_objects [-color <name>|-rgb {r g b}|-color_index <n>] <objects>\nunmark_objects [<objects>]\nshow_objects [-name <window_name>] [-quiet] <objects>",
+      "parameters": [
+        {"name": "-color / -rgb / -color_index", "description": "Colour by name (red, green, ...), RGB triple or palette index."},
+        {"name": "-leaf_cells", "description": "Highlight the leaf primitives under hierarchical cells."},
+        {"name": "-name", "description": "Title of the result window created by show_objects."}
+      ],
+      "example": "set wp [get_timing_paths -max_paths 1 -setup]\nhighlight_objects -color red -leaf_cells [get_cells -of_objects $wp]\nmark_objects -color yellow [get_sites -of_objects [get_cells -of_objects $wp]]\nshow_objects -name worst_path_cells [get_cells -of_objects $wp]\nunhighlight_objects",
+      "notes": "Highlights persist until unhighlight_objects; each colour index can be cleared separately. In batch mode these commands are accepted but do nothing.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/highlight_objects"
+    },
+    {
+      "name": "Query options: -hierarchical, -filter, -of_objects, -regexp, -nocase, -quiet",
+      "kind": "reference",
+      "description": "Common option set shared by every get_* command. Patterns are glob-style by default (* and ?) and match the full name; -hierarchical (or -hier) searches all levels and makes patterns match hierarchical names (so *reg* is needed to match u_a/u_b/reg); -regexp switches patterns to Tcl regular expressions, -nocase ignores case; -filter applies a property expression; -of_objects pivots from one object type to a related one; -quiet suppresses the warning when nothing matches (important inside XDC files that must not fail on optional objects). Results are Tcl lists of objects and can be combined with concat, lsort -unique, remove_from_collection and the filter command.",
+      "usage": "get_<type> [-hierarchical] [-regexp] [-nocase] [-filter <expr>] [-of_objects <objects>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-hierarchical", "description": "Search below the current instance; without it only the current level is searched and hierarchical patterns need explicit levels (a/b/c)."},
+        {"name": "-filter", "description": "{PROP OP value [&& ...]} with ==, !=, <, >, <=, >=, =~ (glob), !~ ; boolean props can be named alone."},
+        {"name": "-of_objects", "description": "Related-object pivot: cells of nets, pins of cells, sites of cells, clocks of pins, nets of timing paths, etc."},
+        {"name": "-regexp / -nocase", "description": "Regular-expression and case-insensitive matching; -regexp also applies to =~ in -filter."},
+        {"name": "-quiet", "description": "No warning / empty result on no match; use in XDC when objects may not exist in every configuration."},
+        {"name": "-match_style ucf|sdc", "description": "Whether bus patterns like data[*] or data* follow UCF or SDC conventions (default sdc)."}
+      ],
+      "example": "# clocked elements in one hierarchy, any level below it\nget_cells -hier -filter {NAME =~ u_core/* && IS_SEQUENTIAL}\n# case-insensitive regexp on nets\nget_nets -hier -regexp -nocase {.*/axi_(aw|ar)valid$}\n# pivot chains: ports -> package pins -> iobank\nget_iobanks -of_objects [get_package_pins -of_objects [get_ports {dq[*]}]]\n# tolerate absent objects in XDC\nset_false_path -quiet -to [get_cells -quiet -hier -filter {NAME =~ *dbg_only*}]",
+      "notes": "Every get_* warns (CRITICAL WARNING in XDC) when a pattern matches nothing; over-broad -hier * queries on million-cell designs are slow, so narrow with -filter on PRIMITIVE_TYPE or NAME first.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/Tcl-Commands-Listed-by-Category"
+    },
+    {
+      "name": "Object properties (PRIMITIVE_TYPE, IS_SEQUENTIAL, REF_NAME, LOC, ROUTE_STATUS ...)",
+      "kind": "reference",
+      "description": "Every Vivado object carries read-only and settable properties that drive -filter expressions and get_property/set_property. On cells the most used are NAME, REF_NAME (module or primitive name), PRIMITIVE_TYPE (e.g. CLB.LUT.LUT6, REGISTER.SDR.FDRE, BLOCKRAM.BRAM.RAMB36E2), PRIMITIVE_GROUP (CLB, REGISTER, BLOCKRAM, DSP, CLOCK, IO, GT), IS_PRIMITIVE, IS_SEQUENTIAL, IS_BLACKBOX, LOC, BEL, IS_LOC_FIXED, IS_BEL_FIXED, DONT_TOUCH, ASYNC_REG, KEEP_HIERARCHY; on nets TYPE, ROUTE_STATUS, ROUTE, FLAT_PIN_COUNT, MARK_DEBUG; on pins DIRECTION, IS_CLOCK, IS_LEAF, SETUP_SLACK/HOLD_SLACK; on ports PACKAGE_PIN, IOSTANDARD, DRIVE, SLEW, PULLTYPE; on timing paths SLACK, REQUIREMENT, DATAPATH_DELAY, LOGIC_LEVELS, STARTPOINT_PIN, ENDPOINT_PIN, GROUP; on runs STATUS, PROGRESS, STRATEGY, STEPS.*; on files FILE_TYPE, LIBRARY, USED_IN, IS_ENABLED, IS_GLOBAL_INCLUDE.",
+      "usage": "list_property <object>            ;# names\nreport_property <object>          ;# names, types, values\nget_property <PROP> <object>\nset_property <PROP> <value> <objects>",
+      "parameters": [
+        {"name": "list_property_value", "description": "Enumerates the legal values of an enumerated property, e.g. list_property_value IOSTANDARD [get_ports clk]."},
+        {"name": "reset_property", "description": "Restore a property to its default (removes a constraint)."}
+      ],
+      "example": "report_property [get_cells u_core/state_reg[0]]\nlist_property_value FSM_ENCODING [get_cells u_core/state_reg[0]]\nget_cells -hier -filter {PRIMITIVE_TYPE =~ BLOCKRAM.* && IS_LOC_FIXED}\nreset_property LOC [get_cells u_core/state_reg[0]]\nset_property -dict {IOSTANDARD LVCMOS18 PACKAGE_PIN AB12 SLEW FAST} [get_ports led0]",
+      "notes": "Property names are case-insensitive but conventionally upper case. UG912 (Vivado Properties Reference) documents each property with its legal values and the objects it applies to.",
+      "docs": "https://docs.amd.com/r/en-US/ug912-vivado-properties"
+    },
+    {
+      "name": "get_designs",
+      "kind": "tcl-command",
+      "description": "Return the design objects currently open in memory (there can be several, e.g. an elaborated RTL design and an implemented run) and let scripts select one with current_design or close the others. Design properties give the part, top module, and whether it is netlist- or RTL-based.",
+      "usage": "get_designs [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]",
+      "parameters": [
+        {"name": "-filter", "description": "Properties: NAME (e.g. synth_1, impl_1, rtl_1), PART, TOP."}
+      ],
+      "example": "foreach d [get_designs] { puts \"$d on [get_property PART $d]\" }\ncurrent_design impl_1\nclose_design",
+      "notes": "Memory usage grows with each open design; close_design before opening another in batch flows.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_designs"
+    }
+  ]
+}

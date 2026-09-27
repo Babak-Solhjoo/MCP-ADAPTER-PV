@@ -1,0 +1,579 @@
+{
+  "category": "Particle Tracing Module I: interfaces, multiphysics couplings, particle releases and wall conditions",
+  "description": "Particle Tracing Module (COMSOL 6.4) multiphysics interfaces and couplings (particle-field and fluid-particle interaction), the interface-level formulation settings, Particle Properties, all particle release features (Release, Inlet, Release from Edge/Point/Grid/Data File, Particle Beam, Thermionic Emission, Nozzle) and the boundary/domain features that act on particles (Wall conditions, Secondary Emission, Thermal Reemission, Periodic Condition, Velocity Reinitialization, accumulators, counters, wall subnodes). API type strings come from the COMSOL 6.4 method-editor completion data: ChargedParticleTracing (cpt), FluidParticleTracing (fpt), MathParticle (pt).",
+  "tools": [
+    {
+      "name": "Particle Field Interaction, Nonrelativistic (multiphysics interface)",
+      "kind": "physics-interface",
+      "description": "Predefined multiphysics interface that adds Electrostatics plus Charged Particle Tracing and the Electric Particle Field Interaction coupling, so that the space charge of a nonrelativistic charged-particle beam is fed back as a source into Poisson's equation and the resulting electric force acts on the particles. Use it for beams whose self-field noticeably diverges the beam (space-charge-limited diodes, electron guns, ion beams).",
+      "usage": "Model Wizard / Add Physics > AC/DC > Particle Tracing > Particle Field Interaction, Nonrelativistic; adds es + cpt and Multiphysics > Electric Particle Field Interaction (epfi1). Solve with Study > Bidirectionally Coupled Particle Tracing (constant-current beams) or a Time Dependent study (pulsed beams).",
+      "parameters": [
+        {"name": "Particle release specification (cpt)", "description": "Specify current (constant-current beam, iterative stationary coupling) or Specify release times (fully time-dependent coupling)."},
+        {"name": "Charge multiplication factor", "description": "With Specify release times, each model particle represents this many real particles when computing space charge."}
+      ],
+      "example": "Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/electron_beam_divergence (Electron Beam Divergence Due to Self-Potential), childs_law_benchmark and planar_diode.\n// equivalent manual setup\nmodel.component(\"comp1\").physics().create(\"es\", \"Electrostatics\", \"geom1\");\nmodel.component(\"comp1\").physics().create(\"cpt\", \"ChargedParticleTracing\", \"geom1\");\nmodel.component(\"comp1\").physics(\"cpt\").prop(\"ParticleReleaseSpecification\").set(\"ParticleReleaseSpecification\", \"SpecifyCurrent\");\n// then Multiphysics > Electric Particle Field Interaction and Study > Bidirectionally Coupled Particle Tracing",
+      "notes": "Requires the Particle Tracing Module. Magnetic self-fields are neglected; use the relativistic variant when beam current density matters. The space charge is smeared over mesh elements, so results are mesh dependent.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_multiphysics.09.02.html"
+    },
+    {
+      "name": "Particle Field Interaction, Relativistic (multiphysics interface)",
+      "kind": "physics-interface",
+      "description": "Predefined multiphysics interface combining Electrostatics, Magnetic Fields and Charged Particle Tracing with the Electric Particle Field Interaction and Magnetic Particle-Field Interaction couplings. The beam contributes both space charge density (to the potential) and current density (to the magnetic vector potential), which is needed for relativistic beams where self-magnetic forces partially cancel the electric repulsion.",
+      "usage": "Model Wizard / Add Physics > AC/DC > Particle Tracing > Particle Field Interaction, Relativistic (requires AC/DC Module + Particle Tracing Module); adds es, mf, cpt, epfi1 and mpfi1.",
+      "parameters": [
+        {"name": "Relativistic correction (cpt)", "description": "Enable on the Charged Particle Tracing interface so that particle mass follows m = m_r/sqrt(1 - v^2/c^2)."},
+        {"name": "Particle release specification", "description": "Specify current for steady beams solved with the Bidirectionally Coupled Particle Tracing study."}
+      ],
+      "example": "Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/electron_beam_divergence_relativistic (Relativistic Diverging Electron Beam) - the beam envelope is compared with the analytic solution that includes both self electric and self magnetic forces.",
+      "notes": "Needs the AC/DC Module for the Magnetic Fields interface. Magnetic particle-field coupling is usually negligible for nonrelativistic beams.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_multiphysics.09.11.html"
+    },
+    {
+      "name": "Fluid-Particle Interaction (multiphysics interface)",
+      "kind": "physics-interface",
+      "description": "Predefined multiphysics interface combining Laminar Flow and Particle Tracing for Fluid Flow with the Fluid-Particle Interaction coupling, so that the reaction of the drag force on the particles is applied to the fluid as a volume force (two-way coupling for dilute flows). Use it when particle loading is high enough to disturb the carrier flow but the particle volume fraction is still small (below about 1%).",
+      "usage": "Model Wizard / Add Physics > Fluid Flow > Particle Tracing > Fluid-Particle Interaction; adds spf + fpt and Multiphysics > Fluid-Particle Interaction (fpi1). Solve with Bidirectionally Coupled Particle Tracing (constant mass flow rate) or Time Dependent.",
+      "parameters": [
+        {"name": "Particle release specification (fpt)", "description": "Specify mass flow rate (steady two-way coupling) or Specify release times (transient)."},
+        {"name": "Drag Force node", "description": "At least one Drag Force feature is required because the coupling uses the drag to compute the fluid volume force."}
+      ],
+      "example": "model.component(\"comp1\").physics().create(\"spf\", \"LaminarFlow\", \"geom1\");\nmodel.component(\"comp1\").physics().create(\"fpt\", \"FluidParticleTracing\", \"geom1\");\nmodel.component(\"comp1\").physics(\"fpt\").prop(\"ParticleReleaseSpecification\").set(\"ParticleReleaseSpecification\", \"SpecifyMassFlowRate\");\nmodel.component(\"comp1\").physics(\"fpt\").create(\"df1\", \"DragForce\", 3);\n// add Multiphysics > Fluid-Particle Interaction, then Study > Bidirectionally Coupled Particle Tracing",
+      "notes": "The volume force is smeared over mesh elements (mesh dependent). Particles do not displace fluid; dense flows require Euler-Euler or mixture models instead.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_multiphysics.09.16.html"
+    },
+    {
+      "name": "Droplet Sprays in Fluid Flow (fpt)",
+      "kind": "physics-interface",
+      "description": "Variant of Particle Tracing for Fluid Flow with defaults tuned for liquid sprays: particle size distribution set to Specify particle mass, Particle Properties set to Liquid droplets/bubbles, a Drag Force on all domains and a Droplet Breakup node with the Kelvin-Helmholtz model. Use it for injector sprays, atomization and evaporating droplets combined with Nozzle and Droplet Evaporation features.",
+      "usage": "Add Physics > Fluid Flow > Particle Tracing > Droplet Sprays in Fluid Flow; API type: physics().create(\"fpt\", \"DropletSprays\", \"geom1\")",
+      "parameters": [
+        {"name": "Maximum number of secondary particles", "description": "Must be large enough to hold child droplets created by breakup."},
+        {"name": "Enable macroparticles", "description": "Needed by the Nozzle release (each model particle represents many droplets)."}
+      ],
+      "example": "model.component(\"comp1\").physics().create(\"fpt\", \"DropletSprays\", \"geom1\");\n// defaults: Drag Force (df1) and Droplet Breakup (dr1) with Kelvin-Helmholtz subnode\n// add a Nozzle (global) release and Droplet Evaporation as needed",
+      "notes": "All features and settings are the same as Particle Tracing for Fluid Flow; only the defaults differ.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_fluid_flow.08.34.html"
+    },
+    {
+      "name": "Electric Particle Field Interaction (multiphysics coupling, epfi)",
+      "kind": "physics-interface",
+      "description": "Multiphysics coupling node that accumulates the space charge density of charged particles into a dependent variable on the mesh elements they occupy and applies it as a space charge source for the electric potential. With Specify release times the charge follows instantaneous particle positions; with Specify current each particle represents a current and leaves charge in every element it has traversed.",
+      "usage": "Component > Multiphysics > Electric Particle Field Interaction (default name epfi1); Source = Electrostatics (or another potential interface), Destination = Charged Particle Tracing",
+      "parameters": [
+        {"name": "Coupled Interfaces", "description": "Source (electric potential interface) and Destination (Charged Particle Tracing)."},
+        {"name": "Space charge density stabilization", "description": "Optional smoothing of the accumulated space charge to damp iteration noise in bidirectional loops."}
+      ],
+      "example": "Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/electron_beam_divergence and multipactor_saturation (both use Electric Particle Field Interaction).",
+      "notes": "The Space Charge Density Calculation domain feature computes the same quantity without feeding it back to the field.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_multiphysics.09.03.html"
+    },
+    {
+      "name": "Magnetic Particle-Field Interaction (multiphysics coupling, mpfi)",
+      "kind": "physics-interface",
+      "description": "Multiphysics coupling that computes the current density carried by moving charged particles, stores its components as accumulated dependent variables on the domain mesh, and applies it as an external current source when solving for the magnetic vector potential. It is added automatically by the Particle Field Interaction, Relativistic interface.",
+      "usage": "Component > Multiphysics > Magnetic Particle-Field Interaction (default name mpfi1); Source = Magnetic Fields, Destination = Charged Particle Tracing",
+      "parameters": [
+        {"name": "Coupled Interfaces", "description": "Magnetic Fields (source) and Charged Particle Tracing (destination)."}
+      ],
+      "example": "Used in Particle_Tracing_Module/Charged_Particle_Tracing/electron_beam_divergence_relativistic together with Electric Particle Field Interaction.",
+      "notes": "Requires the AC/DC Module. Magnetic self-forces are only significant for relativistic or very high-current beams.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_multiphysics.09.12.html"
+    },
+    {
+      "name": "Space Charge Limited Emission (multiphysics coupling, scle)",
+      "kind": "excitation",
+      "description": "Multiphysics coupling that models space-charge-limited electron emission: the selected emission surface is assumed to lie a small offset away from a cathode at potential Vc, the potential in that thin buffer layer follows Child's law (four-thirds power law), and particles are released with the corresponding current, which is updated as the bidirectional iterations converge. It couples an electric-potential interface (source) with Charged Particle Tracing (destination).",
+      "usage": "Component > Multiphysics > Space Charge Limited Emission (default name scle1); requires Particle release specification = Specify current in the Charged Particle Tracing interface",
+      "parameters": [
+        {"name": "Electric potential at cathode Vc", "description": "Cathode potential used in the emission law (default 0)."},
+        {"name": "Number of particles per release N", "description": "Model particles emitted from the emission surface (default 1000)."},
+        {"name": "Position offset os", "description": "Thickness of the Child's-law buffer region between cathode and emission surface (default 1 mm)."}
+      ],
+      "example": "Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/childs_law_benchmark and pierce_electron_gun - solved with the Bidirectionally Coupled Particle Tracing study.",
+      "notes": "Converges over the For/End For iterations of the bidirectional study; increase the number of iterations if the emitted current has not settled.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_multiphysics.09.04.html"
+    },
+    {
+      "name": "Fluid-Particle Interaction (multiphysics coupling, fpi)",
+      "kind": "physics-interface",
+      "description": "Multiphysics coupling that computes a volume force equal and opposite to the total drag on the particles in each mesh element and adds it to the Laminar Flow momentum equation. The proportionality factor comes from the particle mass flow rate (Specify mass flow rate) or from a force multiplication factor / macroparticle weights (Specify release times).",
+      "usage": "Component > Multiphysics > Fluid-Particle Interaction (default name fpi1); Source = Particle Tracing for Fluid Flow, Destination = Laminar Flow",
+      "parameters": [
+        {"name": "Force multiplication factor specification", "description": "From physics (default) or User defined; ignored with Specify mass flow rate."}
+      ],
+      "example": "Two-way coupled particle-laden channel: spf + fpt with Drag Force, add Fluid-Particle Interaction, release particles from an Inlet with a mass flow rate, and solve with the Bidirectionally Coupled Particle Tracing study.",
+      "notes": "Volume Force Calculation (fpt domain feature) computes the same force without applying it to the fluid.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_multiphysics.09.17.html"
+    },
+    {
+      "name": "Formulation and Particle Release Specification (Particle Tracing interfaces)",
+      "kind": "reference",
+      "description": "Interface-level settings in the Particle Release and Propagation section that decide the equations of motion and how particles are counted: Formulation (Newtonian, Newtonian first order, Newtonian ignore inertial terms (fpt), Massless, plus Lagrangian and Hamiltonian in Mathematical Particle Tracing), Relativistic correction, Store extra time steps for wall interactions, Maximum number of secondary particles and Particle release specification (Specify release times, Specify current for cpt, Specify mass flow rate for fpt). Choose the formulation first because it controls which forces and features are available.",
+      "usage": "Physics > Charged Particle Tracing / Particle Tracing for Fluid Flow / Mathematical Particle Tracing > Settings > Particle Release and Propagation; API: physics(\"cpt\").prop(\"Formulation\").set(\"Formulation\", \"Newtonian\"|\"NewtonianFirstOrder\"|\"Massless\")",
+      "parameters": [
+        {"name": "Formulation", "description": "cpt: Newtonian | NewtonianFirstOrder | Massless; fpt adds NewtonianIgnoreInertialTerms; pt adds Lagrangian and Hamiltonian."},
+        {"name": "ParticleReleaseSpecification", "description": "SpecifyReleaseTimes | SpecifyCurrent (cpt) | SpecifyMassFlowRate (fpt)."},
+        {"name": "StoreExtra / WallAccuracyOrder / MaxBounce", "description": "Extra output at wall hits, wall-interaction accuracy order (1 or 2) and max wall interactions per time step."},
+        {"name": "ParticleSizeDistribution / ComputeParticleTemperature (fpt)", "description": "UniformSize | SpecifyParticleMass | SpecifyParticleDiameter; enable to solve for particle temperature."},
+        {"name": "RandomNumberArgs", "description": "GenerateUnique | GenerateRandom | UserDefined seeding for stochastic features."}
+      ],
+      "example": "model.component(\"comp1\").physics().create(\"fpt\", \"FluidParticleTracing\", \"geom1\");\nmodel.component(\"comp1\").physics(\"fpt\").prop(\"Formulation\").set(\"Formulation\", \"NewtonianIgnoreInertialTerms\");\nmodel.component(\"comp1\").physics(\"fpt\").prop(\"ParticleSizeDistribution\").set(\"ParticleSizeDistribution\", \"SpecifyParticleDiameter\");\nmodel.component(\"comp1\").physics(\"fpt\").prop(\"StoreParticleStatusData\").set(\"StoreParticleStatusData\", \"1\");",
+      "notes": "Newtonian time steps scale with the square of particle diameter; the ignore-inertial-terms formulation avoids this for small particles. Always store particle status data when using automatic remeshing or when reusing trajectories as initial values.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.02.html"
+    },
+    {
+      "name": "Particle Properties (Charged Particle Tracing)",
+      "kind": "boundary",
+      "description": "Default domain feature of Charged Particle Tracing that defines the particle species: built-in Electron, Proton, Neutron, Alpha particle, Positron, or User defined mass and charge number (rest mass when relativistic correction is on). Add several Particle Properties nodes to trace multiple species; release features, forces and collisions can be restricted to a given Particle Properties node.",
+      "usage": "Physics > Charged Particle Tracing > Particle Properties (pp1, default); additional species: right-click > Particle Properties; API: physics(\"cpt\").feature(\"pp1\").set(\"ParticleSpecies\", ...)",
+      "parameters": [
+        {"name": "Particle species", "description": "User defined (default) or a built-in species with mass (me_const, mp_const, ...) and charge number."},
+        {"name": "Particle mass mp / rest mass", "description": "Mass for user-defined species (default me_const)."},
+        {"name": "Charge number Z", "description": "Signed integer charge in units of e."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").feature(\"pp1\").set(\"mp\", \"40[u]\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"pp1\").set(\"Z\", \"1\");  // singly charged Ar+ ion\nmodel.component(\"comp1\").physics(\"cpt\").create(\"pp2\", \"ParticleProperties\", 3);  // second species (electrons)",
+      "notes": "With the Massless formulation this node instead specifies the particle velocity field. Species selection is referenced by Collisions subnodes (Electron properties, Ion properties).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_acdc.07.20.html"
+    },
+    {
+      "name": "Particle Properties (Particle Tracing for Fluid Flow)",
+      "kind": "boundary",
+      "description": "Default domain feature of Particle Tracing for Fluid Flow that sets particle density, diameter and/or mass (taken from a Material or user defined), charge number, relative permittivity and permeability, particle type (Solid particles or Liquid droplets/bubbles) and, when enabled, specific heat and accretion/evaporation rate. These properties drive size-dependent forces such as Drag, Dielectrophoretic and Thermophoretic Force.",
+      "usage": "Physics > Particle Tracing for Fluid Flow > Particle Properties (pp1); API: physics(\"fpt\").feature(\"pp1\").set(\"rhop\", ...), set(\"dp\", ...)",
+      "parameters": [
+        {"name": "Particle property specification", "description": "Specify particle density and diameter (default), mass and density, or mass and diameter (Uniform size distribution)."},
+        {"name": "Particle material properties", "description": "None (user-defined values) or a Material node to read density, heat capacity and so on."},
+        {"name": "Particle type", "description": "Solid particles or Liquid droplets/bubbles (required for Droplet Breakup and Nozzle)."},
+        {"name": "Accretion or evaporation rate specification", "description": "Select a Droplet Evaporation node when particle mass or diameter is solved for."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").feature(\"pp1\").set(\"rhop\", \"2200[kg/m^3]\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"pp1\").set(\"dp\", \"10[um]\");",
+      "notes": "Particles are point masses for wall detection; the diameter only enters force laws. The default density is 2200 kg/m^3 and diameter 1 um when user defined.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_fluid_flow.08.04.html"
+    },
+    {
+      "name": "Release (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Releases particles from inside selected domains at given release times with initial positions that are Mesh based (one per mesh node, refinement factor 1-5), sampled from a Density expression, or Random. The initial velocity can be given as a velocity, momentum or kinetic energy expression, as a constant-speed spherical/hemispherical/cone distribution, or Maxwellian; release times may be a list or sampled from Uniform, Normal or Lognormal distributions.",
+      "usage": "Physics > (Charged/Mathematical/Fluid) Particle Tracing > Release (rel1); API: physics(\"pt\").create(\"rel1\", \"Release\", 3)",
+      "parameters": [
+        {"name": "TimeDistributionFunction / rt", "description": "ListOfValues (Release times rt) | Uniform | Normal | Lognormal with Nvalt, tstart/tlast or meant/stdevt."},
+        {"name": "InitialPosition", "description": "MeshBased (RefinementFactor 1-5) | Density (expression dpro, N) | RandomPosition (N)."},
+        {"name": "VelocitySpecification", "description": "SpecifyVelocity | SpecifyMomentum | SpecifyKineticEnergy | Maxwellian (temperature T0)."},
+        {"name": "InitialVelocity", "description": "Expression (v0) | ConstantSpeedSpherical | ConstantSpeedHemisphere | ConstantSpeedCone with Nvel/M particles per direction."},
+        {"name": "rc / mass flow rate", "description": "Release current magnitude (cpt, Specify current) or mass flow rate (fpt, Specify mass flow rate)."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"rel1\", \"Release\", 3);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"rel1\").selection().set(1);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"rel1\").set(\"InitialPosition\", \"RandomPosition\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"rel1\").set(\"N\", 5000);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"rel1\").set(\"VelocitySpecification\", \"Maxwellian\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"rel1\").set(\"T0\", \"300[K]\");",
+      "notes": "Sampling distributions multiply the number of released particles (N positions x Nvel velocities). With Specify current/mass flow rate all particles are released at t = 0.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.17.html"
+    },
+    {
+      "name": "Inlet (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Releases particles from selected boundaries, with the same release-time, current/mass-flow and velocity options as Release plus boundary-specific positioning: Mesh based, Density, Random, Uniform distribution (2D) or Projected plane grid (3D). Velocities can be given in tangential/normal components or in any coordinate system, and on identity pairs the source, destination or both meshes can be used.",
+      "usage": "Physics > Particle Tracing > Inlet (inl1); API: physics(\"fpt\").create(\"inl1\", \"Inlet\", 2); subnode: Nonlocal Accumulator",
+      "parameters": [
+        {"name": "InitialPosition", "description": "MeshBased | Density | RandomPosition | UniformDistribution (Projected plane grid in 3D) with N particles per release."},
+        {"name": "VelocitySpecification", "description": "SpecifyVelocity | SpecifyMomentum | SpecifyKineticEnergy | Thermal (wall temperature T)."},
+        {"name": "InitialVelocity", "description": "Expression | ConstantSpeedHemisphere | ConstantSpeedCone; SpecifyInletTangentialNormal for (t1, t2, n) components."},
+        {"name": "Release particles from boundaries", "description": "Source | Destination | Source and Destination for pair inlets."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").create(\"inl1\", \"Inlet\", 2);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"inl1\").selection().set(1);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"inl1\").set(\"InitialPosition\", \"Density\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"inl1\").set(\"dpro\", \"spf.U\");  // release proportional to flow speed\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"inl1\").set(\"N\", 1000);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"inl1\").set(\"v0\", new String[]{\"u\", \"v\", \"w\"});",
+      "notes": "Releasing with density proportional to the local flow speed gives a flux-weighted inlet distribution. Existing combined entry 'Inlet (particles) / Release (domain) / Release from Boundary' gives a shorter overview.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.19.html"
+    },
+    {
+      "name": "Release from Edge (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Releases particles from selected edges of a 3D geometry, for example wire emitters, needle tips seen as lines, or slot sources. Initial positions are Mesh based, Density, Random or Uniform distribution (the union of edges divided into N segments of equal length); all other settings match the Release node.",
+      "usage": "Physics > Particle Tracing > Release from Edge (redg1); API: physics(\"pt\").create(\"redg1\", \"ReleaseFromEdge\", 1)",
+      "parameters": [
+        {"name": "InitialPosition", "description": "MeshBased | Density | RandomPosition | UniformDistribution."},
+        {"name": "N", "description": "Number of particles per release (for Density, Random and Uniform distribution)."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"redg1\", \"ReleaseFromEdge\", 1);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"redg1\").selection().set(12);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"redg1\").set(\"InitialPosition\", \"UniformDistribution\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"redg1\").set(\"N\", 200);",
+      "notes": "Only available in 3D components; in 2D use Inlet on boundaries (which are curves).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.24.html"
+    },
+    {
+      "name": "Release from Point (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Releases particles from selected geometry points: one particle per point per release time, or more when the initial velocity or an auxiliary dependent variable is sampled from a distribution (for example a cone or sphere of velocities from a point source). Settings are identical to the Release node.",
+      "usage": "Physics > Particle Tracing > Release from Point (rpt1); API: physics(\"fpt\").create(\"rpt1\", \"ReleaseFromPoint\", 0)",
+      "parameters": [
+        {"name": "InitialVelocity", "description": "Use ConstantSpeedSpherical / Hemisphere / Cone with Nvel to create a fan of particles from one point."},
+        {"name": "Release times", "description": "Same distribution options as Release."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").create(\"rpt1\", \"ReleaseFromPoint\", 0);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"rpt1\").selection().set(5);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"rpt1\").set(\"InitialVelocity\", \"ConstantSpeedCone\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"rpt1\").set(\"Us\", \"20[m/s]\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"rpt1\").set(\"Nvel\", 100);",
+      "notes": "For positions that are not geometry vertices, use Release from Grid instead of adding points to the geometry.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.25.html"
+    },
+    {
+      "name": "Release from Grid (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Global release feature that places particles at user-defined coordinates without needing geometry entities: All combinations of the coordinate lists (tensor grid), Specified combinations (paired lists), or in 3D Cylindrical and Hexapolar grids around a center and axis. Particles whose coordinates fall outside the geometry get NaN positions and are not shown.",
+      "usage": "Physics > Particle Tracing > Global > Release from Grid (relg1); API: physics(\"cpt\").create(\"relg1\", \"ReleaseGrid\", -1)",
+      "parameters": [
+        {"name": "GridType", "description": "AllCombinations (default) | SpecifiedCombinations; 3D also Cylindrical and Hexapolar (center qc, axis rc, radius Rc, Nc, N_phi)."},
+        {"name": "x0 (initial coordinates)", "description": "Coordinate lists qx0, qy0, qz0, often written with range()."},
+        {"name": "Velocity specification", "description": "Same velocity, momentum, energy and Maxwellian options as Release."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"relg1\", \"ReleaseGrid\", -1);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"relg1\").set(\"x0\", new String[]{\"range(0,1e-3,1e-2)\", \"0\", \"0\"});\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"relg1\").set(\"v0\", new String[]{\"0\", \"0\", \"1e6\"});\n// Application Library: incense_stick, ion_cyclotron_motion, trapped_protons use Release from Grid",
+      "notes": "Different from the ray-optics 'Release from Grid (rays / particles)' entry, which covers the gop interface. With All combinations, qx0 = range(0,1,3) and qy0 = range(2,2,8) release 16 particles; Specified combinations releases 4.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.26.html"
+    },
+    {
+      "name": "Release from Data File (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Releases particles whose initial positions (and optionally velocities and auxiliary variables) are read from a space- or tab-separated text file, one particle per row, with % comment lines. The loaded cloud can be scaled, rotated by Z-X-Z Euler angles and translated before release, which is convenient for importing beams or sprays measured or computed elsewhere.",
+      "usage": "Physics > Particle Tracing > Global > Release from Data File (relf1); API: physics(\"pt\").create(\"relf1\", \"ReleaseFromDataFile\", -1)",
+      "parameters": [
+        {"name": "Filename / Import", "description": "Text file with rows of coordinates; Index of first column containing position data (0-based)."},
+        {"name": "Scale factor R / Euler angles / Displacement", "description": "Transformation applied to the imported positions (translation applied last)."},
+        {"name": "Velocity specification", "description": "Specify velocity (incl. From file), momentum, kinetic energy or Maxwellian."}
+      ],
+      "example": "% file beam.txt\n% qx0 qy0 qz0 vx vy vz\n0.1 0.2 0.6 0 0 1e5\n0.2 0.4 0.8 0 0 1e5\n// Model Builder: Release from Data File > Filename beam.txt > Import; Scale factor 0.001 if the file is in mm",
+      "notes": "Every row must have the same number of columns. Combine with Release Times or current/mass-flow settings exactly as for Release.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.27.html"
+    },
+    {
+      "name": "Particle Beam (Charged Particle Tracing)",
+      "kind": "excitation",
+      "description": "Releases a nonlaminar charged-particle beam normal to a boundary with a prescribed transverse phase-space distribution: KV, Waterbag, Parabolic or Gaussian sampling of the phase-space ellipse defined by 1-rms emittance and Twiss parameters (alpha, beta) or by ellipse dimensions, symmetric or asymmetric in 3D, plus a longitudinal energy/velocity distribution. Beam global variables (emittance, Twiss parameters, average position/velocity) become available for postprocessing.",
+      "usage": "Physics > Charged Particle Tracing > Particle Beam (pbeam1); API: physics(\"cpt\").create(\"pbeam1\", \"ParticleBeam\", 2)",
+      "parameters": [
+        {"name": "N / BeamPosition", "description": "Particles per release (default 1000); beam center CentroidOfSelection | FromCoordinates (rcb) | SelectedPoint."},
+        {"name": "SamplingFromPhaseSpaceEllipse", "description": "Gaussian (default) | KV | Waterbag | Parabolic."},
+        {"name": "TransverseVelocityDistributionSpecification", "description": "SpecifyTwissParameters (e1rms, twbeta0, twalpha0) | SpecifyPhaseSpaceEllipseDimensions (xm, xmp, theta0); brightness B possible for symmetric beams with Specify current."},
+        {"name": "BeamSymmetry / BeamOrientation", "description": "Symmetric or Asymmetric (3D); Upright or NotUpright ellipse."},
+        {"name": "LongitudinalVelocitySpecification / Distribution", "description": "SpecifyKineticEnergy (El) or SpecifyVelocity; NoneDistribution | Normal | Uniform | ListOfValues."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"pbeam1\", \"ParticleBeam\", 2);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"pbeam1\").selection().set(3);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"pbeam1\").set(\"El\", \"10[keV]\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"pbeam1\").set(\"e1rms\", \"1e-6[m]\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"pbeam1\").set(\"twbeta0\", \"0.1[m]\");\n// Application Library: einzel_lens, electron_beam_divergence, sensitive_high_resolution_ion_microprobe",
+      "notes": "In 2D axisymmetry always enable 'Include out-of-plane degrees of freedom'. Initial Twiss parameters must satisfy the Courant-Snyder condition beta*gamma - alpha^2 = 1, so only beta and alpha are entered.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_acdc.07.18.html"
+    },
+    {
+      "name": "Thermionic Emission (Charged Particle Tracing)",
+      "kind": "excitation",
+      "description": "Releases electrons from a hot cathode with the Richardson-Dushman current density computed from surface temperature, metal work function and effective Richardson constant, and samples the emission velocities from the thermal distribution. Available only in 3D with a Newtonian formulation and Particle release specification = Specify current.",
+      "usage": "Physics > Charged Particle Tracing > Thermionic Emission (te1); API: physics(\"cpt\").create(\"te1\", \"ThermionicEmission\", 2)",
+      "parameters": [
+        {"name": "T", "description": "Cathode temperature (user defined or from a heat transfer interface)."},
+        {"name": "Phim", "description": "Metal work function (default 4.5 V)."},
+        {"name": "Ath", "description": "Effective Richardson constant (default 110 A/(m^2*K^2))."},
+        {"name": "N / Nvel", "description": "Release positions (default 100) and velocity samples per position (default 200)."},
+        {"name": "WeightingOfMacroparticles", "description": "UniformCurrent | UniformSpeedIntervals | UniformEnergyIntervals."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"te1\", \"ThermionicEmission\", 2);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"te1\").selection().set(4);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"te1\").set(\"T\", \"2000[K]\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"te1\").set(\"Phim\", \"4.5[V]\");\n// Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/planar_diode",
+      "notes": "Use electron properties (me_const, charge number -1) in the released Particle Properties node. Typically combined with Electric Particle Field Interaction for space-charge-limited operation.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_acdc.07.19.html"
+    },
+    {
+      "name": "Nozzle / Nozzle Domain (Particle Tracing for Fluid Flow)",
+      "kind": "excitation",
+      "description": "Releases a spray of liquid droplets from nozzle positions given either as global coordinates (NozzleGrid) or as selected points (NozzlePoint), with injection velocity, spray cone and droplet size distribution derived from nozzle theory. The mandatory Nozzle Domain subnode selects the fluid domain the spray enters and supplies its density and pressure.",
+      "usage": "Physics > Particle Tracing for Fluid Flow > Nozzle (noz1, global) or point-level Nozzle (nozp1); API: physics(\"fpt\").create(\"noz1\", \"NozzleGrid\", -1) / create(\"nozp1\", \"NozzlePoint\", 0); subnode Nozzle Domain (ndom1)",
+      "parameters": [
+        {"name": "Prerequisites", "description": "Newtonian formulation, Specify release times, Specify particle diameter or mass with Enable macroparticles, Liquid droplets/bubbles particle type."},
+        {"name": "Release times", "description": "Injection times for the droplet parcels."},
+        {"name": "Nozzle Domain: density and pressure p", "description": "Ambient fluid properties at the injector (from material or another physics interface)."}
+      ],
+      "example": "model.component(\"comp1\").physics().create(\"fpt\", \"DropletSprays\", \"geom1\");\nmodel.component(\"comp1\").physics(\"fpt\").create(\"noz1\", \"NozzleGrid\", -1);\n// Nozzle Domain subnode is created automatically; select the gas domain in it",
+      "notes": "Pair with Droplet Breakup and Droplet Evaporation for full spray models; ensure the maximum number of secondary particles is large enough.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_fluid_flow.08.31.html"
+    },
+    {
+      "name": "Wall (Particle Tracing) - wall conditions",
+      "kind": "boundary",
+      "description": "Default boundary condition of all particle tracing interfaces that decides what happens when a particle hits a boundary: Freeze (default, keeps position and impact velocity), Bounce (specular), Stick (velocity set to zero), Disappear, Pass through, Diffuse scattering (Knudsen cosine law), Isotropic scattering, Mixed diffuse and specular reflection, or General reflection (arbitrary reflected velocity expression). A Primary particle condition (Probability or Expression) with an Otherwise setting allows two behaviors on the same wall.",
+      "usage": "Physics > Particle Tracing > Wall (wall1 default on exterior boundaries); API: physics(\"pt\").create(\"wall2\", \"Wall\", 2); set(\"WallCondition\", \"Bounce\"|\"Freeze\"|\"Stick\"|\"Disappear\"|\"Pass\"|\"DiffuseScattering\"|\"IsotropicScattering\"|\"MixedDiffuseSpecular\"|\"GeneralReflection\")",
+      "parameters": [
+        {"name": "WallCondition", "description": "One of the nine conditions; Massless formulation only allows Freeze, Stick and Disappear."},
+        {"name": "gammas", "description": "Probability of specular reflection for MixedDiffuseSpecular."},
+        {"name": "vprim / SpecifyPrimaryTangentialNormal", "description": "Reflected velocity for GeneralReflection, optionally in (t1, t2, n) components."},
+        {"name": "PrimaryParticleCondition / gamma / e / Otherwise", "description": "NoneCondition | Probability | Expression; particles failing the condition follow Otherwise (Bounce, Freeze, Stick, Disappear, DiffuseScattering, IsotropicScattering, Pass)."},
+        {"name": "New value of auxiliary dependent variables", "description": "Reassign auxiliary variables at impact, e.g. psi+1 to count wall hits."}
+      ],
+      "example": "// particles larger than 1 um stick to a filter screen, smaller ones pass\nmodel.component(\"comp1\").physics(\"fpt\").create(\"wall2\", \"Wall\", 2);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"wall2\").selection().set(7);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"wall2\").set(\"WallCondition\", \"Stick\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"wall2\").set(\"PrimaryParticleCondition\", \"Expression\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"wall2\").set(\"e\", \"fpt.dp>1[um]\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"wall2\").set(\"Otherwise\", \"Pass\");",
+      "notes": "Diffuse scattering is the standard condition for free molecular flow (turbomolecular_pump example). Subnodes: Secondary Emission, Accumulator and interface-specific Erosion, Mass Deposition, Current Density, Etch and so on.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.04.html"
+    },
+    {
+      "name": "Secondary Emission (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Subnode of Wall, Axial Symmetry or Velocity Reinitialization that releases secondary particles when a primary particle hits the boundary (or when its velocity is reinitialized), for example secondary electron yield in multipactor or ion-induced electron emission. Emission can be conditional (probability or expression), restricted to the primary or Otherwise wall condition, and the number, species and velocity distribution of the secondaries are user defined.",
+      "usage": "Right-click Wall > Secondary Emission (sem1); API: physics(\"cpt\").feature(\"wall1\").create(\"sem1\", \"SecondaryEmission\", 2)",
+      "parameters": [
+        {"name": "ActivateOnWallConditions", "description": "All | PrimaryOnly | OtherwiseOnly."},
+        {"name": "SecondaryEmissionCondition / gamma / e", "description": "NoneCondition | Probability | Expression."},
+        {"name": "Ns", "description": "Number of secondary particles per incident particle (default 1)."},
+        {"name": "InitialVelocity", "description": "IsotropicHemisphere | ReflectionOfPrimaryParticle | DiffuseScattering | Thermal | UserDefined."},
+        {"name": "SecondaryParticleSpeed / ReleasedParticleProperties", "description": "SameAsIncidentParticle | ScaledByNumberOfSecondaryParticles | UserDefined (Vs); species of the secondaries."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").feature(\"wall1\").create(\"sem1\", \"SecondaryEmission\", 2);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"wall1\").feature(\"sem1\").set(\"Ns\", \"2\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"wall1\").feature(\"sem1\").set(\"InitialVelocity\", \"IsotropicHemisphere\");\n// Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/multipactor_saturation",
+      "notes": "Secondary particles need preallocated memory: set 'Maximum number of secondary particles' on the interface. Not available with the Massless formulation.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.09.html"
+    },
+    {
+      "name": "Thermal Reemission (Particle Tracing)",
+      "kind": "boundary",
+      "description": "Boundary condition that diffusely reflects particles (Knudsen cosine law) and resamples their speed from a Maxwellian at the wall temperature, modeling adsorption of molecules and thermal re-emission in rarefied gas and vacuum systems. A freezing probability absorbs a fraction of the incident particles (pumping surfaces), and moving walls are handled by subtracting the frame velocity.",
+      "usage": "Physics > Mathematical/Charged Particle Tracing > Thermal Reemission (tre1); API: physics(\"pt\").create(\"tre1\", \"ThermalReEmission\", 2)",
+      "parameters": [
+        {"name": "T", "description": "Wall temperature (constant or from a heat transfer interface)."},
+        {"name": "Freezing probability", "description": "0 = all particles re-emitted, 1 = all absorbed (default 0)."},
+        {"name": "SubtractMovingFrameVelocityReflected / BackgroundVelocity", "description": "For walls moving relative to the (rotating) frame: FromRotatingFrame or UserDefined vb."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"pt\").create(\"tre1\", \"ThermalReEmission\", 2);\nmodel.component(\"comp1\").physics(\"pt\").feature(\"tre1\").selection().set(2, 3, 4);\nmodel.component(\"comp1\").physics(\"pt\").feature(\"tre1\").set(\"T\", \"293.15[K]\");\n// Application Library: Particle_Tracing_Module/Vacuum_Systems/s_bend_benchmark and rf_coupler",
+      "notes": "Available in Mathematical and Charged Particle Tracing (not in Particle Tracing for Fluid Flow). Accepts an Accumulator subnode, e.g. to count molecules adsorbed per element.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.05.html"
+    },
+    {
+      "name": "Periodic Condition (Particle Tracing)",
+      "kind": "boundary",
+      "description": "Removes particles that reach a planar source boundary and reinserts them at the destination boundary, either with unchanged velocity (Continuity) or with a user-defined mapping; for non-parallel boundaries the velocity is rotated as for sector symmetry. Use it to trace particles through repeating unit cells or rotating machinery sectors.",
+      "usage": "Physics > Particle Tracing > Periodic Condition (pc1); right-click > Manual Destination Selection when automatic source/destination detection fails; API: physics(\"cpt\").create(\"pc1\", \"PeriodicCondition\", 2)",
+      "parameters": [
+        {"name": "Boundary selection", "description": "At least two planar boundaries (source and destination)."},
+        {"name": "Type of periodicity", "description": "Continuity or User defined."},
+        {"name": "Accumulator subnode", "description": "Optional per-element accumulation of crossings."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"pc1\", \"PeriodicCondition\", 2);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"pc1\").selection().set(1, 6);\n// Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/multipactor_saturation",
+      "notes": "Requires Newtonian, Newtonian first order, Lagrangian or Hamiltonian formulation. Boundaries must be flat.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.06.html"
+    },
+    {
+      "name": "Symmetry / Axial Symmetry (Particle Tracing)",
+      "kind": "boundary",
+      "description": "Symmetry specularly reflects particles at a symmetry plane, representing a mirrored particle entering the domain for every one that leaves (equivalent to Wall with Bounce). Axial Symmetry is added automatically on the axis of 2D axisymmetric components and offers the same options as Wall, with Accumulator and Secondary Emission subnodes.",
+      "usage": "Physics > Charged Particle Tracing / Particle Tracing for Fluid Flow > Symmetry (sym1); Axial Symmetry is a default node in 2D axisymmetry; API: physics(\"fpt\").create(\"sym1\", \"Symmetry\", 2)",
+      "parameters": [
+        {"name": "Boundary selection", "description": "Symmetry planes of the geometry (Symmetry) or the r = 0 axis (Axial Symmetry, locked)."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").create(\"sym1\", \"Symmetry\", 2);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"sym1\").selection().set(2);",
+      "notes": "For space-charge or two-way coupled models make sure the field interfaces use a matching symmetry condition.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_acdc.07.21.html"
+    },
+    {
+      "name": "Particle Continuity (Particle Tracing)",
+      "kind": "boundary",
+      "description": "Pair boundary condition that lets particles cross identity-pair boundaries created by Form Assembly as if the boundary did not exist, even though the meshes on the two sides do not match. Without it particles would treat pair boundaries as exterior walls.",
+      "usage": "Physics > Particle Tracing > Pairs > Particle Continuity (pcon1); API: physics(\"pt\").create(\"pcon1\", \"PairContinuity\", 2); set pair selection",
+      "parameters": [
+        {"name": "Pair selection", "description": "Identity pairs whose source and destination boundaries overlap."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"pt\").create(\"pcon1\", \"PairContinuity\", 2);\nmodel.component(\"comp1\").physics(\"pt\").feature(\"pcon1\").set(\"pairs\", new String[]{\"ap1\"});",
+      "notes": "Not needed when the geometry ends with Form Union; it does not move particles between non-overlapping boundaries (use Periodic Condition for that).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.22.html"
+    },
+    {
+      "name": "Velocity Reinitialization (Particle Tracing)",
+      "kind": "boundary",
+      "description": "Domain feature that resets particle velocity to an arbitrary expression whenever a condition is nonzero or at a specified reinitialization time; the primary particle can instead be frozen, stuck, made to disappear or left unchanged. It supports Secondary Emission and Accumulator subnodes, making it a general tool for custom collision, charge-exchange or decay models.",
+      "usage": "Physics > Particle Tracing > Velocity Reinitialization (vre1); API: physics(\"pt\").create(\"vre1\", \"VelocityReinitialization\", 3)",
+      "parameters": [
+        {"name": "ev", "description": "Velocity reinitialization condition (evaluated at every solver step)."},
+        {"name": "SpecifyReinitializationTime / tr", "description": "Trigger at a specific time; allows multiple reinitializations per step."},
+        {"name": "EffectOnPrimaryParticle", "description": "NoneEffect | Reinit (default) | Freeze | Stick | Disappear."},
+        {"name": "vr", "description": "Reinitialized particle velocity expression."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"pt\").create(\"vre1\", \"VelocityReinitialization\", 3);\nmodel.component(\"comp1\").physics(\"pt\").feature(\"vre1\").selection().all();\nmodel.component(\"comp1\").physics(\"pt\").feature(\"vre1\").set(\"SpecifyReinitializationTime\", \"1\");\nmodel.component(\"comp1\").physics(\"pt\").feature(\"vre1\").set(\"tr\", \"1[us]\");\nmodel.component(\"comp1\").physics(\"pt\").feature(\"vre1\").set(\"vr\", new String[]{\"-pt.vx\", \"-pt.vy\", \"-pt.vz\"});  // reverse all particles at t = 1 us\n// Application Library: Particle_Tracing_Module/Charged_Particle_Tracing/trapped_protons",
+      "notes": "Only with Newtonian, Newtonian first order, Lagrangian or Hamiltonian formulations. Particle selection can be limited to a release feature or Particle Properties node.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.13.html"
+    },
+    {
+      "name": "Accumulator (Boundary) (Particle Tracing)",
+      "kind": "function",
+      "description": "Subnode of Wall, Outlet, Periodic Condition, Axial Symmetry or Thermal Reemission that defines an accumulated variable on each boundary element, incremented by a user-defined source R whenever a particle hits the element. It turns particle impacts into fields such as deposited charge, impact counts, sputtered mass or heat flux that other physics can use.",
+      "usage": "Right-click Wall > Accumulator (bacc1); variable <scope>.<name>, e.g. pt.wall1.bacc1.rpb; API: physics(\"pt\").feature(\"wall1\").create(\"bacc1\", \"BoundaryAccumulator\", 2)",
+      "parameters": [
+        {"name": "AccumulatorType", "description": "Density (divided by element area/length) or Count."},
+        {"name": "Accumulate over", "description": "Particle-wall interactions (all hits) or Particles in boundary elements (only frozen/stuck particles)."},
+        {"name": "AccumulatedVariableName / R", "description": "Variable name (default rpb) and source expression per incident particle."},
+        {"name": "Units / ReleaseFeature / ParticleSelection", "description": "Dependent variable quantity and optional restriction to one release feature or species."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"pt\").feature(\"wall1\").create(\"bacc1\", \"BoundaryAccumulator\", 2);\nmodel.component(\"comp1\").physics(\"pt\").feature(\"wall1\").feature(\"bacc1\").set(\"AccumulatedVariableName\", \"nhits\");\nmodel.component(\"comp1\").physics(\"pt\").feature(\"wall1\").feature(\"bacc1\").set(\"R\", \"1\");\n// plot pt.wall1.bacc1.nhits on the wall boundaries",
+      "notes": "Accumulated variables are constant per element (discontinuous across elements); refine the boundary mesh for smoother distributions or use the smoothing options of dedicated subnodes.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.07.html"
+    },
+    {
+      "name": "Accumulator (Domain) (Particle Tracing)",
+      "kind": "function",
+      "description": "Domain feature that defines an accumulated variable per mesh element from the particles inside it: either the instantaneous sum of source terms (Elements) or its time integral (Elements and time), divided by element volume for Density or raw for Count. Typical uses are particle number density, residence-time maps, dose and deposited energy.",
+      "usage": "Physics > Particle Tracing > Accumulator (dacc1, domain level); API: physics(\"pt\").create(\"dacc1\", \"DomainAccumulator\", 3)",
+      "parameters": [
+        {"name": "AccumulatorType", "description": "Density | Count."},
+        {"name": "AccumulateOver", "description": "Elements | ElementsAndTime (leaves a trail behind moving particles)."},
+        {"name": "AccumulatedVariableName / R", "description": "Default name rpd; source expression per particle."},
+        {"name": "SourceInterpolation", "description": "Constant | Linear | Quadratic | Exponential interpolation of the source along a time step."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"dacc1\", \"DomainAccumulator\", 3);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"dacc1\").selection().all();\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"dacc1\").set(\"AccumulateOver\", \"ElementsAndTime\");\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"dacc1\").set(\"R\", \"cpt.Ep\");  // deposited kinetic energy",
+      "notes": "Number Density Calculation and Space Charge Density Calculation are specialized domain accumulators.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.15.html"
+    },
+    {
+      "name": "Nonlocal Accumulator (Particle Tracing)",
+      "kind": "function",
+      "description": "Subnode of Inlet, Particle Beam or Thermionic Emission that sends information from where particles currently are back to the boundary element they were released from, for example the fraction of particles from each inlet element that reach a detector or the view factor between surfaces. The source can be collected in domains, on boundaries or both.",
+      "usage": "Right-click Inlet > Nonlocal Accumulator (nacc1); API: physics(\"pt\").feature(\"inl1\").create(\"nacc1\", \"NonlocalAccumulator\", 2)",
+      "parameters": [
+        {"name": "AccumulatorType / AccumulateOver", "description": "Density or Count; Elements or Elements and time."},
+        {"name": "Accumulated variable name / R", "description": "Default rpi; source term contributed by each particle."},
+        {"name": "Source geometric entity level", "description": "Domains | Boundaries | Domains and boundaries."}
+      ],
+      "example": "Inlet inl1 > Nonlocal Accumulator nacc1 with Source geometric entity level = Boundaries on the detector surface and R = 1: pt.inl1.nacc1.rpi then maps, on the inlet, the transmission probability of particles released from each element.",
+      "notes": "Useful for radiative/molecular view-factor style calculations without solving a separate boundary equation.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.20.html"
+    },
+    {
+      "name": "Particle Counter (Particle Tracing)",
+      "kind": "function",
+      "description": "Domain or boundary feature that only defines variables for particles arriving at its selection: number transmitted <tag>.Nsel, transmission probability <tag>.alpha, logical inclusion <tag>.rL for Particle Trajectories filters, transmitted current <tag>.It (cpt, Specify current) and mass flow <tag>.mdott (fpt, Specify mass flow rate). With a Particle Beam release it also gives average position, velocity and energy of transmitted particles.",
+      "usage": "Physics > Particle Tracing > Particle Counter (pcnt1); API: physics(\"cpt\").create(\"pcnt1\", \"ParticleCounter\", 2)",
+      "parameters": [
+        {"name": "ParticleSelection", "description": "ReleaseFeature or ParticleProperties to restrict counted particles."},
+        {"name": "ReleaseFeature / ReleasedParticleProperties", "description": "All or a specific release node / species."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"pt\").create(\"pcnt1\", \"ParticleCounter\", 2);\nmodel.component(\"comp1\").physics(\"pt\").feature(\"pcnt1\").selection().set(9);\n// Global Evaluation of pt.pcnt1.alpha gives the transmission probability\n// Application Library: s_bend_benchmark, brownian_motion, tubular_centrifuge",
+      "notes": "Adds variables only, so it can be added after solving: right-click the study > Update Solution instead of recomputing.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_modeling.05.20.html"
+    },
+    {
+      "name": "Auxiliary Dependent Variable (Particle Tracing)",
+      "kind": "function",
+      "description": "Adds an extra ODE degree of freedom to every particle, integrated either with respect to time or along the trajectory (arc length), for quantities such as residence time, path length, accumulated dose, spin or number of wall collisions. Its value can be reset in wall conditions and collisions and used in any expression.",
+      "usage": "Physics > Particle Tracing > Auxiliary Dependent Variable (aux1); API: physics(\"pt\").create(\"aux1\", \"AuxiliaryField\", 3)",
+      "parameters": [
+        {"name": "fieldVariableName", "description": "Variable name (default rp)."},
+        {"name": "R", "description": "Source term of the ODE."},
+        {"name": "Integrate", "description": "WithRespectToTime | AlongParticleTrajectory."},
+        {"name": "DependentVariableQuantity", "description": "Unit of the auxiliary variable."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").create(\"aux1\", \"AuxiliaryField\", 3);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"aux1\").selection().all();\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"aux1\").set(\"fieldVariableName\", \"tres\");\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"aux1\").set(\"R\", \"1\");  // residence time\n// Application Library: ion_range_benchmark, trapped_protons",
+      "notes": "Initial values are set in each release feature (Initial Value of Auxiliary Dependent Variables section).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.23.html"
+    },
+    {
+      "name": "Rotating Frame (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Solves particle trajectories in a noninertial rotating frame by adding centrifugal, Coriolis and Euler forces, with the axis, direction and angular velocity (constant, time-dependent or revolutions per time) as inputs. Laboratory-frame positions and velocities are available as <scope>.qin and <scope>.vin.",
+      "usage": "Physics > Particle Tracing > Rotating Frame (rf1); API: physics(\"pt\").create(\"rf1\", \"RotatingFrame\", 3)",
+      "parameters": [
+        {"name": "Axis of rotation", "description": "x-, y-, z-axis or User defined base point and direction (3D); base point in 2D."},
+        {"name": "Rotational direction", "description": "Counterclockwise (default) or Clockwise."},
+        {"name": "Angular velocity", "description": "Rotation rate of the frame."}
+      ],
+      "example": "Application Library: Particle_Tracing_Module/Vacuum_Systems/turbomolecular_pump and Fluid_Flow/tubular_centrifuge use a Rotating Frame so that blades or walls are stationary in the computational frame.",
+      "notes": "Best for rotationally symmetric geometries; do not combine with a Rotating Domain (moving mesh) in the same study step.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.12.html"
+    },
+    {
+      "name": "Force (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Applies a user-defined force to particles, entered directly as components or as a susceptibility tensor (isotropic, diagonal, symmetric or full) times a field. All Force and built-in force nodes are summed; the force can be restricted to all particles, one species or a logical expression.",
+      "usage": "Physics > Particle Tracing > Force (for1); API: physics(\"pt\").create(\"for1\", \"Force\", 3)",
+      "parameters": [
+        {"name": "Specify force", "description": "Directly (F vector) or Using susceptibility and field (chi, Gamma, with units)."},
+        {"name": "Particles to affect", "description": "All | Single species (Particle Properties node) | Logical expression."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"pt\").create(\"for1\", \"Force\", 3);\nmodel.component(\"comp1\").physics(\"pt\").feature(\"for1\").selection().all();\nmodel.component(\"comp1\").physics(\"pt\").feature(\"for1\").set(\"F\", new String[]{\"0\", \"0\", \"-pt.mp*g_const\"});",
+      "notes": "Only with Newtonian or Newtonian first order formulations. Use Particle-Particle Interaction for forces that depend on other particles.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.11.html"
+    },
+    {
+      "name": "Particle-Particle Interaction (Particle Tracing)",
+      "kind": "excitation",
+      "description": "Makes particles exert pairwise forces on each other using Coulomb, linear elastic (spring), Lennard-Jones or user-defined interaction laws, with an optional cutoff length to limit the O(N^2) cost. It suits Coulomb explosions, plasma crystals or gravitational few-body problems, but not hard-sphere collisions.",
+      "usage": "Physics > Particle Tracing > Particle-Particle Interaction (ppi1); API: physics(\"pt\").create(\"ppi1\", \"ParticleParticleInteraction\", 3)",
+      "parameters": [
+        {"name": "InteractionForce", "description": "Coulomb | LinearElastic (ks, r0) | LennardJones (sigma, eps) | UserDefined (Fu)."},
+        {"name": "ApplyCutoffLength / rcoff", "description": "Ignore pairs farther apart than the cutoff."},
+        {"name": "ExcludeParticleParticleJacobian", "description": "On by default to keep the Jacobian sparse."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").create(\"ppi1\", \"ParticleParticleInteraction\", 3);\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"ppi1\").selection().all();\nmodel.component(\"comp1\").physics(\"cpt\").feature(\"ppi1\").set(\"InteractionForce\", \"Coulomb\");\n// Application Library: Particle_Tracing_Module/Verification_Examples/three_body_problem",
+      "notes": "Cost grows with the square of the particle count; keep particle numbers moderate or use a cutoff. Forces must be continuous in the separation distance.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.16.html"
+    },
+    {
+      "name": "Surface Charge Density / Current Density (Charged Particle Tracing wall subnodes)",
+      "kind": "function",
+      "description": "Wall subnodes that accumulate the effect of impacting charged particles on each boundary element: Surface Charge Density (Specify release times) gives the deposited charge per area, and Current Density (Specify current) gives the current density vector or its normal component. The results can drive surface charge boundary conditions in Electrostatics (charging of insulators) or heat/current loads.",
+      "usage": "Right-click Charged Particle Tracing > Wall > Surface Charge Density (chd1) / Current Density (cd1); API: physics(\"cpt\").feature(\"wall1\").create(\"chd1\", \"SurfaceChargeDensity\", 2) / create(\"cd1\", \"CurrentDensity\", 2)",
+      "parameters": [
+        {"name": "Type (Current Density)", "description": "Current density (vector components) or Normal current density."},
+        {"name": "Release specification", "description": "Surface Charge Density requires Specify release times; Current Density requires Specify current."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"cpt\").feature(\"wall1\").create(\"cd1\", \"CurrentDensity\", 2);\n// use cpt.wall1.cd1.Jn (normal current density) as a Normal Current Density BC or for postprocessing",
+      "notes": "Accumulated variables are elementwise constant; use fine boundary meshes for smooth distributions.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_acdc.07.27.html"
+    },
+    {
+      "name": "Heat Source (Charged Particle Tracing wall subnode)",
+      "kind": "function",
+      "description": "Wall subnode (Specify current) that converts the kinetic energy of charged particles striking a boundary into an accumulated boundary heat source, which can be used as a Boundary Heat Source in a heat transfer interface to compute target heating by beams. Energy can be accumulated from particles that stick/freeze or from all wall interactions.",
+      "usage": "Right-click Charged Particle Tracing > Wall > Heat Source (hts1); API: physics(\"cpt\").feature(\"wall1\").create(\"hts1\", \"HeatSource\", 2)",
+      "parameters": [
+        {"name": "Accumulate over", "description": "Particles in boundary elements (default) or Particle-wall interactions."}
+      ],
+      "example": "cpt Wall > Heat Source hts1; in Heat Transfer in Solids add Boundary Heat Source with Q_b = cpt.wall1.hts1.Qsrc (check the exact variable name in Equation View) and solve heat transfer after the particle study.",
+      "notes": "Only available with Particle release specification = Specify current. A separate fpt domain Heat Source node adds heat to particles instead.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_acdc.07.28.html"
+    },
+    {
+      "name": "Etch (Charged Particle Tracing wall subnode)",
+      "kind": "function",
+      "description": "Wall subnode (Specify current) that computes the etch rate caused by energetic ion impact using an empirical sputter yield with threshold energy and slope, and an angular dependence either from the built-in Argon on polysilicon model or from a user expression. Collisionless and collisional plasma types are supported.",
+      "usage": "Right-click Charged Particle Tracing > Wall > Etch (etch1); API: physics(\"cpt\").feature(\"wall1\").create(\"etch1\", \"Etch\", 2)",
+      "parameters": [
+        {"name": "Angular dependence model", "description": "Argon on polysilicon (default) or Expression Y."},
+        {"name": "Threshold energy Eth / Slope of etch yield curve", "description": "Defaults 50 eV and 625 eV."},
+        {"name": "Plasma type", "description": "Collisionless (default) or Collisional with normal ion current density."},
+        {"name": "Surface properties", "description": "Molecular weight and mass density of the surface (for the Expression model)."}
+      ],
+      "example": "Ions released as a Particle Beam onto a wafer; Wall > Etch computes the local etch rate that can drive a Deformed Geometry / Moving Mesh boundary velocity.",
+      "notes": "The etch rate is an accumulated variable per boundary element.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_acdc.07.29.html"
+    },
+    {
+      "name": "Erosion (Particle Tracing for Fluid Flow wall subnode)",
+      "kind": "function",
+      "description": "Wall subnode that computes erosive wear from particle impacts: total mass lost per area (Specify release times) or erosion rate in kg/(m^2*s) (Specify mass flow rate). Built-in models are Finnie, E/CRC, Oka and DNV, or a user expression for the mass removed per impact, with optional spatial smoothing.",
+      "usage": "Right-click Particle Tracing for Fluid Flow > Wall > Erosion (ero1); API: physics(\"fpt\").feature(\"wall1\").create(\"ero1\", \"Erosion\", 2); set(\"ErosionModel\", \"Finnie\"|\"ECRC\"|\"Oka\"|\"DNV\"|\"Expression\")",
+      "parameters": [
+        {"name": "ErosionModel", "description": "Expression | Finnie (ci, Khv, Hv) | ECRC (BH, Ccrc, ncrc, Fscrc) | Oka (Hv, k1, k3, s1, s2, q1, q2, dref, Vref) | DNV (Kdnv, ndnv)."},
+        {"name": "rhosurf", "description": "Mass density of the surface material (to convert mass loss to thickness)."},
+        {"name": "ComputeSmoothedAccumulatedVariable / rsm", "description": "Circle-averaged smoothing of the elementwise result."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").feature(\"wall1\").create(\"ero1\", \"Erosion\", 2);\nmodel.component(\"comp1\").physics(\"fpt\").feature(\"wall1\").feature(\"ero1\").set(\"ErosionModel\", \"DNV\");\n// Application Library: Particle_Tracing_Module/Fluid_Flow/pipe_elbow_erosion",
+      "notes": "Use Bounce (or a restitution-based General reflection) on the parent wall so particles keep impacting downstream surfaces.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_fluid_flow.08.17.html"
+    },
+    {
+      "name": "Mass Deposition / Boundary Load / Mass Flux (Particle Tracing for Fluid Flow wall subnodes)",
+      "kind": "function",
+      "description": "Wall subnodes that turn particle impacts into boundary fields: Mass Deposition (Specify release times) accumulates deposited mass per area, Boundary Load (Specify mass flow rate) gives the impact pressure or force per area, and Mass Flux (Specify mass flow rate) gives the particle mass flux vector or its normal component. Boundary Load can be applied to Solid Mechanics to compute structural response to particle impingement.",
+      "usage": "Right-click Particle Tracing for Fluid Flow > Wall > Mass Deposition (md1) / Boundary Load (bl1) / Mass Flux (mfl1); API: physics(\"fpt\").feature(\"wall1\").create(\"bl1\", \"BoundaryLoad\", 2)",
+      "parameters": [
+        {"name": "Type (Boundary Load)", "description": "Pressure (default) or Force per unit area."},
+        {"name": "Type (Mass Flux)", "description": "Mass flux or Normal mass flux (default)."},
+        {"name": "Compute smoothed accumulated variable / Smoothing radius", "description": "Circle average for smoother loads (Boundary Load)."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").feature(\"wall1\").create(\"bl1\", \"BoundaryLoad\", 2);\n// Solid Mechanics > Boundary Load with load = -fpt.wall1.bl1.p*solid.nx ... (check names in Equation View)",
+      "notes": "Which subnodes are offered depends on the Particle release specification of the interface.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_fluid_flow.08.19.html"
+    },
+    {
+      "name": "Particle status variables (fs, st, rti, fac, fst, ffr, fds, nsr)",
+      "kind": "function",
+      "description": "Variables created when 'Store particle status data' is enabled on a particle tracing interface: release time rti, stop time st and final status fs per particle (0 unreleased, 1 active, 2 frozen, 3 stuck, 4 disappeared), plus global fractions of active (fac), stuck (fst), frozen (ffr) and disappeared (fds) particles and counts of released/unreleased secondary particles (nsr, nsu, nsrf, nsuf, fse). They are the quickest way to report capture efficiencies and transmission.",
+      "usage": "Particle interface > Additional Variables > Store particle status data (StoreParticleStatusData = 1); evaluate <scope>.fs, <scope>.fst, ... e.g. fpt.fst in a Global Evaluation on the Particle dataset",
+      "parameters": [
+        {"name": "<scope>.fs", "description": "Final status integer per particle (value at the last time step)."},
+        {"name": "<scope>.fac / fst / ffr / fds", "description": "Fractions at final time; denominators include unreleased secondary particles."},
+        {"name": "<scope>.prf / releaseindex", "description": "Release feature index of each particle (releaseindex needs 'Store particle release statistics')."}
+      ],
+      "example": "model.component(\"comp1\").physics(\"fpt\").prop(\"StoreParticleStatusData\").set(\"StoreParticleStatusData\", \"1\");\nmodel.result().numerical().create(\"gev1\", \"EvalGlobal\");\nmodel.result().numerical(\"gev1\").set(\"expr\", new String[]{\"fpt.fst\"});  // fraction stuck = capture efficiency",
+      "notes": "Always enable when using automatic remeshing or reusing particle solutions as initial values.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.particle/particle_ug_math.06.02.html"
+    }
+  ]
+}

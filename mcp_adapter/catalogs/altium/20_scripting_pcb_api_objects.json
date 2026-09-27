@@ -1,0 +1,396 @@
+{
+  "category": "Scripting: PCB API objects, methods, constants and helpers",
+  "description": "Member-level reference for the PCB scripting API used from DelphiScript/VBScript/JScript: PCBServer (IPCB_ServerInterface) methods, IPCB_Board methods and properties, iterators, primitive interfaces (net, polygon, region, text, fill, rule, library component), object-kind and layer constants, set helpers and the DelphiScript RTL functions most scripts rely on.",
+  "tools": [
+    {
+      "name": "PCBServer.PreProcess / PCBServer.PostProcess",
+      "kind": "api",
+      "description": "Bracket every batch of PCB modifications: PreProcess initialises the PCB editor's robots (undo, connectivity, DRC listeners) and PostProcess finalises them, so all changes between the calls become one undoable transaction and the board is left consistent. Omitting them causes objects to be added without undo support or with stale connectivity.",
+      "usage": "PCBServer.PreProcess;  ... create/modify objects ...  PCBServer.PostProcess;",
+      "parameters": [],
+      "example": "PCBServer.PreProcess;\nTry\n  Track := PCBServer.PCBObjectFactory(eTrackObject, eNoDimension, eCreate_Default);\n  Track.X1 := MilsToCoord(1000); Track.Y1 := MilsToCoord(1000);\n  Track.X2 := MilsToCoord(2000); Track.Y2 := MilsToCoord(1000);\n  Track.Width := MilsToCoord(10); Track.Layer := eTopLayer;\n  Board.AddPCBObject(Track);\nFinally\n  PCBServer.PostProcess;\nEnd;",
+      "notes": "For edits to existing objects also send PCBM_BeginModify / PCBM_EndModify with SendMessageToRobots; refresh with Board.ViewManager_FullUpdate.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "PCBServer.SendMessageToRobots",
+      "kind": "api",
+      "description": "Broadcasts an editor message so panels, undo and connectivity react to programmatic changes. Typical messages: PCBM_BeginModify before changing an existing object's properties and PCBM_EndModify after, PCBM_BoardRegisteration when an object is registered. Source is the object's I_ObjectAddress, destination c_Broadcast, data c_NoEventData.",
+      "usage": "PCBServer.SendMessageToRobots(Source : TPCBObjectHandle; Destination : TPCBObjectHandle; MessageID : TMessageID; MessageData : TMessageData)",
+      "parameters": [
+        {"name": "Source", "description": "Object handle (Prim.I_ObjectAddress) or c_Broadcast."},
+        {"name": "MessageID", "description": "PCBM_BeginModify | PCBM_EndModify | PCBM_BoardRegisteration ..."}
+      ],
+      "example": "PCBServer.SendMessageToRobots(Via.I_ObjectAddress, c_Broadcast, PCBM_BeginModify, c_NoEventData);\nVia.Size := MMsToCoord(0.6);\nPCBServer.SendMessageToRobots(Via.I_ObjectAddress, c_Broadcast, PCBM_EndModify, c_NoEventData);",
+      "notes": "Wrap the whole edit in PreProcess/PostProcess as well.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "PCBServer.GetPCBBoardByPath / GetCurrentPCBLibrary / LoadPCBLibraryByPath",
+      "kind": "api",
+      "description": "Board and library accessors besides GetCurrentPCBBoard: GetPCBBoardByPath returns the IPCB_Board of an already-open PCB document given its full path; GetCurrentPCBLibrary returns the IPCB_Library of the active .PcbLib; LoadPCBLibraryByPath opens a PcbLib file and returns its IPCB_Library for footprint access.",
+      "usage": "Board := PCBServer.GetPCBBoardByPath(Path);  Lib := PCBServer.GetCurrentPCBLibrary;  Lib := PCBServer.LoadPCBLibraryByPath(Path);",
+      "parameters": [
+        {"name": "Path", "description": "Full file path of the PcbDoc/PcbLib."}
+      ],
+      "example": "Board := PCBServer.GetPCBBoardByPath('D:\\work\\Main.PcbDoc');\nIf Board = Nil Then ShowMessage('Open the board first');",
+      "notes": "GetPCBBoardByPath returns Nil for documents that are not open; open them first with Client.OpenDocument('PCB', Path).",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "PCBServer.PCBRuleFactory / PCBClassFactoryByClassMember / DestroyPCBObject",
+      "kind": "api",
+      "description": "PCBRuleFactory(ARuleKind) creates a design rule object of the given kind (eRule_Clearance, eRule_MaxMinWidth, eRule_RoutingViaStyle ...) that is configured (Name, Scope1Expression, Scope2Expression, constraint properties) and added with Board.AddPCBObject; PCBClassFactoryByClassMember(AClassKind) creates a class object (eClassMemberKind_Net, _Component, _Layer, _Pad ...); DestroyPCBObject frees an object that was created but not added (or after RemovePCBObject).",
+      "usage": "Rule := PCBServer.PCBRuleFactory(eRule_Clearance);  Cls := PCBServer.PCBClassFactoryByClassMember(eClassMemberKind_Net);  PCBServer.DestroyPCBObject(Obj);",
+      "parameters": [
+        {"name": "ARuleKind", "description": "TRuleKind constant, e.g. eRule_MaxMinWidth."},
+        {"name": "AClassKind", "description": "TClassMemberKind constant."}
+      ],
+      "example": "Rule := PCBServer.PCBRuleFactory(eRule_MaxMinWidth);\nRule.Name := 'Width_Power';\nRule.Scope1Expression := 'InNetClass(''POWER'')';\nRule.MinWidth := MMsToCoord(0.3); Rule.MaxWidth := MMsToCoord(2); Rule.FavoredWidth := MMsToCoord(0.5);\nBoard.AddPCBObject(Rule);",
+      "notes": "Rule property names differ per kind (e.g. Gap for clearance); inspect existing rules with the PCB List panel or Board.FindDominantRuleForObject.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.AddPCBObject / RemovePCBObject",
+      "kind": "api",
+      "description": "AddPCBObject registers a primitive created by PCBObjectFactory (or a rule/class) with the board so it is drawn, saved and participates in connectivity; RemovePCBObject detaches an object from the board (it must then be destroyed or re-added). Both should run between PreProcess and PostProcess.",
+      "usage": "Board.AddPCBObject(PCBObject : IPCB_Primitive);  Board.RemovePCBObject(PCBObject : IPCB_Primitive);",
+      "parameters": [
+        {"name": "PCBObject", "description": "Any IPCB_Primitive descendant (track, via, pad, text, component, polygon, rule...)."}
+      ],
+      "example": "Iterator := Board.BoardIterator_Create;\nIterator.AddFilter_ObjectSet(MkSet(eTextObject));\nIterator.AddFilter_LayerSet(MkSet(eMechanical13));\nT := Iterator.FirstPCBObject;\nWhile T <> Nil Do Begin\n  Next := Iterator.NextPCBObject;\n  Board.RemovePCBObject(T);\n  PCBServer.DestroyPCBObject(T);\n  T := Next;\nEnd;\nBoard.BoardIterator_Destroy(Iterator);",
+      "notes": "Fetch the next object before removing the current one, as shown, or the iterator loses its position.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.SpatialIterator_Create (IPCB_SpatialIterator)",
+      "kind": "api",
+      "description": "Creates an iterator that returns only primitives within a rectangular area (AddFilter_Area(X1,Y1,X2,Y2)), filtered by object set and layer set, and walked with FirstPCBObject/NextPCBObject; faster than a board iterator for local searches such as 'what is under this component'. Group objects (components, dimensions) are not returned - only their primitives.",
+      "usage": "SI := Board.SpatialIterator_Create; SI.AddFilter_ObjectSet(MkSet(ePadObject, eViaObject)); SI.AddFilter_LayerSet(AllLayers); SI.AddFilter_Area(X1, Y1, X2, Y2); ... Board.SpatialIterator_Destroy(SI);",
+      "parameters": [
+        {"name": "AddFilter_Area", "description": "Rectangle in internal coordinates."},
+        {"name": "AddFilter_ObjectSet / AddFilter_LayerSet", "description": "Object kinds and layers to include."}
+      ],
+      "example": "Rect := Comp.BoundingRectangle;\nSI := Board.SpatialIterator_Create;\nSI.AddFilter_ObjectSet(MkSet(eViaObject));\nSI.AddFilter_LayerSet(AllLayers);\nSI.AddFilter_Area(Rect.Left, Rect.Bottom, Rect.Right, Rect.Top);\nVia := SI.FirstPCBObject;\nWhile Via <> Nil Do Begin Inc(Count); Via := SI.NextPCBObject; End;\nBoard.SpatialIterator_Destroy(SI);",
+      "notes": "Objects partially inside the area are returned; test geometry yourself if strict containment is needed.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.GetPcbComponentByRefDes",
+      "kind": "api",
+      "description": "Returns the IPCB_Component whose designator matches the given string (or Nil), avoiding a full iterator loop when a script targets a known reference designator.",
+      "usage": "Comp := Board.GetPcbComponentByRefDes('U1');",
+      "parameters": [
+        {"name": "Value", "description": "Designator text."}
+      ],
+      "example": "Comp := Board.GetPcbComponentByRefDes('J1');\nIf Comp <> Nil Then ShowMessage(Comp.Pattern + ' at ' + CoordToMMs(Comp.x) + ',' + CoordToMMs(Comp.y));",
+      "notes": "Designator matching is exact (case-insensitive).",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.ChooseLocation / ChooseRectangleByCorners / GetObjectAtCursor",
+      "kind": "api",
+      "description": "Interactive input helpers: ChooseLocation(X, Y, Prompt) waits for the user to click a point and returns its coordinates (False if cancelled); ChooseRectangleByCorners(Prompt1, Prompt2, X1, Y1, X2, Y2) collects two corners; GetObjectAtCursor(ObjectSet, LayerSet, StatusBarText) lets the user pick a primitive of the given kinds/layers and returns it; GetObjectAtXYAskUserIfAmbiguous resolves overlapping hits with a pop-up.",
+      "usage": "If Board.ChooseLocation(X, Y, 'Pick origin') Then ...;  Prim := Board.GetObjectAtCursor(MkSet(eTrackObject), AllLayers, 'Pick a track');",
+      "parameters": [
+        {"name": "Prompt / StatusBarText", "description": "Status bar prompt shown during the pick."},
+        {"name": "ObjectSet / LayerSet", "description": "Allowed kinds and layers for the pick."}
+      ],
+      "example": "Var X, Y : TCoord;\nBegin\n  If Not Board.ChooseLocation(X, Y, 'Click the new origin') Then Exit;\n  Board.XOrigin := X; Board.YOrigin := Y;\n  Board.GraphicalView_ZoomRedraw;\nEnd;",
+      "notes": "Coordinates returned are internal units (TCoord); convert with CoordToMMs/CoordToMils.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.ViewManager_FullUpdate / GraphicalView_ZoomRedraw / GraphicalView_ZoomOnRect",
+      "kind": "api",
+      "description": "Display refresh calls: ViewManager_FullUpdate updates all panels tied to the document (PCB panel, Properties, PCB List) after programmatic changes; GraphicalView_ZoomRedraw redraws the design space; GraphicalView_ZoomOnRect(X1,Y1,X2,Y2) zooms to a rectangle; ViewManager_GraphicallyInvalidatePrimitive(Obj) repaints one object. Equivalent process: PCB:Zoom with Action=Redraw.",
+      "usage": "Board.ViewManager_FullUpdate;  Board.GraphicalView_ZoomRedraw;  Board.GraphicalView_ZoomOnRect(X1, Y1, X2, Y2);",
+      "parameters": [],
+      "example": "Board.GraphicalView_ZoomOnRect(Comp.BoundingRectangle.Left, Comp.BoundingRectangle.Bottom, Comp.BoundingRectangle.Right, Comp.BoundingRectangle.Top);\nBoard.ViewManager_FullUpdate;",
+      "notes": "Call after PostProcess; heavy scripts should refresh once at the end.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.LayerStack (IPCB_LayerStack / IPCB_LayerObject)",
+      "kind": "api",
+      "description": "Board.LayerStack exposes the layer stack: FirstLayer and NextLayer(LayerObj) walk the electrical layers in stack order, LayerObject[Layer] returns the IPCB_LayerObject for a TLayer with properties LayerID, Name, CopperThickness, IsDisplayed and, for dielectrics, material data. Newer releases add the IPCB_LayerStack_V7 interface for advanced stacks (regions, sub-stacks).",
+      "usage": "LS := Board.LayerStack; L := LS.FirstLayer; While L <> Nil Do Begin ...; L := LS.NextLayer(L); End;",
+      "parameters": [
+        {"name": "LayerObject[TLayer]", "description": "Layer object by layer constant."}
+      ],
+      "example": "L := Board.LayerStack.FirstLayer;\nWhile L <> Nil Do Begin\n  Report.Add(L.Name + ' : ' + Layer2String(L.LayerID) + ' Cu ' + CoordToMils(L.CopperThickness) + ' mil');\n  L := Board.LayerStack.NextLayer(L);\nEnd;",
+      "notes": "Use Board.LayerIsUsed[Layer] / LayerIsDisplayed[Layer] / LayerColor[Layer] for per-layer flags outside the stack walk.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.BoardOutline (IPCB_BoardOutline)",
+      "kind": "api",
+      "description": "Read-only property returning the board shape as an IPCB_BoardOutline object: PointCount and Segments[i] (with vertex coordinates, arc flags, radius/angles) describe the outline polygon, BoundingRectangle gives extents, and Board.UpdateBoardOutline / CreateBoardOutline rebuild it after segment edits. Used to compute board size, export outlines or check objects against the edge.",
+      "usage": "BO := Board.BoardOutline; For i := 0 To BO.PointCount - 1 Do S := BO.Segments[i];",
+      "parameters": [],
+      "example": "BO := Board.BoardOutline;\nR := BO.BoundingRectangle;\nShowMessage(Format('Board %.2f x %.2f mm', [CoordToMMs(R.Right - R.Left), CoordToMMs(R.Top - R.Bottom)]));",
+      "notes": "The outline shares the polygon segment structure of IPCB_Polygon (Segments[i].Kind = ePolySegmentLine/ePolySegmentArc).",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.SelectecObjectCount / SelectecObject[i]",
+      "kind": "api",
+      "description": "Access to the current selection (note the API spelling 'Selectec'): SelectecObjectCount gives the number of selected primitives and SelectecObject[i] returns each one, letting a script operate on what the user selected (e.g. re-width tracks, move vias, report properties).",
+      "usage": "For i := 0 To Board.SelectecObjectCount - 1 Do Prim := Board.SelectecObject[i];",
+      "parameters": [],
+      "example": "PCBServer.PreProcess;\nFor i := 0 To Board.SelectecObjectCount - 1 Do Begin\n  Prim := Board.SelectecObject[i];\n  If Prim.ObjectId = eTrackObject Then Prim.Width := MMsToCoord(0.25);\nEnd;\nPCBServer.PostProcess;\nBoard.ViewManager_FullUpdate;",
+      "notes": "Selection changes made by a script should be followed by Board.ViewManager_FullUpdate; use Prim.Selected := True/False to alter selection.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board.FindDominantRuleForObject / FindDominantRuleForObjectPair",
+      "kind": "api",
+      "description": "Return the highest-priority rule of a given kind that applies to one object (unary rules such as Width, Via Style, Height) or to a pair of objects (binary rules such as Clearance), exactly as DRC would resolve it; lets scripts read the effective constraint (e.g. preferred width for a net) instead of parsing rule scopes.",
+      "usage": "Rule := Board.FindDominantRuleForObject(Prim, eRule_MaxMinWidth);  Rule := Board.FindDominantRuleForObjectPair(Prim1, Prim2, eRule_Clearance);",
+      "parameters": [
+        {"name": "APrimitive(s)", "description": "Object(s) to evaluate."},
+        {"name": "ARuleKind", "description": "TRuleKind constant."}
+      ],
+      "example": "WRule := Board.FindDominantRuleForObject(Track, eRule_MaxMinWidth);\nIf WRule <> Nil Then Track.Width := WRule.FavoredWidth;",
+      "notes": "Returns Nil when no enabled rule of that kind matches.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board undo methods (NewUndo, EndUndo, DoUndo, DoRedo, ClearUndoRedo)",
+      "kind": "api",
+      "description": "Explicit undo-stack control: NewUndo/EndUndo bracket a group of changes as one undo step (PreProcess/PostProcess normally does this implicitly), DoUndo/DoRedo trigger undo/redo programmatically, ClearUndoRedo empties the stack (useful after large batch operations to free memory). SetState_DocumentHasChanged marks the document modified.",
+      "usage": "Board.NewUndo; ... Board.EndUndo;  Board.DoUndo;  Board.ClearUndoRedo;  Board.SetState_DocumentHasChanged;",
+      "parameters": [],
+      "example": "Board.ClearUndoRedo;  // after importing 20 000 objects\nBoard.SetState_DocumentHasChanged;",
+      "notes": "Prefer PreProcess/PostProcess; use these only for special cases.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board grid, origin and unit properties",
+      "kind": "api",
+      "description": "Board-level settings exposed as properties: XOrigin/YOrigin (relative origin), XCursor/YCursor, DisplayUnit (eImperial/eMetric), SnapGridSize/SnapGridSizeX/SnapGridSizeY, SnapGridUnit, VisibleGridSize/BigVisibleGridSize, TrackGridSize, ViaGridSize, ComponentGridSize, DrawDotGrid, CurrentLayer (read-only), FileName (read-only), PCBWindow, InternalPlaneNetName[Layer], DrillLayerPairsCount/LayerPair[i], MechanicalPairs, AutomaticSplitPlanes.",
+      "usage": "Board.XOrigin := MMsToCoord(10); Board.SnapGridSize := MilsToCoord(5); Unit := Board.DisplayUnit;",
+      "parameters": [],
+      "example": "Board.DisplayUnit := eMetric;\nBoard.SnapGridSizeX := MMsToCoord(0.1);\nBoard.SnapGridSizeY := MMsToCoord(0.1);\nBoard.GraphicalView_ZoomRedraw;",
+      "notes": "Coordinates are stored relative to the absolute origin; XOrigin/YOrigin only affect display/relative values.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Board layer display properties (LayerIsDisplayed, LayerColor, LayerIsUsed, CurrentLayer)",
+      "kind": "api",
+      "description": "Per-layer flags on the board: LayerIsDisplayed[Layer] toggles visibility, LayerColor[Layer] (TColorRef) sets the 2D colour, LayerIsUsed[Layer] tells whether a layer is enabled in the stack, CurrentLayer reads the active layer (set it through the PCB:SetCurrentLayer process or Board.CurrentLayer assignment where supported). Redraw with GraphicalView_ZoomRedraw.",
+      "usage": "Board.LayerIsDisplayed[eTopOverlay] := False; Board.LayerColor[eTopLayer] := $0000FF;",
+      "parameters": [],
+      "example": "For L := eMechanical1 To eMechanical16 Do\n  If Board.LayerIsUsed[L] Then Board.LayerIsDisplayed[L] := True;\nBoard.ViewManager_FullUpdate;",
+      "notes": "Layer sets (View Configuration) are not exposed here; use processes for layer-set switching.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_GroupIterator (component and polygon child iteration)",
+      "kind": "api",
+      "description": "Group objects (components, polygons, dimensions, unions) expose GroupIterator_Create returning an IPCB_GroupIterator with the same AddFilter_ObjectSet / AddFilter_LayerSet / FirstPCBObject / NextPCBObject protocol as the board iterator but restricted to the group's children (pads, tracks, 3D bodies of a component; regions/tracks of a polygon). Destroy with GroupIterator_Destroy.",
+      "usage": "GI := Comp.GroupIterator_Create; GI.AddFilter_ObjectSet(MkSet(ePadObject)); Pad := GI.FirstPCBObject; ... Comp.GroupIterator_Destroy(GI);",
+      "parameters": [],
+      "example": "GI := Comp.GroupIterator_Create;\nGI.AddFilter_ObjectSet(MkSet(ePadObject));\nPad := GI.FirstPCBObject;\nWhile Pad <> Nil Do Begin\n  If Pad.Net <> Nil Then Report.Add(Comp.Name.Text + '-' + Pad.Name + ' : ' + Pad.Net.Name);\n  Pad := GI.NextPCBObject;\nEnd;\nComp.GroupIterator_Destroy(GI);",
+      "notes": "Component child pads carry the component's net assignments; free pads have Comp = Nil.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Library (PCB library document API)",
+      "kind": "api",
+      "description": "Interface for a .PcbLib: CurrentComponent (focused footprint), Board (the IPCB_Board that hosts the current footprint's primitives), LibraryIterator_Create/Destroy to walk IPCB_LibComponent entries, GetComponentByName, CreateNewComponent, RegisterComponent/DeRegisterComponent, RemoveComponent, GetUniqueCompName, SetBoardToComponentByName (navigate to a footprint) and SetCurrentComponentReference (set the origin).",
+      "usage": "Lib := PCBServer.GetCurrentPCBLibrary; LI := Lib.LibraryIterator_Create; LI.SetState_FilterAll; FP := LI.FirstPCBObject; ... Lib.LibraryIterator_Destroy(LI);",
+      "parameters": [],
+      "example": "Lib := PCBServer.GetCurrentPCBLibrary;\nLI := Lib.LibraryIterator_Create;\nLI.SetState_FilterAll;\nFP := LI.FirstPCBObject;\nWhile FP <> Nil Do Begin\n  Report.Add(FP.Name + ' height ' + CoordToMMs(FP.Height));\n  FP := LI.NextPCBObject;\nEnd;\nLib.LibraryIterator_Destroy(LI);",
+      "notes": "Primitives of the current footprint are accessed through Lib.Board with a normal board iterator.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_LibComponent (footprint in a library)",
+      "kind": "api",
+      "description": "Represents one footprint: Name, Description, Height, and the same GroupIterator_Create/AddPCBObject protocol as a component for its pads, tracks, arcs, regions, 3D bodies. Created with PCBServer.CreatePCBLibComp, named, populated with primitives and registered with Lib.RegisterComponent to appear in the library.",
+      "usage": "FP := PCBServer.CreatePCBLibComp; FP.Name := 'RES_0603'; FP.AddPCBObject(Pad); Lib.RegisterComponent(FP);",
+      "parameters": [],
+      "example": "FP := PCBServer.CreatePCBLibComp;\nFP.Name := 'TP_1MM';\nPad := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);\nPad.Name := '1'; Pad.Layer := eTopLayer; Pad.TopXSize := MMsToCoord(1); Pad.TopYSize := MMsToCoord(1); Pad.HoleSize := 0;\nFP.AddPCBObject(Pad);\nLib.RegisterComponent(FP);\nLib.Board.ViewManager_FullUpdate;",
+      "notes": "Set Pad.TopShape (eRounded, eRectangular, eOctagonal) and Pad.Mode (ePadMode_Simple) as needed.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Net",
+      "kind": "api",
+      "description": "Net object interface: Name, Color, and iteration of its members through the board (filter InNet is not available in the API; iterate primitives and compare Prim.Net). Nets are created with PCBObjectFactory(eNetObject...) and added to the board; primitives are attached by assigning Prim.Net := Net. Board.AnalyzeNet/CleanNet/ConnectivelyValidateNets recompute connectivity.",
+      "usage": "Net := PCBServer.PCBObjectFactory(eNetObject, eNoDimension, eCreate_Default); Net.Name := 'TEST'; Board.AddPCBObject(Net); Track.Net := Net;",
+      "parameters": [
+        {"name": "Name", "description": "Net name."},
+        {"name": "Color", "description": "Net colour override (TColor)."}
+      ],
+      "example": "It := Board.BoardIterator_Create;\nIt.AddFilter_ObjectSet(MkSet(eNetObject));\nIt.AddFilter_LayerSet(AllLayers);\nNet := It.FirstPCBObject;\nWhile Net <> Nil Do Begin\n  If Pos('GND', Net.Name) = 1 Then Net.Color := $00FF00;\n  Net := It.NextPCBObject;\nEnd;\nBoard.BoardIterator_Destroy(It);",
+      "notes": "Renaming nets from a script breaks schematic synchronisation unless mirrored on the schematic.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Polygon",
+      "kind": "api",
+      "description": "Polygon pour object: Name, Layer, Net, PolygonType (eSignalLayerPolygon/eSplitPlanePolygon), PolyHatchStyle (ePolySolid, ePolyHatch90, ePolyHatch45, ePolyNoHatch, ePolyVHatch, ePolyHHatch), PointCount and Segments[i] (outline vertices), TrackSize, Grid, MinTrack, PourOver (ePolygonPourOver_None/SameNet/SameNetPolygons), RemoveDead, RemoveIslandsByArea, ArcApproximation, Poured flag, and Rebuild to repour. Outline segments are set via a TPolySegment record assigned to Segments[i].",
+      "usage": "Poly := PCBServer.PCBObjectFactory(ePolyObject, eNoDimension, eCreate_Default); Poly.Layer := eTopLayer; Poly.Net := GndNet; Poly.PointCount := 4; ... Poly.Rebuild; Board.AddPCBObject(Poly);",
+      "parameters": [
+        {"name": "PolyHatchStyle", "description": "Solid or hatched fill."},
+        {"name": "Segments[i]", "description": "TPolySegment with Kind, vx/vy, cx/cy, Radius, Angle1/Angle2."}
+      ],
+      "example": "Poly.PointCount := 4;\nS.Kind := ePolySegmentLine;\nS.vx := MMsToCoord(0);  S.vy := MMsToCoord(0);  Poly.Segments[0] := S;\nS.vx := MMsToCoord(50); S.vy := MMsToCoord(0);  Poly.Segments[1] := S;\nS.vx := MMsToCoord(50); S.vy := MMsToCoord(30); Poly.Segments[2] := S;\nS.vx := MMsToCoord(0);  S.vy := MMsToCoord(30); Poly.Segments[3] := S;\nPoly.PolyHatchStyle := ePolySolid;\nPoly.Rebuild;\nBoard.AddPCBObject(Poly);",
+      "notes": "Call Rebuild after changing the outline or net; large solid pours are slow to rebuild in loops.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Region",
+      "kind": "api",
+      "description": "Solid region object (copper regions, cutouts, board cutouts, keepout regions): Layer, Net, Kind (eRegionKind_Copper, eRegionKind_Cutout, eRegionKind_BoardCutout, eRegionKind_Cavity), IsKeepout, and geometry through SetOutlineContour / GeometricPolygon (IPCB_GeometricPolygon with contours and points), plus Area and HoleCount. Regions are what polygon pours produce and what PCBContourFactory helps construct.",
+      "usage": "Reg := PCBServer.PCBObjectFactory(eRegionObject, eNoDimension, eCreate_Default); Reg.Layer := eTopLayer; Reg.SetOutlineContour(Contour); Board.AddPCBObject(Reg);",
+      "parameters": [
+        {"name": "Kind", "description": "Copper | Cutout | BoardCutout | Cavity."},
+        {"name": "Contour", "description": "IPCB_Contour built with PCBServer.PCBContourFactory and AddPoint."}
+      ],
+      "example": "Contour := PCBServer.PCBContourFactory;\nContour.AddPoint(MMsToCoord(0), MMsToCoord(0));\nContour.AddPoint(MMsToCoord(5), MMsToCoord(0));\nContour.AddPoint(MMsToCoord(5), MMsToCoord(5));\nContour.AddPoint(MMsToCoord(0), MMsToCoord(5));\nReg := PCBServer.PCBObjectFactory(eRegionObject, eNoDimension, eCreate_Default);\nReg.SetOutlineContour(Contour);\nReg.Layer := eTopLayer;\nBoard.AddPCBObject(Reg);",
+      "notes": "Pour-generated regions belong to their polygon (Reg.InPolygon / Reg.Polygon); edit the polygon instead.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Text",
+      "kind": "api",
+      "description": "String object: Text (the content; special strings such as '.Designator' are stored literally), XLocation/YLocation, Layer, Size (height), Width (stroke), Rotation, MirrorFlag, UseTTFonts with FontName/Bold/Italic, TextKind (stroke, TrueType, barcode), plus IsDesignator/IsComment for component strings. Component designator text is reached through Comp.Name and comment through Comp.Comment.",
+      "usage": "T := PCBServer.PCBObjectFactory(eTextObject, eNoDimension, eCreate_Default); T.Text := 'REV A'; T.Layer := eTopOverlay; T.Size := MMsToCoord(1.2); T.Width := MMsToCoord(0.15); T.XLocation := X; T.YLocation := Y; Board.AddPCBObject(T);",
+      "parameters": [
+        {"name": "Text / Size / Width / Rotation", "description": "Content and stroke geometry."},
+        {"name": "UseTTFonts / FontName", "description": "TrueType rendering."}
+      ],
+      "example": "It := Board.BoardIterator_Create;\nIt.AddFilter_ObjectSet(MkSet(eTextObject));\nIt.AddFilter_LayerSet(MkSet(eTopOverlay, eBottomOverlay));\nT := It.FirstPCBObject;\nWhile T <> Nil Do Begin\n  If T.IsDesignator Then Begin T.Size := MMsToCoord(1.0); T.Width := MMsToCoord(0.15); End;\n  T := It.NextPCBObject;\nEnd;\nBoard.BoardIterator_Destroy(It);",
+      "notes": "Wrap property edits in PCBM_BeginModify/EndModify messages so the text bounding box is recomputed.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Fill",
+      "kind": "api",
+      "description": "Rectangular fill primitive: X1Location/Y1Location and X2Location/Y2Location corners, Rotation, Layer, Net, IsKeepout. Simpler than regions for rectangular copper or keepout areas; created with eFillObject.",
+      "usage": "F := PCBServer.PCBObjectFactory(eFillObject, eNoDimension, eCreate_Default); F.X1Location := X1; F.Y1Location := Y1; F.X2Location := X2; F.Y2Location := Y2; F.Layer := eBottomLayer; Board.AddPCBObject(F);",
+      "parameters": [],
+      "example": "F := PCBServer.PCBObjectFactory(eFillObject, eNoDimension, eCreate_Default);\nF.X1Location := MMsToCoord(10); F.Y1Location := MMsToCoord(10);\nF.X2Location := MMsToCoord(20); F.Y2Location := MMsToCoord(15);\nF.Layer := eKeepOutLayer; F.IsKeepout := True;\nBoard.AddPCBObject(F);",
+      "notes": "Fills cannot have holes; use regions for complex shapes.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Rule (design rule objects)",
+      "kind": "api",
+      "description": "Common rule interface: Name, Comment, RuleKind, Enabled (DRCEnabled), Priority, Scope1Expression / Scope2Expression (query strings), NetScope/LayerKind helpers, plus kind-specific properties (IPCB_ClearanceConstraint.Gap; IPCB_MaxMinWidthConstraint.MinWidth/MaxWidth/FavoredWidth; IPCB_RoutingViaStyleRule.MinHoleWidth/MaxHoleWidth/PreferedHoleWidth and MinWidth/MaxWidth/PreferedWidth; IPCB_MaxMinHeightConstraint; IPCB_ComponentClearanceConstraint.Gap). Enumerate rules with a board iterator filtered on eRuleObject.",
+      "usage": "It.AddFilter_ObjectSet(MkSet(eRuleObject)); Rule := It.FirstPCBObject; If Rule.RuleKind = eRule_Clearance Then Rule.Gap := MMsToCoord(0.2);",
+      "parameters": [
+        {"name": "Scope1Expression / Scope2Expression", "description": "Query strings of the rule's scopes."},
+        {"name": "Enabled / Priority", "description": "Activation and order."}
+      ],
+      "example": "It := Board.BoardIterator_Create;\nIt.AddFilter_ObjectSet(MkSet(eRuleObject));\nIt.AddFilter_LayerSet(AllLayers);\nRule := It.FirstPCBObject;\nWhile Rule <> Nil Do Begin\n  Report.Add(Rule.Name + ' [' + Rule.Scope1Expression + '] enabled=' + BoolToStr(Rule.Enabled));\n  Rule := It.NextPCBObject;\nEnd;\nBoard.BoardIterator_Destroy(It);",
+      "notes": "Rule kinds are listed in the TRuleKind enumeration (eRule_Clearance, eRule_ParallelSegment, eRule_MaxMinWidth, eRule_MaxMinLength, eRule_MatchedNetLengths, eRule_DaisyChainStubLength, eRule_PowerPlaneConnectStyle, eRule_RoutingTopology, eRule_RoutingPriority, eRule_RoutingLayers, eRule_RoutingCornerStyle, eRule_RoutingViaStyle, eRule_PowerPlaneClearance, eRule_SolderMaskExpansion, eRule_PasteMaskExpansion, eRule_ShortCircuit, eRule_BrokenNets, eRule_ViasUnderSMD, eRule_MaximumViaCount, eRule_MinimumAnnularRing, eRule_PolygonConnectStyle, eRule_AcuteAngle, eRule_ConfinementConstraint, eRule_SMDToCorner, eRule_ComponentClearance, eRule_ComponentRotations, eRule_PermittedLayers, eRule_NetsToIgnore, eRule_SignalStimulus, eRule_Overshoot_FallingEdge, ..., eRule_MaxMinHoleSize, eRule_TestPointStyle, eRule_TestPointUsage, eRule_UnconnectedPin, eRule_SMDToPlane, eRule_SMDNeckDown, eRule_LayerPair, eRule_MaxMinHeightConstraint, eRule_FanoutControl, eRule_DifferentialPairsRouting).",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Primitive common properties (Layer, Net, Selected, ObjectId, Identifier, BoundingRectangle)",
+      "kind": "api",
+      "description": "Every design object inherits IPCB_Primitive: ObjectId (TObjectId kind constant), ObjectIDString, Identifier and Descriptor (human-readable), Layer (TLayer), Net (IPCB_Net or Nil), Selected, Enabled, Moveable, IsKeepout, InComponent/Component (owner), InPolygon/Polygon, DRCError, BoundingRectangle (TCoordRect: Left, Right, Top, Bottom), I_ObjectAddress (handle for messages), plus MoveByXY(dx, dy), RotateAroundXY(x, y, angle) and Replicate for copies.",
+      "usage": "If Prim.ObjectId = eViaObject Then ...; Prim.Selected := True; R := Prim.BoundingRectangle; Prim.MoveByXY(MMsToCoord(1), 0);",
+      "parameters": [],
+      "example": "Report.Add(Prim.ObjectIDString + ' ' + Layer2String(Prim.Layer) + ' net=' + IfThen(Prim.Net <> Nil, Prim.Net.Name, 'none') + ' ' + Prim.Descriptor);",
+      "notes": "Tracks/arcs have X1/Y1/X2/Y2 and Width; pads/vias have X/Y, Size/HoleSize (via) or TopXSize/TopYSize (pad); components have x/y, Rotation, Layer, Name.Text, Comment.Text, Pattern.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "Object kind constants (eTrackObject, eArcObject, ePadObject, eViaObject, eTextObject, eFillObject, ePolyObject, eRegionObject, eComponentObject ...)",
+      "kind": "api",
+      "description": "TObjectId enumeration used by PCBObjectFactory, iterator filters and ObjectId tests: eNoObject, eArcObject, ePadObject, eViaObject, eTrackObject, eTextObject, eFillObject, eConnectionObject, eNetObject, eComponentObject, ePolyObject, eRegionObject, eComponentBodyObject, eDimensionObject, eCoordinateObject, eClassObject, eRuleObject, eFromToObject, eDifferentialPairObject, eViolationObject, eEmbeddedObject, eEmbeddedBoardObject, eSplitPlaneObject, eTraceObject, eSpareViaObject, eBoardObject, eBoardOutlineObject.",
+      "usage": "Iterator.AddFilter_ObjectSet(MkSet(eTrackObject, eArcObject)); Obj := PCBServer.PCBObjectFactory(ePadObject, eNoDimension, eCreate_Default);",
+      "parameters": [],
+      "example": "Case Prim.ObjectId Of\n  eTrackObject : Inc(Tracks);\n  eViaObject   : Inc(Vias);\n  ePadObject   : Inc(Pads);\nEnd;",
+      "notes": "Dimension objects take a TDimensionKind as the factory's second argument (eLinearDimension, eRadialDimension, eLeaderDimension...); all others use eNoDimension.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "Layer constants (eTopLayer, eBottomLayer, eMidLayer1..30, eInternalPlane1..16, eTopOverlay, eTopPaste, eTopSolder, eMechanical1..16, eKeepOutLayer, eMultiLayer, eDrillGuide, eDrillDrawing) and Layer2String / String2Layer",
+      "kind": "api",
+      "description": "TLayer enumeration naming every classic layer: signal layers eTopLayer, eMidLayer1..eMidLayer30, eBottomLayer; planes eInternalPlane1..16; eTopOverlay/eBottomOverlay; eTopPaste/eBottomPaste; eTopSolder/eBottomSolder; eMechanical1..16; eDrillGuide, eKeepOutLayer, eDrillDrawing, eMultiLayer, eConnectLayer, eBackGroundLayer, eDRCErrorLayer, eHighlightLayer, eGridColor1/10, ePadHoleLayer, eViaHoleLayer. Layer2String(Layer) returns the display name and String2Layer(Name) converts back; layer sets are built with MkSet or the AllLayers/SignalLayers helpers. Newer stacks with more than 32 signal layers use the V7 layer objects (ILayer, LayerUtils).",
+      "usage": "Track.Layer := eTopLayer;  Name := Layer2String(Prim.Layer);  L := String2Layer('Top Overlay');  Iterator.AddFilter_LayerSet(MkSet(eTopLayer, eBottomLayer));",
+      "parameters": [],
+      "example": "For L := eMidLayer1 To eMidLayer30 Do\n  If Board.LayerIsUsed[L] Then Report.Add(Layer2String(L));",
+      "notes": "Custom layer names (e.g. 'GND_PLANE') are returned by Board.LayerName[L] / the layer object's Name, not by Layer2String.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "MkSet / MkSetRange / SetUnion / InSet (set helpers)",
+      "kind": "function",
+      "description": "DelphiScript has no native set literals, so the scripting system provides MkSet(a, b, c...) to build a set from up to several ordinal values, MkSetRange(lo, hi) for a contiguous range, SetUnion(s1, s2) to combine sets and InSet(value, set) to test membership. Used for iterator object/layer filters and layer-set arguments.",
+      "usage": "MkSet(eTrackObject, eArcObject)  |  MkSetRange(eMechanical1, eMechanical16)  |  SetUnion(SetA, SetB)  |  InSet(eTopLayer, LayerSet)",
+      "parameters": [],
+      "example": "CopperLayers := SetUnion(MkSetRange(eTopLayer, eBottomLayer), MkSet(eMultiLayer));\nIterator.AddFilter_LayerSet(CopperLayers);",
+      "notes": "MkSet accepts a limited number of arguments; combine with SetUnion for larger sets. AllLayers is a predefined constant set.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "TCoord internal units and unit constants (eMils, eMM, eImperial, eMetric)",
+      "kind": "api",
+      "description": "All PCB coordinates and sizes are TCoord integers in internal units (10000 per mil, i.e. 1 mil = 10000 units, 1 mm = 393700.7874 units); MilsToCoord/MMsToCoord/CoordToMils/CoordToMMs convert, and TUnit constants eImperial/eMetric (Board.DisplayUnit) plus eMils/eMM appear in unit-aware formatting helpers such as CoordUnitToString(Coord, Unit) and StringToCoordUnit(Str, Coord, Unit). Keep arithmetic in TCoord to avoid rounding drift.",
+      "usage": "C := MMsToCoord(0.254);  S := CoordUnitToString(C, eMM);  StringToCoordUnit('10mil', C, eMils);",
+      "parameters": [],
+      "example": "Pitch := MMsToCoord(0.5);\nFor i := 0 To 9 Do Begin\n  Via := PCBServer.PCBObjectFactory(eViaObject, eNoDimension, eCreate_Default);\n  Via.X := X0 + i * Pitch; Via.Y := Y0;\n  Via.Size := MMsToCoord(0.5); Via.HoleSize := MMsToCoord(0.25);\n  Via.LowLayer := eTopLayer; Via.HighLayer := eBottomLayer;\n  Board.AddPCBObject(Via);\nEnd;",
+      "notes": "Coordinate range is roughly +/- 100 inches from the absolute origin; objects beyond fail to place.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "Board.GetPrimitiveCount / PrimitiveCounter and connectivity helpers (AnalyzeNet, CleanNet, ConnectivelyValidateNets)",
+      "kind": "api",
+      "description": "GetPrimitiveCount(ObjectSet, LayerSet, Method) counts objects quickly without iterating; PrimitiveCounter returns an IPCB_PrimitiveCounter with per-kind counts (GetObjectCount(eViaObject)). AnalyzeNet(Net) rebuilds the ratsnest for one net, CleanNet reorganises topology, ConnectivelyValidateNets revalidates all nets after copper edits so unrouted-connection lines are correct.",
+      "usage": "N := Board.GetPrimitiveCount(MkSet(eViaObject), AllLayers, eProcessAll);  Board.ConnectivelyValidateNets;",
+      "parameters": [
+        {"name": "AMethod", "description": "eProcessAll | eProcessFree | eProcessComponents (which owners to include)."}
+      ],
+      "example": "PCBServer.PreProcess;\n... add tracks ...\nPCBServer.PostProcess;\nBoard.ConnectivelyValidateNets;\nBoard.ViewManager_FullUpdate;",
+      "notes": "AddFilter_Method(eProcessFree) on an iterator similarly restricts to free primitives.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-system-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Component properties and methods (x, y, Rotation, Layer, Name, Comment, Pattern, Height, Locked, ChannelOffset)",
+      "kind": "api",
+      "description": "Component object detail: x/y (reference point), Rotation (degrees), Layer (eTopLayer/eBottomLayer; assigning flips the part), Name (IPCB_Text designator) and Comment (IPCB_Text) with .Text, NameOn/CommentOn visibility, Pattern (footprint name), SourceLibReference, SourceDescription, Height, Moveable/Locked (via Enabled/Moveable), ComponentKind (eComponentKind_Standard, _Mechanical, _Graphical, _NetTie_BOM, _NetTie_NoBOM, _Standard_NoBOM, _Jumper), ChannelOffset, BoundingRectangleNoNameComment, AutoPosition for strings, and GroupIterator_Create for children.",
+      "usage": "Comp.x := MMsToCoord(25); Comp.y := MMsToCoord(40); Comp.Rotation := 90; Comp.Layer := eBottomLayer; Comp.Name.Text := 'R12'; Comp.Comment.Text := '10k';",
+      "parameters": [],
+      "example": "PCBServer.PreProcess;\nComp := Board.GetPcbComponentByRefDes('C7');\nPCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast, PCBM_BeginModify, c_NoEventData);\nComp.Rotation := 180;\nComp.NameOn := True; Comp.CommentOn := False;\nPCBServer.SendMessageToRobots(Comp.I_ObjectAddress, c_Broadcast, PCBM_EndModify, c_NoEventData);\nPCBServer.PostProcess;",
+      "notes": "Changing Layer mirrors the footprint; pads swap sides automatically.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "IPCB_Pad and IPCB_Via properties (sizes, shapes, holes, layers, mask expansion)",
+      "kind": "api",
+      "description": "Pad: Name (designator), X/Y, Layer (eMultiLayer for through-hole), TopXSize/TopYSize/MidXSize/BotXSize..., TopShape/MidShape/BotShape (eRounded, eRectangular, eOctagonal, eRoundedRectangular), HoleSize, HoleType (eRoundHole, eSquareHole, eSlotHole), HoleRotation, Plated, Mode (ePadMode_Simple/_LocalStack/_ExternalStack), Rotation, Net, SolderMaskExpansion/PasteMaskExpansion with FromRules flags, IsTestpoint_Top/Bottom, CornerRadius. Via: X/Y, Size, HoleSize, LowLayer/HighLayer, Net, IsTenting_Top/Bottom, SolderMaskExpansion, and via type flags.",
+      "usage": "Pad.TopShape := eRoundedRectangular; Pad.CornerRadius := 25; Pad.HoleSize := MMsToCoord(0.8); Via.LowLayer := eTopLayer; Via.HighLayer := eMidLayer1;",
+      "parameters": [],
+      "example": "It := Board.BoardIterator_Create;\nIt.AddFilter_ObjectSet(MkSet(eViaObject));\nIt.AddFilter_LayerSet(AllLayers);\nVia := It.FirstPCBObject;\nWhile Via <> Nil Do Begin\n  If Via.HoleSize < MMsToCoord(0.3) Then Begin\n    Via.IsTenting_Top := True; Via.IsTenting_Bottom := True;\n  End;\n  Via := It.NextPCBObject;\nEnd;\nBoard.BoardIterator_Destroy(It);",
+      "notes": "Pad stack per layer needs Mode := ePadMode_LocalStack before setting Mid/Bot sizes; slot holes need HoleType and HoleWidth.",
+      "docs": "https://www.altium.com/documentation/altium-dxp-developer/pcb-api-design-objects-interfaces-reference"
+    },
+    {
+      "name": "DelphiScript RTL essentials for scripts (TStringList, file I/O, string/number conversion)",
+      "kind": "function",
+      "description": "Scripts use a subset of the Delphi RTL: TStringList (Create, Add, SaveToFile, LoadFromFile, Sort, Count, Strings[i], Free) for reports and CSV; AssignFile/Rewrite/Reset/WriteLn/ReadLn/CloseFile for raw files; IntToStr, StrToInt, FloatToStr, StrToFloat, Format, FormatFloat, Trim, Pos, Copy, Length, UpperCase, StringReplace; ExtractFilePath, ExtractFileName, ChangeFileExt, FileExists, DirectoryExists, ForceDirectories; and Now/DateTimeToStr. Dialog helpers ShowMessage, ShowInfo, ShowWarning, ShowError, InputBox, InputQuery, Confirm (ConfirmNoYes) cover simple UI.",
+      "usage": "Report := TStringList.Create; Try Report.Add(...); Report.SaveToFile(Path); Finally Report.Free; End;",
+      "parameters": [],
+      "example": "Report := TStringList.Create;\nTry\n  Report.Add('Designator,Footprint,X_mm,Y_mm,Rot,Layer');\n  It := Board.BoardIterator_Create;\n  It.AddFilter_ObjectSet(MkSet(eComponentObject));\n  It.AddFilter_LayerSet(AllLayers);\n  C := It.FirstPCBObject;\n  While C <> Nil Do Begin\n    Report.Add(Format('%s,%s,%.3f,%.3f,%.1f,%s', [C.Name.Text, C.Pattern, CoordToMMs(C.x), CoordToMMs(C.y), C.Rotation, Layer2String(C.Layer)]));\n    C := It.NextPCBObject;\n  End;\n  Board.BoardIterator_Destroy(It);\n  Report.SaveToFile(ExtractFilePath(Board.FileName) + 'placement.csv');\nFinally\n  Report.Free;\nEnd;",
+      "notes": "DelphiScript is untyped-ish: Var declarations without types are allowed; Try/Finally works; no records/classes of your own, use TStringList/TList.",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    },
+    {
+      "name": "Board.SaveToFile / Client save and document handling from scripts",
+      "kind": "api",
+      "description": "Saving from scripts is done through the Workspace Manager processes rather than the board object: run WorkspaceManager:SaveObject (ObjectKind=FocusedDocument) via ResetParameters/RunProcess, or Client.SendMessage('WorkspaceManager:SaveObject', 'ObjectKind=FocusedDocument', 255, Client.CurrentView). Documents are opened with Client.OpenDocument('PCB', Path) and shown with Client.ShowDocument(Doc); Board.FileName gives the path of the open board.",
+      "usage": "ResetParameters; AddStringParameter('ObjectKind', 'FocusedDocument'); RunProcess('WorkspaceManager:SaveObject');",
+      "parameters": [],
+      "example": "Doc := Client.OpenDocument('PCB', 'D:\\work\\Main.PcbDoc');\nIf Doc <> Nil Then Begin\n  Client.ShowDocument(Doc);\n  Board := PCBServer.GetCurrentPCBBoard;\n  ... modify ...\n  ResetParameters;\n  AddStringParameter('ObjectKind', 'FocusedDocument');\n  RunProcess('WorkspaceManager:SaveObject');\nEnd;",
+      "notes": "Save As is done with the same process plus SaveMode=SaveAs and FileName parameters (verify parameter names in your version's WorkspaceManager commands reference).",
+      "docs": "https://www.altium.com/documentation/altium-designer/scripting/examples-reference"
+    }
+  ]
+}

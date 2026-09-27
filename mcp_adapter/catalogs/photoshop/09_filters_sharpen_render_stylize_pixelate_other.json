@@ -1,0 +1,542 @@
+{
+  "category": "Filters II - Sharpen, Noise, Render, Stylize, Pixelate, Distort and Other (individual filters)",
+  "description": "One entry per filter for the Filter menu families that the overview entries in 'Filters' only summarise: every Sharpen, Render, Stylize, Pixelate and Other filter plus the remaining Blur, Noise, Distort and Video filters, with their dialog controls, ExtendScript/UXP method signatures where the DOM exposes them, and Action Manager event names where it does not.",
+  "tools": [
+    {
+      "name": "Unsharp Mask",
+      "kind": "filter",
+      "description": "The classic three-slider sharpener: it subtracts a blurred copy from the image and adds the difference back, boosting contrast along edges. Predictable and fast on any bit depth, so it is still the default choice for output sharpening of print and web files. Use a small Radius for fine detail, a large Radius for local contrast ('clarity') and Threshold to protect smooth skin and sky.",
+      "usage": "Filter > Sharpen > Unsharp Mask...   |   ArtLayer.applyUnSharpMask(amount, radius, threshold)",
+      "parameters": [
+        {"name": "Amount", "description": "1-500 %. Strength of the edge contrast increase; 80-150 % is typical for screen output, 150-250 % for print."},
+        {"name": "Radius", "description": "Pixel distance from the edge that is affected. 0.5-1.5 px for fine detail; 20-60 px with a low Amount gives a local-contrast (clarity) effect."},
+        {"name": "Threshold", "description": "0-255 levels. Minimum tonal difference between neighbouring pixels before they are sharpened; 2-10 keeps noise and skin texture from being amplified."}
+      ],
+      "example": "var doc = app.activeDocument;\nvar lyr = doc.activeLayer.duplicate();\ndoc.activeLayer = lyr;\nlyr.applyUnSharpMask(120, 1.0, 3);   // amount %, radius px, threshold levels\nlyr.blendMode = BlendMode.LUMINOSITY; // avoids colour fringing",
+      "notes": "Judge results at 100 % zoom. Apply as a Smart Filter and set its blend mode to Luminosity (or sharpen a Lab Lightness channel) to avoid colour halos. UXP: `layer.applyUnSharpMask(amount, radius, threshold)` (v24.0+). Sharpen after the final resize, never before.",
+      "docs": "https://helpx.adobe.com/photoshop/using/adjusting-image-sharpness-blur.html"
+    },
+    {
+      "name": "Smart Sharpen",
+      "kind": "filter",
+      "description": "Adobe's modern sharpener with a selectable blur model (Gaussian, Lens or Motion), built-in noise suppression and separate shadow/highlight fade controls, which together produce fewer halos than Unsharp Mask. Use it for photographic detail (Remove: Lens Blur) and for mild directional camera shake (Remove: Motion Blur with an Angle). Presets can be saved and reloaded from the dialog.",
+      "usage": "Filter > Sharpen > Smart Sharpen...",
+      "parameters": [
+        {"name": "Preset", "description": "Default or user-saved settings; Save/Load Preset from the flyout."},
+        {"name": "Amount", "description": "1-500 %. Overall sharpening strength."},
+        {"name": "Radius", "description": "0.1-64 px. Width of the edge halo; 0.8-2.0 px is usual for photographs."},
+        {"name": "Reduce Noise", "description": "0-100 %. Suppresses noise amplification; keep it below ~30 % or fine detail softens."},
+        {"name": "Remove", "description": "Blur model to invert: Gaussian Blur (behaves like Unsharp Mask), Lens Blur (best halo control for photographic detail) or Motion Blur with an Angle dial."},
+        {"name": "Shadows / Highlights", "description": "Fade Amount, Tonal Width and Radius per tonal end so you can back sharpening out of noisy shadows or clipped highlights."},
+        {"name": "Use Legacy", "description": "Flyout option restoring the CS6-era algorithm (with More Accurate checkbox)."}
+      ],
+      "example": "1. Convert the layer to a Smart Object (Filter > Convert for Smart Filters).\n2. Filter > Sharpen > Smart Sharpen; Remove = Lens Blur, Amount 150 %, Radius 1.2 px, Reduce Noise 15 %.\n3. Open Shadows, set Fade Amount 40 %, Tonal Width 30 % to keep dark noise quiet.\n4. OK, then double-click the Smart Filter blending icon and set Luminosity.",
+      "notes": "Not exposed in the ExtendScript DOM; record it with ScriptingListener (event 'smartSharpen') or use UXP batchPlay. Works in 8- and 16-bit RGB/CMYK/Lab. Shake Reduction was removed in 23.3; Motion Blur removal here is the nearest replacement.",
+      "docs": "https://helpx.adobe.com/photoshop/using/adjusting-image-sharpness-blur.html"
+    },
+    {
+      "name": "High Pass",
+      "kind": "filter",
+      "description": "Keeps only the detail whose frequency is higher than the Radius and turns everything else 50 % grey. On a duplicate layer set to Overlay, Soft Light, Hard Light or Linear Light it becomes the standard 'high-pass sharpening' technique, and at large radii it is used for frequency separation retouching. It is also a quick way to isolate texture from tone.",
+      "usage": "Filter > Other > High Pass...   |   ArtLayer.applyHighPass(radius)",
+      "parameters": [
+        {"name": "Radius", "description": "0.1-1000 px. Small values (1-3 px) isolate edge detail for sharpening; 8-20 px keep medium texture; very large values approximate the original minus a blur."}
+      ],
+      "example": "var doc = app.activeDocument;\nvar hp = doc.activeLayer.duplicate();\ndoc.activeLayer = hp;\nhp.applyHighPass(2.0);\nhp.blendMode = BlendMode.OVERLAY;   // or SOFTLIGHT for a gentler result\nhp.name = \"High Pass sharpen\";",
+      "notes": "Desaturate the High Pass layer (Ctrl+Shift+U) to avoid colour shifts. In UXP: `layer.applyHighPass(radius)` (v23.5+). Works on all bit depths including 32-bit.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Offset",
+      "kind": "filter",
+      "description": "Shifts the layer content horizontally and vertically by a fixed number of pixels, filling the exposed area by wrapping the image around, repeating edge pixels or leaving transparency. Offsetting by half the document size with Wrap Around is the standard way to expose and fix the seams when building seamless tile patterns.",
+      "usage": "Filter > Other > Offset...   |   ArtLayer.applyOffset(horizontal, vertical, OffsetUndefinedAreas)",
+      "parameters": [
+        {"name": "Horizontal / Vertical", "description": "Shift in pixels; positive moves right/down, negative left/up. Range limited to the image dimensions."},
+        {"name": "Undefined Areas", "description": "Set to Transparent (or background colour on a Background layer), Repeat Edge Pixels, or Wrap Around (for tiling)."}
+      ],
+      "example": "// expose the seams of a 512x512 tile\nvar lyr = app.activeDocument.activeLayer;\nlyr.applyOffset(256, 256, OffsetUndefinedAreas.WRAPAROUND);\n// now heal the visible seams with the Clone Stamp / Healing Brush, then offset back",
+      "notes": "Edit > Define Pattern after fixing the seams. View > Pattern Preview (22.0+) shows the tiling live and is often a faster alternative. UXP: `layer.applyOffset(h, v, undefinedAreas)`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Minimum",
+      "kind": "filter",
+      "description": "A morphological 'erode' filter: each pixel takes the darkest value within the radius, spreading black areas and shrinking white ones. Its main use is on layer masks to choke (contract) a mask edge and remove a thin light fringe after a selection. Preserve: Roundness gives smoother results than the legacy Squareness.",
+      "usage": "Filter > Other > Minimum...   |   ArtLayer.applyMinimum(radius)",
+      "parameters": [
+        {"name": "Radius", "description": "0.1-500 px (fractional values allowed since CC 2014). How far the dark areas grow."},
+        {"name": "Preserve", "description": "Squareness (legacy, blocky) or Roundness (rounded corners, better for masks)."}
+      ],
+      "example": "1. Alt-click the layer-mask thumbnail to view the mask.\n2. Filter > Other > Minimum, Radius 1.5, Preserve: Roundness.\n3. Check the composite for fringing; follow with a slight Gaussian Blur if the edge became hard.",
+      "notes": "On a mask, Minimum contracts the white (revealed) area; Maximum expands it. The Properties panel's Mask Edge / Select and Mask 'Shift Edge' slider is the non-destructive alternative. UXP: `layer.applyMinimum(radius, preserveShape)`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Maximum",
+      "kind": "filter",
+      "description": "The 'dilate' counterpart of Minimum: each pixel takes the lightest value within the radius, so white areas spread and black areas shrink. Use it to expand (spread) a mask, to thicken thin light line-work, or to remove small dark specks from a matte.",
+      "usage": "Filter > Other > Maximum...   |   ArtLayer.applyMaximum(radius)",
+      "parameters": [
+        {"name": "Radius", "description": "0.1-500 px. How far light areas grow."},
+        {"name": "Preserve", "description": "Squareness or Roundness."}
+      ],
+      "example": "var doc = app.activeDocument;\ndoc.activeLayer.applyMaximum(2);   // spread white regions by 2 px",
+      "notes": "Pair with Minimum to perform a morphological open/close that cleans a mask of isolated specks. UXP: `layer.applyMaximum(radius, preserveShape)`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Custom",
+      "kind": "filter",
+      "description": "A user-defined 5x5 convolution kernel. Each pixel is replaced by the weighted sum of itself and its neighbours, divided by Scale and shifted by Offset, so you can build your own sharpen, blur, emboss or edge-detect filters and save them as .acf files. Useful for teaching, for reproducing kernels from image-processing papers, or for effects no built-in filter produces.",
+      "usage": "Filter > Other > Custom...   |   ArtLayer.applyCustomFilter(characteristics, scale, offset)",
+      "parameters": [
+        {"name": "Kernel matrix", "description": "25 integer cells from -999 to 999; the centre cell is the current pixel's weight. Leave a cell blank for zero."},
+        {"name": "Scale", "description": "1-9999. The sum of the products is divided by this; set it to the sum of the kernel weights to keep brightness unchanged."},
+        {"name": "Offset", "description": "-9999 to 9999. Added to the result; use 128 for emboss-type kernels centred on mid-grey."},
+        {"name": "Load / Save", "description": "Read or write the kernel as a .acf file."}
+      ],
+      "example": "// mild sharpen kernel: centre 5, four neighbours -1, scale 1\nvar k = [0,0,0,0,0,\n         0,0,-1,0,0,\n         0,-1,5,-1,0,\n         0,0,-1,0,0,\n         0,0,0,0,0];\napp.activeDocument.activeLayer.applyCustomFilter(k, 1, 0);",
+      "notes": "Works on 8- and 16-bit images. The Photoshop kernel is applied per channel; alpha is untouched. UXP: `layer.applyCustomFilter(characteristics, scale, offset)`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "HSB/HSL",
+      "kind": "filter",
+      "description": "Converts the RGB channels of a layer into Hue, Saturation and Brightness (or Lightness) channels and back again, so you can edit saturation or hue as a grey-scale channel with any tool and then convert back. It is an old optional plug-in that ships with current versions under Filter > Other. Useful for advanced channel-based masking and for scripted colour analysis.",
+      "usage": "Filter > Other > HSB/HSL...",
+      "parameters": [
+        {"name": "Input Mode", "description": "RGB, HSB or HSL - the colour model the channels currently hold."},
+        {"name": "Row Order", "description": "RGB, HSB or HSL - the model to convert into. Converting RGB -> HSB then editing channel 2 edits saturation."}
+      ],
+      "example": "1. Duplicate the image (Image > Duplicate) because the result is not a viewable picture.\n2. Filter > Other > HSB/HSL, Input RGB, Row Order HSB, OK.\n3. In the Channels panel, Ctrl-click the Green (=Saturation) channel to load it as a selection.\n4. Return to the original document and Select > Load Selection from the duplicate, or copy the channel into an alpha channel.",
+      "notes": "The converted document looks garish - always work on a duplicate and convert back (HSB -> RGB) before viewing. 8-bit RGB only. Not scriptable through the DOM; use ScriptingListener.",
+      "docs": "https://helpx.adobe.com/photoshop/user-guide.html"
+    },
+    {
+      "name": "Clouds",
+      "kind": "filter",
+      "description": "Fills the selection or layer with a soft Perlin-noise cloud pattern blended from the foreground and background colours, replacing any existing pixels. It is the seed for countless textures (smoke, fog, marble, displacement maps, random masks) and is one of the few filters that works on an empty layer.",
+      "usage": "Filter > Render > Clouds   |   ArtLayer.applyClouds()",
+      "parameters": [
+        {"name": "Foreground / Background colours", "description": "The two colours interpolated. Black/white gives a grey-scale noise usable as a mask or displacement map."},
+        {"name": "Alt (Option) key", "description": "Hold while choosing the command for a higher-contrast, more mottled result."}
+      ],
+      "example": "var doc = app.activeDocument;\nvar fx = doc.artLayers.add();\nfx.name = \"clouds\";\napp.foregroundColor.rgb.hexValue = \"000000\";\napp.backgroundColor.rgb.hexValue = \"FFFFFF\";\nfx.applyClouds();\nfx.blendMode = BlendMode.SCREEN;   // fog over the image",
+      "notes": "The pattern is random each time; there is no seed control. Clouds tile seamlessly only at power-of-two sizes (e.g. 256, 512, 1024 px). Works in 8/16-bit; UXP `layer.applyClouds()`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Difference Clouds",
+      "kind": "filter",
+      "description": "Generates the same noise as Clouds but combines it with the existing pixels in Difference mode instead of replacing them. Applying it repeatedly (Ctrl+Alt+F) builds veined marble, lightning and plasma textures; a single application over a Clouds fill produces the classic marble look.",
+      "usage": "Filter > Render > Difference Clouds   |   ArtLayer.applyDifferenceClouds()",
+      "parameters": [
+        {"name": "Foreground / Background colours", "description": "Used for the generated noise before the Difference blend."}
+      ],
+      "example": "var lyr = app.activeDocument.activeLayer;\nlyr.applyClouds();\nfor (var i = 0; i < 4; i++) lyr.applyDifferenceClouds();   // marble veins\n// follow with Image > Adjustments > Invert for lightning-style bright veins",
+      "notes": "Unlike Clouds it needs existing pixels, so it does nothing visible on a fully transparent layer. Repeated application alternates between positive and negative looks.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Fibers",
+      "kind": "filter",
+      "description": "Replaces the layer with vertical fibre strands rendered from the foreground and background colours - the basis for wood grain, fabric, hair and brushed-metal textures. Variance controls how patchy the strands are and Strength how sharply defined; Randomize reseeds the pattern.",
+      "usage": "Filter > Render > Fibers...",
+      "parameters": [
+        {"name": "Variance", "description": "1-64. Low values give long, even strands; high values give short, patchy ones."},
+        {"name": "Strength", "description": "1-64. Low values are soft and diffuse; high values are stringy and hard-edged."},
+        {"name": "Randomize", "description": "Generates a new random pattern with the same settings."}
+      ],
+      "example": "1. New layer, set foreground dark brown and background tan.\n2. Filter > Render > Fibers, Variance 16, Strength 4.\n3. Image > Image Rotation > 90 for horizontal grain, then Filter > Blur > Motion Blur (0 deg, 20 px) for wood.",
+      "notes": "8-bit only; replaces all pixels (no blending). Not in the DOM - record with ScriptingListener (event 'fibers', keys variance, strength, randomSeed).",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Lens Flare",
+      "kind": "filter",
+      "description": "Simulates the internal reflections produced when a bright light hits a camera lens, with four lens models and a draggable flare centre. Apply it to a black-filled layer set to Screen (or a Smart Object) so the flare stays movable and editable rather than burned into the photo.",
+      "usage": "Filter > Render > Lens Flare...   |   ArtLayer.applyLensFlare(brightness, flareCenter, lensType)",
+      "parameters": [
+        {"name": "Brightness", "description": "10-300 %."},
+        {"name": "Flare Center", "description": "Click in the thumbnail, or Alt-click to type exact pixel coordinates."},
+        {"name": "Lens Type", "description": "50-300mm Zoom, 35mm Prime, 105mm Prime, Movie Prime (anamorphic streak)."}
+      ],
+      "example": "var doc = app.activeDocument;\nvar flare = doc.artLayers.add();\nflare.name = \"flare\";\ndoc.selection.selectAll();\napp.foregroundColor.rgb.hexValue = \"000000\";\ndoc.selection.fill(app.foregroundColor);\ndoc.selection.deselect();\nflare.applyLensFlare(120, [UnitValue(800, \"px\"), UnitValue(300, \"px\")], LensType.PRIME105);\nflare.blendMode = BlendMode.SCREEN;",
+      "notes": "Requires an 8- or 16-bit RGB layer with pixels; on a transparent layer the command is unavailable. UXP: `layer.applyLensFlare(brightness, flareCenter, lensType)`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Lighting Effects",
+      "kind": "filter",
+      "description": "A GPU-based studio for lighting a 2D image with up to 16 point, spot or infinite lights, including colour, intensity, ambience and a texture (bump) channel that fakes relief from a grey-scale channel. Use it to relight flat renders, add dramatic falloff or emboss a texture with directional light; it opens as a full workspace with an on-canvas light widget and a Lights panel.",
+      "usage": "Filter > Render > Lighting Effects...",
+      "parameters": [
+        {"name": "Presets", "description": "Options-bar menu of saved lighting setups (Default, Flashlight, Five Lights Down, Soft Direct Lights...) plus Save/Load."},
+        {"name": "Light type", "description": "Point (omni), Spot (elliptical cone) or Infinite (directional, sun-like)."},
+        {"name": "Properties", "description": "Color, Intensity, Hotspot (spot only), Colorize, Exposure, Gloss, Metallic, Ambience."},
+        {"name": "Texture", "description": "Choose a channel (RGB channels or an alpha) as a bump map, with White is High and Height 1-100."},
+        {"name": "Lights panel", "description": "Add, delete, toggle and reorder the individual lights."}
+      ],
+      "example": "1. Add an alpha channel containing a grey-scale height map (e.g. from Filter > Render > Clouds).\n2. Select the RGB layer, Filter > Render > Lighting Effects.\n3. Choose Spot, drag the on-canvas ellipse, set Intensity 60, Ambience 20.\n4. Under Texture pick the alpha channel, Height 40, then press OK in the options bar.",
+      "notes": "Requires a supported GPU (Preferences > Performance > Use Graphics Processor) and an 8-bit RGB image; greyed out otherwise. Not available in the DOM; scripted via Action Manager only. The old 3D-based version was retired with the 3D features.",
+      "docs": "https://helpx.adobe.com/photoshop/using/add-lighting-effects.html"
+    },
+    {
+      "name": "Flame",
+      "kind": "filter",
+      "description": "Renders realistic fire along a path you draw with the Pen tool, with control over length, width, angle, turbulence and colour. It is a script-based render filter (introduced in CC 2014) and needs an active path; the result is painted onto the selected pixel layer, so create an empty layer first.",
+      "usage": "Filter > Render > Flame... (requires a path)",
+      "parameters": [
+        {"name": "Flame Type", "description": "One Flame Along Path, Multiple Flames Along Path, Multiple Flames One Direction, Multiple Flames Path Directed, Multiple Flames Various Angle, Candle Light."},
+        {"name": "Length / Width / Angle / Interval", "description": "Size and spacing of the flames along the path (Interval only for the multiple-flame types)."},
+        {"name": "Turbulence / Jag / Opacity / Flame Lines / Flame Bottom Alignment", "description": "Shape irregularity, edge raggedness, transparency, internal complexity and how the base sits on the path."},
+        {"name": "Flame Style / Flame Shape / Quality", "description": "Normal, Violent or Flat style; Parallel, To the Center, Spread, Oval or Pointing shapes; Draft to Fine quality (Fine is slow)."},
+        {"name": "Advanced tab", "description": "Custom colour for the flame, randomize shapes, use custom colour checkbox."}
+      ],
+      "example": "1. Pen tool: draw an open path where the fire should sit.\n2. Layer > New > Layer (empty pixel layer above the photo).\n3. Filter > Render > Flame; Flame Type = Multiple Flames Along Path, Length 120, Turbulence 40, Quality Medium.\n4. OK, then set the layer to Screen and add a Gaussian Blur glow copy beneath.",
+      "notes": "8-bit RGB only; the command is greyed out without a path or on a non-pixel layer. Rendering at Fine quality can take minutes on long paths. Companion script filters: Picture Frame and Tree.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Picture Frame",
+      "kind": "filter",
+      "description": "Draws one of several dozen decorative frames (florals, vines, leaves, geometric borders) around the canvas or the current selection as rendered pixels. Frame colours, size and margin are adjustable, and the Advanced tab exposes per-element options such as flower and leaf size. Handy for cards, mock-ups and quick print borders.",
+      "usage": "Filter > Render > Picture Frame...",
+      "parameters": [
+        {"name": "Frame", "description": "Dropdown of ~47 frame designs."},
+        {"name": "Color / Size / Margin", "description": "Main frame colour, thickness (1-100) and inset from the canvas edge."},
+        {"name": "Flower, Leaf and Line settings (Advanced)", "description": "Colour and size of decorative elements, number of lines, line weight, arrangement."}
+      ],
+      "example": "1. Create an empty layer above the image.\n2. Optionally draw a rectangular selection to bound the frame.\n3. Filter > Render > Picture Frame, choose 'Frame 12', Size 20, Margin 10, then OK.",
+      "notes": "8-bit RGB pixel layer required. Script-based filter (same family as Flame and Tree); record with the Actions panel if you need to reuse settings.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Tree",
+      "kind": "filter",
+      "description": "Generates a procedural tree from 34 base species with control over branches, leaves, light direction and camera tilt, rendered as pixels on the current layer. Used for quick architectural visualisation fills, backgrounds and illustration; each render is random unless you lock the shape.",
+      "usage": "Filter > Render > Tree...",
+      "parameters": [
+        {"name": "Base Tree Type", "description": "Oak, Maple, Pine, Palm, Willow, Sakura and others (34 presets)."},
+        {"name": "Light Direction / Leaves Amount / Leaves Size / Branches Height / Branches Thickness", "description": "Sliders shaping the canopy and trunk."},
+        {"name": "Default Leaves / Leaf Type / Randomize Shapes / Arrangement", "description": "Leaf shape presets, random seed and the arrangement value used to reproduce a tree."},
+        {"name": "Advanced tab", "description": "Camera Tilt, Use Custom Color for Leaves/Branches, Flat Shading, Enhance Contrast, Leaves Rotation Lock."}
+      ],
+      "example": "1. Create an empty layer; draw a selection to constrain the tree's bounding box if desired.\n2. Filter > Render > Tree, choose Base Tree Type 'Maple', Leaves Amount 80, Branches Height 60.\n3. Untick Randomize Shapes and note the Arrangement number to regenerate the same tree later.",
+      "notes": "8-bit RGB pixel layers only. Rendering large canopies is slow; render at final size rather than upscaling. The tree is rendered with transparency so it can be composited directly.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Oil Paint",
+      "kind": "filter",
+      "description": "Turns a photograph into brush-stroke painting with directional strokes that follow image detail, plus a relief lighting model. Stylization sets stroke smoothness, Cleanliness the amount of detail kept, Scale the stroke width and Bristle Detail the texture inside strokes; the Lighting section adds an angle and specular Shine to the raised paint. Requires a compatible GPU.",
+      "usage": "Filter > Stylize > Oil Paint...",
+      "parameters": [
+        {"name": "Stylization", "description": "0.1-10. Low = crisp, short daubs; high = long, flowing strokes."},
+        {"name": "Cleanliness", "description": "0-10. Low keeps fine detail and grit; high gives clean, simplified strokes."},
+        {"name": "Scale", "description": "0.1-10. Relative brush size."},
+        {"name": "Bristle Detail", "description": "0-10. Visibility of bristle grooves inside each stroke."},
+        {"name": "Lighting: Angle / Shine", "description": "Enable/disable the relief; light angle in degrees and specular strength 0-10."}
+      ],
+      "example": "// Action Manager (recorded with ScriptingListener)\nvar d = new ActionDescriptor();\nd.putDouble(stringIDToTypeID(\"stylization\"), 4.0);\nd.putDouble(stringIDToTypeID(\"cleanliness\"), 6.0);\nd.putDouble(stringIDToTypeID(\"brushScale\"), 2.0);\nd.putDouble(stringIDToTypeID(\"microBrush\"), 3.0);\nd.putBoolean(stringIDToTypeID(\"lightingOn\"), true);\nd.putDouble(stringIDToTypeID(\"specularity\"), 1.5);\nd.putDouble(stringIDToTypeID(\"lightDirection\"), 300);\nexecuteAction(stringIDToTypeID(\"oilPaint\"), d, DialogModes.NO);",
+      "notes": "Greyed out when Use Graphics Processor is off, on unsupported GPUs, on 32-bit images and in CMYK; works on 8/16-bit RGB. Apply as a Smart Filter so the strokes can be re-tuned.",
+      "docs": "https://helpx.adobe.com/photoshop/using/oil-paint-filter.html"
+    },
+    {
+      "name": "Emboss",
+      "kind": "filter",
+      "description": "Converts the layer to mid-grey and raises or stamps its edges with a directional light so the image reads as a bas-relief. Used for embossed logos, quick bump-like texture, and (with Overlay/Hard Light blending) to add tactile relief to a photo.",
+      "usage": "Filter > Stylize > Emboss...",
+      "parameters": [
+        {"name": "Angle", "description": "-360 to 360 degrees; the direction the light comes from."},
+        {"name": "Height", "description": "1-100 px; how far edges are displaced (the relief depth)."},
+        {"name": "Amount", "description": "1-500 %; contrast of the relief. Above 100 % colour fringes appear."}
+      ],
+      "example": "var d = new ActionDescriptor();\nd.putInteger(charIDToTypeID(\"Angl\"), 135);\nd.putInteger(charIDToTypeID(\"Hght\"), 3);\nd.putInteger(charIDToTypeID(\"Amnt\"), 100);\nexecuteAction(charIDToTypeID(\"Embs\"), d, DialogModes.NO);\napp.activeDocument.activeLayer.blendMode = BlendMode.HARDLIGHT;",
+      "notes": "Desaturate first to avoid coloured edges. Bevel & Emboss layer effect is the non-destructive alternative for shapes and text.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Find Edges",
+      "kind": "filter",
+      "description": "A one-click edge detector that draws dark outlines wherever colour changes sharply and whitens flat areas, producing a coloured pencil-sketch look. Invert the result for a neon-on-black effect, or use it (desaturated and levelled) as the seed for an edge mask that restricts sharpening.",
+      "usage": "Filter > Stylize > Find Edges",
+      "parameters": [],
+      "example": "1. Duplicate the layer and desaturate it (Ctrl+Shift+U).\n2. Filter > Stylize > Find Edges, then Image > Adjustments > Invert.\n3. Levels to push the edges to pure white, Gaussian Blur 1 px.\n4. Select > All, Copy, then Alt-click a layer mask and Paste to use it as an edge mask.",
+      "notes": "No dialog. Action Manager event 'FndE' / stringID 'findEdges'. Glowing Edges (Filter Gallery) is the adjustable cousin with width and brightness controls.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Diffuse",
+      "kind": "filter",
+      "description": "Randomly shuffles pixels within a small neighbourhood to soften focus and give a frosted, dithered edge. Normal mode scatters everything, Darken Only and Lighten Only scatter only the darker or lighter pixels, and Anisotropic smooths along the direction of least colour change, producing a painterly softening that keeps edges.",
+      "usage": "Filter > Stylize > Diffuse...",
+      "parameters": [
+        {"name": "Mode", "description": "Normal, Darken Only, Lighten Only, Anisotropic."}
+      ],
+      "example": "1. Duplicate the portrait layer.\n2. Filter > Stylize > Diffuse, Mode: Anisotropic, OK; repeat once or twice (Ctrl+Alt+F).\n3. Rotate the canvas 90 degrees between passes (Image > Image Rotation) to avoid directional streaks, then rotate back.",
+      "notes": "Anisotropic is the useful mode for skin and texture smoothing; the others are mainly for grain-like effects. Works in 8/16-bit.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Wind",
+      "kind": "filter",
+      "description": "Smears pixels into short horizontal streaks that read like wind or speed lines. Wind is subtle, Blast is strong and Stagger offsets the streaks. Because it only works horizontally, rotate the canvas first for vertical or diagonal streaks; on text and logos it is the classic 'shattered/speed' effect.",
+      "usage": "Filter > Stylize > Wind...",
+      "parameters": [
+        {"name": "Method", "description": "Wind, Blast, Stagger."},
+        {"name": "Direction", "description": "From the Left or From the Right."}
+      ],
+      "example": "1. Rasterize a text layer (Type > Rasterize Type Layer).\n2. Image > Image Rotation > 90 Clockwise.\n3. Filter > Stylize > Wind, Method Wind, From the Right; press Ctrl+Alt+F twice more.\n4. Image > Image Rotation > 90 Counter Clockwise.",
+      "notes": "Streak length is fixed per pass; repeat the filter for longer trails. Action Manager stringID 'wind' with 'windMethod' and 'direction' enums.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Extrude",
+      "kind": "filter",
+      "description": "Slices the image into square blocks or pyramids and pushes them toward the viewer, producing a 3D cityscape or spike field. Depth can be random or based on brightness (Level-based), fronts can be solid-coloured averages, and incomplete edge blocks can be masked out.",
+      "usage": "Filter > Stylize > Extrude...",
+      "parameters": [
+        {"name": "Type", "description": "Blocks or Pyramids."},
+        {"name": "Size", "description": "2-255 px length of each block's base."},
+        {"name": "Depth", "description": "1-255, with Random or Level-based (brighter = taller)."},
+        {"name": "Solid Front Faces", "description": "Fill each block front with its average colour instead of the image detail."},
+        {"name": "Mask Incomplete Blocks", "description": "Hide the partial blocks at the canvas edge."}
+      ],
+      "example": "Filter > Stylize > Extrude: Type Blocks, Size 30, Depth 40 Level-based, Solid Front Faces on - a quick voxel-city treatment of a gradient.",
+      "notes": "8-bit only; slow on large images. The result is not editable afterward, so work on a Smart Object.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Solarize",
+      "kind": "filter",
+      "description": "Blends a negative and a positive of the image, imitating the darkroom accident of briefly exposing a print to light during development (the Sabattier effect). Tones above mid-grey are inverted, giving a metallic, surreal look; usually followed by Levels or Curves to restore contrast.",
+      "usage": "Filter > Stylize > Solarize",
+      "parameters": [],
+      "example": "1. Filter > Stylize > Solarize.\n2. Image > Adjustments > Auto Tone (or Levels) to spread the compressed range.\n3. Optional: Image > Adjustments > Invert for the bright variant.",
+      "notes": "No dialog. The same look can be built non-destructively with a Curves adjustment shaped like an inverted V.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Trace Contour",
+      "kind": "filter",
+      "description": "Draws thin one-pixel lines wherever a channel crosses the chosen brightness Level, similar to a topographic contour map, and whitens everything else. Applying it at several levels (on separate layers set to Multiply) yields a full contour drawing.",
+      "usage": "Filter > Stylize > Trace Contour...",
+      "parameters": [
+        {"name": "Level", "description": "0-255 brightness threshold to trace."},
+        {"name": "Edge", "description": "Lower (trace where values fall below the level) or Upper (where they rise above it)."}
+      ],
+      "example": "1. Convert to Grayscale for cleaner results (or desaturate a duplicate).\n2. Filter > Stylize > Trace Contour, Level 96, Edge Lower.\n3. Duplicate the original, repeat with Level 160, set both layers to Multiply.",
+      "notes": "Lines are per channel, so RGB images produce coloured contours; grey-scale sources give black lines. Use Posterize before it to control the number of steps.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Tiles",
+      "kind": "filter",
+      "description": "Cuts the image into a grid of square tiles and randomly offsets each one, exposing the gap between tiles as background colour, foreground colour, the inverse image or the unaltered image. A quick mosaic/shuffled-print effect.",
+      "usage": "Filter > Stylize > Tiles...",
+      "parameters": [
+        {"name": "Number of Tiles", "description": "1-99 tiles across the shorter dimension."},
+        {"name": "Maximum Offset", "description": "1-99 % of tile size that each tile may shift."},
+        {"name": "Fill Empty Area With", "description": "Background Color, Foreground Color, Inverse Image, Unaltered Image."}
+      ],
+      "example": "Filter > Stylize > Tiles: Number of Tiles 12, Maximum Offset 10 %, Fill Empty Area With: Inverse Image.",
+      "notes": "8-bit only. For an evenly gridded mosaic use Filter > Pixelate > Mosaic instead.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Mosaic",
+      "kind": "filter",
+      "description": "Averages the image into square cells of a fixed pixel size, producing the familiar pixelation used to censor faces or number plates and for retro pixel-art looks. Combine with a rectangular selection to pixelate only part of a frame; use Image > Image Size with Nearest Neighbor for true pixel-art scaling instead.",
+      "usage": "Filter > Pixelate > Mosaic...",
+      "parameters": [
+        {"name": "Cell Size", "description": "2-200 pixels square."}
+      ],
+      "example": "var d = new ActionDescriptor();\nd.putInteger(charIDToTypeID(\"ClSz\"), 16);   // cell size\nexecuteAction(charIDToTypeID(\"Msc \"), d, DialogModes.NO);",
+      "notes": "Cells are aligned to the top-left of the selection, so a moved selection moves the grid. Works in 8/16-bit. Blur Gallery and Smart Object masks let you pixelate non-destructively.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Crystallize",
+      "kind": "filter",
+      "description": "Clumps pixels into flat-coloured polygonal cells (a Voronoi diagram) of a chosen size, resembling frosted glass or stained-crystal. Small cells give a subtle grainy texture, large cells a bold low-poly abstraction.",
+      "usage": "Filter > Pixelate > Crystallize...",
+      "parameters": [
+        {"name": "Cell Size", "description": "3-300 px."}
+      ],
+      "example": "1. Duplicate the layer and apply Filter > Pixelate > Crystallize, Cell Size 40.\n2. Add a layer mask and paint black over the subject so only the background crystallises.",
+      "notes": "Cell positions are random per application. 8/16-bit.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Pointillize",
+      "kind": "filter",
+      "description": "Breaks the image into randomly placed coloured dots, in the manner of Seurat, using the current background colour for the canvas between dots. Set the background to white for a paper look or to the image's dominant colour for a denser result.",
+      "usage": "Filter > Pixelate > Pointillize...",
+      "parameters": [
+        {"name": "Cell Size", "description": "3-300 px dot diameter."},
+        {"name": "Background colour", "description": "Fills the gaps between dots (set before running the filter)."}
+      ],
+      "example": "1. Press D to reset the colour swatches so the background is white.\n2. Filter > Pixelate > Pointillize, Cell Size 8.",
+      "notes": "Slow at small cell sizes on large images. 8-bit only.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Color Halftone",
+      "kind": "filter",
+      "description": "Simulates a printed halftone screen by converting each channel into a grid of dots whose size follows the channel's brightness, at a screen angle you set per channel. Great for comic-book and pop-art effects; in Grayscale mode it produces a single-channel dot screen.",
+      "usage": "Filter > Pixelate > Color Halftone...",
+      "parameters": [
+        {"name": "Max. Radius", "description": "4-127 px maximum dot radius."},
+        {"name": "Screen Angles (Channels 1-4)", "description": "Degrees for each channel; the defaults (108, 162, 90, 45) mimic CMYK press angles. Only channel 1 is used for Grayscale."}
+      ],
+      "example": "1. Image > Mode > Grayscale (or work in RGB for coloured rosettes).\n2. Filter > Pixelate > Color Halftone, Max. Radius 8, angles left at defaults.\n3. Set the layer to Multiply over a flat-colour fill layer.",
+      "notes": "Works in 8-bit RGB, CMYK and Grayscale. For real prepress halftones use the Bitmap mode conversion (Image > Mode > Bitmap > Halftone Screen) instead.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Fragment",
+      "kind": "filter",
+      "description": "Makes four slightly offset copies of the selection, averages them and produces a double-vision, earthquake-shake blur. It has no options; run it several times for a stronger effect.",
+      "usage": "Filter > Pixelate > Fragment",
+      "parameters": [],
+      "example": "Filter > Pixelate > Fragment, then Ctrl+Alt+F to repeat - a quick 'shaky camera' treatment for a video frame.",
+      "notes": "No dialog. For a controllable version use Filter > Blur > Motion Blur or duplicate/offset layers manually.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Mezzotint",
+      "kind": "filter",
+      "description": "Converts the image into a random pattern of pure black-and-white (or fully saturated colour) dots, lines or strokes, emulating the engraved mezzotint printing plate. Useful for gritty grain and vintage-print looks; ten pattern types are offered.",
+      "usage": "Filter > Pixelate > Mezzotint...",
+      "parameters": [
+        {"name": "Type", "description": "Fine Dots, Medium Dots, Grainy Dots, Coarse Dots, Short Lines, Medium Lines, Long Lines, Short Strokes, Medium Strokes, Long Strokes."}
+      ],
+      "example": "1. Duplicate the layer, Filter > Pixelate > Mezzotint, Type: Medium Dots.\n2. Set the layer to Soft Light at 40 % for film-grain texture.",
+      "notes": "On colour images the result is high-contrast coloured noise; desaturate first for monochrome grain. 8-bit only.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Facet",
+      "kind": "filter",
+      "description": "Merges blocks of similarly coloured pixels into flat polygons with no options, producing a hand-painted, poster-like simplification. Repeated application (Ctrl+Alt+F) exaggerates the effect; it is a quick way to remove fine noise while keeping edges.",
+      "usage": "Filter > Pixelate > Facet",
+      "parameters": [],
+      "example": "Filter > Pixelate > Facet three times, then Filter > Stylize > Find Edges on a duplicate set to Multiply for a cel-shaded look.",
+      "notes": "No dialog; effect scale is fixed relative to pixels, so it is more visible on low-resolution images.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Despeckle",
+      "kind": "filter",
+      "description": "A no-dialog noise reducer that detects edges and blurs everything except them, removing fine grain and moire while preserving detail. Handy on scans of printed material and as a gentle first pass before Reduce Noise.",
+      "usage": "Filter > Noise > Despeckle   |   ArtLayer.applyDespeckle()",
+      "parameters": [],
+      "example": "var lyr = app.activeDocument.activeLayer;\nlyr.applyDespeckle();\nlyr.applyDespeckle();   // repeat for stronger effect",
+      "notes": "Effect strength is fixed; run it repeatedly or use Filter > Noise > Median / Reduce Noise for control. UXP: `layer.applyDespeckle()`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Wave",
+      "kind": "filter",
+      "description": "The most configurable Distort filter: overlays up to 999 sine, triangle or square wave generators with random wavelengths and amplitudes inside the ranges you set, displacing pixels horizontally and vertically. Used for water reflections, flag ripples, glitch effects and heavily randomised abstract distortions.",
+      "usage": "Filter > Distort > Wave...   |   ArtLayer.applyWave(generatorNumber, minimumWavelength, maximumWavelength, minimumAmplitude, maximumAmplitude, horizontalScale, verticalScale, waveType, undefinedAreas, randomSeed)",
+      "parameters": [
+        {"name": "Number of Generators", "description": "1-999 superimposed waves."},
+        {"name": "Wavelength Min / Max", "description": "1-999 px distance between crests."},
+        {"name": "Amplitude Min / Max", "description": "1-999 px height of the displacement."},
+        {"name": "Scale Horiz / Vert", "description": "1-100 % strength on each axis; set Vert to 1 % for horizontal-only ripples."},
+        {"name": "Type", "description": "Sine, Triangle or Square."},
+        {"name": "Undefined Areas", "description": "Wrap Around or Repeat Edge Pixels."},
+        {"name": "Randomize", "description": "New random seed for the generator phases."}
+      ],
+      "example": "app.activeDocument.activeLayer.applyWave(\n  5,        // generators\n  10, 120,  // wavelength min/max\n  5, 35,    // amplitude min/max\n  100, 15,  // horizontal/vertical scale %\n  WaveType.SINE, UndefinedAreas.REPEATEDGEPIXELS,\n  42);      // random seed",
+      "notes": "Results are seeded, so the same numbers reproduce the same distortion in scripts. UXP: `layer.applyWave(...)` (v24.0+).",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "ZigZag",
+      "kind": "filter",
+      "description": "Distorts the selection radially into concentric ripples, like a stone dropped in water (Pond Ripples), rotational twists (Around Center) or straight radial pushes (Out From Center). Feather a circular selection first for a natural water-drop effect.",
+      "usage": "Filter > Distort > ZigZag...   |   ArtLayer.applyZigZag(amount, ridges, style)",
+      "parameters": [
+        {"name": "Amount", "description": "-100 to 100; sign reverses the ripple direction."},
+        {"name": "Ridges", "description": "0-20 number of ripple rings."},
+        {"name": "Style", "description": "Around Center, Out From Center, Pond Ripples."}
+      ],
+      "example": "var doc = app.activeDocument;\ndoc.selection.select([[300,300],[700,300],[700,700],[300,700]], SelectionType.REPLACE, 40, true);\ndoc.activeLayer.applyZigZag(30, 8, ZigZagType.PONDRIPPLES);\ndoc.selection.deselect();",
+      "notes": "Works on 8/16-bit. UXP: `layer.applyZigZag(amount, ridges, style)` (v24.0+).",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Ripple",
+      "kind": "filter",
+      "description": "Adds an undulating, wavy displacement across the whole selection in three preset sizes, a simpler cousin of Wave for water-surface and warped-glass looks. Amount controls the strength and sign, Size the wavelength.",
+      "usage": "Filter > Distort > Ripple...   |   ArtLayer.applyRipple(amount, size)",
+      "parameters": [
+        {"name": "Amount", "description": "-999 to 999 %."},
+        {"name": "Size", "description": "Small, Medium or Large."}
+      ],
+      "example": "app.activeDocument.activeLayer.applyRipple(150, RippleSize.MEDIUM);",
+      "notes": "Ocean Ripple (Filter Gallery) adds random surface texture; Wave gives full control over wavelength and amplitude. UXP: `layer.applyRipple(amount, size)`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Shape Blur",
+      "kind": "filter",
+      "description": "Blurs the image using a custom shape as the convolution kernel, so highlights take on that shape - hearts, stars or a hexagonal aperture rather than the round disc of Lens Blur. Choose any preset from the Shapes library; larger radii make the shaped bokeh more obvious.",
+      "usage": "Filter > Blur > Shape Blur...",
+      "parameters": [
+        {"name": "Radius", "description": "5-1000 px size of the kernel shape."},
+        {"name": "Shape", "description": "Picker showing the current Custom Shape presets (expand groups from the flyout)."}
+      ],
+      "example": "1. Isolate specular highlights on a duplicate layer (Select > Color Range > Highlights).\n2. Filter > Blur > Shape Blur, Shape: 5 Point Star, Radius 25.\n3. Set the layer to Screen.",
+      "notes": "Slow at large radii; 8/16-bit. Not in the DOM (record with ScriptingListener).",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Blur and Blur More",
+      "kind": "filter",
+      "description": "Two one-click, fixed-strength softening filters (Blur is very mild, Blur More about three to four times stronger) that smooth noise by averaging pixels along edges. They are mostly used inside actions and scripts where a predictable, dialog-free blur is wanted; for control use Gaussian Blur.",
+      "usage": "Filter > Blur > Blur / Blur More   |   ArtLayer.applyBlur() / ArtLayer.applyBlurMore()",
+      "parameters": [],
+      "example": "var lyr = app.activeDocument.activeLayer;\nlyr.applyBlurMore();",
+      "notes": "UXP: `layer.applyBlur()` and `layer.applyBlurMore()` (v23.5+). Also available in the History Brush workflow because they run without a dialog.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "De-Interlace",
+      "kind": "filter",
+      "description": "Removes the comb artefacts of interlaced video frames by discarding the odd or even scan lines and rebuilding them by duplication or interpolation. Use it on frame grabs imported from interlaced footage before retouching or printing.",
+      "usage": "Filter > Video > De-Interlace...   |   ArtLayer.applyDeInterlace(eliminateFields, createFields)",
+      "parameters": [
+        {"name": "Eliminate", "description": "Odd Fields or Even Fields."},
+        {"name": "Create New Fields by", "description": "Duplication (copies the neighbouring line) or Interpolation (averages, smoother)."}
+      ],
+      "example": "app.activeDocument.activeLayer.applyDeInterlace(EliminateFields.ODDFIELDS, CreateFields.INTERPOLATION);",
+      "notes": "Only meaningful on genuinely interlaced sources; modern progressive video needs no de-interlacing. UXP: `layer.applyDeInterlace(eliminateFields, createFields)`.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "NTSC Colors",
+      "kind": "filter",
+      "description": "Clamps colours to the gamut that analogue NTSC television can reproduce, preventing over-saturated colours from bleeding across scan lines when a still is broadcast. Largely historical, but still used when preparing stills for legacy broadcast pipelines.",
+      "usage": "Filter > Video > NTSC Colors   |   ArtLayer.applyNTSC()",
+      "parameters": [],
+      "example": "app.activeDocument.activeLayer.applyNTSC();",
+      "notes": "No dialog; RGB only. For modern broadcast-safe limiting use a Rec.709 workflow and the Gamut Warning instead.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-effects-reference.html"
+    },
+    {
+      "name": "Last Filter (Repeat Filter)",
+      "kind": "menu",
+      "description": "The first item in the Filter menu re-applies the most recently used filter with the same settings and no dialog; adding Alt reopens its dialog. Essential for stacking effects like Difference Clouds, Wind or Facet that need several passes.",
+      "usage": "Filter > <Last Filter>   (Ctrl+Alt+F on Windows, Ctrl+Cmd+F on macOS)",
+      "parameters": [],
+      "example": "Filter > Stylize > Wind..., OK, then press Ctrl+Alt+F twice to lengthen the streaks.",
+      "notes": "Since Photoshop 2019 (20.0) the shortcut changed from Ctrl+F (now reserved for Search) to Ctrl+Alt+F. Filters that are greyed out for the current mode or bit depth cannot be repeated.",
+      "docs": "https://helpx.adobe.com/photoshop/using/filter-basics.html"
+    }
+  ]
+}

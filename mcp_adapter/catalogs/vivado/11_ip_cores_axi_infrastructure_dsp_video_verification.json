@@ -1,0 +1,530 @@
+{
+  "category": "IP Cores: AXI Infrastructure, Processors, Connectivity, DSP, Video & Verification",
+  "description": "Frequently used IP catalog cores not covered by the basic set: AXI memory-mapped and AXI4-Stream infrastructure (converters, register slices, switches, FIFOs), MicroBlaze V and its local memory/debug companions, interrupt/memory controllers, transceiver and Ethernet/PCIe connectivity, system monitoring, DSP building blocks, video pipeline cores, Versal NoC/AI Engine, and the verification/monitoring IP (AXI VIP, traffic generator, protocol checker, performance monitor, SEM). Each entry gives the catalog name for create_bd_cell -vlnv xilinx.com:ip:<name> and the key CONFIG.* parameters.",
+  "tools": [
+    {
+      "name": "AXI Central DMA (axi_cdma)",
+      "kind": "block",
+      "description": "Memory-to-memory DMA engine with an AXI4 master for data and an AXI4-Lite control interface, supporting simple (register-driven) and scatter-gather modes, optional data realignment and up to 1024-bit data width. Used to move buffers between DDR and BRAM/PL memories without processor involvement; the streaming counterpart is axi_dma.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_cdma axi_cdma_0\nset_property -dict [list CONFIG.C_INCLUDE_SG {0} CONFIG.C_M_AXI_DATA_WIDTH {64} CONFIG.C_M_AXI_MAX_BURST_LEN {256} CONFIG.C_INCLUDE_DRE {1}] [get_bd_cells axi_cdma_0]",
+      "parameters": [
+        {"name": "CONFIG.C_INCLUDE_SG", "description": "1 enables scatter-gather descriptors (adds M_AXI_SG)."},
+        {"name": "CONFIG.C_M_AXI_DATA_WIDTH", "description": "Data width 32-1024."},
+        {"name": "CONFIG.C_M_AXI_MAX_BURST_LEN", "description": "Burst length 2-256."},
+        {"name": "CONFIG.C_INCLUDE_DRE", "description": "Data realignment engine for unaligned transfers."},
+        {"name": "CONFIG.C_ADDR_WIDTH", "description": "Address width 32-64."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_cdma axi_cdma_0\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Master \"/zynq_ultra_ps_e_0/M_AXI_HPM0_FPD\" Clk \"Auto\"} [get_bd_intf_pins axi_cdma_0/S_AXI_LITE]\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Slave \"/zynq_ultra_ps_e_0/S_AXI_HP0_FPD\" Clk \"Auto\"} [get_bd_intf_pins axi_cdma_0/M_AXI]\nconnect_bd_net [get_bd_pins axi_cdma_0/cdma_introut] [get_bd_pins xlconcat_0/In0]",
+      "notes": "Driver: axicdma (XAxiCdma). Simple mode registers: CDMACR, CDMASR, SA, DA, BTT. Check the Address Editor so M_AXI can reach both source and destination.",
+      "docs": "https://docs.amd.com/r/en-US/pg034-axi-cdma"
+    },
+    {
+      "name": "AXI Multichannel DMA (axi_mcdma)",
+      "kind": "block",
+      "description": "Scatter-gather DMA with up to 16 independent MM2S and S2MM channels sharing one AXI4 master and one AXI4-Stream interface per direction (channels selected with TDEST), designed for multi-queue Ethernet and multi-stream applications. Replaces multiple axi_dma instances when many streams need DMA service with QoS/arbitration between channels.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_mcdma axi_mcdma_0\nset_property -dict [list CONFIG.c_num_mm2s_channels {4} CONFIG.c_num_s2mm_channels {4} CONFIG.c_m_axi_mm2s_data_width {64} CONFIG.c_include_mm2s_dre {1}] [get_bd_cells axi_mcdma_0]",
+      "parameters": [
+        {"name": "CONFIG.c_num_mm2s_channels / c_num_s2mm_channels", "description": "1-16 channels per direction."},
+        {"name": "CONFIG.c_m_axi_*_data_width", "description": "32-1024-bit memory-side widths."},
+        {"name": "CONFIG.c_include_mm2s / c_include_s2mm", "description": "Enable each direction."},
+        {"name": "CONFIG.c_enable_single_intr", "description": "One combined interrupt instead of one per channel."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_mcdma axi_mcdma_0\nset_property CONFIG.c_num_s2mm_channels 8 [get_bd_cells axi_mcdma_0]\nconnect_bd_intf_net [get_bd_intf_pins axi_mcdma_0/M_AXIS_MM2S] [get_bd_intf_pins axis_switch_0/S00_AXIS]",
+      "notes": "Driver: mcdma (XMcdma). Channel selection on S2MM uses TDEST/TID; the AXI4-Stream Switch or IP with TDEST support is the usual partner.",
+      "docs": "https://docs.amd.com/r/en-US/pg288-axi-mcdma"
+    },
+    {
+      "name": "AXI4-Stream FIFO (axi_fifo_mm_s)",
+      "kind": "block",
+      "description": "Memory-mapped to stream bridge: a processor reads and writes AXI4-Stream packets through AXI4-Lite (or AXI4 full for data) registers and an internal FIFO, with interrupt on packet receive/transmit completion. It is the low-bandwidth alternative to axi_dma for control-plane style stream access (e.g. talking to an Ethernet MAC or a custom accelerator) without DMA descriptors.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_fifo_mm_s axi_fifo_mm_s_0\nset_property -dict [list CONFIG.C_USE_TX_DATA {1} CONFIG.C_USE_RX_DATA {1} CONFIG.C_TX_FIFO_DEPTH {1024} CONFIG.C_RX_FIFO_DEPTH {1024} CONFIG.C_DATA_INTERFACE_TYPE {1}] [get_bd_cells axi_fifo_mm_s_0]",
+      "parameters": [
+        {"name": "CONFIG.C_TX_FIFO_DEPTH / C_RX_FIFO_DEPTH", "description": "FIFO depths in words (512-32768)."},
+        {"name": "CONFIG.C_DATA_INTERFACE_TYPE", "description": "0 = AXI4-Lite only, 1 = separate AXI4 full data port for faster access."},
+        {"name": "CONFIG.C_USE_TX_CTRL / C_USE_TX_CUT_THROUGH", "description": "Control stream and cut-through options."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_fifo_mm_s axi_fifo_mm_s_0\nconnect_bd_intf_net [get_bd_intf_pins axi_fifo_mm_s_0/AXI_STR_TXD] [get_bd_intf_pins my_accel_0/s_axis]\nconnect_bd_intf_net [get_bd_intf_pins my_accel_0/m_axis] [get_bd_intf_pins axi_fifo_mm_s_0/AXI_STR_RXD]",
+      "notes": "Driver: llfifo (XLlFifo). Not to be confused with axis_data_fifo (pure stream FIFO) or fifo_generator.",
+      "docs": "https://docs.amd.com/r/en-US/pg080-axi-fifo-mm-s"
+    },
+    {
+      "name": "AXI4-Stream Data Width Converter (axis_dwidth_converter)",
+      "kind": "block",
+      "description": "Upsizes or downsizes the TDATA width of an AXI4-Stream (e.g. 32-bit to 128-bit), packing or splitting beats and handling TKEEP/TLAST/TUSER, so cores of different widths can be chained. Part of the AXI4-Stream Infrastructure IP Suite together with the register slice, clock converter, broadcaster, switch, combiner and subset converter.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_dwidth_converter axis_dwidth_converter_0\nset_property -dict [list CONFIG.S_TDATA_NUM_BYTES {4} CONFIG.M_TDATA_NUM_BYTES {16} CONFIG.HAS_TLAST {1} CONFIG.HAS_TKEEP {1}] [get_bd_cells axis_dwidth_converter_0]",
+      "parameters": [
+        {"name": "CONFIG.S_TDATA_NUM_BYTES / M_TDATA_NUM_BYTES", "description": "Input and output width in bytes (ratios must be integer)."},
+        {"name": "CONFIG.HAS_TKEEP / HAS_TLAST / TUSER_BITS_PER_BYTE", "description": "Sideband handling; TKEEP is required for downsizing partial beats."},
+        {"name": "CONFIG.HAS_MI_TKEEP", "description": "Emit TKEEP on the master side."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_dwidth_converter axis_dwidth_converter_0\nset_property -dict [list CONFIG.S_TDATA_NUM_BYTES 8 CONFIG.M_TDATA_NUM_BYTES 4] [get_bd_cells axis_dwidth_converter_0]",
+      "notes": "Many widths are auto-propagated from the connected interfaces during validate_bd_design; only set what differs. Latency is one clock; throughput follows the narrower side.",
+      "docs": "https://docs.amd.com/r/en-US/pg085-axi4stream-infrastructure"
+    },
+    {
+      "name": "AXI4-Stream Register Slice (axis_register_slice)",
+      "kind": "block",
+      "description": "Inserts a pipeline stage on an AXI4-Stream connection (full, light, forward/backward-only or multi-SLR crossing modes) to break long timing paths, particularly across SLR boundaries or between distant IP. Zero functional change; a required tool for timing closure of stream pipelines on large devices.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_register_slice axis_register_slice_0\nset_property -dict [list CONFIG.REG_CONFIG {8} CONFIG.NUM_SLR_CROSSINGS {1} CONFIG.PIPELINES_MASTER {2} CONFIG.PIPELINES_SLAVE {2}] [get_bd_cells axis_register_slice_0]",
+      "parameters": [
+        {"name": "CONFIG.REG_CONFIG", "description": "0 bypass, 1 fully registered (default), 7 light-weight, 8 multi-SLR crossing, 12 forward-only, 13 backward-only..."},
+        {"name": "CONFIG.NUM_SLR_CROSSINGS / PIPELINES_MASTER / PIPELINES_SLAVE", "description": "For mode 8: number of SLR crossings and pipeline depth on each side."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_register_slice axis_register_slice_0\nset_property CONFIG.REG_CONFIG 8 [get_bd_cells axis_register_slice_0]\nset_property CONFIG.NUM_SLR_CROSSINGS 1 [get_bd_cells axis_register_slice_0]",
+      "notes": "The memory-mapped equivalent is axi_register_slice with per-channel REG_AW/REG_W/REG_B/REG_AR/REG_R settings. SmartConnect inserts its own pipelining, so external register slices are for point-to-point links.",
+      "docs": "https://docs.amd.com/r/en-US/pg085-axi4stream-infrastructure"
+    },
+    {
+      "name": "AXI4-Stream Clock Converter (axis_clock_converter)",
+      "kind": "block",
+      "description": "Moves an AXI4-Stream between two clock domains (asynchronous with a small dual-clock FIFO, or synchronous integer-ratio with clock enables), preserving all sideband signals. Used whenever a stream producer and consumer run on different clocks; for larger buffering use axis_data_fifo with independent clocks instead.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_clock_converter axis_clock_converter_0\nset_property -dict [list CONFIG.IS_ACLK_ASYNC {1} CONFIG.SYNCHRONIZATION_STAGES {3}] [get_bd_cells axis_clock_converter_0]",
+      "parameters": [
+        {"name": "CONFIG.IS_ACLK_ASYNC", "description": "1 for unrelated clocks (async FIFO), 0 for related clocks with ACLK_RATIO."},
+        {"name": "CONFIG.ACLK_RATIO", "description": "Integer ratio for the synchronous mode (e.g. 1:2)."},
+        {"name": "CONFIG.SYNCHRONIZATION_STAGES", "description": "CDC synchronizer depth (2-8)."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_clock_converter axis_clock_converter_0\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out1] [get_bd_pins axis_clock_converter_0/s_axis_aclk]\nconnect_bd_net [get_bd_pins clk_wiz_0/clk_out2] [get_bd_pins axis_clock_converter_0/m_axis_aclk]",
+      "notes": "Both resets must be asserted together for at least a few cycles of the slower clock. Memory-mapped equivalent: axi_clock_converter.",
+      "docs": "https://docs.amd.com/r/en-US/pg085-axi4stream-infrastructure"
+    },
+    {
+      "name": "AXI4-Stream Broadcaster / Combiner (axis_broadcaster, axis_combiner)",
+      "kind": "block",
+      "description": "Fan-out and fan-in for streams: the Broadcaster replicates one input stream to up to 16 output streams (optionally selecting different TDATA bit ranges per output) with handshake synchronization, and the Combiner concatenates up to 16 input streams side by side into one wider stream, waiting until all inputs are valid. Used to feed several processing branches from one source and to merge parallel lanes.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_broadcaster axis_broadcaster_0\nset_property -dict [list CONFIG.NUM_MI {3} CONFIG.M_TDATA_NUM_BYTES {4} CONFIG.M00_TDATA_REMAP {tdata[31:0]} CONFIG.M01_TDATA_REMAP {tdata[31:0]}] [get_bd_cells axis_broadcaster_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axis_combiner axis_combiner_0\nset_property CONFIG.NUM_SI 2 [get_bd_cells axis_combiner_0]",
+      "parameters": [
+        {"name": "CONFIG.NUM_MI (broadcaster) / NUM_SI (combiner)", "description": "Number of outputs / inputs (2-16)."},
+        {"name": "CONFIG.Mxx_TDATA_REMAP / Mxx_TUSER_REMAP", "description": "Per-output bit-selection expressions (broadcaster)."},
+        {"name": "CONFIG.TDATA_NUM_BYTES", "description": "Combiner input width; output is NUM_SI times wider."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_broadcaster axis_broadcaster_0\nset_property CONFIG.NUM_MI 2 [get_bd_cells axis_broadcaster_0]\nconnect_bd_intf_net [get_bd_intf_pins axis_broadcaster_0/M00_AXIS] [get_bd_intf_pins fir_compiler_0/S_AXIS_DATA]\nconnect_bd_intf_net [get_bd_intf_pins axis_broadcaster_0/M01_AXIS] [get_bd_intf_pins axis_data_fifo_0/S_AXIS]",
+      "notes": "A broadcaster stalls all outputs until every consumer is ready; put FIFOs behind slow consumers. Combiner requires all inputs to present TLAST consistently.",
+      "docs": "https://docs.amd.com/r/en-US/pg085-axi4stream-infrastructure"
+    },
+    {
+      "name": "AXI4-Stream Switch (axis_switch)",
+      "kind": "block",
+      "description": "Crossbar routing N AXI4-Stream slaves to M masters, either by TDEST decoding (with per-master base/high TDEST ranges) or under AXI4-Lite control-register selection, with round-robin/fixed arbitration on TLAST or after a fixed number of transfers. It builds packet routers, multiplexers (N:1) and demultiplexers (1:M) in video and networking pipelines.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_switch axis_switch_0\nset_property -dict [list CONFIG.NUM_SI {4} CONFIG.NUM_MI {1} CONFIG.ARB_ON_TLAST {1} CONFIG.ARB_ALGORITHM {1}] [get_bd_cells axis_switch_0]",
+      "parameters": [
+        {"name": "CONFIG.NUM_SI / NUM_MI", "description": "Slave and master counts (1-16 each)."},
+        {"name": "CONFIG.ROUTING_MODE", "description": "0 = TDEST-based routing, 1 = control-register routing (adds S_AXI_CTRL)."},
+        {"name": "CONFIG.ARB_ON_TLAST / ARB_ON_MAX_XFERS / ARB_ON_NUM_CYCLES", "description": "When arbitration can switch between inputs."},
+        {"name": "CONFIG.Mxx_AXIS_BASETDEST / Mxx_AXIS_HIGHTDEST", "description": "TDEST ranges per output in mode 0."},
+        {"name": "CONFIG.DECODER_REG", "description": "Register the decoder for timing."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_switch axis_switch_0\nset_property -dict [list CONFIG.NUM_SI 1 CONFIG.NUM_MI 3 CONFIG.ROUTING_MODE 1] [get_bd_cells axis_switch_0]\n# software selects the output through the control registers (driver: axis_switch / XAxis_Switch)",
+      "notes": "Unsupported TDEST values are dropped unless the default output is enabled. For simple 1:1 rate matching use a FIFO instead.",
+      "docs": "https://docs.amd.com/r/en-US/pg085-axi4stream-infrastructure"
+    },
+    {
+      "name": "AXI4-Stream Subset Converter (axis_subset_converter)",
+      "kind": "block",
+      "description": "Remaps or rearranges AXI4-Stream signals between two interfaces with different signal sets: rewire TDATA bits, add or strip TLAST/TKEEP/TUSER/TID/TDEST, generate TLAST every N beats, or insert constant values, using Tcl-like remap strings per signal. It is the glue for connecting IP whose stream conventions differ (e.g. video TUSER SOF to a DMA that ignores TUSER).",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_subset_converter axis_subset_converter_0\nset_property -dict [list CONFIG.S_TDATA_NUM_BYTES {4} CONFIG.M_TDATA_NUM_BYTES {4} CONFIG.S_HAS_TLAST {0} CONFIG.M_HAS_TLAST {1} CONFIG.TDATA_REMAP {tdata[31:0]} CONFIG.TLAST_REMAP {1'b0} CONFIG.DEFAULT_TLAST {1}] [get_bd_cells axis_subset_converter_0]",
+      "parameters": [
+        {"name": "CONFIG.TDATA_REMAP / TUSER_REMAP / TID_REMAP / TDEST_REMAP / TKEEP_REMAP / TLAST_REMAP", "description": "Verilog-style expressions of the slave signals, e.g. {tdata[15:0],tdata[31:16]} or 8'b0."},
+        {"name": "CONFIG.S_HAS_* / M_HAS_*", "description": "Which sideband signals exist on each side."},
+        {"name": "CONFIG.DEFAULT_TLAST", "description": "0 never, 1 every beat, or N (2+) to generate TLAST every N transfers."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axis_subset_converter axis_subset_converter_0\nset_property CONFIG.TDATA_REMAP {tdata[7:0],tdata[15:8],tdata[23:16],tdata[31:24]} [get_bd_cells axis_subset_converter_0]  ;# byte swap",
+      "notes": "Widths of the remap expressions must match the master-side widths exactly; validate_bd_design reports mismatches.",
+      "docs": "https://docs.amd.com/r/en-US/pg085-axi4stream-infrastructure"
+    },
+    {
+      "name": "AXI Register Slice / Clock Converter / Data Width Converter / Protocol Converter (axi_register_slice, axi_clock_converter, axi_dwidth_converter, axi_protocol_converter)",
+      "kind": "block",
+      "description": "The memory-mapped AXI infrastructure cores (AXI Interconnect is built from them and SmartConnect embeds equivalents): axi_register_slice pipelines each of the five channels independently (REG_AW/REG_W/REG_B/REG_AR/REG_R with full, light, SLR-crossing or bypass modes); axi_clock_converter crosses clock domains (async FIFO or synchronous ratio); axi_dwidth_converter changes data width (32-1024) with burst splitting/packing; axi_protocol_converter translates between AXI4, AXI3 and AXI4-Lite. They are inserted explicitly on point-to-point AXI links that do not pass through an interconnect.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_register_slice axi_register_slice_0\nset_property -dict [list CONFIG.REG_AW {7} CONFIG.REG_AR {7} CONFIG.REG_W {1} CONFIG.REG_R {1} CONFIG.REG_B {7}] [get_bd_cells axi_register_slice_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_clock_converter axi_clock_converter_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_dwidth_converter axi_dwidth_converter_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_protocol_converter axi_protocol_converter_0\nset_property -dict [list CONFIG.SI_PROTOCOL {AXI4} CONFIG.MI_PROTOCOL {AXI4LITE}] [get_bd_cells axi_protocol_converter_0]",
+      "parameters": [
+        {"name": "REG_AW/REG_W/REG_B/REG_AR/REG_R", "description": "0 bypass, 1 full, 7 light, 8 SLR crossing, 9 ... per channel."},
+        {"name": "CONFIG.ACLK_ASYNC / ACLK_RATIO", "description": "Clock converter mode."},
+        {"name": "CONFIG.SI_DATA_WIDTH / MI_DATA_WIDTH", "description": "Width converter sides."},
+        {"name": "CONFIG.SI_PROTOCOL / MI_PROTOCOL / TRANSLATION_MODE", "description": "Protocol converter: AXI4, AXI3, AXI4LITE; translation 0 conversion, 1 protection, 2 (default) both."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_clock_converter axi_cc_0\nconnect_bd_intf_net [get_bd_intf_pins hls_kernel_0/m_axi_gmem] [get_bd_intf_pins axi_cc_0/S_AXI]\nconnect_bd_intf_net [get_bd_intf_pins axi_cc_0/M_AXI] [get_bd_intf_pins zynq_ultra_ps_e_0/S_AXI_HP0_FPD]",
+      "notes": "SmartConnect generally supersedes manual insertion: it adapts width, clock and protocol automatically. Explicit cores remain useful for deterministic latency and for links outside a block design (they can also be created with create_ip in RTL projects).",
+      "docs": "https://docs.amd.com/r/en-US/pg059-axi-interconnect"
+    },
+    {
+      "name": "AXI Interrupt Controller (axi_intc)",
+      "kind": "block",
+      "description": "Interrupt controller for MicroBlaze/MicroBlaze V systems (and as a secondary controller for Arm PS designs): concatenates up to 32 interrupt inputs (edge or level, per-input sensitivity), provides enable/acknowledge/pending registers over AXI4-Lite, optional fast-interrupt vector mode, and cascading of several controllers. In IP Integrator the intr input is a vector normally fed by an xlconcat.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_intc axi_intc_0\nset_property -dict [list CONFIG.C_HAS_FAST {1} CONFIG.C_KIND_OF_INTR {0xFFFFFFFF} CONFIG.C_IRQ_CONNECTION {1}] [get_bd_cells axi_intc_0]",
+      "parameters": [
+        {"name": "CONFIG.C_NUM_INTR_INPUTS", "description": "Width of the intr vector (1-32), usually auto-set from the xlconcat."},
+        {"name": "CONFIG.C_KIND_OF_INTR / C_KIND_OF_EDGE / C_KIND_OF_LVL", "description": "Bit masks selecting edge vs level and polarity per input."},
+        {"name": "CONFIG.C_HAS_FAST", "description": "Enable fast interrupt mode (vector addresses supplied to MicroBlaze)."},
+        {"name": "CONFIG.C_IRQ_CONNECTION", "description": "Connect the irq output as an interface (to MicroBlaze INTERRUPT) or a single pin."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:xlconcat xlconcat_0\nset_property CONFIG.NUM_PORTS 3 [get_bd_cells xlconcat_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_intc axi_intc_0\nconnect_bd_net [get_bd_pins xlconcat_0/dout] [get_bd_pins axi_intc_0/intr]\nconnect_bd_intf_net [get_bd_intf_pins axi_intc_0/interrupt] [get_bd_intf_pins microblaze_0/INTERRUPT]",
+      "notes": "Driver: intc (XIntc). Software order of the xlconcat inputs equals the interrupt IDs. Zynq PS designs usually use the GIC directly through pl_ps_irq0/irq1 with an xlconcat instead.",
+      "docs": "https://docs.amd.com/r/en-US/pg099-axi-intc"
+    },
+    {
+      "name": "MicroBlaze V (microblaze_riscv) and MDM V (mdm_riscv)",
+      "kind": "block",
+      "description": "MicroBlaze V is AMD's RISC-V (RV32I/RV64 with M, A, C, F/D, B extensions selectable) soft processor introduced for general use in 2024.1 as a drop-in alternative to the classic MicroBlaze, with the same local memory (LMB), AXI peripheral/cache and debug structure; the companion MicroBlaze Debug Module V (mdm_riscv) provides JTAG debug through the Vitis debugger and an optional UART. Configurations range from a minimal microcontroller to a Linux-capable core with MMU and caches, chosen through the Configuration Wizard presets.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze_riscv microblaze_riscv_0\napply_bd_automation -rule xilinx.com:bd_rule:microblaze_riscv -config {local_mem \"64KB\" ecc \"None\" cache \"16KB\" debug_module \"Debug Only\" axi_periph \"Enabled\" axi_intc \"1\" clk \"/clk_wiz_0/clk_out1 (100 MHz)\"} [get_bd_cells microblaze_riscv_0]",
+      "parameters": [
+        {"name": "CONFIG.G_TEMPLATE_LIST / preset", "description": "Microcontroller, Real-time, Application (Linux) presets in the wizard."},
+        {"name": "CONFIG.C_DATA_SIZE / C_USE_MMU", "description": "32/64-bit and MMU for Linux."},
+        {"name": "CONFIG.C_USE_ICACHE / C_USE_DCACHE / C_CACHE_BYTE_SIZE", "description": "Cache options for AXI memory."},
+        {"name": "CONFIG.C_USE_FPU / C_USE_MULDIV / C_USE_COMPRESSED", "description": "ISA extensions (F/D, M, C)."},
+        {"name": "Block automation", "description": "Creates lmb_v10 buses, lmb_bram_if_cntlr, blk_mem_gen local memory, mdm_riscv, proc_sys_reset and optional axi_intc / interconnect."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:microblaze_riscv microblaze_riscv_0\napply_bd_automation -rule xilinx.com:bd_rule:microblaze_riscv -config {local_mem \"128KB\" debug_module \"Debug & UART\" axi_periph \"Enabled\" axi_intc \"1\" clk \"New Clocking Wizard\"} [get_bd_cells microblaze_riscv_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_gpio axi_gpio_0\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Master \"/microblaze_riscv_0 (Periph)\" Clk \"Auto\"} [get_bd_intf_pins axi_gpio_0/S_AXI]",
+      "notes": "Software is built with the RISC-V GCC toolchain in Vitis (2024.1+); the classic MicroBlaze (microblaze, mdm) remains available and its rule is xilinx.com:bd_rule:microblaze. Local memory is BRAM on LMB; AXI memory needs the caches for performance.",
+      "docs": "https://docs.amd.com/r/en-US/ug1629-microblaze-v-user-guide"
+    },
+    {
+      "name": "Local Memory Bus & BRAM controller (lmb_v10, lmb_bram_if_cntlr)",
+      "kind": "block",
+      "description": "The MicroBlaze / MicroBlaze V local memory subsystem: two lmb_v10 bus instances (instruction ILMB and data DLMB) each with an lmb_bram_if_cntlr connecting to one port of a true-dual-port blk_mem_gen, giving single-cycle deterministic access for code and data (and the reset/boot vectors). The block automation builds this 'local memory' hierarchy; its size (8 KB to 2 MB depending on device BRAM) is set by the automation's local_mem option and can be changed by editing the blk_mem_gen and controller mask.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:lmb_v10 dlmb_v10\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:lmb_bram_if_cntlr dlmb_bram_if_cntlr\nset_property CONFIG.C_ECC 0 [get_bd_cells dlmb_bram_if_cntlr]\nconnect_bd_intf_net [get_bd_intf_pins microblaze_0/DLMB] [get_bd_intf_pins dlmb_v10/LMB_M]\nconnect_bd_intf_net [get_bd_intf_pins dlmb_v10/LMB_Sl_0] [get_bd_intf_pins dlmb_bram_if_cntlr/SLMB]\nconnect_bd_intf_net [get_bd_intf_pins dlmb_bram_if_cntlr/BRAM_PORT] [get_bd_intf_pins lmb_bram/BRAM_PORTA]",
+      "parameters": [
+        {"name": "CONFIG.C_ECC", "description": "Enable ECC on the local memory controller (with optional fault injection for testing)."},
+        {"name": "CONFIG.C_MASK", "description": "Address decode mask deciding which addresses the controller responds to."},
+        {"name": "blk_mem_gen CONFIG.Memory_Type", "description": "True_Dual_Port_RAM shared by instruction and data controllers; CONFIG.use_bram_block {BRAM_Controller}."},
+        {"name": "Address Editor range", "description": "The memory size seen by software: the segment range on microblaze_0/Data and /Instruction."}
+      ],
+      "example": "# grow local memory of an automation-generated system to 256 KB\nset_property range 256K [get_bd_addr_segs {microblaze_0/Data/SEG_dlmb_bram_if_cntlr_Mem}]\nset_property range 256K [get_bd_addr_segs {microblaze_0/Instruction/SEG_ilmb_bram_if_cntlr_Mem}]\nvalidate_bd_design   ;# regenerates the BRAM size",
+      "notes": "Local memory is initialized from the ELF through updatemem / the associated ELF in the project (set_property SCOPED_TO_REF/SCOPED_TO_CELLS on the .elf), so software can be updated in the bitstream without re-implementing.",
+      "docs": "https://docs.amd.com/r/en-US/pg112-lmb-bram-if-cntlr"
+    },
+    {
+      "name": "AXI EMC / AXI EthernetLite / AXI UART16550 / AXI CAN (axi_emc, axi_ethernetlite, axi_uart16550, axi_can)",
+      "kind": "block",
+      "description": "Additional AXI4-Lite peripherals from the catalog: axi_emc (External Memory Controller) interfaces parallel SRAM/flash/PSRAM with programmable timing; axi_ethernetlite is a 10/100 MAC with MII/RMII and ping-pong buffers, small enough for MicroBlaze designs; axi_uart16550 is a full 16550-compatible UART with FIFOs and modem signals (contrast axi_uartlite); axi_can implements a CAN 2.0 A/B controller. All come with standalone drivers and Linux support.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_ethernetlite axi_ethernetlite_0\nset_property -dict [list CONFIG.C_INCLUDE_MDIO {1} CONFIG.C_INCLUDE_INTERNAL_LOOPBACK {0}] [get_bd_cells axi_ethernetlite_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_uart16550 axi_uart16550_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_emc axi_emc_0\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_can axi_can_0",
+      "parameters": [
+        {"name": "axi_ethernetlite CONFIG.C_INCLUDE_MDIO / C_RX_PING_PONG / C_TX_PING_PONG", "description": "PHY management and buffer options."},
+        {"name": "axi_uart16550 CONFIG.C_HAS_EXTERNAL_XIN / C_EXTERNAL_XIN_CLK_HZ", "description": "External baud clock."},
+        {"name": "axi_emc CONFIG.C_NUM_BANKS_MEM / C_MEMx_TYPE / timing parameters", "description": "Banks and per-bank memory type/timing."},
+        {"name": "axi_can CONFIG.C_CAN_RX_DPTH / C_CAN_TX_DPTH", "description": "FIFO depths."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_ethernetlite axi_ethernetlite_0\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Master \"/microblaze_0 (Periph)\" Clk \"Auto\"} [get_bd_intf_pins axi_ethernetlite_0/S_AXI]\napply_board_connection -board_interface mii -ip_intf axi_ethernetlite_0/MII -diagram system\napply_board_connection -board_interface mdio_mdc -ip_intf axi_ethernetlite_0/MDIO -diagram system",
+      "notes": "Drivers: emaclite, uartns550, emc, canps/can. For gigabit Ethernet use axi_ethernet (subsystem with TEMAC) plus axi_dma or axi_mcdma.",
+      "docs": "https://docs.amd.com/r/en-US/pg135-axi-ethernetlite"
+    },
+    {
+      "name": "Distributed Memory Generator (dist_mem_gen)",
+      "kind": "block",
+      "description": "Generates LUT-based (SLICEM) ROM, single-port RAM, simple-dual-port RAM or dual-port RAM of 16 to 65536 words with optional registered outputs, initialised from a .coe file. Used for small fast lookup tables and register files where a block RAM would be wasteful; XPM_MEMORY_DPDISTRAM is the RTL-macro alternative.",
+      "usage": "create_ip -name dist_mem_gen -vendor xilinx.com -library ip -module_name dist_mem_gen_0\nset_property -dict [list CONFIG.depth {256} CONFIG.data_width {16} CONFIG.memory_type {rom} CONFIG.coefficient_file {../../coe/sine.coe} CONFIG.output_options {registered}] [get_ips dist_mem_gen_0]",
+      "parameters": [
+        {"name": "CONFIG.memory_type", "description": "rom, single_port_ram, simple_dual_port_ram, dual_port_ram."},
+        {"name": "CONFIG.depth / data_width", "description": "Words (16-65536) and bits (1-1024)."},
+        {"name": "CONFIG.coefficient_file", "description": ".coe initialisation file (memory_initialization_radix / vector)."},
+        {"name": "CONFIG.output_options", "description": "non_registered, registered, both."}
+      ],
+      "example": "create_ip -name dist_mem_gen -vendor xilinx.com -library ip -module_name lut_rom\nset_property -dict [list CONFIG.depth 1024 CONFIG.data_width 12 CONFIG.memory_type rom CONFIG.coefficient_file [file normalize ./coe/gamma.coe]] [get_ips lut_rom]\ngenerate_target all [get_ips lut_rom]",
+      "notes": "A .coe file looks like: memory_initialization_radix=16; memory_initialization_vector=00A,01F,...; For memories above a few kilobits prefer blk_mem_gen.",
+      "docs": "https://docs.amd.com/r/en-US/pg063-dist-mem-gen"
+    },
+    {
+      "name": "XADC Wizard / System Management Wizard (xadc_wiz, system_management_wiz)",
+      "kind": "block",
+      "description": "Configure the on-chip analog monitor: XADC Wizard for 7 series (dual 12-bit 1 MSPS ADC, on-chip temperature/VCC sensors, up to 17 external analog inputs, alarms, sequencer, DRP or AXI4-Lite access) and System Management Wizard for UltraScale/UltraScale+ (SYSMONE1/SYSMONE4 with 10-bit ADC, I2C/PMBus access on UltraScale+). Both output alarm signals usable as interrupts and expose measurements to software through the sysmon driver or to the Hardware Manager's dashboard.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:xadc_wiz xadc_wiz_0\nset_property -dict [list CONFIG.INTERFACE_SELECTION {Enable_AXI} CONFIG.SEQUENCER_MODE {Continuous} CONFIG.CHANNEL_ENABLE_VAUXP0_VAUXN0 {true} CONFIG.CHANNEL_ENABLE_TEMPERATURE {true} CONFIG.OT_ALARM {true}] [get_bd_cells xadc_wiz_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:system_management_wiz system_management_wiz_0",
+      "parameters": [
+        {"name": "CONFIG.INTERFACE_SELECTION", "description": "Enable_AXI, Enable_DRP or None (alarms only)."},
+        {"name": "CONFIG.SEQUENCER_MODE / CHANNEL_ENABLE_*", "description": "Channel sequencer mode and enabled channels (VP/VN, VAUX0-15, temperature, VCCINT, VCCAUX, VCCBRAM ...)."},
+        {"name": "CONFIG.OT_ALARM / USER_TEMP_ALARM / VCCINT_ALARM", "description": "Alarm outputs and thresholds."},
+        {"name": "CONFIG.ADC_CONVERSION_RATE / DCLK_FREQUENCY", "description": "Sampling rate and DRP clock."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:xadc_wiz xadc_wiz_0\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Master \"/processing_system7_0/M_AXI_GP0\" Clk \"Auto\"} [get_bd_intf_pins xadc_wiz_0/s_axi_lite]\nmake_bd_intf_pins_external [get_bd_intf_pins xadc_wiz_0/Vaux0]\n# constraints: the analog pins need no IOSTANDARD; dedicated VP/VN are fixed",
+      "notes": "Driver: xadcps (Zynq PS XADC) or sysmon. In the Hardware Manager the same sensors are read with get_hw_sysmons without any IP in the design. Versal uses the SYSMON in CIPS instead.",
+      "docs": "https://docs.amd.com/r/en-US/pg091-xadc-wiz"
+    },
+    {
+      "name": "Transceiver Wizard (gtwizard_ultrascale, gtwizard for 7 series)",
+      "kind": "block",
+      "description": "Configures the serial transceivers (GTP/GTX/GTH on 7 series; GTH/GTY/GTM on UltraScale/UltraScale+ via gtwizard_ultrascale; GTY/GTYP/GTM on Versal via gt_quad_base + bridge IP) with line rate, reference clock, encoding (raw, 8B/10B, 64B/66B), buffer/bypass options, PLL selection (CPLL/QPLL) and channel/common sharing, generating a wrapper with TX/RX user-data interfaces, reset controllers and an example design with IBERT/PRBS. Protocol IP (Aurora, Ethernet, PCIe, JESD204) embed their own configured wizards; the wizard is used directly for custom serial protocols.",
+      "usage": "create_ip -name gtwizard_ultrascale -vendor xilinx.com -library ip -module_name gtwizard_ultrascale_0\nset_property -dict [list CONFIG.TRANSCEIVER_TYPE {GTH} CONFIG.TX_LINE_RATE {10.3125} CONFIG.TX_REFCLK_FREQUENCY {156.25} CONFIG.RX_LINE_RATE {10.3125} CONFIG.RX_REFCLK_FREQUENCY {156.25} CONFIG.TX_DATA_ENCODING {64B66B_ASYNC} CONFIG.RX_DATA_DECODING {64B66B_ASYNC} CONFIG.TX_USER_DATA_WIDTH {64} CONFIG.RX_USER_DATA_WIDTH {64} CONFIG.CHANNEL_ENABLE {X0Y8 X0Y9 X0Y10 X0Y11} CONFIG.TX_MASTER_CHANNEL {X0Y8} CONFIG.RX_MASTER_CHANNEL {X0Y8}] [get_ips gtwizard_ultrascale_0]",
+      "parameters": [
+        {"name": "CONFIG.TX_LINE_RATE / RX_LINE_RATE (Gb/s)", "description": "Line rates; RX/TX may differ."},
+        {"name": "CONFIG.TX_REFCLK_FREQUENCY / RX_REFCLK_FREQUENCY", "description": "Reference clock in MHz (must match the board oscillator/IBUFDS_GTE)."},
+        {"name": "CONFIG.TX_PLL_TYPE / RX_PLL_TYPE", "description": "CPLL, QPLL0, QPLL1."},
+        {"name": "CONFIG.CHANNEL_ENABLE", "description": "Physical channel sites (X0Y8 ...) to instantiate; determines quad/common usage."},
+        {"name": "CONFIG.TX_DATA_ENCODING / RX_DATA_DECODING", "description": "RAW, 8B10B, 64B66B_ASYNC/SYNC, 64B67B, 128B130B ..."},
+        {"name": "CONFIG.RX_BUFFER_MODE / TX_BUFFER_MODE / RX_EQ_MODE", "description": "Elastic buffer use, DFE/LPM equalisation."}
+      ],
+      "example": "# after generation: instantiate <name>.v wrapper, connect gtrefclk00_in from IBUFDS_GTE4 (refclk pins with IO_BUFFER_TYPE NONE),\n# drive userclk from the txoutclk/rxoutclk helper blocks, and constrain:\ncreate_clock -period 6.4 [get_ports mgtrefclk0_p]\nset_property PACKAGE_PIN K6 [get_ports mgtrefclk0_p]\nset_property LOC GTHE4_CHANNEL_X0Y8 [get_cells -hier -filter {NAME =~ *gthe4_channel_inst*}]",
+      "notes": "Location constraints for channels are written into the generated example design XDC; the wizard's Optional Ports tab exposes DRP, loopback, PRBS and eye-scan ports used by IBERT/Serial I/O Analyzer. Rate changes at runtime need the DRP or the reset-controller sequence documented in the transceiver user guides (UG476/UG576/UG578).",
+      "docs": "https://docs.amd.com/r/en-US/pg182-gtwizard-ultrascale"
+    },
+    {
+      "name": "Aurora 64B/66B (aurora_64b66b)",
+      "kind": "block",
+      "description": "Lightweight point-to-point serial link protocol over one or more transceiver lanes at up to the transceiver's full rate, with 64B/66B encoding, streaming or framing interfaces (AXI4-Stream), optional flow control and simplex/duplex modes. Preferred over Aurora 8B/10B for lanes above ~6.6 Gb/s because of the lower encoding overhead; both are common for chip-to-chip and board-to-board links between AMD devices.",
+      "usage": "create_ip -name aurora_64b66b -vendor xilinx.com -library ip -module_name aurora_64b66b_0\nset_property -dict [list CONFIG.C_AURORA_LANES {4} CONFIG.C_LINE_RATE {10.3125} CONFIG.C_REFCLK_FREQUENCY {156.25} CONFIG.interface_mode {Framing} CONFIG.flow_mode {None} CONFIG.C_GT_LOC_1 {1} CONFIG.C_GT_LOC_2 {2} CONFIG.C_GT_LOC_3 {3} CONFIG.C_GT_LOC_4 {4}] [get_ips aurora_64b66b_0]",
+      "parameters": [
+        {"name": "CONFIG.C_AURORA_LANES / C_LINE_RATE / C_REFCLK_FREQUENCY", "description": "Lane count, line rate (Gb/s) and reference clock."},
+        {"name": "CONFIG.interface_mode", "description": "Framing (packets with TLAST/TKEEP) or Streaming."},
+        {"name": "CONFIG.flow_mode", "description": "None, Immediate_NFC, Completion_NFC, UFC."},
+        {"name": "CONFIG.dataflow_config", "description": "Duplex, TX-only/RX-only simplex."},
+        {"name": "CONFIG.C_GT_LOC_n", "description": "Map logical lanes to transceiver channels."}
+      ],
+      "example": "# user side: s_axi_tx_tdata/tvalid/tready/tlast/tkeep and m_axi_rx_* at user_clk (line_rate*lanes/64 MHz)\n# status: channel_up, lane_up[3:0], hard_err, soft_err\n# open_example_project [get_ips aurora_64b66b_0] gives a loopback demo with frame generator/checker",
+      "notes": "Both ends must use the same lane count, rate and interface mode. Reset sequencing (pma_init then reset_pb) and the init_clk (a slow free-running clock) are required; the example design shows the timing.",
+      "docs": "https://docs.amd.com/r/en-US/pg074-aurora-64b66b"
+    },
+    {
+      "name": "Tri-Mode Ethernet MAC (tri_mode_ethernet_mac)",
+      "kind": "block",
+      "description": "10/100/1000 Mb/s Ethernet MAC with MII/GMII/RGMII/SGMII/1000BASE-X PHY interfaces (SGMII/1000BASE-X via a transceiver or LVDS), AXI4-Stream client interface, optional AXI4-Lite management for MDIO and statistics counters, VLAN, jumbo frames and IEEE 1588 timestamping. It is the MAC inside the AXI 1G/2.5G Ethernet Subsystem (axi_ethernet); standalone use is for custom packet processing without the subsystem's DMA interface.",
+      "usage": "create_ip -name tri_mode_ethernet_mac -vendor xilinx.com -library ip -module_name temac_0\nset_property -dict [list CONFIG.Physical_Interface {RGMII} CONFIG.MAC_Speed {1000_Mbps} CONFIG.Management_Interface {true} CONFIG.Statistics_Counters {true} CONFIG.Frame_Filter {true} CONFIG.Enable_1588 {false}] [get_ips temac_0]",
+      "parameters": [
+        {"name": "CONFIG.Physical_Interface", "description": "MII, GMII, RGMII, SGMII, 1000BASEX, Internal."},
+        {"name": "CONFIG.MAC_Speed", "description": "10_100_Mbps, 1000_Mbps, Tri_speed, 2500_Mbps (2.5G variants)."},
+        {"name": "CONFIG.Management_Interface / MDIO", "description": "AXI4-Lite for configuration and MDIO to the PHY."},
+        {"name": "CONFIG.Number_of_Table_Entries / Frame_Filter", "description": "Address filter table."}
+      ],
+      "example": "# client side: tx_axis_mac_tdata/tvalid/tlast/tready, rx_axis_mac_*; gtx_clk 125 MHz; rgmii_* pins with the IDELAY/ODDR handled by the core\ncreate_clock -period 8.000 [get_ports rgmii_rxc]\nset_property IOSTANDARD LVCMOS18 [get_ports rgmii_*]",
+      "notes": "Licensed IP (evaluation license included with Vivado, production license required for bitstreams without timeout). In block designs prefer axi_ethernet + axi_dma with the Linux axienet driver.",
+      "docs": "https://docs.amd.com/r/en-US/pg051-tri-mode-eth-mac"
+    },
+    {
+      "name": "PCI Express integrated block (pcie_7x, pcie3_7x, pcie4_uscale_plus, pcie4c_uscale_plus)",
+      "kind": "block",
+      "description": "Wrapper IP around the hard PCIe block of each family: pcie_7x (Gen1/2, TRN/AXI-Stream interface) and pcie3_7x (Gen3 on Virtex-7 XT), pcie4_uscale_plus (UltraScale+ Gen3/Gen4 x1-x16 with requester/completer AXI4-Stream interfaces) and pcie4c for CCIX/Gen4x16 parts; UltraScale uses pcie3_ultrascale. They expose configuration space, link status, MSI/MSI-X, and the RQ/RC/CQ/CC streams; DMA (xdma/qdma) and the AXI Memory Mapped to PCIe bridge (axi_pcie / xdma in bridge mode) sit on top for most designs.",
+      "usage": "create_ip -name pcie4_uscale_plus -vendor xilinx.com -library ip -module_name pcie4_0\nset_property -dict [list CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH {X8} CONFIG.PL_LINK_CAP_MAX_LINK_SPEED {8.0_GT/s} CONFIG.AXISTEN_IF_WIDTH {256_bit} CONFIG.axisten_freq {250} CONFIG.PF0_DEVICE_ID {9038} CONFIG.pcie_blk_locn {X0Y1} CONFIG.mode_selection {Advanced}] [get_ips pcie4_0]",
+      "parameters": [
+        {"name": "CONFIG.PL_LINK_CAP_MAX_LINK_WIDTH / PL_LINK_CAP_MAX_LINK_SPEED", "description": "Lanes (X1..X16) and Gen (2.5/5.0/8.0/16.0 GT/s)."},
+        {"name": "CONFIG.AXISTEN_IF_WIDTH / axisten_freq", "description": "User interface width (64-512 bit) and clock (62.5-250 MHz)."},
+        {"name": "CONFIG.pcie_blk_locn", "description": "Which hard block (X0Y0 ...) matched to the board's lanes."},
+        {"name": "CONFIG.PF0_DEVICE_ID / VENDOR_ID / CLASS_CODE / BAR settings", "description": "Configuration space identity and BARs (PF0_BAR0_SCALE/SIZE/TYPE)."},
+        {"name": "CONFIG.MSI_ENABLED / MSIX_CAP", "description": "Interrupt capabilities."}
+      ],
+      "example": "# constraints from the example design: refclk via IBUFDS_GTE4, sys_rst_n pin, and\nset_property PACKAGE_PIN AB8 [get_ports pcie_refclk_p]\ncreate_clock -period 10.000 -name pcie_refclk [get_ports pcie_refclk_p]\nset_false_path -from [get_ports sys_rst_n]\nset_property LOC PCIE40E4_X0Y1 [get_cells -hier -filter {PRIMITIVE_TYPE =~ *PCIE40E4*}]",
+      "notes": "Always start from open_example_project for the chosen board, which contains the lane and reset constraints. Endpoint designs must meet the 100 ms link-up requirement, so configuration flash speed (report_config_timing / bitstream compression / tandem configuration) matters.",
+      "docs": "https://docs.amd.com/r/en-US/pg213-pcie4-ultrascale-plus"
+    },
+    {
+      "name": "QDMA Subsystem for PCI Express (qdma)",
+      "kind": "block",
+      "description": "Queue-based DMA over PCIe (UltraScale+ and Versal) with up to 2048 queues, SR-IOV virtual functions, descriptor bypass, streaming (AXI4-Stream H2C/C2H with completion) and memory-mapped modes, targeting NIC-style and multi-tenant data-center designs where the simpler XDMA's few channels are insufficient. Comes with Linux/DPDK drivers and a bridge (AXI4 master/slave) for register access.",
+      "usage": "create_ip -name qdma -vendor xilinx.com -library ip -module_name qdma_0\nset_property -dict [list CONFIG.mode_selection {Advanced} CONFIG.pl_link_cap_max_link_width {X16} CONFIG.pl_link_cap_max_link_speed {8.0_GT/s} CONFIG.dma_intf_sel_qdma {AXI_MM_and_AXI_Stream_with_Completion} CONFIG.SRIOV_CAP_ENABLE {true} CONFIG.tl_pf_enable_reg {1}] [get_ips qdma_0]",
+      "parameters": [
+        {"name": "CONFIG.dma_intf_sel_qdma", "description": "AXI_MM, AXI_Stream_with_Completion, or both."},
+        {"name": "CONFIG.SRIOV_CAP_ENABLE / num_pfs / num_vfs", "description": "Virtualisation capabilities."},
+        {"name": "CONFIG.axi_data_width / axist_bypass_en", "description": "Data width (256/512) and descriptor bypass."},
+        {"name": "CONFIG.barlite_mb_pf0 / pf0_bar*", "description": "BAR mapping for the AXI-Lite and bridge interfaces."}
+      ],
+      "example": "# host side: dma-ip-drivers (qdma) from github.com/Xilinx/dma_ip_drivers; dma-ctl / dma-to-device utilities\n# user side: m_axis_h2c / s_axis_c2h streams with qid/len sideband and the c2h completion (CMPT) stream",
+      "notes": "Versal has a hard QDMA/CPM variant configured through CIPS. XDMA (xdma) remains the simpler choice for register + bulk DMA with 1-4 channels.",
+      "docs": "https://docs.amd.com/r/en-US/pg302-qdma"
+    },
+    {
+      "name": "CIC Compiler (cic_compiler)",
+      "kind": "block",
+      "description": "Cascaded integrator-comb decimation or interpolation filter with programmable or fixed rate change (up to 16384), 1-6 stages, differential delay 1 or 2, multi-channel support and AXI4-Stream data/config interfaces, used for the first stage of digital down-converters and the last stage of up-converters in SDR, ahead of/after a compensating FIR from fir_compiler.",
+      "usage": "create_ip -name cic_compiler -vendor xilinx.com -library ip -module_name cic_0\nset_property -dict [list CONFIG.Filter_Type {Decimation} CONFIG.Number_Of_Stages {5} CONFIG.Fixed_Or_Initial_Rate {64} CONFIG.Input_Data_Width {16} CONFIG.Output_Data_Width {24} CONFIG.SamplePeriod {1} CONFIG.Number_Of_Channels {2} CONFIG.Quantization {Truncation}] [get_ips cic_0]",
+      "parameters": [
+        {"name": "CONFIG.Filter_Type", "description": "Decimation or Interpolation."},
+        {"name": "CONFIG.Number_Of_Stages / Differential_Delay", "description": "Filter order."},
+        {"name": "CONFIG.Fixed_Or_Initial_Rate / Minimum_Rate / Maximum_Rate", "description": "Rate change; programmable rate uses the S_AXIS_CONFIG channel."},
+        {"name": "CONFIG.Input_Data_Width / Output_Data_Width / Quantization", "description": "Bit widths and rounding."},
+        {"name": "CONFIG.SamplePeriod / Clock_Frequency", "description": "Time-division multiplexing of hardware."}
+      ],
+      "example": "# chain: ADC -> cic_compiler (decimate 64) -> fir_compiler (CIC compensation + channel filter) -> DMA\nconnect_bd_intf_net [get_bd_intf_pins cic_0/M_AXIS_DATA] [get_bd_intf_pins fir_compiler_0/S_AXIS_DATA]",
+      "notes": "Output width grows by N*log2(R*M) bits; use the Quantization/Output_Data_Width settings to trim. Gain compensation is required for programmable rates.",
+      "docs": "https://docs.amd.com/r/en-US/pg140-cic-compiler"
+    },
+    {
+      "name": "Video Test Pattern Generator (v_tpg)",
+      "kind": "block",
+      "description": "AXI4-Stream video source producing colour bars, ramps, checkerboards, zone plates, solid colours and moving boxes in RGB/YUV formats at configurable resolution, pixels per clock and bit depth, controlled over AXI4-Lite. It is the standard stimulus for bringing up a video pipeline (VDMA/frame buffer, HDMI/DisplayPort TX) before real sources exist, and can also pass through an input stream.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:v_tpg v_tpg_0\nset_property -dict [list CONFIG.SAMPLES_PER_CLOCK {2} CONFIG.MAX_COLS {3840} CONFIG.MAX_ROWS {2160} CONFIG.MAX_DATA_WIDTH {10} CONFIG.HAS_AXI4S_SLAVE {0} CONFIG.SOLID_COLOR {1} CONFIG.RAMP {1} CONFIG.COLOR_BAR {1}] [get_bd_cells v_tpg_0]",
+      "parameters": [
+        {"name": "CONFIG.SAMPLES_PER_CLOCK / MAX_DATA_WIDTH", "description": "Pixels per clock (1/2/4/8) and bits per component (8/10/12/16)."},
+        {"name": "CONFIG.MAX_COLS / MAX_ROWS", "description": "Maximum resolution supported (runtime programmable below that)."},
+        {"name": "CONFIG.HAS_AXI4S_SLAVE", "description": "Enable the pass-through input."},
+        {"name": "Pattern enables", "description": "SOLID_COLOR, RAMP, COLOR_BAR, ZONE_PLATE, CHECKER_BOARD, DISPLAY_PORT (pattern subsets to save logic)."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:v_tpg v_tpg_0\nconnect_bd_intf_net [get_bd_intf_pins v_tpg_0/m_axis_video] [get_bd_intf_pins v_axi4s_vid_out_0/video_in]\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Master \"/zynq_ultra_ps_e_0/M_AXI_HPM0_LPD\" Clk \"Auto\"} [get_bd_intf_pins v_tpg_0/s_axi_CTRL]",
+      "notes": "Driver: v_tpg (XV_tpg) with a set of pattern IDs; the core must be started (ap_start / auto-restart) after programming width/height/format. Video AXI4-Stream uses TUSER as start-of-frame and TLAST as end-of-line.",
+      "docs": "https://docs.amd.com/r/en-US/pg103-v-tpg"
+    },
+    {
+      "name": "AXI4-Stream to Video Out / Video In to AXI4-Stream (v_axi4s_vid_out, v_vid_in_axi4s)",
+      "kind": "block",
+      "description": "Bridges between AXI4-Stream video (TUSER SOF / TLAST EOL) and native parallel video with syncs and blanking: v_axi4s_vid_out converts a stream to a pixel bus locked to timing from the Video Timing Controller (master or slave timing mode, with an internal FIFO and underflow/overflow flags), while v_vid_in_axi4s does the reverse from a camera/HDMI-RX style parallel input and can drive a VTC detector. They terminate every stream-based pipeline at a physical display or camera interface.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:v_axi4s_vid_out v_axi4s_vid_out_0\nset_property -dict [list CONFIG.C_HAS_ASYNC_CLK {1} CONFIG.C_PIXELS_PER_CLOCK {1} CONFIG.C_ADDR_WIDTH {12} CONFIG.C_VTG_MASTER_SLAVE {1}] [get_bd_cells v_axi4s_vid_out_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:v_vid_in_axi4s v_vid_in_axi4s_0",
+      "parameters": [
+        {"name": "CONFIG.C_HAS_ASYNC_CLK", "description": "1 when the AXI stream clock differs from the pixel clock (adds a dual-clock FIFO)."},
+        {"name": "CONFIG.C_VTG_MASTER_SLAVE", "description": "0 = core is slave to VTC timing, 1 = core generates the VTC's enable (master)."},
+        {"name": "CONFIG.C_ADDR_WIDTH", "description": "Internal FIFO depth (2^N pixels)."},
+        {"name": "CONFIG.C_PIXELS_PER_CLOCK / C_COMPONENTS_PER_PIXEL", "description": "Format matching the stream."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:v_tc v_tc_0\nconnect_bd_intf_net [get_bd_intf_pins v_tc_0/vtiming_out] [get_bd_intf_pins v_axi4s_vid_out_0/vtiming_in]\nconnect_bd_net [get_bd_pins v_axi4s_vid_out_0/vtg_ce] [get_bd_pins v_tc_0/gen_clken]\nconnect_bd_net [get_bd_pins v_axi4s_vid_out_0/locked] [get_bd_pins hdmi_out_0/locked]",
+      "notes": "The 'locked' output indicates the FIFO is synchronised to the timing; unlocking is typically caused by the stream not keeping up with the pixel clock (check DMA bandwidth). For HDMI/DisplayPort/MIPI use the subsystem IP, which embed these bridges.",
+      "docs": "https://docs.amd.com/r/en-US/pg044-v-axis-vid-out"
+    },
+    {
+      "name": "HDMI 1.4/2.0/2.1 TX and RX Subsystems (v_hdmi_tx_ss, v_hdmi_rx_ss, v_hdmi_txss1, v_hdmi_rxss1)",
+      "kind": "block",
+      "description": "Complete HDMI transmit and receive subsystems for UltraScale+/Versal built around the transceivers (with the Video PHY Controller vid_phy_controller or HDMI GT subsystem), providing AXI4-Stream video in/out, audio (AXI4-Stream or I2S), HDCP 1.4/2.2 (licensed), InfoFrame handling, EDID/DDC and CEC, controlled through AXI4-Lite with a bare-metal/Linux driver stack. HDMI 2.1 (FRL up to 12 Gb/s x4) uses the *ss1 variants. Requires an HDMI IP license and, on boards, a retimer/redriver such as TI TMDS181 handled by the example design.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:v_hdmi_tx_ss v_hdmi_tx_ss_0\nset_property -dict [list CONFIG.C_INPUT_PIXELS_PER_CLOCK {2} CONFIG.C_MAX_BITS_PER_COMPONENT {10} CONFIG.C_INCLUDE_HDCP_1_4 {false} CONFIG.C_INCLUDE_HDCP_2_2 {false} CONFIG.AUDIO_ENABLE {true} CONFIG.C_HDMI_FAST_SWITCH {true}] [get_bd_cells v_hdmi_tx_ss_0]",
+      "parameters": [
+        {"name": "CONFIG.C_INPUT_PIXELS_PER_CLOCK / C_MAX_BITS_PER_COMPONENT", "description": "Video format capability (2 ppc for 4K60)."},
+        {"name": "CONFIG.C_INCLUDE_HDCP_1_4 / C_INCLUDE_HDCP_2_2", "description": "Content protection (separate license)."},
+        {"name": "CONFIG.AUDIO_ENABLE / C_AUDIO_CHANNELS", "description": "Audio path."},
+        {"name": "CONFIG.C_INCLUDE_LOW_RESO_VID / C_INCLUDE_YUV420_SUP", "description": "Format support options."}
+      ],
+      "example": "# Start from the example design: Tools > IP Catalog > HDMI 1.4/2.0 Transmitter Subsystem > Open IP Example Design\n# (selects board, includes vid_phy_controller, TPG, VTC, audio, MicroBlaze/PS software with the xhdmi driver examples)",
+      "notes": "Licensing: evaluation licenses expire in hardware after a timeout; obtain the HDMI subsystem license before production. The video PHY reference clocks and the lane mapping are board-specific; follow the example design constraints.",
+      "docs": "https://docs.amd.com/r/en-US/pg235-v-hdmi-tx-ss"
+    },
+    {
+      "name": "MIPI CSI-2 RX Subsystem (mipi_csi2_rx_subsystem)",
+      "kind": "block",
+      "description": "Camera Serial Interface receiver for UltraScale+/Versal (and 7 series with external resistor networks): the D-PHY RX (mipi_dphy) plus CSI-2 packet decoding, lane merging, virtual-channel demultiplexing, pixel format conversion (RAW8/10/12/14/16, RGB, YUV) and an AXI4-Stream video output per virtual channel, configured over AXI4-Lite. The complement is mipi_csi2_tx_subsystem; DSI display output uses mipi_dsi_tx_subsystem.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem mipi_csi2_rx_subsyst_0\nset_property -dict [list CONFIG.CMN_NUM_LANES {4} CONFIG.C_HS_LINE_RATE {1500} CONFIG.CMN_PXL_FORMAT {RAW10} CONFIG.CMN_NUM_PIXELS {2} CONFIG.CMN_VC {All} CONFIG.C_CSI_EN_ACTIVELANES {true} CONFIG.DPY_LINE_RATE {1500} CONFIG.SupportLevel {1}] [get_bd_cells mipi_csi2_rx_subsyst_0]",
+      "parameters": [
+        {"name": "CONFIG.CMN_NUM_LANES / C_HS_LINE_RATE (Mb/s)", "description": "Lane count (1-4) and per-lane rate (80-2500)."},
+        {"name": "CONFIG.CMN_PXL_FORMAT / CMN_NUM_PIXELS", "description": "Output pixel format and pixels per clock."},
+        {"name": "CONFIG.CMN_VC", "description": "Virtual channel(s) to decode (0-3 or All)."},
+        {"name": "CONFIG.SupportLevel", "description": "1 includes the shared D-PHY clock/reset logic (IDELAYCTRL, PLL) in this instance."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:mipi_csi2_rx_subsystem mipi_csi2_rx_subsyst_0\nmake_bd_intf_pins_external [get_bd_intf_pins mipi_csi2_rx_subsyst_0/mipi_phy_if]\nconnect_bd_intf_net [get_bd_intf_pins mipi_csi2_rx_subsyst_0/video_out] [get_bd_intf_pins v_demosaic_0/s_axis_video]",
+      "notes": "D-PHY pins must be in HP banks with MIPI_DPHY_DCI I/O standard on UltraScale+; 7 series needs LVDS + LVCMOS pin pairs with external resistors (see PG232). Downstream cores: v_demosaic, v_gamma_lut, v_proc_ss, v_frmbuf_wr.",
+      "docs": "https://docs.amd.com/r/en-US/pg232-mipi-csi2-rx"
+    },
+    {
+      "name": "AXI Verification IP (axi_vip)",
+      "kind": "block",
+      "description": "Simulation-only IP that models an AXI3/AXI4/AXI4-Lite master, slave or pass-through monitor with a SystemVerilog class-based API (axi_vip_pkg, <inst>_pkg with mst_t/slv_t/passthrough_t agents, create/write/read transactions, memory model with backdoor access, protocol checking). Instantiate it in a block design or RTL testbench to drive AXI slaves (e.g. HLS kernels, custom peripherals) or to respond to AXI masters without a processor; it is stripped out for synthesis.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_vip axi_vip_0\nset_property -dict [list CONFIG.INTERFACE_MODE {MASTER} CONFIG.PROTOCOL {AXI4LITE} CONFIG.ADDR_WIDTH {32} CONFIG.DATA_WIDTH {32}] [get_bd_cells axi_vip_0]\n// testbench\nimport axi_vip_pkg::*; import design_1_axi_vip_0_0_pkg::*;\ndesign_1_axi_vip_0_0_mst_t mst; mst = new(\"mst\", DUT.design_1_i.axi_vip_0.inst.IF); mst.start_master();\nmst.AXI4LITE_WRITE_BURST(32'h4000_0000, 0, 32'hDEAD_BEEF, resp);\nmst.AXI4LITE_READ_BURST(32'h4000_0004, 0, rdata, resp);",
+      "parameters": [
+        {"name": "CONFIG.INTERFACE_MODE", "description": "MASTER, SLAVE or PASS_THROUGH."},
+        {"name": "CONFIG.PROTOCOL", "description": "AXI4, AXI3 or AXI4LITE (set INTERFACE_MODE first in the GUI)."},
+        {"name": "CONFIG.ADDR_WIDTH / DATA_WIDTH / ID_WIDTH / HAS_* ", "description": "Signal set, normally propagated from the connected interface."},
+        {"name": "Agent classes", "description": "<inst>_mst_t, <inst>_slv_t, <inst>_slv_mem_t (slave with memory model), <inst>_passthrough_t."}
+      ],
+      "example": "// slave with memory model responding to a DMA master in simulation\ndesign_1_axi_vip_1_0_slv_mem_t slv_mem;\nslv_mem = new(\"slv_mem\", DUT.design_1_i.axi_vip_1.inst.IF);\nslv_mem.start_slave();\nslv_mem.mem_model.backdoor_memory_write(32'h1000_0000, 32'h1234_5678, 4'hF);",
+      "notes": "Requires SystemVerilog-capable simulation (xsim supports it). API reference is in the IP's generated documentation (PG267) and the example design. Pass-through mode can be switched to master/slave at runtime in the testbench.",
+      "docs": "https://docs.amd.com/r/en-US/pg267-axi-vip"
+    },
+    {
+      "name": "AXI Traffic Generator (axi_traffic_gen)",
+      "kind": "block",
+      "description": "Synthesizable stimulus core that issues AXI4/AXI4-Lite/AXI4-Stream traffic in hardware: fixed or random address/data patterns, command-queue mode programmed over AXI4-Lite with a driver, high-level 'system test' mode with configurable read/write mixes, and a streaming mode for AXI4-Stream throughput tests. Used to stress memory controllers and interconnects on the board and to measure bandwidth with the AXI Performance Monitor.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_traffic_gen axi_traffic_gen_0\nset_property -dict [list CONFIG.C_ATG_MODE {AXI4} CONFIG.C_ATG_MODE_L2 {Advanced} CONFIG.C_M_AXI_DATA_WIDTH {128} CONFIG.C_ATG_SYSTEM_INIT_TEST {1}] [get_bd_cells axi_traffic_gen_0]",
+      "parameters": [
+        {"name": "CONFIG.C_ATG_MODE", "description": "AXI4, AXI4-Lite, AXI4-Stream (traffic type generated)."},
+        {"name": "CONFIG.C_ATG_MODE_L2", "description": "Basic, Advanced (command queues), System_Init/System_Test, Static, High_Level_Traffic."},
+        {"name": "CONFIG.C_ATG_STATIC_* / C_ATG_STREAMING_*", "description": "Pattern settings for the static and streaming modes."},
+        {"name": "CONFIG.C_ATG_SYSTEM_INIT_TEST", "description": "Initialise peripherals from a .coe command file at power-up (no processor needed)."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_traffic_gen axi_traffic_gen_0\nset_property -dict [list CONFIG.C_ATG_MODE AXI4 CONFIG.C_ATG_MODE_L2 Advanced] [get_bd_cells axi_traffic_gen_0]\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Slave \"/ddr4_0/C0_DDR4_S_AXI\" Clk \"Auto\"} [get_bd_intf_pins axi_traffic_gen_0/M_AXI]",
+      "notes": "Driver: trafgen (XTrafGen). Combine with axi_perf_mon and an ILA on the AXI interface; in Static mode it needs no software at all.",
+      "docs": "https://docs.amd.com/r/en-US/pg125-axi-traffic-gen"
+    },
+    {
+      "name": "AXI Performance Monitor (axi_perf_mon)",
+      "kind": "block",
+      "description": "Non-intrusive monitor attached to up to 8 AXI4/AXI4-Lite/AXI4-Stream interfaces that counts transactions, bytes, latency (min/max/average), idle cycles and throughput per slot in hardware, with optional event logging to an AXI4-Stream/FIFO and interrupt on counter thresholds; read through AXI4-Lite by software or the Vitis analyzer. Used to measure memory bandwidth and latency of accelerators and DMA engines in the running system.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_perf_mon axi_perf_mon_0\nset_property -dict [list CONFIG.C_NUM_MONITOR_SLOTS {2} CONFIG.C_ENABLE_PROFILE {1} CONFIG.C_ENABLE_TRACE {0} CONFIG.C_NUM_OF_COUNTERS {10} CONFIG.C_ENABLE_ADVANCED {1}] [get_bd_cells axi_perf_mon_0]",
+      "parameters": [
+        {"name": "CONFIG.C_NUM_MONITOR_SLOTS", "description": "Number of monitored interfaces (1-8), each with SLOT_n_AXI_PROTOCOL."},
+        {"name": "CONFIG.C_ENABLE_ADVANCED / C_ENABLE_PROFILE / C_ENABLE_TRACE", "description": "Advanced (event counting + latency), Profile (lightweight metrics), Trace (event log stream)."},
+        {"name": "CONFIG.C_NUM_OF_COUNTERS", "description": "Metric counters in advanced mode (1-10)."},
+        {"name": "CONFIG.C_HAVE_SAMPLED_METRIC_CNT / C_METRICS_SAMPLE_COUNT_WIDTH", "description": "Sampled counters for periodic readout."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_perf_mon axi_perf_mon_0\nconnect_bd_intf_net [get_bd_intf_pins axi_perf_mon_0/SLOT_0_AXI] [get_bd_intf_pins axi_dma_0/M_AXI_S2MM]   ;# monitor (passive) connection\nconnect_bd_net [get_bd_pins axi_perf_mon_0/slot_0_axi_aclk] [get_bd_pins clk_wiz_0/clk_out1]",
+      "notes": "Driver: axipmon (XAxiPmon). The monitored interface is connected in parallel with its normal connection (monitor mode interface). Vitis uses this IP under the hood for profile_kernel/device data.",
+      "docs": "https://docs.amd.com/r/en-US/pg037-axi-perf-mon"
+    },
+    {
+      "name": "AXI Protocol Checker (axi_protocol_checker)",
+      "kind": "block",
+      "description": "In-hardware AXI3/AXI4/AXI4-Lite/AXI4-Stream protocol assertion checker (the same rules as the VIP's protocol checker) that flags handshake, ordering, burst-boundary, WLAST/RLAST, reserved-value and timeout violations on a monitored interface, reporting the first error code on a status output and optionally through an ILA or AXI4-Lite. Attach it to a custom IP's AXI interface during bring-up to catch protocol bugs that manifest as interconnect hangs.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_protocol_checker axi_protocol_checker_0\nset_property -dict [list CONFIG.PROTOCOL {AXI4} CONFIG.HAS_SYSTEM_STATUS {1} CONFIG.ENABLE_MARK_DEBUG {1} CONFIG.MAX_RD_BURSTS {8} CONFIG.MAX_WR_BURSTS {8} CONFIG.CHK_ERR_RESP {1}] [get_bd_cells axi_protocol_checker_0]",
+      "parameters": [
+        {"name": "CONFIG.PROTOCOL", "description": "AXI4, AXI3, AXI4LITE, AXI4STREAM."},
+        {"name": "CONFIG.MAX_RD_BURSTS / MAX_WR_BURSTS / MAX_AW_WAITS / MAX_AR_WAITS", "description": "Outstanding limits and timeout thresholds."},
+        {"name": "CONFIG.ENABLE_MARK_DEBUG", "description": "Mark the status outputs for ILA capture."},
+        {"name": "CONFIG.HAS_SYSTEM_STATUS / LITE_MODE", "description": "Full status vector output, or a reduced light-weight checker."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_protocol_checker axi_protocol_checker_0\nconnect_bd_intf_net [get_bd_intf_pins axi_protocol_checker_0/PC_AXI] [get_bd_intf_pins my_accel_0/m_axi_gmem]\n# pc_asserted / pc_status[159:0] to an ILA or system_ila with 'Enable AXI protocol checking'",
+      "notes": "System ILA (system_ila) can embed protocol checkers automatically for monitored AXI interfaces (Debug Options > AXI protocol checker). The status vector bit meanings are listed in PG101.",
+      "docs": "https://docs.amd.com/r/en-US/pg101-axi-protocol-checker"
+    },
+    {
+      "name": "System Cache (system_cache)",
+      "kind": "block",
+      "description": "Configurable L2 cache (32 KB to 16 MB in BRAM/URAM, 2-32 ways) placed between AXI masters (MicroBlaze, DMA, accelerators) and external memory, with optional coherency (Zynq UltraScale+ ACE/CCI integration), write-back/write-through policies and statistics counters. It reduces DDR latency for MicroBlaze systems and accelerators with locality without changing the masters.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:system_cache system_cache_0\nset_property -dict [list CONFIG.C_CACHE_SIZE {524288} CONFIG.C_NUM_WAYS {4} CONFIG.C_NUM_OPTIMIZED_PORTS {1} CONFIG.C_NUM_GENERIC_PORTS {1} CONFIG.C_M0_AXI_DATA_WIDTH {512} CONFIG.C_ENABLE_STATISTICS {1}] [get_bd_cells system_cache_0]",
+      "parameters": [
+        {"name": "CONFIG.C_CACHE_SIZE / C_NUM_WAYS / C_CACHE_LINE_LENGTH", "description": "Capacity in bytes, associativity, line length (16/32/64 words)."},
+        {"name": "CONFIG.C_NUM_OPTIMIZED_PORTS / C_NUM_GENERIC_PORTS", "description": "Ports for MicroBlaze (optimized) and generic AXI masters."},
+        {"name": "CONFIG.C_ENABLE_COHERENCY / C_ENABLE_EXCLUSIVE", "description": "ACE coherency and exclusive access support."},
+        {"name": "CONFIG.C_ENABLE_STATISTICS / C_ENABLE_CTRL", "description": "AXI4-Lite control interface for flush and hit/miss statistics."}
+      ],
+      "example": "create_bd_cell -type ip -vlnv xilinx.com:ip:system_cache system_cache_0\nconnect_bd_intf_net [get_bd_intf_pins microblaze_0/M_AXI_DC] [get_bd_intf_pins system_cache_0/S0_AXI]\nconnect_bd_intf_net [get_bd_intf_pins system_cache_0/M0_AXI] [get_bd_intf_pins ddr4_0/C0_DDR4_S_AXI]",
+      "notes": "Disable the MicroBlaze data cache write-back or use the optimized port so the caches cooperate. Flush via the control registers before DMA reads memory written through the cache.",
+      "docs": "https://docs.amd.com/r/en-US/pg031-system-cache"
+    },
+    {
+      "name": "Soft Error Mitigation (sem, sem_ultra)",
+      "kind": "block",
+      "description": "Controller that continuously scans the configuration memory through the ICAP (or the Versal XilSEM library through the PLM) for single-event upsets, detects and corrects single-bit errors by ECC/CRC, optionally classifies whether an essential bit was hit (using the .ebd essential-bits file) and reports over a UART-style monitor interface or an AXI/FIFO; sem is the 7 series core, sem_ultra the UltraScale/UltraScale+ one. Used in high-reliability designs (space, avionics, data-center) to meet FIT targets.",
+      "usage": "create_ip -name sem_ultra -vendor xilinx.com -library ip -module_name sem_ultra_0\nset_property -dict [list CONFIG.MODE {mitigation_and_testing} CONFIG.ENABLE_CLASSIFICATION {true} CONFIG.CLOCK_PERIOD {10000}] [get_ips sem_ultra_0]",
+      "parameters": [
+        {"name": "CONFIG.MODE", "description": "detect_only, mitigation_only, mitigation_and_testing, emulation (allows error injection)."},
+        {"name": "CONFIG.ENABLE_CLASSIFICATION", "description": "Essential-bits classification; requires set_property BITSTREAM.SEU.ESSENTIALBITS yes so write_bitstream also emits the .ebd file."},
+        {"name": "CONFIG.CLOCK_PERIOD", "description": "ICAP clock period in ps (limits: ICAP frequency)."},
+        {"name": "Interfaces", "description": "monitor (TX/RX character stream), status flags (heartbeat, initialization, observation, correction, classification, injection, essential, uncorrectable)."}
+      ],
+      "example": "set_property BITSTREAM.SEU.ESSENTIALBITS yes [current_design]\nwrite_bitstream -force top.bit     ;# also writes top.ebd for classification\n# the example design (open_example_project) includes the monitor UART bridge and error-injection commands",
+      "notes": "Only one ICAP user at a time: SEM conflicts with DFX/ICAP-based reconfiguration unless the SEM is paused during partial reconfiguration. Versal SEM is part of the PLM (XilSEM) rather than a fabric IP.",
+      "docs": "https://docs.amd.com/r/en-US/pg187-ultrascale-sem"
+    },
+    {
+      "name": "Versal Network on Chip (axi_noc) and AI Engine (ai_engine)",
+      "kind": "block",
+      "description": "Versal system infrastructure IP: axi_noc instantiates the hardened NoC with its integrated DDR4/LPDDR4 memory controllers, connecting PS, PL AXI masters/slaves and AI Engine through NMU/NSU ports with QoS (bandwidth/latency class) settings, and generates the NoC routing solution during implementation; ai_engine exposes the AI Engine array (PL streams, cascade, NoC memory) whose graph is compiled by aiecompiler and linked into the platform with v++. Both are configured mainly through the CIPS-driven block automation and the NoC/AIE 'Connectivity' and 'QoS' tabs.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_noc axi_noc_0\nset_property -dict [list CONFIG.NUM_SI {2} CONFIG.NUM_MI {0} CONFIG.NUM_MC {1} CONFIG.NUM_MCP {4} CONFIG.MC_CHAN_REGION0 {DDR_LOW0} CONFIG.CONTROLLERTYPE {DDR4_SDRAM} CONFIG.MC_INPUT_FREQUENCY0 {200.000}] [get_bd_cells axi_noc_0]\nset_property -dict [list CONFIG.CONNECTIONS {MC_0 {read_bw {1000} write_bw {1000} read_avg_burst {4} write_avg_burst {4}}}] [get_bd_intf_pins axi_noc_0/S00_AXI]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:ai_engine ai_engine_0",
+      "parameters": [
+        {"name": "CONFIG.NUM_SI / NUM_MI / NUM_NMI / NUM_NSI", "description": "AXI slave/master ports and NoC-to-NoC (inter-NoC) interfaces."},
+        {"name": "CONFIG.NUM_MC / NUM_MCP / CONTROLLERTYPE / MC_* ", "description": "Integrated memory controllers, ports per controller, DDR4/LPDDR4 settings."},
+        {"name": "CONFIG.CONNECTIONS (on interface pins)", "description": "Per-port QoS: destination, read/write bandwidth (MB/s), average burst."},
+        {"name": "ai_engine CONFIG.NUM_MI_AXIS / NUM_SI_AXIS / CLK_NAMES", "description": "PL stream interfaces and clocks used by the AIE graph."}
+      ],
+      "example": "# NoC solution inspection after validate_bd_design / place_design\nvalidate_bd_design\nreport_noc_qos -file noc_qos.rpt\nget_noc_interfaces\nget_noc_net_routes\n# related: run_noc_compiler, read_noc_solution (see help run_noc_compiler for the current release)",
+      "notes": "NoC connectivity errors surface in validate_bd_design and place_design (NoC compiler). AI Engine graphs require the Vitis aiecompiler flow; the ai_engine IP in the BD only provides the PL/NoC boundary. Versal AI Edge parts use AIE-ML.",
+      "docs": "https://docs.amd.com/r/en-US/pg313-network-on-chip"
+    },
+    {
+      "name": "Vitis HLS-generated IP (xilinx.com:hls:<top>)",
+      "kind": "block",
+      "description": "An IP packaged by export_design -format ip_catalog from Vitis HLS appears in the catalog under the vendor/library xilinx.com:hls (or the vendor set by config_export) with the top function name, exposing s_axi_control (AXI4-Lite with ap_start/ap_done/ap_idle/auto_restart registers and scalar arguments), m_axi_* ports for pointer arguments, ap_clk/ap_rst_n and any axis streams, plus an interrupt. Software drives it through the generated driver (x<top>.h, X<Top>_Start etc.) or Linux UIO/XRT. The .zip from export_design is extracted into an ip_repo_paths directory.",
+      "usage": "set_property ip_repo_paths [list ./hls_ip_repo] [current_project]\nupdate_ip_catalog -rebuild\ncreate_bd_cell -type ip -vlnv xilinx.com:hls:vadd:1.0 vadd_0\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Master \"/zynq_ultra_ps_e_0/M_AXI_HPM0_FPD\" Clk \"Auto\"} [get_bd_intf_pins vadd_0/s_axi_control]\napply_bd_automation -rule xilinx.com:bd_rule:axi4 -config {Slave \"/zynq_ultra_ps_e_0/S_AXI_HP0_FPD\" Clk \"Auto\"} [get_bd_intf_pins vadd_0/m_axi_gmem]",
+      "parameters": [
+        {"name": "s_axi_control register map", "description": "0x00 CTRL (ap_start bit0, ap_done bit1, ap_idle bit2, ap_ready bit3, auto_restart bit7), 0x04 GIE, 0x08 IER, 0x0C ISR, then argument registers at offsets listed in the generated <top>_control_s_axi.v / driver header."},
+        {"name": "m_axi_<bundle>", "description": "One AXI4 master per INTERFACE bundle; base address of pointer arguments written to the offset registers."},
+        {"name": "ap_clk / ap_rst_n", "description": "Single clock and active-low reset (config_rtl -reset_level)."}
+      ],
+      "example": "# Vitis HLS side\nexport_design -format ip_catalog -ipname vadd -vendor mycompany.com -library hls -version 1.0 -output ./hls_ip_repo/vadd.zip\n# unzip into ./hls_ip_repo/vadd, then in Vivado the VLNV is mycompany.com:hls:vadd:1.0",
+      "notes": "Re-exporting with a higher version requires upgrade_ip / upgrade_bd_cells in consuming designs. The generated driver lives in the IP's drivers/ folder and is picked up by Vitis from the .xsa.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Exporting-the-RTL-Design"
+    },
+    {
+      "name": "AXI Chip2Chip / AXI HWICAP / AXI DataMover (axi_chip2chip, axi_hwicap, axi_datamover)",
+      "kind": "block",
+      "description": "Three special-purpose AXI cores: axi_chip2chip bridges an AXI4 memory-mapped bus between two FPGAs over SelectIO (SDR/DDR LVCMOS/LVDS) or Aurora transceiver links, so peripherals on a second device look local; axi_hwicap wraps the ICAP configuration port behind AXI4-Lite so software can perform partial reconfiguration or read back configuration frames; axi_datamover is the DMA data engine (MM2S/S2MM with AXI4-Stream command/status) without descriptor logic, used inside custom DMA controllers and HLS-style accelerators.",
+      "usage": "create_bd_cell -type ip -vlnv xilinx.com:ip:axi_hwicap axi_hwicap_0\nset_property -dict [list CONFIG.C_ICAP_EXTERNAL {0} CONFIG.C_INCLUDE_STARTUP {0} CONFIG.C_WRITE_FIFO_DEPTH {1024}] [get_bd_cells axi_hwicap_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_datamover axi_datamover_0\nset_property -dict [list CONFIG.c_m_axi_mm2s_data_width {128} CONFIG.c_include_s2mm {Full} CONFIG.c_enable_mm2s {1}] [get_bd_cells axi_datamover_0]\ncreate_bd_cell -type ip -vlnv xilinx.com:ip:axi_chip2chip axi_chip2chip_0\nset_property -dict [list CONFIG.C_MASTER_FPGA {1} CONFIG.C_INTERFACE_TYPE {0} CONFIG.C_INTERFACE_MODE {0} CONFIG.C_SELECTIO_PHY_WIDTH {1}] [get_bd_cells axi_chip2chip_0]",
+      "parameters": [
+        {"name": "axi_hwicap CONFIG.C_ICAP_EXTERNAL", "description": "1 to drive an ICAP primitive instantiated elsewhere (e.g. shared with SEM)."},
+        {"name": "axi_datamover CONFIG.c_include_mm2s / c_include_s2mm", "description": "Full, Omit, or Basic engines; command/status via S_AXIS_MM2S_CMD / M_AXIS_MM2S_STS."},
+        {"name": "axi_chip2chip CONFIG.C_MASTER_FPGA / C_INTERFACE_TYPE / C_INTERFACE_MODE", "description": "Master or slave side; SelectIO (0) or Aurora (1); SDR/DDR/multi-lane options."}
+      ],
+      "example": "# ICAP-based DFX from Zynq PL side\nconnect_bd_net [get_bd_pins axi_hwicap_0/icap_clk] [get_bd_pins clk_wiz_0/clk_out1]  ;# <= ICAP max frequency for the device\n# software: XHwIcap_DeviceWrite of the partial .bin (byte-swapped as required)",
+      "notes": "On Zynq/ZynqMP the PCAP path (through the PS) is usually simpler than HWICAP for partial bitstreams; on pure FPGAs HWICAP or the DFX Controller IP drive the ICAP. DataMover has no AXI4-Lite registers: everything is stream commands.",
+      "docs": "https://docs.amd.com/r/en-US/pg134-axi-hwicap"
+    }
+  ]
+}

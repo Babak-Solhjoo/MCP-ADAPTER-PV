@@ -1,0 +1,424 @@
+{
+  "category": "Parallel Computing Toolbox > Pools, Parallel Loops, GPU & Big Data",
+  "description": "Starting and managing parallel pools, parallel loops and asynchronous execution, distributed and GPU arrays, batch and cluster job submission, and out-of-memory computation with tall arrays and mapreduce.",
+  "tools": [
+    {
+      "name": "parpool",
+      "kind": "function",
+      "description": "Start a parallel pool of workers on a cluster or the local machine, which parfor, spmd, parfeval and distributed arrays then use. Thread-based pools ('threads') start almost instantly and share memory, while process-based pools ('local') support more functionality including GPUs. Without a pool, parfor silently runs serially.",
+      "usage": "parpool\nparpool(poolsize)\nparpool(profilename)\nparpool(profilename, poolsize)\npool = parpool('threads')\nparpool('Processes', n)",
+      "parameters": [
+        {"name": "poolsize", "description": "Number of workers; defaults to the profile's preferred value (usually the physical core count)."},
+        {"name": "profilename", "description": "Cluster profile name, or 'local'/'Processes'/'threads'."},
+        {"name": "'IdleTimeout'", "description": "Minutes of inactivity before the pool shuts down."},
+        {"name": "'SpmdEnabled'", "description": "Logical; disable spmd support for slightly faster startup."},
+        {"name": "'AttachedFiles'", "description": "Files copied to the workers."}
+      ],
+      "example": "p = parpool('Processes', 6, 'IdleTimeout', 60);\nfprintf('%d workers on %s\\n', p.NumWorkers, p.Cluster.Profile);\n% ... run parfor loops ...\ndelete(gcp('nocreate'));",
+      "notes": "Starting a process pool takes tens of seconds; keep one alive for a session rather than creating it per loop.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parpool.html"
+    },
+    {
+      "name": "gcp",
+      "kind": "function",
+      "description": "Return a handle to the current parallel pool, starting one automatically if none exists. Passing 'nocreate' returns an empty value instead of starting a pool, which is how you safely test for or shut down an existing pool. Use the returned object to query worker count and cluster settings.",
+      "usage": "p = gcp\np = gcp('nocreate')\ndelete(gcp('nocreate'))",
+      "parameters": [
+        {"name": "'nocreate'", "description": "Do not start a pool if one is not already running; returns [] instead."}
+      ],
+      "example": "p = gcp('nocreate');\nif isempty(p)\n    p = parpool('Processes', 4);\nend\nfprintf('Using %d workers\\n', p.NumWorkers);\n% Later, release the resources:\ndelete(gcp('nocreate'));",
+      "docs": "https://www.mathworks.com/help/parallel-computing/gcp.html"
+    },
+    {
+      "name": "parfor",
+      "kind": "command",
+      "description": "Execute loop iterations in parallel across the workers of a parallel pool. Iterations must be independent, since they run in an unpredictable order, and results must be assigned into sliced output variables or reduction variables. With no pool available it runs as an ordinary for loop, so code stays portable.",
+      "usage": "parfor i = 1:n\n    ...\nend\nparfor (i = 1:n, M)\n    ...\nend\nparfor (i = 1:n, parforOptions(cluster))\n    ...\nend",
+      "parameters": [
+        {"name": "M", "description": "Maximum number of workers to use; 0 forces serial execution, which is handy for debugging."},
+        {"name": "sliced variables", "description": "Arrays indexed only by the loop variable, distributed to and collected from workers."},
+        {"name": "reduction variables", "description": "Accumulators combined with an associative operator such as plus, times, min, max or concatenation."}
+      ],
+      "example": "n = 2000;\nresults = zeros(n, 1);\ntotal = 0;\nparfor i = 1:n\n    A = rand(200);\n    results(i) = max(eig(A));\n    total = total + trace(A);      % reduction\nend\nfprintf('mean = %.4f, total = %.2f\\n', mean(results), total);",
+      "notes": "Variables created inside the loop are temporary and discarded. Use a DataQueue to report progress, since disp output from workers is not ordered.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parfor.html"
+    },
+    {
+      "name": "parforOptions",
+      "kind": "function",
+      "description": "Configure how a parfor loop is partitioned and where it runs, including running on a cluster without an interactive pool. The partition method controls how many iterations each worker gets at a time, which matters when iteration cost varies widely. Pass the returned object as the second argument of parfor.",
+      "usage": "opts = parforOptions(pool)\nopts = parforOptions(cluster)\nopts = parforOptions(___, Name, Value)\nparfor (i = 1:n, opts)",
+      "parameters": [
+        {"name": "pool / cluster", "description": "Target parallel pool or a parallel.Cluster for pool-free cluster execution."},
+        {"name": "'RangePartitionMethod'", "description": "'auto' (default), 'fixed', or a function handle controlling chunk sizes."},
+        {"name": "'SubrangeSize'", "description": "Iterations per chunk when the method is 'fixed'."},
+        {"name": "'MaxNumWorkers'", "description": "Worker limit for cluster execution."},
+        {"name": "'AttachedFiles' / 'AdditionalPaths'", "description": "Files and paths made available to workers."}
+      ],
+      "example": "c = parcluster('Processes');\nopts = parforOptions(c, 'MaxNumWorkers', 8, ...\n    'RangePartitionMethod', 'fixed', 'SubrangeSize', 5);\nresults = zeros(100, 1);\nparfor (i = 1:100, opts)\n    results(i) = sum(rand(1, 1e6));\nend",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parforoptions.html"
+    },
+    {
+      "name": "parfeval",
+      "kind": "function",
+      "description": "Run a function asynchronously on a parallel pool worker, returning a future object immediately so the client can continue working. Results are collected later with fetchOutputs or fetchNext. Use it for heterogeneous tasks, for early termination, and for keeping a UI responsive during computation.",
+      "usage": "F = parfeval(fcn, numout, in1, in2, ...)\nF = parfeval(pool, fcn, numout, in1, ...)\nF = parfeval(backgroundPool, fcn, numout, ...)",
+      "parameters": [
+        {"name": "fcn", "description": "Function handle to execute on a worker."},
+        {"name": "numout", "description": "Number of output arguments to capture."},
+        {"name": "in1, in2, ...", "description": "Input arguments, copied to the worker."},
+        {"name": "backgroundPool", "description": "Run on a background thread in the same process, without a process pool."}
+      ],
+      "example": "for i = 1:10\n    F(i) = parfeval(@(k) max(eig(rand(300*k))), 1, i);\nend\nfor i = 1:10\n    [idx, val] = fetchNext(F);\n    fprintf('Task %d finished: %.4f\\n', idx, val);\nend",
+      "notes": "Always cancel(F) any outstanding futures if you break out of the collection loop early.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.pool.parfeval.html"
+    },
+    {
+      "name": "parfevalOnAll",
+      "kind": "function",
+      "description": "Run a function once on every worker in the pool asynchronously. It is the standard way to perform per-worker setup such as loading data, setting paths, seeding random number generators or opening files. Returns a single future representing all the executions.",
+      "usage": "F = parfevalOnAll(fcn, numout, in1, ...)\nF = parfevalOnAll(pool, fcn, numout, in1, ...)\nwait(F)",
+      "parameters": [
+        {"name": "fcn", "description": "Function handle executed on each worker."},
+        {"name": "numout", "description": "Number of outputs per worker (often 0 for setup tasks)."},
+        {"name": "in1, ...", "description": "Arguments broadcast to every worker."}
+      ],
+      "example": "F = parfevalOnAll(@() warning('off', 'all'), 0);\nwait(F);\nF2 = parfevalOnAll(@() addpath('/shared/toolbox'), 0);\nwait(F2);\nF3 = parfevalOnAll(@() rng('shuffle'), 0);\nwait(F3);",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.pool.parfevalonall.html"
+    },
+    {
+      "name": "fetchOutputs",
+      "kind": "function",
+      "description": "Retrieve the results of one or more futures, blocking until they have finished. For an array of futures it vertically concatenates the results, which is convenient when every task returns the same shape. Any error raised on the worker is rethrown here.",
+      "usage": "results = fetchOutputs(F)\n[out1, out2] = fetchOutputs(F)\nresults = fetchOutputs(F, 'UniformOutput', false)",
+      "parameters": [
+        {"name": "F", "description": "A future or array of futures from parfeval, parfevalOnAll or batch."},
+        {"name": "'UniformOutput'", "description": "Logical; false returns a cell array when results have different sizes."}
+      ],
+      "example": "for i = 1:8\n    F(i) = parfeval(@rand, 1, 100, 100);\nend\nmats = fetchOutputs(F, 'UniformOutput', false);\nfprintf('Collected %d matrices\\n', numel(mats));",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.futures.fevalfuture.fetchoutputs.html"
+    },
+    {
+      "name": "fetchNext",
+      "kind": "function",
+      "description": "Wait for the next future in an array to complete and return its index along with its outputs. Because results arrive in completion order rather than submission order, you can process fast tasks immediately and stop early once a criterion is met. This is the key to responsive, cancellable parallel searches.",
+      "usage": "[idx, out1, out2, ...] = fetchNext(F)\n[idx, out1, ...] = fetchNext(F, timeout)",
+      "parameters": [
+        {"name": "F", "description": "Array of futures."},
+        {"name": "timeout", "description": "Maximum seconds to wait; idx is empty if it expires."}
+      ],
+      "example": "for i = 1:20\n    F(i) = parfeval(@(s) deal(s, sum(rand(1, 1e6) > 0.999)), 2, i);\nend\nfor k = 1:20\n    [idx, seed, hits] = fetchNext(F, 30);\n    if hits > 1050\n        fprintf('Hit found in task %d (seed %d)\\n', idx, seed);\n        cancel(F); break\n    end\nend",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.futures.fevalfuture.fetchnext.html"
+    },
+    {
+      "name": "afterEach",
+      "kind": "function",
+      "description": "Register a callback that runs on the client each time one of a set of futures completes, or each time data is sent to a DataQueue. It is how you update progress bars, log results or stream data back from workers without blocking. The callback runs in the client MATLAB, not on a worker.",
+      "usage": "FQ = afterEach(F, fcn, numout)\nlistener = afterEach(queue, fcn)\nFQ = afterEach(___, 'PassFuture', tf)",
+      "parameters": [
+        {"name": "F / queue", "description": "An array of futures or a parallel.pool.DataQueue."},
+        {"name": "fcn", "description": "Callback function handle receiving the outputs or the sent data."},
+        {"name": "numout", "description": "Number of outputs the callback produces."}
+      ],
+      "example": "q = parallel.pool.DataQueue;\nn = 100;\nh = waitbar(0, 'Working...');\ncount = 0;\nafterEach(q, @(~) updateBar());\nparfor i = 1:n\n    pause(0.02);\n    send(q, i);\nend\nclose(h)\nfunction updateBar()\n    % increments a counter and calls waitbar in the client\nend",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.pool.dataqueue.aftereach.html"
+    },
+    {
+      "name": "afterAll",
+      "kind": "function",
+      "description": "Register a callback that runs once, on the client, after every future in a set has completed, receiving all their results together. Use it to build asynchronous pipelines where a reduction or report happens automatically when a batch of work finishes. It returns a new future representing the callback itself.",
+      "usage": "FQ = afterAll(F, fcn, numout)\nFQ = afterAll(___, 'PassFuture', tf)",
+      "parameters": [
+        {"name": "F", "description": "Array of futures to wait for."},
+        {"name": "fcn", "description": "Callback receiving the concatenated results of all futures."},
+        {"name": "numout", "description": "Number of outputs of the callback."}
+      ],
+      "example": "for i = 1:10\n    F(i) = parfeval(@(k) sum(rand(1, 1e6) * k), 1, i);\nend\nsummaryFuture = afterAll(F, @(x) struct('total', sum(x), 'peak', max(x)), 1);\nsummary = fetchOutputs(summaryFuture);\nfprintf('total %.1f, peak %.1f\\n', summary.total, summary.peak);",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.pool.dataqueue.afterall.html"
+    },
+    {
+      "name": "spmd",
+      "kind": "command",
+      "description": "Run a block of code simultaneously on every worker of a pool, with each worker able to take a different branch based on its index. Variables assigned inside become Composite objects on the client, indexable by worker. Use it for MPI-style algorithms, per-worker resource setup and distributed-array operations.",
+      "usage": "spmd\n    ...\nend\nspmd(n)\n    ...\nend\nspmd(minW, maxW)\n    ...\nend",
+      "parameters": [
+        {"name": "n", "description": "Exact number of workers to use for this block."},
+        {"name": "minW, maxW", "description": "Minimum and maximum worker counts."},
+        {"name": "spmdIndex / spmdSize", "description": "Index of the current worker and the number of workers in the block."}
+      ],
+      "example": "parpool('Processes', 4);\nspmd\n    myData = rand(1000) * spmdIndex;\n    localMax = max(myData(:));\n    globalMax = spmdReduce(@max, localMax);\nend\nfprintf('Worker 2 local max: %.4f\\n', localMax{2});\nfprintf('Global max: %.4f\\n', globalMax{1});",
+      "notes": "In releases before R2022b the equivalents are labindex, numlabs, gop, labSend and labReceive.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/spmd.html"
+    },
+    {
+      "name": "parallel.pool.DataQueue",
+      "kind": "script-object",
+      "description": "Create a queue that workers can send data to and the client receives asynchronously, which is the only safe way to stream results or progress out of a parfor or spmd block. Register a handler with afterEach or poll with poll. PollableDataQueue is the variant the client uses to send data to workers.",
+      "usage": "q = parallel.pool.DataQueue\nsend(q, data)\nafterEach(q, fcn)\n[data, ok] = poll(q)\n[data, ok] = poll(q, timeout)",
+      "parameters": [
+        {"name": "data", "description": "Any serializable MATLAB value sent from a worker to the client."},
+        {"name": "fcn", "description": "Client-side callback invoked for each item."},
+        {"name": "timeout", "description": "Seconds to wait when polling."}
+      ],
+      "example": "q = parallel.pool.DataQueue;\nnIter = 200;\ndone = 0;\nafterEach(q, @(~) fprintf('.'));\nparfor i = 1:nIter\n    x = sum(rand(1, 1e5));\n    send(q, i);\nend\nfprintf('\\nFinished %d iterations\\n', nIter);",
+      "notes": "Printing directly from a parfor body is unordered and unreliable; a DataQueue gives correctly serialized client-side output.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.pool.dataqueue.html"
+    },
+    {
+      "name": "parallel.pool.Constant",
+      "kind": "script-object",
+      "description": "Transfer a large piece of data to the workers once and keep it there across multiple parfor or spmd calls, instead of re-sending it every iteration. Access the data through the object's Value property inside the loop. This often removes the dominant communication cost in data-heavy parallel code.",
+      "usage": "C = parallel.pool.Constant(X)\nC = parallel.pool.Constant(fcn)\nC = parallel.pool.Constant(fcn, cleanupFcn)\n% inside the loop: C.Value",
+      "parameters": [
+        {"name": "X", "description": "Data to broadcast once to every worker."},
+        {"name": "fcn", "description": "Function evaluated on each worker to create the value locally (avoids sending it at all)."},
+        {"name": "cleanupFcn", "description": "Function run on each worker when the constant is destroyed, e.g. to close a file."}
+      ],
+      "example": "bigData = rand(5000);\nC = parallel.pool.Constant(bigData);\nresults = zeros(200, 1);\nparfor i = 1:200\n    results(i) = sum(C.Value(:, mod(i, 5000) + 1));\nend\n% Create per-worker resources instead of sending them:\nfid = parallel.pool.Constant(@() fopen(tempname, 'w'), @fclose);",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.pool.constant.html"
+    },
+    {
+      "name": "gpuArray",
+      "kind": "function",
+      "description": "Transfer an array to GPU memory so that subsequent operations run on the GPU. Hundreds of MATLAB functions are overloaded for gpuArray, so much existing code accelerates with no other change. Keep data resident on the device and only call gather at the end, since transfers are the usual bottleneck.",
+      "usage": "G = gpuArray(X)\nG = gpuArray.zeros(m, n)\nG = rand(m, n, 'gpuArray')\nG = ones(m, n, 'single', 'gpuArray')\ntf = isgpuarray(X)",
+      "parameters": [
+        {"name": "X", "description": "A numeric or logical array to copy to the device."},
+        {"name": "'gpuArray'", "description": "Class specifier passed to zeros/ones/rand to create data directly on the device."}
+      ],
+      "example": "A = gpuArray(rand(4000, 'single'));\nB = gpuArray(rand(4000, 'single'));\ntic; C = A * B; wait(gpuDevice); tGPU = toc;\nAc = gather(A); Bc = gather(B);\ntic; Cc = Ac * Bc; tCPU = toc;\nfprintf('GPU %.3fs vs CPU %.3fs\\n', tGPU, tCPU);",
+      "notes": "Single precision is typically several times faster than double on consumer GPUs. Use gputimeit rather than tic/toc for accurate timing.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/gpuarray.html"
+    },
+    {
+      "name": "gather",
+      "kind": "function",
+      "description": "Bring data back to the client from a GPU, a distributed array, a Composite or a tall array, producing an ordinary in-memory MATLAB array. For tall arrays it is the call that actually triggers the deferred computation. Gathering a very large distributed or tall result can exhaust client memory, so reduce first.",
+      "usage": "X = gather(A)\n[X1, X2, ...] = gather(A1, A2, ...)\nX = gather(tallArray)",
+      "parameters": [
+        {"name": "A", "description": "gpuArray, distributed, codistributed, Composite or tall array."}
+      ],
+      "example": "G = gpuArray(rand(1000, 'single'));\nGs = G * 2 + 1;\nresult = gather(Gs);\nclass(result)        % single, in host memory\n\nD = distributed.rand(5000);\ncolSums = gather(sum(D, 1));",
+      "docs": "https://www.mathworks.com/help/parallel-computing/gather.html"
+    },
+    {
+      "name": "gpuDevice",
+      "kind": "function",
+      "description": "Query or select the GPU device used by MATLAB, reporting its name, compute capability, total and available memory. Calling it with a device index selects that GPU and resets it, clearing all existing gpuArray data. Use reset(gpuDevice) to free device memory that has become fragmented.",
+      "usage": "D = gpuDevice\nD = gpuDevice(idx)\nn = gpuDeviceCount\nreset(D)\ntf = canUseGPU",
+      "parameters": [
+        {"name": "idx", "description": "Index of the device to select (1 to gpuDeviceCount)."},
+        {"name": "D", "description": "Device object with Name, ComputeCapability, TotalMemory, AvailableMemory fields."}
+      ],
+      "example": "if canUseGPU\n    d = gpuDevice;\n    fprintf('%s, CC %s, %.1f of %.1f GB free\\n', d.Name, d.ComputeCapability, ...\n        d.AvailableMemory/1e9, d.TotalMemory/1e9);\nelse\n    disp('No compatible GPU found');\nend",
+      "notes": "Selecting a device wipes all existing gpuArray variables, so do it at the start of a session.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parallel.gpu.gpudevice.html"
+    },
+    {
+      "name": "arrayfun",
+      "kind": "function",
+      "description": "Apply a function element-wise to arrays; when the inputs are gpuArrays the function body is compiled and executed on the GPU with one thread per element. This is the main way to write custom element-wise GPU kernels without CUDA. The function must be element-wise scalar and use only supported operations.",
+      "usage": "B = arrayfun(fcn, A)\nB = arrayfun(fcn, A1, A2, ...)\n[B1, B2] = arrayfun(fcn, A, 'UniformOutput', tf)",
+      "parameters": [
+        {"name": "fcn", "description": "Function handle applied to corresponding elements; must be scalar-in, scalar-out for GPU execution."},
+        {"name": "A, A1, A2", "description": "Input arrays of matching size; gpuArrays trigger GPU execution."},
+        {"name": "'UniformOutput'", "description": "Logical; false returns a cell array (CPU only)."}
+      ],
+      "example": "x = gpuArray(linspace(-5, 5, 1e7, 'single'));\ny = gpuArray(linspace(0, 1, 1e7, 'single'));\nf = @(a, b) exp(-a.^2) .* sin(3*a) + b./(1 + abs(a));\nz = arrayfun(f, x, y);\nfprintf('max = %.6f\\n', gather(max(z)));",
+      "notes": "A single fused arrayfun call is much faster on the GPU than several separate elementwise operations, because it avoids intermediate arrays.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/gpuarray.arrayfun.html"
+    },
+    {
+      "name": "pagefun",
+      "kind": "function",
+      "description": "Apply a function to each page (2-D slice) of a multidimensional gpuArray in parallel across pages. It turns loops over many small matrix operations into a single batched GPU call, which is dramatically faster. Supported functions include mtimes, mldivide, inv, lu, transpose and several others.",
+      "usage": "B = pagefun(fcn, A)\nB = pagefun(fcn, A1, A2)\n[B1, B2] = pagefun(fcn, ...)",
+      "parameters": [
+        {"name": "fcn", "description": "@mtimes, @mldivide, @inv, @transpose, @ctranspose, @lu, @qr and similar supported operations."},
+        {"name": "A, A1, A2", "description": "gpuArrays whose third and higher dimensions index the pages."}
+      ],
+      "example": "N = 5000;\nA = gpuArray(rand(8, 8, N, 'single'));\nB = gpuArray(rand(8, 1, N, 'single'));\nX = pagefun(@mldivide, A, B);      % solve 5000 small systems at once\nsize(X)\nAinv = pagefun(@inv, A);",
+      "docs": "https://www.mathworks.com/help/parallel-computing/pagefun.html"
+    },
+    {
+      "name": "gputimeit",
+      "kind": "function",
+      "description": "Measure the execution time of a function running on the GPU, correctly accounting for the asynchronous nature of GPU kernel launches. Ordinary tic/toc can report misleadingly short times because it returns before the GPU finishes. It also runs the function several times and discards warm-up effects.",
+      "usage": "t = gputimeit(F)\nt = gputimeit(F, numOutputs)",
+      "parameters": [
+        {"name": "F", "description": "Function handle taking no arguments; capture data with a closure."},
+        {"name": "numOutputs", "description": "Number of outputs the function should produce (default 1)."}
+      ],
+      "example": "A = gpuArray(rand(3000, 'single'));\nfGPU = @() A * A;\ntGPU = gputimeit(fGPU);\nAc = gather(A);\ntCPU = timeit(@() Ac * Ac);\nfprintf('GPU %.4f s, CPU %.4f s, speedup %.1fx\\n', tGPU, tCPU, tCPU/tGPU);",
+      "docs": "https://www.mathworks.com/help/parallel-computing/gputimeit.html"
+    },
+    {
+      "name": "existsOnGPU",
+      "kind": "function",
+      "description": "Test whether a gpuArray variable still refers to valid data on the currently selected device. Resetting or switching the GPU device invalidates all existing gpuArray variables while they remain in the workspace. Use it defensively in long-running code before reusing device data.",
+      "usage": "tf = existsOnGPU(X)",
+      "parameters": [
+        {"name": "X", "description": "A gpuArray or CUDAKernel object."}
+      ],
+      "example": "G = gpuArray(rand(500));\nfprintf('valid: %d\\n', existsOnGPU(G));\nreset(gpuDevice);\nfprintf('after reset: %d\\n', existsOnGPU(G));   % 0",
+      "docs": "https://www.mathworks.com/help/parallel-computing/existsongpu.html"
+    },
+    {
+      "name": "distributed",
+      "kind": "function",
+      "description": "Create an array whose data is partitioned across the memory of all workers in a parallel pool, so you can work with arrays far larger than one machine's RAM. Most MATLAB array operations are overloaded, so client code looks almost unchanged. The client sees a single distributed array; workers see their local codistributed portion.",
+      "usage": "D = distributed(X)\nD = distributed.rand(m, n)\nD = distributed.zeros(m, n)\nD = distributed.ones(m, n, 'single')\nL = gather(D)",
+      "parameters": [
+        {"name": "X", "description": "A client array to distribute across the pool."},
+        {"name": "m, n", "description": "Dimensions for the static constructor methods."}
+      ],
+      "example": "parpool('Processes', 4);\nD = distributed.rand(20000, 'single');\ncolMeans = mean(D, 1);\ntotal = sum(D(:));\nfprintf('Overall mean: %.6f\\n', gather(total) / numel(D));\nsmall = gather(colMeans(1:5));",
+      "notes": "Never gather the whole distributed array back to the client unless it fits in memory; gather only reduced results.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/distributed.html"
+    },
+    {
+      "name": "codistributed",
+      "kind": "function",
+      "description": "The worker-side view of a distributed array, used inside spmd blocks where each worker can access its own local portion. A codistributor object controls how the data is split across workers and along which dimension. Use getLocalPart to operate directly on a worker's slice for maximum performance.",
+      "usage": "C = codistributed(X)\nC = codistributed(X, codist)\nL = getLocalPart(C)\ncodist = codistributor1d(dim)\nC = codistributed.build(localPart, codist)",
+      "parameters": [
+        {"name": "X", "description": "Replicated array to distribute across the workers."},
+        {"name": "codist", "description": "A codistributor1d or codistributor2dbc object describing the partitioning."},
+        {"name": "dim", "description": "Dimension along which the data is split."}
+      ],
+      "example": "spmd\n    codist = codistributor1d(2);            % split by columns\n    C = codistributed.rand(1000, 4000, codist);\n    local = getLocalPart(C);\n    localSum = sum(local(:));\n    totalSum = spmdReduce(@plus, localSum);\nend\nfprintf('Total: %.2f\\n', totalSum{1});",
+      "docs": "https://www.mathworks.com/help/parallel-computing/codistributed.html"
+    },
+    {
+      "name": "batch",
+      "kind": "function",
+      "description": "Submit a script or function to run offline on a cluster or in a background MATLAB session, so the client is free immediately. The returned job object can be queried, waited on, and its workspace or outputs retrieved later. Use the 'Pool' option to give the batch job its own parallel pool of workers.",
+      "usage": "j = batch(script)\nj = batch(fcn, numout, {args})\nj = batch(cluster, ___)\nj = batch(___, 'Pool', n, 'AutoAddClientPath', tf)\nwait(j); load(j); r = fetchOutputs(j);",
+      "parameters": [
+        {"name": "script / fcn", "description": "Script name or function handle to run."},
+        {"name": "numout, {args}", "description": "Number of outputs and a cell array of input arguments."},
+        {"name": "'Pool'", "description": "Number of extra workers for parfor/spmd inside the job."},
+        {"name": "'AttachedFiles' / 'AdditionalPaths'", "description": "Code and data made available to the job."},
+        {"name": "'CurrentFolder'", "description": "Working directory on the worker."}
+      ],
+      "example": "c = parcluster('Processes');\nj = batch(c, @(n) max(eig(rand(n))), 1, {2000}, 'Pool', 3);\n% ... continue working in the client ...\nwait(j);\nres = fetchOutputs(j);\nfprintf('Result: %.4f\\n', res{1});\ndelete(j);",
+      "notes": "A job using 'Pool', n consumes n+1 workers. Always delete finished jobs to free their stored data.",
+      "docs": "https://www.mathworks.com/help/parallel-computing/batch.html"
+    },
+    {
+      "name": "parcluster",
+      "kind": "function",
+      "description": "Return a cluster object for a named cluster profile, giving access to its properties, job list and submission functions. It is the entry point for batch jobs, independent jobs and pool-free parfor execution. Use parallel.defaultProfile or the Cluster Profile Manager to see the available profiles.",
+      "usage": "c = parcluster\nc = parcluster(profilename)\nprofiles = parallel.clusterProfiles\njobs = c.Jobs",
+      "parameters": [
+        {"name": "profilename", "description": "Name of a cluster profile such as 'Processes', 'Threads' or a configured MATLAB Parallel Server profile."}
+      ],
+      "example": "disp(parallel.clusterProfiles)\nc = parcluster('Processes');\nc.NumWorkers\nj = batch(c, @() sum(rand(1, 1e7)), 1, {});\nwait(j);\ndisp(fetchOutputs(j))\ndelete(findJob(c, 'State', 'finished'));",
+      "docs": "https://www.mathworks.com/help/parallel-computing/parcluster.html"
+    },
+    {
+      "name": "createJob",
+      "kind": "function",
+      "description": "Create an independent job on a cluster, which is a container for tasks that can run in any order on any worker. It gives finer control than batch when you have many heterogeneous pieces of work. Add tasks with createTask, then submit and wait.",
+      "usage": "job = createJob(cluster)\njob = createJob(cluster, Name, Value)",
+      "parameters": [
+        {"name": "cluster", "description": "A cluster object from parcluster."},
+        {"name": "'AttachedFiles'", "description": "Files copied to the workers."},
+        {"name": "'AdditionalPaths'", "description": "Paths added on the workers."},
+        {"name": "'AutoAttachFiles'", "description": "Logical; automatically detect and send file dependencies."}
+      ],
+      "example": "c = parcluster('Processes');\njob = createJob(c, 'AutoAttachFiles', true);\nfor k = 1:5\n    createTask(job, @(n) sum(primes(n)), 1, {k * 100000});\nend\nsubmit(job);\nwait(job);\nout = fetchOutputs(job);\ndisp(cell2mat(out));\ndelete(job);",
+      "docs": "https://www.mathworks.com/help/parallel-computing/createjob.html"
+    },
+    {
+      "name": "createTask",
+      "kind": "function",
+      "description": "Add one or more tasks to an independent job, each specifying a function, the number of outputs and its input arguments. Passing a cell array of argument sets creates several tasks in one call. Each task runs on a single worker, independently of the others.",
+      "usage": "task = createTask(job, fcn, numout, inputargs)\ntasks = createTask(job, fcn, numout, {args1, args2, ...})\ntask = createTask(___, Name, Value)",
+      "parameters": [
+        {"name": "job", "description": "The job to add tasks to."},
+        {"name": "fcn", "description": "Function handle to run."},
+        {"name": "numout", "description": "Number of output arguments to capture."},
+        {"name": "inputargs", "description": "Cell array of arguments, or a cell array of such cell arrays for multiple tasks."},
+        {"name": "'CaptureDiary'", "description": "Logical; record command-window output from the task."}
+      ],
+      "example": "c = parcluster('Processes');\njob = createJob(c);\nargs = {{100}, {200}, {400}, {800}};\ntasks = createTask(job, @(n) max(eig(rand(n))), 1, args, 'CaptureDiary', true);\nsubmit(job); wait(job);\nresults = cell2mat(fetchOutputs(job));\ndisp(results')",
+      "docs": "https://www.mathworks.com/help/parallel-computing/createtask.html"
+    },
+    {
+      "name": "submit",
+      "kind": "function",
+      "description": "Send a job with all its tasks to the cluster's scheduler for execution. Until you call it, the job stays in the 'pending' state and nothing runs. After submitting, use wait, the job's State property, or a callback to know when it finishes.",
+      "usage": "submit(job)",
+      "parameters": [
+        {"name": "job", "description": "An independent or communicating job created with createJob or createCommunicatingJob."}
+      ],
+      "example": "c = parcluster('Processes');\njob = createJob(c);\ncreateTask(job, @rand, 1, {{3}, {4}});\nsubmit(job);\nfprintf('State: %s\\n', job.State);\nwait(job, 'finished');\nfprintf('Ran in %.2f s\\n', seconds(job.FinishDateTime - job.StartDateTime));",
+      "docs": "https://www.mathworks.com/help/parallel-computing/submit.html"
+    },
+    {
+      "name": "wait",
+      "kind": "function",
+      "description": "Block until a job, task, future or GPU device reaches a given state or completes. For a GPU device it forces the client to wait until all queued kernels have finished, which is essential for accurate timing. An optional timeout prevents indefinite blocking.",
+      "usage": "wait(job)\nwait(job, state)\nwait(job, state, timeout)\nwait(F)\nwait(gpuDevice)",
+      "parameters": [
+        {"name": "job / F", "description": "Job, task or future to wait for."},
+        {"name": "state", "description": "'queued', 'running' or 'finished'."},
+        {"name": "timeout", "description": "Maximum seconds to wait."}
+      ],
+      "example": "A = gpuArray(rand(4000, 'single'));\ntic; B = A * A; wait(gpuDevice); t = toc;\nfprintf('True GPU time: %.4f s\\n', t);\n\nok = wait(job, 'finished', 600);\nif ~ok, warning('Job did not finish within 10 minutes'); end",
+      "docs": "https://www.mathworks.com/help/parallel-computing/wait.html"
+    },
+    {
+      "name": "ticBytes",
+      "kind": "function",
+      "description": "Start counting the bytes transferred between the client and the workers of a parallel pool. Paired with tocBytes it reveals how much data a parfor or spmd block is actually shipping around, which is the usual cause of disappointing parallel speedup. Use it to decide whether a parallel.pool.Constant would help.",
+      "usage": "ticBytes(pool)\nstartState = ticBytes(pool)",
+      "parameters": [
+        {"name": "pool", "description": "The parallel pool to monitor, usually gcp."}
+      ],
+      "example": "p = gcp;\nbig = rand(3000);\nticBytes(p);\nparfor i = 1:8\n    s(i) = sum(big(:, i));     % broadcasts the whole matrix\nend\ntocBytes(p)",
+      "docs": "https://www.mathworks.com/help/parallel-computing/ticbytes.html"
+    },
+    {
+      "name": "tocBytes",
+      "kind": "function",
+      "description": "Report the bytes sent to and received from each worker since the matching ticBytes call. With no output arguments it prints a per-worker table plus totals. Large 'BytesSentToWorkers' values usually mean a big variable is being broadcast on every iteration.",
+      "usage": "tocBytes(pool)\nbytes = tocBytes(pool)\nbytes = tocBytes(pool, startState)",
+      "parameters": [
+        {"name": "pool", "description": "The pool being monitored."},
+        {"name": "startState", "description": "The value returned by ticBytes, to measure a specific interval."}
+      ],
+      "example": "p = gcp;\nbig = rand(3000);\nC = parallel.pool.Constant(big);\nstartState = ticBytes(p);\nparfor i = 1:8\n    s(i) = sum(C.Value(:, i));\nend\nbytes = tocBytes(p, startState);\nfprintf('Total sent: %.2f MB\\n', sum(bytes(:,1))/1e6);",
+      "docs": "https://www.mathworks.com/help/parallel-computing/tocbytes.html"
+    },
+    {
+      "name": "tall",
+      "kind": "function",
+      "description": "Create a tall array, a deferred-evaluation array backed by a datastore that can be far larger than memory. Operations are queued rather than executed, and gather triggers an optimized pass over the data. On a parallel pool the passes run in parallel, and the same code also runs on Spark clusters.",
+      "usage": "T = tall(ds)\nT = tall(X)\nresult = gather(expr)\n[a, b] = gather(expr1, expr2)",
+      "parameters": [
+        {"name": "ds", "description": "A datastore such as tabularTextDatastore, parquetDatastore or fileDatastore."},
+        {"name": "X", "description": "An in-memory array, for testing tall-array code on small data."}
+      ],
+      "example": "ds = tabularTextDatastore('airlinesmall.csv', 'TreatAsMissing', 'NA', ...\n    'SelectedVariableNames', {'ArrDelay','DepDelay','Origin'});\nT = tall(ds);\ndelays = T.ArrDelay(~isnan(T.ArrDelay));\nstats = groupsummary(T, 'Origin', 'mean', 'ArrDelay');\n[m, topOrigins] = gather(mean(delays), head(stats, 10));\nfprintf('Mean arrival delay: %.2f minutes\\n', m);",
+      "notes": "Batch several results into one gather call so MATLAB makes a single pass over the data instead of several.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/tall.html"
+    },
+    {
+      "name": "mapreduce",
+      "kind": "function",
+      "description": "Process out-of-memory data with an explicit map-and-reduce programming model: a map function emits intermediate key/value pairs chunk by chunk, and a reduce function aggregates all values for each key. It works on any datastore and can run in parallel or on Hadoop. Use it when your computation does not fit the tall-array vocabulary.",
+      "usage": "outds = mapreduce(ds, mapfun, reducefun)\noutds = mapreduce(ds, mapfun, reducefun, mr)\noutds = mapreduce(___, Name, Value)\nresult = readall(outds)",
+      "parameters": [
+        {"name": "ds", "description": "Input datastore."},
+        {"name": "mapfun", "description": "@(data, info, intermKVStore) that calls add or addmulti to emit key/value pairs."},
+        {"name": "reducefun", "description": "@(key, intermValIter, outKVStore) that consumes values with hasnext/getnext and emits a result."},
+        {"name": "mr", "description": "An execution environment from mapreducer (e.g. a parallel pool or Hadoop cluster)."},
+        {"name": "'OutputFolder'", "description": "Folder for the output datastore files."}
+      ],
+      "example": "ds = tabularTextDatastore('airlinesmall.csv', 'TreatAsMissing', 'NA', ...\n    'SelectedVariableNames', {'ArrDelay'});\nmapfun = @(data, info, kv) add(kv, 'delay', ...\n    [sum(data.ArrDelay(~isnan(data.ArrDelay))), sum(~isnan(data.ArrDelay))]);\nreducefun = @(key, iter, kv) reduceMean(key, iter, kv);\noutds = mapreduce(ds, mapfun, reducefun);\nreadall(outds)\nfunction reduceMean(key, iter, kv)\n    s = 0; n = 0;\n    while hasnext(iter)\n        v = getnext(iter); s = s + v(1); n = n + v(2);\n    end\n    add(kv, key, s/n);\nend",
+      "docs": "https://www.mathworks.com/help/matlab/ref/mapreduce.html"
+    }
+  ]
+}

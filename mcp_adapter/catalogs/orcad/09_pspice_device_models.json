@@ -1,0 +1,316 @@
+{
+  "category": "PSpice .MODEL types, key model parameters, tolerances and temperature parameters",
+  "description": "The model types accepted by .MODEL and the parameters that matter in practice for each: passive models with temperature/voltage coefficients, the CORE magnetic model, diode, Gummel-Poon/Mextram BJT, MOSFET levels, JFET, GaAsFET, IGBT, switch and lossy-line models, plus the DEV/LOT tolerance syntax, AKO model inheritance, per-model temperature overrides and the breakout parts Capture provides for editing them.",
+  "tools": [
+    {
+      "name": "RES model (resistor)",
+      "kind": "block",
+      "description": "Model type for R devices. Effective resistance = line value * R * (1 + TC1*dT + TC2*dT^2) * 1.01^(TCE*dT). R is a dimensionless multiplier (default 1) so that .STEP/.MC can vary it while the line value stays the nominal resistance. DEV/LOT tolerances on R are the standard way to give resistors a Monte Carlo spread.",
+      "usage": ".MODEL <name> RES(R=<mult> TC1=<1/degC> TC2=<1/degC^2> TCE=<%/degC> [DEV=..] [LOT=..] [T_MEASURED=..] [T_ABS=..] [T_REL_GLOBAL=..] [T_REL_LOCAL=..])",
+      "parameters": [
+        {"name": "R", "description": "Resistance multiplier, default 1."},
+        {"name": "TC1 / TC2", "description": "Linear and quadratic temperature coefficients."},
+        {"name": "TCE", "description": "Exponential temperature coefficient (%/degC)."}
+      ],
+      "example": ".MODEL RMAX RES (R=1.5 TC1=.0002 TC2=.005)\n.MODEL RTRACK RES (R=1 DEV/GAUSS 1% LOT/UNIFORM 5%)\nR1 a b RTRACK 10k",
+      "notes": "Capture part Rbreak (breakout.olb) carries an editable RES model; R_VAR multiplies VALUE by the SET property.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "CAP model (capacitor)",
+      "kind": "block",
+      "description": "Model type for C devices. Effective capacitance = line value * C * (1 + VC1*V + VC2*V^2) * (1 + TC1*dT + TC2*dT^2), giving voltage-dependent (ceramic X7R/Y5V) and temperature-dependent behaviour. C is a multiplier (default 1) that carries DEV/LOT tolerances for Monte Carlo.",
+      "usage": ".MODEL <name> CAP(C=<mult> VC1=<1/V> VC2=<1/V^2> TC1=<1/degC> TC2=<1/degC^2> [DEV=..] [LOT=..])",
+      "parameters": [
+        {"name": "C", "description": "Capacitance multiplier, default 1."},
+        {"name": "VC1 / VC2", "description": "Linear/quadratic voltage coefficients."},
+        {"name": "TC1 / TC2", "description": "Temperature coefficients."}
+      ],
+      "example": ".MODEL CMOD CAP (C=1 DEV 5%)\n.MODEL CX7R CAP (C=1 VC1=-0.02 VC2=-0.002 TC1=-1e-4)\nC1 out 0 CX7R 100n",
+      "notes": "Cbreak is the Capture breakout part. Vendor DC-bias-dependent MLCC models are often supplied as subcircuits instead.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "IND model (inductor)",
+      "kind": "block",
+      "description": "Model type for L devices. Effective inductance = line value * L * (1 + IL1*I + IL2*I^2) * (1 + TC1*dT + TC2*dT^2), so current-dependent (soft-saturation) and temperature-dependent inductors can be described without a full CORE model. L is a multiplier (default 1) with DEV/LOT tolerances.",
+      "usage": ".MODEL <name> IND(L=<mult> IL1=<1/A> IL2=<1/A^2> TC1=<1/degC> TC2=<1/degC^2> [DEV=..] [LOT=..])",
+      "parameters": [
+        {"name": "L", "description": "Inductance multiplier, default 1."},
+        {"name": "IL1 / IL2", "description": "Linear/quadratic current coefficients."}
+      ],
+      "example": ".MODEL LSAT IND (L=1 IL2=-0.05)\nLCHOKE 3 42 LSAT 30uH",
+      "notes": "Lbreak is the Capture breakout part. For hysteresis and hard saturation use a K device with a CORE model.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "CORE model (nonlinear magnetic core)",
+      "kind": "block",
+      "description": "Model referenced by a K device to give coupled inductors a nonlinear, hysteretic core. LEVEL=2 (default in current releases) is the Jiles-Atherton model with geometry AREA, PATH, GAP, PACK and magnetic parameters MS (saturation magnetisation), A (shape), C (domain flexing), K (pinning); LEVEL=3 accepts a datasheet-style description (OD, ID, AREA, GAP, BR, BM, HC). Inductor values become turns when a core is attached.",
+      "usage": ".MODEL <name> CORE(LEVEL=2 AREA=<cm2> PATH=<cm> GAP=<cm> PACK=<0..1> MS=<A/m> A=<A/m> C=<> K=<A/m>)\n.MODEL <name> CORE(LEVEL=3 OD=.. ID=.. AREA=.. GAP=.. BR=.. BM=.. HC=..)",
+      "parameters": [
+        {"name": "AREA / PATH / GAP", "description": "Cross-section (cm^2), mean magnetic path and air gap (cm)."},
+        {"name": "MS", "description": "Magnetisation saturation (A/m)."},
+        {"name": "A / C / K", "description": "Jiles-Atherton shape, flexing and pinning parameters."},
+        {"name": "PACK", "description": "Stacking (packing) factor."}
+      ],
+      "example": ".MODEL KPOT_3C8 CORE(MS=415.2K A=44.82 C=.4112 K=25.74 AREA=.1 PATH=2.5)\nL1 1 0 20\nL2 2 0 5\nK1 L1 L2 .999 KPOT_3C8",
+      "notes": "magnetic.lib ships vendor cores; Kbreak is the Capture part. The Model Editor's Magnetic Core template extracts MS/A/C/K from a B-H curve, and the Magnetic Parts Editor builds full transformers.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "D model (diode parameters)",
+      "kind": "block",
+      "description": "Diode model: DC behaviour from IS, N, RS, with recombination current ISR/NR, high-injection knee IKF, breakdown BV/IBV (plus NBV, TBV1) and temperature via EG, XTI. Charge storage uses CJO, VJ, M (junction capacitance) and TT (transit time). The area value on the D line scales IS, ISR, IKF, RS, CJO, IBV.",
+      "usage": ".MODEL <name> D(IS=<A> N=<> RS=<ohm> ISR=<A> NR=<> IKF=<A> BV=<V> IBV=<A> CJO=<F> VJ=<V> M=<> TT=<s> EG=<eV> XTI=<> FC=<> KF=<> AF=<>)",
+      "parameters": [
+        {"name": "IS / N / RS", "description": "Saturation current, emission coefficient, series resistance."},
+        {"name": "BV / IBV", "description": "Reverse breakdown voltage (positive number) and current at BV."},
+        {"name": "CJO / VJ / M", "description": "Zero-bias junction capacitance, built-in potential, grading coefficient."},
+        {"name": "TT", "description": "Transit time (reverse recovery)."},
+        {"name": "EG / XTI", "description": "Band-gap energy (1.11 Si, 0.69 Schottky) and IS temperature exponent."}
+      ],
+      "example": ".MODEL DNOM D (IS=1E-9)\n.MODEL DLOAD D (IS=1E-9 DEV .5% LOT 10%)\n.MODEL D1N4148 D(IS=2.682n N=1.836 RS=.5664 IKF=44.17m BV=100 IBV=5u CJO=4p M=.3333 VJ=.5 TT=11.54n)",
+      "notes": "The Model Editor's Diode template fits these from forward, reverse, capacitance and recovery curves. Zener models set BV to the zener voltage.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "NPN / PNP model (Gummel-Poon, LEVEL=1)",
+      "kind": "block",
+      "description": "Default bipolar model. Forward/reverse DC: IS, BF, NF, VAF, IKF, ISE, NE and BR, NR, VAR, IKR, ISC, NC; resistances RB, IRB, RBM, RE, RC; charge storage CJE/VJE/MJE, CJC/VJC/MJC/XCJC, CJS/VJS/MJS and transit times TF (with XTF, VTF, ITF, PTF) and TR; temperature XTB, EG, XTI; noise KF, AF. LPNP is the lateral PNP variant with a substrate junction.",
+      "usage": ".MODEL <name> NPN|PNP|LPNP(IS=.. BF=.. NF=.. VAF=.. IKF=.. ISE=.. NE=.. BR=.. VAR=.. RB=.. RE=.. RC=.. CJE=.. VJE=.. MJE=.. TF=.. CJC=.. VJC=.. MJC=.. TR=.. XTB=.. EG=.. XTI=.. KF=.. AF=..)",
+      "parameters": [
+        {"name": "IS / BF / NF", "description": "Transport saturation current, ideal forward beta, forward emission coefficient."},
+        {"name": "VAF / IKF", "description": "Forward Early voltage and beta roll-off corner current."},
+        {"name": "ISE / NE", "description": "B-E leakage saturation current and emission coefficient (low-current beta droop)."},
+        {"name": "TF / TR", "description": "Forward/reverse transit times (fT)."},
+        {"name": "CJE / CJC / CJS", "description": "Zero-bias B-E, B-C and substrate junction capacitances."}
+      ],
+      "example": ".MODEL QDRIV NPN (IS=1E-7 BF=30)\n.MODEL Q2N2222 NPN(IS=14.34f XTI=3 EG=1.11 VAF=74.03 BF=255.9 NE=1.307 ISE=14.34f IKF=.2847 XTB=1.5 BR=6.092 NC=2 ISC=0 IKR=0 RC=1 CJC=7.306p MJC=.3416 VJC=.75 FC=.5 CJE=22.01p MJE=.377 VJE=.75 TR=46.91n TF=411.1p ITF=.6 VTF=1.7 XTF=3 RB=10)",
+      "notes": "The Model Editor's Bipolar Transistor template extracts these from datasheet hFE, VCE(sat), fT and capacitance curves. Qbreak N/P are the editable Capture parts.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "NPN / PNP model (Mextram 504, LEVEL=2)",
+      "kind": "block",
+      "description": "Philips/NXP Mextram 504 compact model selected with LEVEL=2 in an NPN/PNP .MODEL. It adds avalanche, collector epilayer quasi-saturation, parasitic PNP, split base-collector capacitance, current crowding and excess phase (EXPHI) for modern scaled transistors. Slower and harder to converge than Gummel-Poon; self-heating of 504 is not implemented in PSpice.",
+      "usage": ".MODEL <name> NPN(LEVEL=2 <Mextram 504 parameters>)",
+      "parameters": [
+        {"name": "LEVEL", "description": "2 selects Mextram; 1 (default) Gummel-Poon."},
+        {"name": "EXPHI", "description": "Flag enabling excess phase shift modelling."}
+      ],
+      "example": ".MODEL QMX NPN(LEVEL=2 IS=1e-17 BF=120 IK=1e-3 VEF=60 VER=2.5 ...)",
+      "notes": "Foundry-supplied SiGe HBT models are the normal source of Mextram parameter sets; do not hand-edit them.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "NMOS / PMOS model levels (1, 2, 3, 4 BSIM1, 5 EKV, 6 BSIM3v2, 7 BSIM3v3, 8 BSIM4)",
+      "kind": "block",
+      "description": "The LEVEL parameter of an NMOS/PMOS model chooses the equation set: 1 Shichman-Hodges (VTO, KP, GAMMA, PHI, LAMBDA), 2 geometry-based analytic, 3 semi-empirical short-channel (the usual choice for discrete power MOSFET subcircuits), 4 BSIM1, 5 EKV 2.6, 6 BSIM3 v2.0, 7 BSIM3 v3.2 and 8 BSIM4 4.1.0 for foundry decks. Common parameters across levels include RD, RS, RG, RB, RSH, CBD, CBS, CJ, CJSW, MJ, MJSW, CGSO, CGDO, CGBO, TOX, NSUB, JS, KF, AF.",
+      "usage": ".MODEL <name> NMOS|PMOS(LEVEL=<1..8> VTO=<V> KP=<A/V2> GAMMA=<> PHI=<V> LAMBDA=<1/V> RD=.. RS=.. CBD=.. CBS=.. CGSO=.. CGDO=.. CGBO=.. TOX=.. NSUB=.. ...)",
+      "parameters": [
+        {"name": "LEVEL", "description": "1 default; 3 for discrete parts; 7/8 for BSIM3/BSIM4 foundry models."},
+        {"name": "VTO / KP / LAMBDA", "description": "Threshold, transconductance parameter, channel-length modulation (levels 1-3)."},
+        {"name": "TOX / NSUB / UO", "description": "Oxide thickness, substrate doping, mobility used to derive KP/GAMMA when not given."},
+        {"name": "CGSO / CGDO / CGBO", "description": "Overlap capacitances per metre of width."}
+      ],
+      "example": ".MODEL MLOAD NMOS(LEVEL=1 VTO=.7 KP=110u LAMBDA=.04 CJ=.02pF)\n.MODEL IRF150 NMOS(LEVEL=3 GAMMA=0 DELTA=0 ETA=0 THETA=0 KAPPA=0 VMAX=0 XJ=0 TOX=100n UO=600 PHI=.6 RS=1.624m KP=20.53u W=.3 L=2u VTO=2.831 RD=1.031m RDS=444.4K CBD=3.229n PB=.8 MJ=.5 FC=.5 CGSO=9.027n CGDO=1.679n RG=13.89 IS=194E-18 N=1 TT=288n)",
+      "notes": "Level 5 EKV uses its own noise model (NLEV) and HDIF for diffusion; BSIM3/4 require all their parameters from the foundry. The Model Editor's Power MOSFET template produces level-3 based subcircuits.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "NJF / PJF model (JFET parameters)",
+      "kind": "block",
+      "description": "Junction FET model: threshold VTO (negative for N-channel depletion devices), transconductance BETA, channel-length modulation LAMBDA, ohmic RD/RS, gate junction IS/N, capacitances CGS/CGD with PB and M, and noise KF/AF. Temperature via XTI, VTOTC, BETATCE.",
+      "usage": ".MODEL <name> NJF|PJF(VTO=<V> BETA=<A/V2> LAMBDA=<1/V> RD=<ohm> RS=<ohm> IS=<A> N=<> CGS=<F> CGD=<F> PB=<V> M=<> KF=<> AF=<>)",
+      "parameters": [
+        {"name": "VTO", "description": "Pinch-off voltage."},
+        {"name": "BETA", "description": "Transconductance coefficient (IDSS = BETA*VTO^2)."},
+        {"name": "CGS / CGD", "description": "Zero-bias gate-source / gate-drain capacitances."}
+      ],
+      "example": ".MODEL J2N3819 NJF(BETA=1.304m BETATCE=-.5 RD=1 RS=1 LAMBDA=2.25m VTO=-3 VTOTC=-2.5m IS=33.57f ISR=322.4f N=1 XTI=3 ALPHA=311.7u VK=243.6 CGD=1.6p M=.3622 PB=1 FC=.5 CGS=2.414p KF=9.882E-18 AF=1)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "GASFET model (LEVEL 1-6 MESFET)",
+      "kind": "block",
+      "description": "GaAs MESFET model for B devices with LEVEL selecting Curtice (1), Raytheon/Statz (2), TriQuint TOM (3), Parker-Skellern (4), TOM-2 (5) or TOM-3 (6). Core parameters VTO, BETA, LAMBDA, ALPHA (Curtice/Statz saturation), B (doping tail), RD, RS, RG, CGS, CGD, TAU (transit delay) plus level-specific fitting terms.",
+      "usage": ".MODEL <name> GASFET(LEVEL=<1..6> VTO=<V> BETA=<A/V2> ALPHA=<1/V> LAMBDA=<1/V> B=<> RD=.. RS=.. RG=.. CGS=.. CGD=.. TAU=..)",
+      "parameters": [
+        {"name": "LEVEL", "description": "Model index 1-6."},
+        {"name": "ALPHA / B", "description": "Saturation voltage parameter and doping-tail extending parameter (Statz)."},
+        {"name": "TAU", "description": "Conduction current delay time."}
+      ],
+      "example": ".MODEL GFAST GASFET(LEVEL=2 VTO=-1.5 BETA=.05 ALPHA=2 LAMBDA=.02 B=.3 CGS=.5p CGD=.1p TAU=5p)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "NIGBT model (IGBT parameters)",
+      "kind": "block",
+      "description": "Physics-based IGBT model (Hefner) for Z devices: geometry AREA, WB (base width), AGD (gate-drain overlap), device physics NB (base doping), TAU (ambipolar lifetime), KP and VT (MOS channel), CGS, COXD (gate oxide capacitances), BVF/BVN (breakdown), JSNE, MUN/MUP (mobilities), THETA, VTD, KF.",
+      "usage": ".MODEL <name> NIGBT(AREA=<m2> WB=<m> AGD=<m2> NB=<1/cm3> TAU=<s> KP=<A/V2> VT=<V> CGS=<F> COXD=<F> BVF=<> BVN=<> JSNE=<> MUN=<> MUP=<> THETA=<> VTD=<> KF=<>)",
+      "parameters": [
+        {"name": "AREA / WB / AGD", "description": "Active area, base width and gate-drain overlap area; overridable per instance."},
+        {"name": "TAU", "description": "Ambipolar recombination lifetime (tail current)."},
+        {"name": "KP / VT", "description": "MOS channel transconductance and threshold."}
+      ],
+      "example": ".MODEL IGBTA NIGBT(AREA=10.1u WB=91u AGD=5.1u KP=0.381 TAU=7.1u VT=4.7 CGS=12.4n COXD=3.5n NB=2e14)",
+      "notes": "igbt.lib carries IR/IXYS/Infineon parts. The Model Editor IGBT template fits from output, transfer, capacitance and switching curves.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "VSWITCH / ISWITCH models (switch parameters)",
+      "kind": "block",
+      "description": "Models for S and W switches. VSWITCH: RON (default 1 ohm), ROFF (1e6), VON (1 V), VOFF (0 V); ISWITCH: RON, ROFF, ION (1e-3 A), IOFF (0). Between the on/off thresholds the resistance varies smoothly (log interpolation) in variable-resistance mode; setting VON=VOFF (or ION=IOFF) selects the short-transition switch.",
+      "usage": ".MODEL <name> VSWITCH(RON=<ohm> ROFF=<ohm> VON=<V> VOFF=<V>)\n.MODEL <name> ISWITCH(RON=<ohm> ROFF=<ohm> ION=<A> IOFF=<A>)",
+      "parameters": [
+        {"name": "RON / ROFF", "description": "On and off resistances; keep ROFF/RON < 1e12."},
+        {"name": "VON / VOFF (ION / IOFF)", "description": "Control thresholds; VON may be below VOFF to invert the sense."}
+      ],
+      "example": ".MODEL SMOD VSWITCH(RON=.01 ROFF=1MEG VON=2.5 VOFF=2.4)\n.MODEL WMOD ISWITCH(RON=.1 ROFF=1MEG ION=10mA IOFF=1mA)",
+      "notes": "Very small RON with large loads produces large currents at the transition and slows the time-step control; a transition width (VON-VOFF) of a few percent of the control swing is a good compromise.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "TRN model (lossy transmission line)",
+      "kind": "block",
+      "description": "Model for T devices holding the per-unit-length R, L, G, C and the physical LEN, so many lines can share one description and the instance's electrical-length value scales it. Used for board traces and cables in signal-integrity style transient simulations.",
+      "usage": ".MODEL <name> TRN(R=<ohm/len> L=<H/len> G=<S/len> C=<F/len> LEN=<len>)",
+      "parameters": [
+        {"name": "R L G C", "description": "Distributed parameters per unit length."},
+        {"name": "LEN", "description": "Line length in the same unit."}
+      ],
+      "example": ".MODEL TMOD TRN(R=.311 L=.378u G=6.27u C=67.3p LEN=1)\nT5 1 2 3 4 TMOD 1",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "DINPUT / DOUTPUT models (digital interface)",
+      "kind": "block",
+      "description": "Models for the N and O interface devices. DINPUT lists up to 20 logic states, each with a name character, switching time and resistances to the low/high supply nodes (S0NAME, S0TSW, S0RLO, S0RHI ...), plus CLO/CHI capacitances and FILE/FORMAT/TIMESTEP for file-driven inputs. DOUTPUT lists states with voltage windows (S0VLO/S0VHI ...), RLOAD, CLOAD, CHGONLY and file options.",
+      "usage": ".MODEL <name> DINPUT(CLO=.. CHI=.. S0NAME=\"0\" S0TSW=.. S0RLO=.. S0RHI=.. S1NAME=\"1\" ... [FILE=.. FORMAT=.. TIMESTEP=..])\n.MODEL <name> DOUTPUT(RLOAD=.. CLOAD=.. CHGONLY=0|1 S0NAME=\"0\" S0VLO=.. S0VHI=.. S1NAME=\"1\" ...)",
+      "parameters": [
+        {"name": "S<n>NAME / S<n>TSW / S<n>RLO / S<n>RHI", "description": "DINPUT state table entries."},
+        {"name": "S<n>NAME / S<n>VLO / S<n>VHI", "description": "DOUTPUT state voltage windows."},
+        {"name": "RLOAD / CLOAD", "description": "Load presented to the analog node by a logic input (default 1/GMIN, 0)."}
+      ],
+      "example": ".MODEL DIN74 DINPUT(CLO=0 CHI=0 S0NAME=\"0\" S0TSW=3.5ns S0RLO=7.13 S0RHI=389 S1NAME=\"1\" S1TSW=5.5ns S1RLO=467 S1RHI=200)\n.MODEL DO74 DOUTPUT(S0NAME=\"X\" S0VLO=-1.5 S0VHI=1.7 S1NAME=\"0\" S1VLO=-1.5 S1VHI=0.8 S2NAME=\"R\" S2VLO=0.8 S2VHI=1.4 S3NAME=\"1\" S3VLO=2.0 S3VHI=7.0)",
+      "notes": "The shipped dig_io.lib defines DIN_STD/DOUT_STD style models for TTL, LS, HC, HCT, AC, ECL and 4000 families; copy them rather than writing from scratch.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "DEV / LOT tolerance specification",
+      "kind": "block",
+      "description": "Tolerance suffix on any .MODEL parameter for Monte Carlo and worst-case analysis: DEV is an independent per-device deviation, LOT a correlated deviation shared by every device using the model. Each may carry a tracking generator number (0-9) to correlate parameters and a distribution name, in the form DEV[/<lot#>][/<distribution>] <value>[%].",
+      "usage": "<param>=<value> [DEV[/<lot#>][/<dist>] <tol>[%]] [LOT[/<lot#>][/<dist>] <tol>[%]]",
+      "parameters": [
+        {"name": "DEV", "description": "Device-level independent tolerance."},
+        {"name": "LOT", "description": "Lot-level correlated tolerance."},
+        {"name": "/<lot #>", "description": "Random generator 0-9 for correlation between parameters/models."},
+        {"name": "/<distribution>", "description": "UNIFORM, GAUSS or a .DISTRIBUTION name; default from .OPTIONS DISTRIBUTION."}
+      ],
+      "example": ".MODEL CMOD CAP (C=1 DEV 5%)\n.MODEL DLOAD D (IS=1E-9 DEV .5% LOT 10%)\n.MODEL RTRACK RES (R=1 DEV/GAUSS 1% LOT/UNIFORM 5%)\n.MODEL RPAIR RES (R=1 DEV/1/GAUSS 0.1% LOT 1%)",
+      "notes": "Without a % sign the tolerance is in the parameter's own units. For GAUSS the value is 1 sigma; PSpice Advanced Analysis uses its own TOLERANCE properties on the schematic instead.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "AKO: (a-kind-of model inheritance)",
+      "kind": "block",
+      "description": "Lets a .MODEL inherit every parameter of an existing model of the same type and override only the listed ones. Parameter values and formulas are inherited, tolerance specifications are not. The referenced model may live in the file, an .INC or a .LIB.",
+      "usage": ".MODEL <model name> AKO:<reference model name> <model type> ([overrides])",
+      "parameters": [
+        {"name": "<reference model name>", "description": "Existing model of the same type."}
+      ],
+      "example": ".MODEL QDRIV NPN (IS=1E-7 BF=30)\n.MODEL QDR2 AKO:QDRIV NPN (BF=50 IKF=50m)",
+      "notes": "Used with T_REL_LOCAL to set device temperature relative to the parent model's T_ABS.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "T_MEASURED / T_ABS / T_REL_GLOBAL / T_REL_LOCAL (model temperature parameters)",
+      "kind": "block",
+      "description": "Per-model temperature controls available on C, L, R, B, D, J, M and Q models. T_MEASURED overrides TNOM as the temperature at which the parameters were measured. T_ABS fixes the device temperature absolutely, T_REL_GLOBAL offsets it from the circuit temperature (.TEMP/.STEP TEMP), and T_REL_LOCAL offsets it from an AKO parent's T_ABS. Values may be parameters, enabling self-heating what-ifs via .DC PARAM or .STEP PARAM.",
+      "usage": ".MODEL <name> <type>(... T_MEASURED=<degC> [T_ABS=<degC> | T_REL_GLOBAL=<degC> | T_REL_LOCAL=<degC>])",
+      "parameters": [
+        {"name": "T_MEASURED", "description": "Measurement temperature of the parameter set (overrides TNOM)."},
+        {"name": "T_ABS", "description": "Absolute device temperature."},
+        {"name": "T_REL_GLOBAL", "description": "Offset from the global circuit temperature."},
+        {"name": "T_REL_LOCAL", "description": "Offset from the AKO reference model's T_ABS."}
+      ],
+      "example": ".MODEL PNP_NEW PNP( T_ABS=35 T_MEASURED=0 BF=90 )\n.TEMP 10 30 40\n.MODEL PNP_HOT PNP( T_REL_GLOBAL=-5 BF=90 )\n.PARAM PTEMP 27\n.MODEL PNP_SW PNP( T_ABS={PTEMP} )\n.STEP PARAM PTEMP 27 35 1",
+      "notes": "Only one of T_ABS/T_REL_GLOBAL/T_REL_LOCAL may coexist with T_MEASURED. These parameters cannot be combined with DEV/LOT tolerances.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Breakout parts (Rbreak, Cbreak, Lbreak, Dbreak, Qbreak, Mbreak, Jbreak, Zbreak, Sbreak, Wbreak, Kbreak)",
+      "kind": "library",
+      "description": "The breakout.olb Capture library holds generic parts whose PSpice model is meant to be edited: each references a minimal model (e.g. Rbreak -> RES, Dbreak -> D) that you open with Edit > PSpice Model to add parameters and DEV/LOT tolerances. They are the standard vehicle for Monte Carlo, worst-case and quick 'what if this diode had 2x capacitance' studies without touching vendor libraries.",
+      "usage": "Place > Part > breakout.olb > Rbreak | Cbreak | Lbreak | Dbreak | QbreakN | QbreakP | MbreakN | MbreakP | JbreakN | JbreakP | ZbreakN | Sbreak | Wbreak | Kbreak",
+      "parameters": [
+        {"name": "Edit > PSpice Model", "description": "Opens the Model Editor on the instance's model; the edited copy is saved in a project-local .lib."}
+      ],
+      "example": "1. Place Rbreak, set VALUE=10k.\n2. Select it, Edit > PSpice Model, change to .MODEL Rbreak RES R=1 DEV=1% LOT=5%.\n3. Enable Monte Carlo in the profile and run.",
+      "notes": "Editing creates <project>.lib in the project folder and adds it to the profile's Library configuration automatically.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "nom.lib and library index (.ind) files",
+      "kind": "library",
+      "description": "nom.lib is the master library that .LIB references by default (a plain .LIB with no file name): it contains .LIB lines for every library in the PSpice Standard Model Library, so configuring nom.lib alone makes all shipped models visible. On first use of any library PSpice writes a companion .ind index so models are located by name without rescanning; indexes are regenerated whenever the library changes.",
+      "usage": ".LIB            ; = .LIB \"nom.lib\"\n.LIB \"nom.lib\"",
+      "parameters": [
+        {"name": ".ind", "description": "Auto-generated index next to each .lib; delete it to force a rebuild after manual edits."}
+      ],
+      "example": "* profile Configuration Files > Library shows nom.lib as a Global library\n.LIB \"nom.lib\"\n.LIB \"C:/models/vendor_opamps.lib\"",
+      "notes": "Missing nom.lib is the usual cause of 'Model X not found' for standard parts. Frequently edited libraries should be configured separately so the big index is not rebuilt each time. The profile's Configuration Files tab offers 'Update Index' to force regeneration.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Model library files: analog.lib, bipolar.lib, diode.lib, pwrmos.lib, opamp.lib, dig_io.lib, 74xx.lib, magnetic.lib",
+      "kind": "library",
+      "description": "Naming conventions of the shipped PSpice model libraries (tools\\pspice\\library): device-class libraries (bipolar.lib, diode.lib, jfet.lib, pwrmos.lib, igbt.lib, opamp.lib, linedriv.lib, magnetic.lib), vendor libraries (ti.lib, adi.lib ...), the digital family libraries 7400.lib, 74ls.lib, 74hc.lib, 74ac.lib, cd4000.lib, and dig_io.lib/dig_prim.lib holding the A/D interface subcircuits and I/O models. Each .lib has a matching .olb Capture symbol library of the same name.",
+      "usage": "Simulation Settings > Configuration Files > Library > Add as Global / Add to Design / Add to Profile",
+      "parameters": [
+        {"name": "Global", "description": "Library available to every profile on the machine (written to nom.lib scope)."},
+        {"name": "Design / Profile", "description": "Scoped to the design or this profile only."}
+      ],
+      "example": "* .cir written by Capture\n.LIB \"nom.lib\"\n.LIB \"..\\..\\mylib\\custom_diodes.lib\"\n.INC \"..\\..\\design.net\"",
+      "notes": "The PSpice Model Library web catalog (pspice.com) offers 33000+ vendor models downloadable as .lib/.olb pairs.",
+      "docs": "https://pspice.com/"
+    },
+    {
+      "name": "MOSFET LEVEL 5 EKV specifics (HDIF, NLEV)",
+      "kind": "block",
+      "description": "Notes for the EKV 2.6 model (LEVEL=5): it is a charge-based scalable model that uses its own noise model selected by NLEV rather than the PSpice KF/AF noise, and it derives AD, AS, PD and PS from the HDIF parameter (half diffusion length) when they are not given on the instance. Use it for analogue IC work where BSIM3 is overkill.",
+      "usage": ".MODEL <name> NMOS(LEVEL=5 VTO=.. KP=.. GAMMA=.. PHI=.. HDIF=<m> NLEV=<0..3> ...)",
+      "parameters": [
+        {"name": "HDIF", "description": "Half the diffusion length, used only by LEVEL=5 to compute areas/perimeters."},
+        {"name": "NLEV", "description": "Noise model selector."}
+      ],
+      "example": ".MODEL MEKV NMOS(LEVEL=5 VTO=0.5 KP=150u GAMMA=0.7 PHI=0.8 HDIF=0.5u)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "MOSFET BSIM3/BSIM4 decks (LEVEL 7 / 8)",
+      "kind": "block",
+      "description": "Foundry-style deep-submicron models: LEVEL=7 is BSIM3 v3.2 and LEVEL=8 BSIM4 v4.1.0 (UC Berkeley). PSpice uses the BSIM3v3 noise model (NOIMOD) and the model's own capacitance formulation (CAPMOD), and fills unspecified parameters with the Berkeley defaults. Since BSIM3 3.2, NQSMOD is an instance rather than model parameter.",
+      "usage": ".MODEL <name> NMOS(LEVEL=7 VERSION=3.2 TOX=.. NCH=.. VTH0=.. U0=.. K1=.. ... )\n.MODEL <name> NMOS(LEVEL=8 <BSIM4 parameters>)",
+      "parameters": [
+        {"name": "LEVEL=7", "description": "BSIM3 v3.2."},
+        {"name": "LEVEL=8", "description": "BSIM4 v4.1.0."},
+        {"name": "CAPMOD / NOIMOD", "description": "Capacitance and noise model selectors inside the deck."}
+      ],
+      "example": ".MODEL nch NMOS(LEVEL=7 VERSION=3.2 TNOM=27 TOX=4.1e-9 XJ=1e-7 NCH=2.35e17 VTH0=0.4 K1=0.6 U0=270 VSAT=1e5 ...)",
+      "notes": "Import decks through the Model Editor (File > Import Wizard) so a Capture symbol is generated; HSPICE-specific syntax may need translation.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Model type reference table",
+      "kind": "reference",
+      "description": "Mapping of .MODEL type keywords to instance letters: CAP-C, CORE-K, D-D, DINPUT-N, DOUTPUT-O, GASFET-B, IND-L, ISWITCH-W, LPNP/NPN/PNP-Q, NIGBT-Z, NJF/PJF-J, NMOS/PMOS-M, RES-R, TRN-T, VSWITCH-S, and the digital UADC, UDAC, UDLY, UEFF, UGATE, UGFF, UIO, UTGATE (plus UBTG, UPLD, UROM, URAM, UWDTH, USUHD, UFREQ, UGEN in the libraries) for U devices. A device may only reference a model of its own type.",
+      "usage": ".MODEL <model name> <type>(<parameters>)",
+      "parameters": [],
+      "example": ".MODEL RMAX RES (R=1.5 TC1=.0002 TC2=.005)\n.MODEL DNOM D (IS=1E-9)\n.MODEL QDRIV NPN (IS=1E-7 BF=30)\n.MODEL MLOAD NMOS(LEVEL=1 VTO=.7 CJ=.02pF)",
+      "notes": "None, some or all parameters may be given; the rest take defaults listed per device in the reference guide. The .OPTIONS NOMOD flag suppresses the parameter dump in the .out file.",
+      "docs": "https://www.orcad.com/"
+    }
+  ]
+}

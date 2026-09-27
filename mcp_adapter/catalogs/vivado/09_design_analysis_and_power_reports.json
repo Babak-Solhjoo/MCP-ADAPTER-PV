@@ -1,0 +1,454 @@
+{
+  "category": "Design Analysis, QoR & Power Reports (Tcl)",
+  "description": "The report_* commands beyond the core timing/utilization/DRC set: clock-network and clock-utilization analysis, I/O and datasheet reports, fanout and control-set statistics, RAM and carry-chain usage, pipelining and QoR assessment/suggestions, timing-exception audits, power-estimation inputs (SAIF, switching activity) and the environment/parameter reports used for support cases. All accept -file/-append/-return_string and most accept -name to open a GUI report window.",
+  "tools": [
+    {
+      "name": "report_clock_networks",
+      "kind": "tcl-command",
+      "description": "Trace every clock network from its source (port, MMCM/PLL output, GT recovered clock, user logic) through buffers and report which clocks are constrained and which are not, with the number of loads and the buffer types used. It is the first report to run on a new design to find unconstrained clocks and clocks routed without a global buffer.",
+      "usage": "report_clock_networks [-file <f>] [-append] [-return_string] [-name <win>] [-endpoints_only] [-levels <n>] [-expand_buckets] [-suppress_endpoints unconstrained|constrained] [-clocks <clocks>] [-unconstrained_roots] [-quiet]",
+      "parameters": [
+        {"name": "-unconstrained_roots", "description": "List only clock roots that have no create_clock/create_generated_clock."},
+        {"name": "-levels", "description": "Depth of the clock tree to print."},
+        {"name": "-endpoints_only", "description": "Print the endpoint counts rather than the whole tree."},
+        {"name": "-clocks", "description": "Restrict to specific clock objects."}
+      ],
+      "example": "open_run synth_1\nreport_clock_networks -unconstrained_roots\nreport_clock_networks -clocks [get_clocks sys_clk] -levels 3 -file clk_net.rpt",
+      "notes": "Related: check_timing (no_clock check), report_clocks (constraint view), report_clock_utilization (physical view).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_clock_networks"
+    },
+    {
+      "name": "report_clock_utilization",
+      "kind": "tcl-command",
+      "description": "Report the physical clocking resources used after placement: global buffers (BUFG/BUFGCE/BUFGCTRL), MMCM/PLL sites, clock-region occupancy per clock, clock roots and load distribution. Use it to diagnose clock-routing failures (too many clocks in one region), to check that clock roots sit near their loads and to see which clocks share regions.",
+      "usage": "report_clock_utilization [-file <f>] [-append] [-return_string] [-name <win>] [-write_xdc <f>] [-clock_roots_only] [-cells <cells>] [-quiet]",
+      "parameters": [
+        {"name": "-clock_roots_only", "description": "Print only the clock root (CLOCK_ROOT) per clock net."},
+        {"name": "-write_xdc", "description": "Write CLOCK_ROOT / USER_CLOCK_ROOT constraints reproducing the current placement."},
+        {"name": "-cells", "description": "Restrict to clocks driving the given cells."}
+      ],
+      "example": "open_checkpoint post_place.dcp\nreport_clock_utilization -file clk_util.rpt\nreport_clock_utilization -clock_roots_only\nset_property USER_CLOCK_ROOT X2Y3 [get_nets clk_200_bufg]",
+      "notes": "USER_CLOCK_ROOT lets you override the root region chosen by the placer; CLOCK_DELAY_GROUP keeps related clocks balanced.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_clock_utilization"
+    },
+    {
+      "name": "report_io",
+      "kind": "tcl-command",
+      "description": "Print the pin-planning table: every port with its package pin, bank, I/O standard, drive, slew, pull type, termination, DCI/VREF use, site and whether the pin is fixed. Run it after pin assignment or on an implemented design to produce a pinout document, and use -format csv to hand the pinout to the board designer.",
+      "usage": "report_io [-file <f>] [-append] [-format text|csv|xml] [-name <win>] [-return_string] [-quiet]",
+      "parameters": [
+        {"name": "-format", "description": "text (default), csv or xml."},
+        {"name": "-name", "description": "Open the report in a GUI window."}
+      ],
+      "example": "report_io -format csv -file pinout.csv\nreport_io -name io_report",
+      "notes": "write_csv exports the I/O ports in the format read_csv can import back (pin-planning round trip); report_io is the human-readable version.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_io"
+    },
+    {
+      "name": "report_datasheet",
+      "kind": "tcl-command",
+      "description": "Generate a device-datasheet style report of the design's I/O timing: setup/hold windows for inputs, clock-to-out for outputs and skew within groups, per clock, plus max/min values across corners. It is the document handed to the board or system team so external devices can be timed against the FPGA, and it is only meaningful on an implemented (routed) design.",
+      "usage": "report_datasheet [-file <f>] [-append] [-return_string] [-name <win>] [-significant_digits <n>] [-sort_by slack|name] [-group <ports>]* [-show_all_corners] [-show_oe_timing] [-quiet]",
+      "parameters": [
+        {"name": "-group", "description": "Define a group of ports whose skew relative to each other is reported; repeat for several groups."},
+        {"name": "-show_all_corners", "description": "List every process/voltage/temperature corner instead of the worst."},
+        {"name": "-show_oe_timing", "description": "Include tri-state enable timing on bidirectional/tri-state ports."}
+      ],
+      "example": "open_run impl_1\nreport_datasheet -group [get_ports {tx_data[*] tx_valid}] -show_all_corners -file datasheet.rpt",
+      "notes": "Values depend on set_input_delay/set_output_delay being present only for the report structure; the actual numbers are analysed timing, not constraints. set_load affects output delays.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_datasheet"
+    },
+    {
+      "name": "report_high_fanout_nets",
+      "kind": "tcl-command",
+      "description": "List the nets with the largest fanout together with their driver type, whether they are clocks or resets, and (with -timing) the worst slack on them. Used before and after synthesis to decide where MAX_FANOUT, register replication or a global buffer is needed, and after placement to see which high-fanout nets are hurting timing.",
+      "usage": "report_high_fanout_nets [-file <f>] [-append] [-return_string] [-name <win>] [-fanout_greater_than <n>] [-fanout_lesser_than <n>] [-max_nets <n>] [-ascending] [-timing] [-load_types] [-clock_regions] [-slr] [-cells <cells>] [-clocks <clocks>] [-histogram] [-quiet]",
+      "parameters": [
+        {"name": "-max_nets", "description": "Number of nets to list (default 10)."},
+        {"name": "-fanout_greater_than", "description": "Lower bound on fanout."},
+        {"name": "-timing", "description": "Add worst setup slack per net."},
+        {"name": "-load_types", "description": "Break the loads down by primitive type (FF, LUT, BRAM ...)."},
+        {"name": "-clock_regions / -slr", "description": "Show how the loads spread over clock regions or SLRs."},
+        {"name": "-histogram", "description": "Print a fanout histogram of all nets."}
+      ],
+      "example": "report_high_fanout_nets -max_nets 30 -timing -load_types -file fanout.rpt\nreport_high_fanout_nets -fanout_greater_than 5000 -clock_regions",
+      "notes": "Nets driven by BUFGs are excluded by default since global routing handles them. Consider a BUFGCE for very high-fanout enables/resets on UltraScale instead of replication.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_high_fanout_nets"
+    },
+    {
+      "name": "report_control_sets",
+      "kind": "tcl-command",
+      "description": "Count the unique control sets (combinations of clock, clock-enable and set/reset signals) in the design and list the largest, because every distinct control set restricts which flip-flops can share a slice and inflates utilization and congestion. -verbose lists each set with its fanout, -hierarchical attributes them to modules.",
+      "usage": "report_control_sets [-file <f>] [-append] [-return_string] [-name <win>] [-verbose] [-hierarchical] [-hierarchical_depth <n>] [-cells <cells>] [-sort_by <col>] [-quiet]",
+      "parameters": [
+        {"name": "-verbose", "description": "Print every control set with clock, enable, reset and fanout."},
+        {"name": "-hierarchical", "description": "Report per hierarchy level."},
+        {"name": "-sort_by", "description": "Column to sort by, e.g. clock, enable, reset, fanout."}
+      ],
+      "example": "report_control_sets -verbose -file control_sets.rpt\nreport_control_sets -hierarchical -hierarchical_depth 3",
+      "notes": "Rule of thumb from UG949: keep control sets below ~7.5% of the total slices. Fixes: remove unnecessary resets, avoid low-fanout enables, or use synth_design -control_set_opt_threshold to fold small control sets into LUTs.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_control_sets"
+    },
+    {
+      "name": "report_ram_utilization",
+      "kind": "tcl-command",
+      "description": "Detail how inferred and instantiated memories were mapped: each memory's original size, the primitives used (RAMB18/RAMB36/URAM288/LUTRAM), cascade structure, utilization efficiency, unused address/data bits and whether output registers are enabled. It highlights BRAMs used at low efficiency or without the output register (a common timing problem) and is available from synthesis onward.",
+      "usage": "report_ram_utilization [-file <f>] [-append] [-return_string] [-name <win>] [-cells <cells>] [-include_path_info] [-include_lutram] [-detail] [-csv <f>] [-quiet]",
+      "parameters": [
+        {"name": "-detail", "description": "Per-primitive listing instead of per-memory summary."},
+        {"name": "-include_lutram", "description": "Also cover distributed RAM."},
+        {"name": "-include_path_info", "description": "Add worst timing path information for each memory."},
+        {"name": "-csv", "description": "Machine-readable output."}
+      ],
+      "example": "report_ram_utilization -detail -include_lutram -include_path_info -file ram.rpt",
+      "notes": "Introduced in 2020.x. Use together with RAM_STYLE, RAM_DECOMP and the block RAM output-register recommendation in UG949.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_ram_utilization"
+    },
+    {
+      "name": "report_carry_chains",
+      "kind": "tcl-command",
+      "description": "List the CARRY4/CARRY8 chains in the design with their length and the number of chains per length, and optionally per cell. Long carry chains (wide adders, comparators, counters) limit Fmax and span many slices vertically, so this report identifies candidates for pipelining or DSP mapping (USE_DSP).",
+      "usage": "report_carry_chains [-file <f>] [-append] [-return_string] [-name <win>] [-cell <cell>] [-max_chains <n>] [-quiet]",
+      "parameters": [
+        {"name": "-cell", "description": "Restrict to one hierarchical cell."},
+        {"name": "-max_chains", "description": "Number of longest chains to list."}
+      ],
+      "example": "report_carry_chains -max_chains 20 -file carry.rpt",
+      "notes": "Available on a synthesized or implemented design. A 64-bit adder is 16 CARRY4s or 8 CARRY8s; anything much longer usually needs pipelining.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_carry_chains"
+    },
+    {
+      "name": "report_pipeline_analysis",
+      "kind": "tcl-command",
+      "description": "Estimate how much the achievable clock frequency would improve if additional pipeline stages were inserted on the critical paths, per clock, reporting Fmax with 0, 1, 2 ... added latency stages and the paths that would need them. It answers 'is it worth pipelining?' before touching RTL and is available after synthesis or implementation.",
+      "usage": "report_pipeline_analysis [-file <f>] [-append] [-return_string] [-name <win>] [-cells <cells>] [-clocks <clocks>] [-max_added_latency <n>] [-report_loops] [-include_paths_to_pipeline] [-report_fmax_variation] [-quiet]",
+      "parameters": [
+        {"name": "-clocks", "description": "Clocks to analyse (default all)."},
+        {"name": "-max_added_latency", "description": "Maximum number of extra stages to consider (default 5)."},
+        {"name": "-include_paths_to_pipeline", "description": "List the actual paths that would need pipelining."},
+        {"name": "-report_loops", "description": "Report combinational/feedback loops that block pipelining."}
+      ],
+      "example": "open_checkpoint post_route.dcp\nreport_pipeline_analysis -clocks [get_clocks clk_300] -max_added_latency 3 -include_paths_to_pipeline -file pipe.rpt",
+      "notes": "The report assumes ideal retiming of the added registers; real gains depend on placement. Related synth_design -retiming and the RETIMING_FORWARD/RETIMING_BACKWARD attributes.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_pipeline_analysis"
+    },
+    {
+      "name": "report_qor_assessment",
+      "kind": "tcl-command",
+      "description": "Score the design's likelihood of meeting timing on a 1-5 scale by assessing utilization, control sets, clocking, congestion risk, methodology violations and timing characteristics, and list the areas dragging the score down. Run it after synthesis or opt_design to decide whether to proceed to full implementation or fix the RTL/constraints first; scores of 4-5 usually close, 1-2 rarely do.",
+      "usage": "report_qor_assessment [-file <f>] [-append] [-return_string] [-name <win>] [-max_paths <n>] [-full_assessment_details] [-exclude_methodology_checks] [-report_all_suggestions] [-csv] [-quiet]",
+      "parameters": [
+        {"name": "-full_assessment_details", "description": "Show every category with thresholds rather than only the failing ones."},
+        {"name": "-exclude_methodology_checks", "description": "Skip the report_methodology run it performs internally (faster)."},
+        {"name": "-report_all_suggestions", "description": "Include the QoR suggestions that would raise the score."},
+        {"name": "-max_paths", "description": "Timing paths considered per clock group."}
+      ],
+      "example": "synth_design -top top\nopt_design\nreport_qor_assessment -full_assessment_details -report_all_suggestions -file qor_assess.rpt",
+      "notes": "Part of the ML-assisted flow with report_qor_suggestions and Intelligent Design Runs (IDR). The score is a heuristic; it does not run the placer.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_qor_assessment"
+    },
+    {
+      "name": "report_qor_suggestions",
+      "kind": "tcl-command",
+      "description": "Analyse the design and generate concrete, machine-applicable suggestions (RQS objects) for improving QoR: utilization fixes, clocking changes, timing constraint corrections, congestion mitigation and ML-predicted implementation strategies. Suggestions are written with write_qor_suggestions and applied in a later run with read_qor_suggestions, or used directly through Intelligent Design Runs.",
+      "usage": "report_qor_suggestions [-file <f>] [-append] [-return_string] [-name <win>] [-max_strategies <n>] [-max_paths <n>] [-no_split] [-models_dir <dir>] [-cells <cells>] [-of_objects <rqs>] [-report_all_suggestions] [-csv_output_dir <dir>] [-quiet]",
+      "parameters": [
+        {"name": "-max_strategies", "description": "Number of ML strategy suggestions to generate (default 3, implemented design only)."},
+        {"name": "-report_all_suggestions", "description": "Include suggestions already applied or not applicable."},
+        {"name": "-of_objects", "description": "Report on specific RQS objects from get_qor_suggestions."}
+      ],
+      "example": "open_checkpoint post_route.dcp\nreport_qor_suggestions -max_strategies 3 -file rqs.rpt\nwrite_qor_suggestions -force ./rqs/impl_1.rqs\n# next run:\nread_qor_suggestions ./rqs/impl_1.rqs\nsynth_design -top top\nopt_design ; place_design ; route_design",
+      "notes": "Suggestion IDs look like RQS_TIMING-1 / RQS_CLOCK-4 / RQS_XDC-2; get_qor_suggestions and set_property ENABLED on them control which are applied. ML strategies are only produced on a routed design and are consumed by create_rqs_runs.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_qor_suggestions"
+    },
+    {
+      "name": "read_qor_suggestions / write_qor_suggestions",
+      "kind": "tcl-command",
+      "description": "Persist and reload the RQS objects generated by report_qor_suggestions. write_qor_suggestions saves them to an .rqs file (with -strategy_dir to also emit strategy Tcl); read_qor_suggestions loads a file so the suggestions are applied automatically in the following synth_design/opt_design/place_design/route_design steps. In Project Mode the RQS_FILE property of a run does the same thing.",
+      "usage": "write_qor_suggestions [-force] [-strategy_dir <dir>] [-tcl_output_dir <dir>] [-of_objects <rqs>] [-quiet] <file.rqs>\nread_qor_suggestions [-quiet] <file.rqs>\nset_property RQS_FILES ./rqs/impl_1.rqs [get_runs impl_2]\ndelete_qor_suggestions [-of_objects <rqs>]",
+      "parameters": [
+        {"name": "-strategy_dir", "description": "Also write the ML strategy suggestions as run-strategy Tcl scripts."},
+        {"name": "-of_objects", "description": "Write only the given suggestion objects."},
+        {"name": "RQS_FILES", "description": "Run property that reads the .rqs when the run launches."}
+      ],
+      "example": "report_qor_suggestions -max_strategies 3\nwrite_qor_suggestions -strategy_dir ./rqs/strategies -force ./rqs/post_route.rqs\n# project flow\nset_property RQS_FILES [list [file normalize ./rqs/post_route.rqs]] [get_runs impl_2]\nlaunch_runs impl_2 -jobs 8",
+      "notes": "Suggestions are keyed to object names; regenerating them after large RTL changes is required. The strategy scripts contain the directive settings the ML model predicted.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_qor_suggestions"
+    },
+    {
+      "name": "report_exceptions",
+      "kind": "tcl-command",
+      "description": "Audit the timing exceptions (set_false_path, set_multicycle_path, set_max/min_delay, set_clock_groups, set_case_analysis, set_disable_timing) with counts of the paths they affect, which exceptions override others, and which are ignored or overridden entirely. -ignored and -ignored_objects find constraints that silently match nothing, which is the most common source of accidentally unconstrained paths.",
+      "usage": "report_exceptions [-file <f>] [-append] [-return_string] [-name <win>] [-from <objs>] [-to <objs>] [-through <objs>] [-ignored] [-ignored_objects] [-summary] [-coverage] [-count_objects] [-write_merged_exceptions] [-write_valid_exceptions] [-quiet]",
+      "parameters": [
+        {"name": "-summary", "description": "One line per exception with position and scope."},
+        {"name": "-ignored", "description": "Exceptions fully overridden by higher-priority ones."},
+        {"name": "-ignored_objects", "description": "Objects in -from/-to/-through lists that match no timing startpoint/endpoint."},
+        {"name": "-coverage", "description": "Percentage of each exception's objects that actually lie on timed paths."},
+        {"name": "-write_valid_exceptions / -write_merged_exceptions", "description": "Emit a cleaned-up XDC with only effective (or merged) exceptions."}
+      ],
+      "example": "report_exceptions -summary -file exceptions.rpt\nreport_exceptions -ignored -ignored_objects\nreport_exceptions -coverage -to [get_cells -hier -filter {NAME =~ *sync_reg*}]",
+      "notes": "Exception precedence: set_clock_groups > set_false_path > set_max_delay/set_min_delay > set_multicycle_path, and more specific objects (pins) beat less specific (clocks). Run this report whenever timing suddenly looks 'too clean'.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_exceptions"
+    },
+    {
+      "name": "report_disable_timing",
+      "kind": "tcl-command",
+      "description": "List the timing arcs currently disabled in the design, whether by user set_disable_timing constraints, by set_case_analysis, or by the tool's own defaults (e.g. LUT arcs with constant inputs). It confirms that a set_disable_timing took effect and reveals arcs disabled by mistake that make paths disappear from analysis.",
+      "usage": "report_disable_timing [-file <f>] [-append] [-return_string] [-name <win>] [-user_disabled] [-column_style variable_width|anchor_left|fixed_width] [-quiet]",
+      "parameters": [
+        {"name": "-user_disabled", "description": "Show only arcs disabled by user constraints (not by the tool)."}
+      ],
+      "example": "set_disable_timing -from I0 -to O [get_cells u_clkmux/mux_lut]\nreport_disable_timing -user_disabled",
+      "notes": "Related: get_timing_arcs -filter {IS_DISABLED}; report_exceptions for the constraint-level view.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_disable_timing"
+    },
+    {
+      "name": "report_pulse_width",
+      "kind": "tcl-command",
+      "description": "Check minimum pulse width, minimum period, maximum skew and duty-cycle requirements on clock pins of primitives (flip-flops, BRAM, DSP, MMCM inputs, GT clocks) against the clock constraints. Failures show up as Pulse Width violations in report_timing_summary (PW column) and this command gives the detail per pin, which is how an over-fast clock on a BRAM or an MMCM input out of range is caught.",
+      "usage": "report_pulse_width [-file <f>] [-append] [-return_string] [-name <win>] [-all_violators] [-significant_digits <n>] [-limit <n>] [-min_period] [-max_period] [-low_pulse] [-high_pulse] [-max_skew] [-no_header] [-quiet] [<objects>]",
+      "parameters": [
+        {"name": "-all_violators", "description": "List every failing check instead of the worst per type."},
+        {"name": "-limit", "description": "Number of checks per type to print."},
+        {"name": "-min_period / -low_pulse / -high_pulse / -max_skew", "description": "Restrict to one check type."},
+        {"name": "<objects>", "description": "Cells or pins to check; default is the whole design."}
+      ],
+      "example": "report_pulse_width -all_violators -file pw.rpt\nreport_pulse_width -min_period [get_cells -hier -filter {PRIMITIVE_TYPE =~ BLOCKRAM.*}]",
+      "notes": "Pulse-width checks are corner- and speed-grade dependent; a BRAM in a -1 part may fail at 400 MHz where -2 passes. Not affected by timing exceptions.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_pulse_width"
+    },
+    {
+      "name": "report_synchronizer_mtbf",
+      "kind": "tcl-command",
+      "description": "Compute the mean time between failures of every clock-domain-crossing synchronizer chain (registers marked ASYNC_REG) on UltraScale and later devices, from the source toggle rate, destination frequency and the device's metastability characteristics, and give an overall design MTBF. Chains with too few stages for their clock rate show low MTBF values; -warn_if_mtbf_below emits warnings for scripting.",
+      "usage": "report_synchronizer_mtbf [-file <f>] [-append] [-return_string] [-name <win>] [-warn_if_mtbf_below <years>] [-no_header] [-report_endpoints] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-warn_if_mtbf_below", "description": "Threshold in years below which a warning is issued per synchronizer."},
+        {"name": "-report_endpoints", "description": "List the destination registers of each chain."}
+      ],
+      "example": "open_checkpoint post_route.dcp\nreport_synchronizer_mtbf -warn_if_mtbf_below 1000 -file mtbf.rpt",
+      "notes": "UltraScale/UltraScale+/Versal only; requires an implemented design and ASYNC_REG on the chain. Use XPM_CDC macros to get correct attributes automatically; increase DEST_SYNC_FF for faster destination clocks.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_synchronizer_mtbf"
+    },
+    {
+      "name": "report_ssn",
+      "kind": "tcl-command",
+      "description": "Simultaneous switching noise analysis for 7 series devices: given the assigned I/O standards, drive strengths, slews and pin locations it estimates the ground-bounce/noise margin for each bank and flags pins likely to violate. Used during pin planning of wide, fast single-ended buses to decide on drive strength, slew and pin spreading.",
+      "usage": "report_ssn [-file <f>] [-append] [-return_string] [-name <win>] [-format text|csv|html] [-phase] [-quiet]",
+      "parameters": [
+        {"name": "-format", "description": "text, csv or html output."},
+        {"name": "-phase", "description": "Take switching-phase information into account (ports with clock relationships)."}
+      ],
+      "example": "report_ssn -format html -file ssn.html",
+      "notes": "7 series only; for UltraScale and later the equivalent guidance is in the PCB design guides and the I/O planning DRCs. Requires all analysed ports to have PACKAGE_PIN and IOSTANDARD.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_ssn"
+    },
+    {
+      "name": "report_operating_conditions",
+      "kind": "tcl-command",
+      "description": "Print the environmental parameters currently used for power and thermal estimation (process, voltages per rail, temperature grade, junction and ambient temperature, thermal resistances, airflow, heatsink and board settings) as set by set_operating_conditions or derived from the part. Include it with power reports so the assumptions are documented.",
+      "usage": "report_operating_conditions [-file <f>] [-append] [-return_string] [-all] [-voltage <rails>] [-grade] [-process] [-junction_temp] [-ambient_temp] [-thetaja] [-thetasa] [-airflow] [-heatsink] [-thetajb] [-board] [-board_temp] [-board_layers] [-design_power] [-supply_current_budget <rails>] [-quiet]",
+      "parameters": [
+        {"name": "-all", "description": "Report every parameter (default when no selector is given)."},
+        {"name": "-voltage", "description": "Only the voltage of the listed rails."}
+      ],
+      "example": "set_operating_conditions -ambient_temp 70 -airflow 0 -heatsink none\nreport_operating_conditions -all\nreport_power -file power.rpt",
+      "notes": "reset_operating_conditions returns everything to the part defaults.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_operating_conditions"
+    },
+    {
+      "name": "report_switching_activity",
+      "kind": "tcl-command",
+      "description": "Show the switching activity (toggle rate, static probability, signal rate) currently annotated on nets, ports and pins, whether it came from set_switching_activity, from a SAIF file, or from the default vector-less propagation. -all, -type and -default variants mirror set_switching_activity so you can verify what report_power will use.",
+      "usage": "report_switching_activity [-file <f>] [-append] [-return_string] [-static_probability] [-signal_rate] [-toggle_rate] [-default_static_probability] [-default_toggle_rate] [-type <sig_type>] [-all] [-hier] [-quiet] [<objects>]",
+      "parameters": [
+        {"name": "-type", "description": "Signal class (register, lut, bram_enable, io_output, gt_txdata ...)."},
+        {"name": "-hier", "description": "Report on everything under the given cells."},
+        {"name": "-all", "description": "All nets in the design (large output)."}
+      ],
+      "example": "read_saif -file sim.saif -strip_path tb/dut\nreport_switching_activity -type bram_enable -all\nreport_switching_activity [get_ports {rx_data[*]}]",
+      "notes": "reset_switching_activity removes user/SAIF annotations. Toggle rates above 100% only make sense for DDR-style signals and are otherwise a sign of a wrong -strip_path.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_switching_activity"
+    },
+    {
+      "name": "read_saif",
+      "kind": "tcl-command",
+      "description": "Annotate switching activity from a Switching Activity Interchange Format file written by a simulation (xsim log_saif/write_saif, or a third-party simulator) onto the nets of the design, so report_power uses measured toggle rates instead of statistical defaults. -strip_path removes the testbench hierarchy prefix so names match; -out_file lists the nets that could not be matched.",
+      "usage": "read_saif [-strip_path <prefix>] [-no_strip] [-out_file <unmatched.txt>] [-quiet] <saif_file>",
+      "parameters": [
+        {"name": "<saif_file>", "description": "SAIF file from simulation of the post-synthesis or post-implementation netlist (RTL-level SAIF matches poorly)."},
+        {"name": "-strip_path", "description": "Instance path of the DUT inside the testbench, e.g. tb_top/dut."},
+        {"name": "-out_file", "description": "Write unmatched SAIF entries for diagnosis."}
+      ],
+      "example": "open_checkpoint post_route.dcp\nread_saif -strip_path tb_top/dut -out_file unmatched.txt ./sim/post_route.saif\nreport_power -file power_saif.rpt -rpx power.rpx",
+      "notes": "Simulate the timing (post-route) netlist for the most accurate results; make sure the SAIF window covers representative activity, not reset. The matched-net percentage is printed in report_power's Settings section.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_saif"
+    },
+    {
+      "name": "report_power_opt",
+      "kind": "tcl-command",
+      "description": "After power_opt_design, list which block RAMs and other elements received power optimizations (BRAM enable gating, clock-enable insertion), the control signals added and which cells were excluded by set_power_opt. Used to review that power optimization did not alter timing-critical logic and to quantify the change.",
+      "usage": "report_power_opt [-file <f>] [-append] [-return_string] [-name <win>] [-cell <cell>] [-quiet]",
+      "parameters": [
+        {"name": "-cell", "description": "Restrict to one hierarchy."}
+      ],
+      "example": "opt_design\nset_power_opt -exclude_cells [get_cells u_pcie_core]\npower_opt_design\nreport_power_opt -file power_opt.rpt",
+      "notes": "power_opt_design can be run after opt_design or after place_design; running it later preserves more placement. set_power_opt -include_cells / -exclude_cells / -cell_types scope it.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_power_opt"
+    },
+    {
+      "name": "report_environment",
+      "kind": "tcl-command",
+      "description": "Dump the tool environment: Vivado version and build, OS and kernel, CPU and memory, environment variables, and license server settings. It is what AMD support asks for with a bug report and what CI logs should capture to make builds reproducible.",
+      "usage": "report_environment [-file <f>] [-format text|xml] [-append] [-return_string] [-quiet]",
+      "parameters": [
+        {"name": "-format", "description": "text (default) or xml."}
+      ],
+      "example": "report_environment -file env.rpt\nversion -verbose",
+      "notes": "version prints the release and build number only; report_param lists the tool parameters that affect behaviour.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_environment"
+    },
+    {
+      "name": "report_param / get_param / list_param",
+      "kind": "tcl-command",
+      "description": "Inspect the tool parameters that tune Vivado's internal behaviour (message limits, thread counts, memory options, experimental switches). list_param lists parameter names, get_param reads one and report_param prints names, current values and descriptions; set_param changes them (covered separately) and reset_param restores the default.",
+      "usage": "report_param [-file <f>] [-append] [-non_default] [-return_string] [-quiet] [<pattern>]\nget_param [-quiet] <name>\nlist_param [-quiet]\nreset_param <name>",
+      "parameters": [
+        {"name": "-non_default", "description": "Only parameters changed from their default."},
+        {"name": "<pattern>", "description": "Glob on parameter names, e.g. general.* or messaging.*."}
+      ],
+      "example": "report_param -non_default\nget_param general.maxThreads\nreport_param messaging.*\nreset_param general.maxThreads",
+      "notes": "Common parameters: general.maxThreads, messaging.defaultLimit, project.writeIntermediateCheckpoint, synth.elaboration.rodinMoreOptions, hd.visual (DFX), board.repoPaths. Undocumented parameters may change between releases.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_param"
+    },
+    {
+      "name": "report_config_timing",
+      "kind": "tcl-command",
+      "description": "Check the configuration-interface timing (SPI, BPI, SelectMAP, master serial) of an UltraScale or UltraScale+ device for the selected configuration mode, clock rate (BITSTREAM.CONFIG.CONFIGRATE), external flash timing and board delays, and report whether the setup/hold of the config pins are met. Run it before finalising CONFIGRATE and the SPI bus width to avoid a board that fails to boot from flash at speed.",
+      "usage": "report_config_timing [-file <f>] [-append] [-return_string] [-name <win>] [-all] [-quiet]",
+      "parameters": [
+        {"name": "-all", "description": "Report all configuration modes rather than the one set by BITSTREAM.CONFIG.*."}
+      ],
+      "example": "set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]\nset_property BITSTREAM.CONFIG.CONFIGRATE 51.0 [current_design]\nset_property BITSTREAM.CONFIG.EXTMASTERCCLK_EN div-1 [current_design]\nreport_config_timing -all -file cfg_timing.rpt",
+      "notes": "Board-level delays are entered through the CONFIG_* properties on the design; see the UltraScale Configuration User Guide (UG570) tables for flash timing.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_config_timing"
+    },
+    {
+      "name": "report_config_implementation",
+      "kind": "tcl-command",
+      "description": "Print the implementation configuration set with config_implementation: global flow switches such as the placer/router behaviour, clock-tree options and DFX-related settings. Used to document non-default implementation configuration in a build log.",
+      "usage": "report_config_implementation [-file <f>] [-append] [-return_string] [-quiet]\nconfig_implementation [-quiet] {<option> <value> ...}",
+      "parameters": [
+        {"name": "config_implementation", "description": "Setter taking a list of option/value pairs; run config_implementation -help for the option list of your release (documented in UG904)."}
+      ],
+      "example": "report_config_implementation",
+      "notes": "Most tuning is done with -directive on each step rather than config_implementation; this report exists mainly for support and reproducibility.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_config_implementation"
+    },
+    {
+      "name": "report_debug_core",
+      "kind": "tcl-command",
+      "description": "Summarise the debug cores in the netlist (ILA, VIO, JTAG-to-AXI, IBERT, dbg_hub) with their parameters, probe widths, data depth, trigger options and the estimated BRAM usage, before or after implement_debug_core. Use it to check what a checkpoint contains and how much block RAM the debug capture is consuming.",
+      "usage": "report_debug_core [-file <f>] [-append] [-return_string] [-full_path] [-quiet]",
+      "parameters": [
+        {"name": "-full_path", "description": "Print full hierarchical names of the probed nets."}
+      ],
+      "example": "open_checkpoint post_route.dcp\nreport_debug_core -full_path -file debug_cores.rpt",
+      "notes": "For live hardware the equivalent information comes from get_hw_ilas and report_property on the hw_ila object.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_debug_core"
+    },
+    {
+      "name": "report_waivers / create_waiver / delete_waivers",
+      "kind": "tcl-command",
+      "description": "Manage waivers that suppress specific DRC, methodology or CDC violations with a documented justification. create_waiver targets a check ID plus the objects or strings of a violation (or -of_objects on violation objects), stores the user and timestamp, and is saved in the XDC; report_waivers lists waivers and how many violations each suppressed; delete_waivers removes them. Waived violations still appear in reports as 'Waived' so sign-off reviews can see them.",
+      "usage": "create_waiver [-type DRC|METHODOLOGY|CDC] [-id <check_id>] [-objects <objs>] [-from <objs>] [-to <objs>] [-strings <list>] [-of_objects <violations>] [-user <name>] [-tags <text>] [-timestamp <t>] [-scoped] -description <text>\nreport_waivers [-file <f>] [-append] [-return_string] [-type DRC|METHODOLOGY|CDC] [-write_valid_waivers] [-write_ignored_waivers] [-show_msgs_with_no_waivers] [-quiet]\ndelete_waivers [-scoped] [-quiet] <waiver_objects>\nget_waivers [-type DRC|METHODOLOGY|CDC] [-id <check>] [-filter <expr>]",
+      "parameters": [
+        {"name": "-type / -id", "description": "Category and check identifier, e.g. -type METHODOLOGY -id TIMING-18."},
+        {"name": "-objects / -strings", "description": "Objects and message strings that identify the exact violation to waive."},
+        {"name": "-of_objects", "description": "Waive existing violation objects from get_drc_violations etc."},
+        {"name": "-description", "description": "Mandatory justification text."}
+      ],
+      "example": "report_methodology -name meth1\ncreate_waiver -of_objects [get_methodology_violations -name meth1 -filter {CHECK == TIMING-18}] \\\n  -description \"Slow control path between async clocks, verified by handshake\" -user jdoe\nreport_waivers -type METHODOLOGY\nwrite_xdc -type waiver -force waivers.xdc",
+      "notes": "Waivers are matched by object name, so they must be re-checked after renaming logic; report_waivers -write_ignored_waivers finds ones that no longer match anything. CDC waivers use -from/-to on the crossing endpoints.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_waiver"
+    },
+    {
+      "name": "report_transformed_primitives",
+      "kind": "tcl-command",
+      "description": "List the cells whose primitive type was transformed by synthesis or by opt_design/place_design (for example a 7 series primitive remapped to its UltraScale equivalent, an IDDR converted to IDDRE1, or a LUT/carry restructure) so that names in the implemented netlist can be traced back to the original instances.",
+      "usage": "report_transformed_primitives [-file <f>] [-append] [-return_string] [-quiet]",
+      "parameters": [],
+      "example": "open_checkpoint post_opt.dcp\nreport_transformed_primitives -file transformed.rpt",
+      "notes": "Helpful when a set_property on a cell name fails after opt_design because the primitive changed; the report gives the new name.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_transformed_primitives"
+    },
+    {
+      "name": "report_place_status / report_run_status",
+      "kind": "tcl-command",
+      "description": "Quick status reports: report_place_status prints how many cells are placed, unplaced or fixed (with -cells for a subset), the counterpart of report_route_status for placement, while report_run_status summarises the state, progress and status message of project runs. Both are used in flow scripts to decide whether to continue or to diagnose a partially completed checkpoint.",
+      "usage": "report_place_status [-file <f>] [-append] [-return_string] [-cells <cells>] [-quiet]\nreport_run_status [-file <f>] [-append] [-return_string] [-quiet] [<runs>]",
+      "parameters": [
+        {"name": "-cells", "description": "Placement status of specific cells only."},
+        {"name": "<runs>", "description": "Runs to report (default all)."}
+      ],
+      "example": "open_checkpoint post_place.dcp\nreport_place_status\n# project mode\nreport_run_status [get_runs impl_*]",
+      "notes": "After route_design, report_route_status -show_all is the corresponding routing check; unplaced cells after place_design usually indicate an error swallowed by -quiet.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_place_status"
+    },
+    {
+      "name": "report_bus_skew -from/-to (bus-skew analysis)",
+      "kind": "tcl-command",
+      "description": "Detailed bus-skew analysis for constraints defined with set_bus_skew: reports the skew between every bit of the bus relative to the reference (fastest/slowest path), the required skew and the slack, with -max_paths, -nworst per endpoint and -from/-to/-through filters like report_timing. Used on source-synchronous output buses and multi-bit CDC (gray-coded) buses where relative timing, not absolute latency, is the requirement.",
+      "usage": "report_bus_skew [-delay_type min|max|min_max] [-setup] [-hold] [-no_detailed_paths] [-max_paths <n>] [-nworst <n>] [-unique_pins] [-path_type short|full|full_clock|full_clock_expanded] [-input_pins] [-no_header] [-significant_digits <n>] [-sort_by slack|group] [-from <objs>] [-to <objs>] [-through <objs>] [-file <f>] [-append] [-return_string] [-name <win>] [-quiet]",
+      "parameters": [
+        {"name": "-max_paths / -nworst", "description": "Number of bus-skew constraints and paths per constraint to detail."},
+        {"name": "-from / -to / -through", "description": "Filter to the endpoints of a particular set_bus_skew."},
+        {"name": "-no_detailed_paths", "description": "Summary table only."}
+      ],
+      "example": "set_bus_skew -from [get_cells gray_ptr_reg[*]] -to [get_cells sync_ptr_reg[*]] 2.5\nreport_bus_skew -from [get_cells gray_ptr_reg[*]] -max_paths 4 -file bus_skew.rpt",
+      "notes": "The summary appears in report_timing_summary under Bus Skew. Bus skew constraints are applied by the router only in the final phase; expect some paths to need manual placement help.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_bus_skew"
+    },
+    {
+      "name": "generate_reports / create_report_config",
+      "kind": "tcl-command",
+      "description": "Project-mode report configuration: create_report_config attaches a report (any report_* command with options) to a run step so it is produced automatically when the run reaches that step, and generate_reports (re)runs the configured reports on an existing run without re-implementing. The Design Runs > Reports tab in the GUI is built on these objects; get_report_configs and delete_report_configs manage them.",
+      "usage": "create_report_config [-name <name>] -report_name <report_cmd> -steps <step> -runs <run> [-options <string>] [-quiet]\ngenerate_reports [-jobs <n>] [-quiet] <report_config_objects>\nget_report_configs [-of_objects <runs>] [-filter <expr>]\nopen_report [-name <win>] [-file <rpt>] <report_config>",
+      "parameters": [
+        {"name": "-report_name", "description": "Report type such as report_timing_summary, report_utilization, report_power, report_methodology, report_control_sets."},
+        {"name": "-steps", "description": "Run step: synth_design, opt_design, place_design, phys_opt_design, route_design, post_route_phys_opt_design, write_bitstream."},
+        {"name": "-options", "description": "Extra options string passed to the report command, e.g. {-max_paths 20 -warn_on_violation}."}
+      ],
+      "example": "create_report_config -name impl_1_route_report_control_sets \\\n  -report_name report_control_sets -steps route_design -runs impl_1 -options {-verbose}\ngenerate_reports [get_report_configs -of_objects [get_runs impl_1]]\nopen_report [get_report_configs impl_1_route_report_timing_summary_0]",
+      "notes": "Default report configs (timing summary, utilization, power, methodology, route status, DRC) are created with every run; setting the run property ENABLE on a report config toggles it. Reports are written to <run_dir>/<name>.rpt and .rpx.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_report_config"
+    },
+    {
+      "name": "open_report / .rpx interactive reports",
+      "kind": "tcl-command",
+      "description": "Reload a binary interactive report (.rpx) written with -rpx by report_timing_summary, report_timing, report_power, report_drc, report_methodology or report_utilization into a GUI report window, with cross-probing to the Device and Schematic windows, without re-running analysis. Essential for reviewing a run's timing after the design has been closed, or on a machine that cannot open the full checkpoint.",
+      "usage": "open_report [-name <window_name>] [-file <report.rpx>] [-append] [-console] [-quiet] [<report_config>]\nreport_timing_summary -rpx timing.rpx -file timing.rpt",
+      "parameters": [
+        {"name": "-file", "description": "The .rpx file to open."},
+        {"name": "-name", "description": "Window name to use in the GUI."},
+        {"name": "-console", "description": "Print the report to the Tcl console instead of a window."}
+      ],
+      "example": "report_timing_summary -max_paths 10 -file impl_timing.rpt -rpx impl_timing.rpx\n# later, with the same checkpoint open in the GUI\nopen_report -name impl_timing -file ./impl_timing.rpx",
+      "notes": "Cross-probing requires the matching design to be open. Run-generated .rpx files are found under <project>.runs/impl_1/ and open from the Reports tab.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_report"
+    },
+    {
+      "name": "report_slr_crossing / report_utilization -slr usage",
+      "kind": "tcl-command",
+      "description": "SSI-device analysis: report_slr_crossing (recent releases, originally introduced for Versal; check help report_slr_crossing on your version) lists nets that cross SLR boundaries with their source and destination SLR, whether they are registered through Laguna/SLL sites and their timing, while report_utilization -slr breaks resource usage down per SLR for UltraScale+ and Versal. Together they show whether logic is balanced across dies and which crossings limit timing, guiding USER_SLR_ASSIGNMENT and Pblock decisions.",
+      "usage": "report_slr_crossing [-file <f>] [-append] [-return_string] [-name <win>] [-cells <cells>] [-nets <nets>] [-quiet]\nreport_utilization -slr [-file <f>]\nreport_design_analysis -complexity -hierarchical_depth 2",
+      "parameters": [
+        {"name": "-nets / -cells", "description": "Restrict crossing analysis to given nets or hierarchies."}
+      ],
+      "example": "report_utilization -slr -file util_slr.rpt\nreport_slr_crossing -file slr_x.rpt\nreport_timing_summary -slack_lesser_than 0 -datasheet",
+      "notes": "SLL crossing paths need a register on both sides (placed in Laguna sites automatically); the placer directive SSI_SpreadLogic_high / SSI_BalanceSLLs help balance crossings. On UltraScale+ use report_timing with -filter on SLR properties when report_slr_crossing is unavailable.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_slr_crossing"
+    }
+  ]
+}

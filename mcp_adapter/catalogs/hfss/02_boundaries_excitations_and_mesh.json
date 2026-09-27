@@ -1,0 +1,557 @@
+{
+  "category": "Boundaries, Excitations & Mesh Operations",
+  "description": "The electromagnetic definition of an HFSS model: surface boundary conditions, the ports and sources that drive it, and the mesh operations and adaptive settings that control accuracy. Each entry gives the GUI path plus the equivalent AEDT object-model and PyAEDT calls.",
+  "tools": [
+    {
+      "name": "Perfect E",
+      "kind": "boundary",
+      "description": "Force the tangential electric field to zero on a surface, modelling a perfect electric conductor. It is the default representation of metal in HFSS because it costs no mesh inside the conductor and introduces no loss. Use it for patches, ground planes, waveguide walls and any conductor whose ohmic loss can be neglected.",
+      "usage": "1. Select the face(s) or sheet object\n2. HFSS menu > Boundaries > Assign > Perfect E\nScript: oModule = oDesign.GetModule(\"BoundarySetup\"); oModule.AssignPerfectE([\"NAME:PerfE1\", \"Objects:=\", [\"Patch\"], \"InfGroundPlane:=\", False])\nPyAEDT: hfss.assign_perfect_e(assignment, name=None, is_infinite_ground=False)",
+      "parameters": [
+        {"name": "Objects / Faces", "description": "Sheet objects or individual faces of a solid to which the condition applies."},
+        {"name": "InfGroundPlane", "description": "True treats the surface as an infinite ground plane for far-field calculation, so the pattern is computed over a half space."},
+        {"name": "Name", "description": "Boundary name shown in the project tree; used later by GetBoundaries and by report contexts."}
+      ],
+      "example": "patch = hfss.modeler.create_rectangle(\"XY\", [-19, -14.5, 1.575], [38, 29], name=\"Patch\")\ngnd   = hfss.modeler.create_rectangle(\"XY\", [-25, -25, 0], [50, 50], name=\"Gnd\")\nhfss.assign_perfect_e([\"Patch\"], name=\"PatchMetal\")\nhfss.assign_perfect_e([\"Gnd\"], name=\"GroundPlane\", is_infinite_ground=True)\nprint(hfss.odesign.GetModule(\"BoundarySetup\").GetBoundaries())",
+      "notes": "Assigning a material of pec to a solid is equivalent for the solver but creates a body; a Perfect E sheet is cheaper. When conductor loss matters, use Finite Conductivity instead and pair it with a skin-depth mesh operation."
+    },
+    {
+      "name": "Perfect H",
+      "kind": "boundary",
+      "description": "Force the tangential magnetic field to zero, which is a perfect magnetic conductor and behaves as an open circuit to the electric field. Its main practical use is as a symmetry wall where the electric field is normal to the plane, halving or quartering the model. It also appears as the natural boundary on an unassigned face inside a model.",
+      "usage": "1. Select the face(s) or sheet\n2. HFSS menu > Boundaries > Assign > Perfect H\nScript: oModule.AssignPerfectH([\"NAME:PerfH1\", \"Objects:=\", [\"SymPlane\"]])\nPyAEDT: hfss.assign_perfect_h(assignment, name=None)",
+      "parameters": [
+        {"name": "Objects / Faces", "description": "Sheets or faces carrying the condition."},
+        {"name": "Symmetry usage", "description": "A Perfect H symmetry plane is used where E is normal to the plane (an H-symmetry plane); Perfect E is used where E is tangential."},
+        {"name": "Name", "description": "Boundary name in the project tree."}
+      ],
+      "example": "# Quarter a symmetric dipole model: E-plane and H-plane symmetry walls\nhfss.modeler.split(assignment=hfss.modeler.object_names, plane=\"YZ\", sides=\"PositiveOnly\")\nsym_face = [f.id for f in hfss.modeler[\"Region\"].faces if abs(f.center[0]) < 1e-6]\nhfss.assign_perfect_h(sym_face, name=\"HSymmetry\")",
+      "notes": "Choosing Perfect E where Perfect H is required (or the reverse) silently solves a different mode and gives plausible but wrong results. Sketch the field orientation on the symmetry plane before deciding, or use the dedicated Symmetry boundary which asks explicitly."
+    },
+    {
+      "name": "Finite Conductivity",
+      "kind": "boundary",
+      "description": "Model a real, lossy conductor as an impedance surface derived from its conductivity, permeability and surface roughness, without meshing inside the metal. This is how copper loss enters an HFSS model at a fraction of the cost of a solved-inside solid. Use it on transmission lines, cavity walls, filters and anywhere insertion loss or Q is the answer you need.",
+      "usage": "1. Select the face(s) or sheet\n2. HFSS menu > Boundaries > Assign > Finite Conductivity...\nScript: oModule.AssignFiniteCond([\"NAME:FiniteCond1\", \"Objects:=\", [\"Trace\"], \"UseMaterial:=\", True, \"Material:=\", \"copper\", \"UseThickness:=\", False, \"Roughness:=\", \"0um\", \"InfGroundPlane:=\", False])\nPyAEDT: hfss.assign_finite_conductivity(assignment, material=\"copper\", ...)",
+      "parameters": [
+        {"name": "UseMaterial / Material", "description": "Take conductivity and permeability from a named material rather than typing values."},
+        {"name": "Conductivity / Permeability", "description": "Explicit values in S/m and relative mu when not taken from a material."},
+        {"name": "UseThickness / Thickness", "description": "Account for a finite metal thickness, which matters when the thickness is comparable with the skin depth."},
+        {"name": "Roughness", "description": "Surface roughness value; HFSS offers Groiss, Huray and Hammerstad-style models that increase loss realistically at high frequency."},
+        {"name": "InfGroundPlane", "description": "Treat the surface as an infinite ground plane for far-field computation."}
+      ],
+      "example": "hfss.assign_finite_conductivity(assignment=[\"Trace\"], material=\"copper\", name=\"TraceCu\")\nhfss.mesh.assign_skin_depth(assignment=[\"Trace\"], skin_depth=\"0.002mm\",\n                            triangulation_max_length=\"0.1mm\", name=\"SkinTrace\")",
+      "notes": "A finite-conductivity boundary is an approximation valid when the metal is several skin depths thick; below that use a thin solid with Solve Inside on, or the Layered Impedance boundary. Always add a skin-depth mesh operation, otherwise the mesh is too coarse for the boundary to be meaningful."
+    },
+    {
+      "name": "Impedance",
+      "kind": "boundary",
+      "description": "Apply a uniform complex surface impedance in ohms per square, relating the tangential electric and magnetic fields. Use it for resistive sheets, absorber layers, thin-film resistors, ITO coatings and any material characterised by its sheet resistance rather than by bulk properties.",
+      "usage": "1. Select the face(s) or sheet\n2. HFSS menu > Boundaries > Assign > Impedance...\nScript: oModule.AssignImpedance([\"NAME:Imped1\", \"Objects:=\", [\"ResSheet\"], \"Resistance:=\", \"377\", \"Reactance:=\", \"0\", \"InfGroundPlane:=\", False])\nPyAEDT: hfss.assign_impedance_to_sheet(assignment, resistance=50.0, reactance=0.0, name=None)",
+      "parameters": [
+        {"name": "Resistance", "description": "Real part of the surface impedance, in ohms per square."},
+        {"name": "Reactance", "description": "Imaginary part, in ohms per square; positive is inductive."},
+        {"name": "InfGroundPlane", "description": "Treat the surface as an infinite ground plane for far-field post-processing."},
+        {"name": "Anisotropic variant", "description": "The Anisotropic Impedance boundary takes a full 2x2 tensor for surfaces whose impedance differs along two in-plane directions."}
+      ],
+      "example": "# 377 ohm/sq resistive sheet - a Salisbury screen absorber layer\nsheet = hfss.modeler.create_rectangle(\"XY\", [-50, -50, 5], [100, 100], name=\"ResSheet\")\nhfss.assign_impedance_to_sheet(\"ResSheet\", resistance=377, reactance=0, name=\"Salisbury\")",
+      "notes": "Sheet impedance is per square, not per unit area, so the value does not scale with the sheet size. A 377 ohm/sq sheet a quarter wavelength above a ground plane is the classic Salisbury screen."
+    },
+    {
+      "name": "Layered Impedance",
+      "kind": "boundary",
+      "description": "Represent a stack of thin material layers as a single equivalent impedance surface, computed from each layer's thickness and material properties. It replaces a physically meshed multilayer coating - plating, paint, oxide, absorber stacks, laminated shields - with one boundary, which saves an enormous amount of mesh on thin layers.",
+      "usage": "1. Select the face(s) or sheet\n2. HFSS menu > Boundaries > Assign > Layered Impedance...\nScript: oModule.AssignLayeredImp([\"NAME:LayeredImp1\", \"Faces:=\", [<ids>], \"Frequency:=\", \"10GHz\", \"Roughness:=\", \"0um\", \"IsTwoSided:=\", False, [\"NAME:Layers\", [\"NAME:Layer1\", \"LayerType:=\", \"Layer\", \"Thickness:=\", \"5um\", \"Material:=\", \"gold\"], ...]])",
+      "parameters": [
+        {"name": "Layers", "description": "Ordered list of layers, each with a thickness and a material, built outward from the surface."},
+        {"name": "Frequency", "description": "Frequency at which the equivalent impedance is evaluated when a single-frequency model is used."},
+        {"name": "IsTwoSided", "description": "True when fields exist on both sides of the layered sheet, for example a free-standing absorber panel."},
+        {"name": "Roughness", "description": "Surface roughness applied to the outermost layer."},
+        {"name": "Infinite / terminating layer", "description": "The final layer can be declared infinitely thick, representing a semi-infinite substrate behind the stack."}
+      ],
+      "example": "faces = [f.id for f in hfss.modeler[\"Shield\"].faces]\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignLayeredImp(\n    [\"NAME:Plating\", \"Faces:=\", faces, \"Frequency:=\", \"10GHz\",\n     \"Roughness:=\", \"0um\", \"IsTwoSided:=\", False,\n     [\"NAME:Layers\",\n      [\"NAME:Layer1\", \"LayerType:=\", \"Layer\", \"Thickness:=\", \"3um\", \"Material:=\", \"gold\"],\n      [\"NAME:Layer2\", \"LayerType:=\", \"Layer\", \"Thickness:=\", \"5um\", \"Material:=\", \"nickel\"],\n      [\"NAME:Layer3\", \"LayerType:=\", \"Infinite\", \"Material:=\", \"copper\"]]])",
+      "notes": "This is the correct boundary for gold-over-nickel-over-copper plating, where meshing the 3 micron gold layer would be ruinous. Layer order runs from the field side inwards, so getting it backwards changes the answer completely."
+    },
+    {
+      "name": "Lumped RLC",
+      "kind": "boundary",
+      "description": "Place a parallel or series combination of a resistor, inductor and capacitor across a sheet, distributed uniformly over its area along a chosen current direction. It is how discrete components - matching resistors, tuning capacitors, loading inductors, diode approximations - are embedded in a full-wave model without a co-simulation.",
+      "usage": "1. Draw a sheet spanning the component gap and select it\n2. HFSS menu > Boundaries > Assign > Lumped RLC...\nScript: oModule.AssignLumpedRLC([\"NAME:LumpRLC1\", \"Objects:=\", [\"RSheet\"], \"CurrentLine:=\", [...], \"RLC Type:=\", \"Parallel\", \"UseResist:=\", True, \"Resistance:=\", \"50ohm\", \"UseInduct:=\", False, \"UseCap:=\", False])\nPyAEDT: hfss.assign_lumped_rlc_to_sheet(assignment, start_direction=..., resistance=..., inductance=..., capacitance=...)",
+      "parameters": [
+        {"name": "RLC Type", "description": "Parallel or Series combination of the enabled elements."},
+        {"name": "Resistance / Inductance / Capacitance", "description": "Component values with units; each can be enabled or disabled independently."},
+        {"name": "CurrentLine / start_direction", "description": "Direction across the sheet that the current is assumed to flow - this defines which pair of edges the component connects."},
+        {"name": "Sheet geometry", "description": "The sheet must bridge the gap exactly; the component value is applied across the whole sheet, not per unit length."}
+      ],
+      "example": "gap = hfss.modeler.create_rectangle(\"XZ\", [-0.5, 0, 0], [1, 0.4], name=\"RSheet\")\nhfss.assign_lumped_rlc_to_sheet(\"RSheet\",\n                                start_direction=hfss.AxisDir.ZPos,\n                                resistance=100, inductance=None, capacitance=\"1pF\",\n                                name=\"MatchRC\")",
+      "notes": "Getting the current-line direction wrong puts the component across the wrong pair of edges and it appears to have no effect. For frequency-dependent or nonlinear parts, use a lumped port here and do the component in a linked Circuit design instead."
+    },
+    {
+      "name": "Radiation",
+      "kind": "boundary",
+      "description": "An absorbing boundary condition that lets outgoing waves leave the solution domain with minimal reflection, turning a finite air box into an approximation of free space. It is the standard enclosure for antennas and scattering problems and is a prerequisite for far-field post-processing. Accuracy depends on the surface being far enough from the radiator and roughly normal to the outgoing wave.",
+      "usage": "1. Select the outer faces of the air region\n2. HFSS menu > Boundaries > Assign > Radiation\nScript: oModule.AssignRadiation([\"NAME:Rad1\", \"Objects:=\", [\"Region\"], \"IsFssReference:=\", False, \"IsForPML:=\", False])\nPyAEDT: hfss.assign_radiation_boundary_to_objects(assignment)  /  assign_radiation_boundary_to_faces(faces)",
+      "parameters": [
+        {"name": "Objects / Faces", "description": "The air-region object or its outer faces."},
+        {"name": "Standoff distance", "description": "Not a parameter of the boundary itself but the critical modelling rule: at least a quarter wavelength at the lowest frequency, measured from the radiating structure."},
+        {"name": "IsFssReference", "description": "Marks the surface as the reference plane for frequency-selective-surface post-processing."},
+        {"name": "Alternatives", "description": "PML for higher accuracy close in, FE-BI to remove the standoff requirement entirely."}
+      ],
+      "example": "hfss.create_open_region(frequency=\"2.45GHz\", boundary=\"Radiation\")\n# or explicitly\nhfss.modeler.create_air_region(50, 50, 50, 50, 50, 50, is_percentage=True)\nhfss.assign_radiation_boundary_to_objects(\"Region\")\nhfss.insert_infinite_sphere(name=\"3D\")",
+      "notes": "A radiation boundary is a local, first- or second-order absorber: it works well for waves hitting it near normal incidence and badly for grazing ones. Symptoms of it being too close are a ripple in the pattern and an input impedance that shifts when the box is resized."
+    },
+    {
+      "name": "PML (Perfectly Matched Layer)",
+      "kind": "boundary",
+      "description": "An artificial absorbing material layer that attenuates outgoing waves with far less reflection than a radiation boundary, including at oblique and grazing incidence. Use it when the air box must be close to the structure, for periodic and guided-wave terminations, and in scattering problems where low numerical reflection matters. It costs extra mesh in the layer itself.",
+      "usage": "HFSS menu > Boundaries > PML Setup Wizard... (or Assign > PML)\nThe wizard creates PML objects around selected base faces and assigns the boundary automatically.\nPyAEDT: hfss.create_open_region(frequency=..., boundary=\"PML\")",
+      "parameters": [
+        {"name": "Base faces", "description": "The faces of the air region the PML is grown outward from."},
+        {"name": "PML thickness", "description": "Physical thickness of the absorbing layer, typically a quarter wavelength or a fixed number of mesh layers."},
+        {"name": "Minimum frequency", "description": "The lowest frequency the PML must absorb; it sizes the layer."},
+        {"name": "Minimum radiating distance", "description": "Distance from the radiating source used by the wizard to compute a suitable PML."},
+        {"name": "Uniform / user-defined", "description": "Let the wizard compute the layer properties, or supply the attenuation profile manually."}
+      ],
+      "example": "# PyAEDT open region with a PML instead of an ABC\nhfss.create_open_region(frequency=\"10GHz\", boundary=\"PML\")\nhfss.analyze()\nhfss.post.create_report(\"dB(S(1,1))\")",
+      "notes": "A PML placed too close to a strongly reactive near field still misbehaves, because evanescent fields are not waves and are not absorbed. PMLs also add solid objects to the model that must be excluded from far-field and field-plot regions."
+    },
+    {
+      "name": "FE-BI (Finite Element Boundary Integral)",
+      "kind": "boundary",
+      "description": "A hybrid termination that couples the finite-element region directly to an integral-equation representation of free space, so the boundary can be conformal and placed tight against the structure with essentially no reflection. It removes the quarter-wavelength standoff rule entirely, which greatly reduces the air volume that must be meshed for electrically large or awkwardly shaped radiators.",
+      "usage": "1. Select the outer faces of the air region\n2. HFSS menu > Boundaries > Assign > FE-BI\nScript: oModule.AssignFEBI([\"NAME:FEBI1\", \"Objects:=\", [\"Region\"]])",
+      "parameters": [
+        {"name": "Objects / Faces", "description": "The region object or the faces the FE-BI termination is applied to; it may be conformal rather than a box."},
+        {"name": "Solver interaction", "description": "FE-BI adds a dense integral-equation block to the matrix, so it trades mesh volume for solve cost and memory."},
+        {"name": "Infinite ground option", "description": "An FE-BI region can be combined with an infinite ground plane for grounded antennas."}
+      ],
+      "example": "hfss.modeler.create_air_region(5, 5, 5, 5, 5, 5, is_percentage=True)\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignFEBI([\"NAME:FEBI1\", \"Objects:=\", [\"Region\"]])\nhfss.analyze()",
+      "notes": "FE-BI usually wins when the air volume would otherwise dominate the mesh - long thin antennas, antennas on large platforms, conformal arrays. For a compact patch in a small box a plain radiation boundary is faster."
+    },
+    {
+      "name": "Symmetry",
+      "kind": "boundary",
+      "description": "Declare a plane as a mirror of the structure so only a half or a quarter of the model is solved, with the field behaviour on the plane set to Perfect E or Perfect H. It is the cheapest accuracy-neutral speedup available, often cutting solve time by four or more, provided both the geometry and the excitation are symmetric.",
+      "usage": "1. Split the model and select the cut face\n2. HFSS menu > Boundaries > Assign > Symmetry...\nScript: oModule.AssignSymmetry([\"NAME:Sym1\", \"Faces:=\", [<ids>], \"IsPerfectE:=\", True])\nPyAEDT: hfss.assign_symmetry(assignment, name=None, is_perfect_e=True)",
+      "parameters": [
+        {"name": "Faces", "description": "The planar cut face(s) lying on the symmetry plane."},
+        {"name": "IsPerfectE", "description": "True for an E-symmetry plane (electric field tangential, like a PEC wall); False for an H-symmetry plane."},
+        {"name": "Impedance multiplier", "description": "Port impedances must be scaled when a port is cut by a symmetry plane - HFSS exposes a multiplier for this in the design settings."}
+      ],
+      "example": "hfss.modeler.split(assignment=hfss.modeler.object_names, plane=\"YZ\", sides=\"PositiveOnly\")\ncut_faces = [f.id for f in hfss.modeler[\"Region\"].faces if abs(f.center[0]) < 1e-6]\nhfss.assign_symmetry(cut_faces, name=\"Esym\", is_perfect_e=True)",
+      "notes": "When a port is bisected by the symmetry plane the reported impedance is halved (E-symmetry) or doubled (H-symmetry); set the impedance multiplier in HFSS > Design Settings or the S-parameters will be wrong by a factor of two."
+    },
+    {
+      "name": "Primary / Secondary (Master / Slave)",
+      "kind": "boundary",
+      "description": "Periodic boundary pair that makes the field on one face a phase-shifted copy of the field on the opposite face, so a single unit cell represents an infinite array. It is the foundation of frequency-selective surface, metamaterial, radome and infinite-array element analysis, and is normally paired with Floquet ports on the open faces.",
+      "usage": "1. Assign Primary to one face, defining its U and V vectors\n2. Assign Secondary to the opposite face, referencing the primary and giving the phase delay\nHFSS menu > Boundaries > Assign > Primary / Secondary\nScript: oModule.AssignPrimary([\"NAME:Primary1\", \"Faces:=\", [id], \"CoordSysVector:=\", [...], \"ReverseV:=\", False]) then oModule.AssignSecondary([\"NAME:Secondary1\", \"Faces:=\", [id], \"Primary:=\", \"Primary1\", \"UseScanAngles:=\", True, \"Phi:=\", \"0deg\", \"Theta:=\", \"0deg\"])",
+      "parameters": [
+        {"name": "CoordSysVector", "description": "Origin and U-direction defining how points on the primary face map to points on the secondary face. The two faces must be geometrically identical."},
+        {"name": "Primary", "description": "Name of the primary boundary the secondary is paired with."},
+        {"name": "UseScanAngles / Phi / Theta", "description": "Express the phase delay as a scan angle, which is the natural form for an infinite phased array."},
+        {"name": "Phase Delay", "description": "Alternatively give the inter-cell phase shift directly in degrees."},
+        {"name": "ReverseV", "description": "Flip the V direction when the two faces are mirrored rather than translated."}
+      ],
+      "example": "# Unit cell walls for an FSS with a scan angle sweep\nhfss[\"scan_theta\"] = \"0deg\"\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\n# ... AssignPrimary on -X and -Y faces, AssignSecondary on +X and +Y faces ...\n# Sweep the scan angle to get the scan blindness behaviour\nhfss.parametrics.add(\"scan_theta\", start_point=\"0deg\", end_point=\"60deg\",\n                     step=\"5deg\", variation_type=\"LinearStep\")",
+      "notes": "The mesh on the two paired faces must match, which HFSS enforces by copying the primary mesh to the secondary - so the faces must be exactly congruent. Terminology changed from Master/Slave to Primary/Secondary in recent releases; older scripts using AssignMaster/AssignSlave still run."
+    },
+    {
+      "name": "Screening Impedance",
+      "kind": "boundary",
+      "description": "Model a perforated or meshed screen - wire mesh, honeycomb vent, perforated shield - as an equivalent impedance surface rather than meshing every hole. It captures the shielding effectiveness and leakage of the screen at a tiny fraction of the cost of the real geometry, which is essential in EMC enclosure work.",
+      "usage": "1. Select the face or sheet representing the screen\n2. HFSS menu > Boundaries > Assign > Screening Impedance...\nScript: oModule.AssignScreeningImpedance([\"NAME:ScreenImp1\", \"Faces:=\", [<ids>], ...])",
+      "parameters": [
+        {"name": "Faces / Objects", "description": "The sheet standing in for the perforated screen."},
+        {"name": "Impedance definition", "description": "Given as a sheet impedance, or derived from the screen geometry (hole size, pitch, wire diameter) depending on the release."},
+        {"name": "Two-sided", "description": "Whether fields exist on both sides of the screen, which is normally the case for a vent."}
+      ],
+      "example": "vent = hfss.modeler.create_rectangle(\"XZ\", [-30, 0, -20], [60, 40], name=\"VentScreen\")\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\nfaces = [f.id for f in hfss.modeler[\"VentScreen\"].faces]\noModule.AssignScreeningImpedance([\"NAME:Vent\", \"Faces:=\", faces])\n# Then compute shielding effectiveness from the field inside the enclosure",
+      "notes": "The equivalent-impedance approximation holds while the hole pitch is small compared with the wavelength; near and above the hole resonance the real geometry must be meshed. Confirm the exact parameter names by recording the dialog with Tools > Record Script To File for your release."
+    },
+    {
+      "name": "Anisotropic Impedance",
+      "kind": "boundary",
+      "description": "A surface impedance expressed as a tensor, so the sheet presents different impedance along two in-plane directions. It models gridded and strip-loaded surfaces, corrugated soft and hard surfaces, anisotropic absorbers and artificial impedance surfaces used in antenna design.",
+      "usage": "1. Select the face(s) or sheet\n2. HFSS menu > Boundaries > Assign > Anisotropic Impedance...\nScript: oModule.AssignAnisotropicImpedance([\"NAME:AnisoImp1\", \"Faces:=\", [<ids>], \"CoordSystem:=\", \"<CS>\", \"ZxxResistance:=\", ..., \"ZyyResistance:=\", ..., ...])",
+      "parameters": [
+        {"name": "Coordinate system", "description": "The reference frame the tensor components are expressed in; usually a relative CS aligned with the surface features."},
+        {"name": "Zxx / Zxy / Zyx / Zyy", "description": "Resistance and reactance components of the 2x2 impedance tensor in ohms per square."},
+        {"name": "Faces / Objects", "description": "Surface the tensor applies to."},
+        {"name": "InfGroundPlane", "description": "Treat the surface as an infinite ground plane in far-field computation."}
+      ],
+      "example": "cs = hfss.modeler.create_coordinate_system(origin=[0, 0, 0], name=\"SurfCS\")\nfaces = [f.id for f in hfss.modeler[\"CorrugatedTop\"].faces]\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignAnisotropicImpedance(\n    [\"NAME:SoftSurface\", \"Faces:=\", faces, \"CoordSystem:=\", \"SurfCS\",\n     \"ZxxResistance:=\", \"0\", \"ZxxReactance:=\", \"1e6\",\n     \"ZyyResistance:=\", \"0\", \"ZyyReactance:=\", \"0\"])",
+      "notes": "Define a relative coordinate system aligned with the surface corrugations first, otherwise the tensor axes do not line up with the physical anisotropy. Very large reactance approximates a perfect magnetic conductor in that direction."
+    },
+    {
+      "name": "Infinite Ground Plane",
+      "kind": "boundary",
+      "description": "Flag a Perfect E, Finite Conductivity or Impedance boundary as representing a ground plane of infinite extent, which changes how the far field is computed: radiation into the lower half space is suppressed and the image of the source is accounted for. Use it when the real ground plane is much larger than the antenna and modelling its edges would be wasteful.",
+      "usage": "Set the InfGroundPlane flag when assigning the boundary:\nHFSS > Boundaries > Assign > Perfect E... > tick 'Infinite ground plane'\nScript: oModule.AssignPerfectE([\"NAME:Gnd\", \"Objects:=\", [\"GroundSheet\"], \"InfGroundPlane:=\", True])\nPyAEDT: hfss.assign_perfect_e([\"GroundSheet\"], is_infinite_ground=True)",
+      "parameters": [
+        {"name": "InfGroundPlane", "description": "Boolean flag available on Perfect E, Finite Conductivity, Impedance and Layered Impedance assignments."},
+        {"name": "Effect on far field", "description": "The far-field integration treats the half space below the plane as unreachable, producing a hemispherical pattern."},
+        {"name": "Geometric extent", "description": "The modelled sheet still has finite size for the near-field solve; only the far-field computation treats it as infinite."}
+      ],
+      "example": "gnd = hfss.modeler.create_rectangle(\"XY\", [-60, -60, 0], [120, 120], name=\"GroundSheet\")\nhfss.assign_perfect_e([\"GroundSheet\"], name=\"InfGnd\", is_infinite_ground=True)\nhfss.create_open_region(frequency=\"2.45GHz\")\nhfss.insert_infinite_sphere(name=\"Hemisphere\")",
+      "notes": "Because only the far-field computation is affected, edge diffraction from the modelled sheet still influences the near field and the impedance. If back-lobe behaviour matters, model the real finite ground plane instead."
+    },
+    {
+      "name": "Hybrid Region (IE / PO / SBR+)",
+      "kind": "boundary",
+      "description": "Assign part of the model to a different solver technology so that a full-wave FEM region can coexist with integral-equation, physical-optics or ray-traced regions in one simulation. A detailed antenna stays in FEM while the large metallic platform it sits on is handled by IE or SBR+, which makes installed-performance problems tractable.",
+      "usage": "1. Select the object or region\n2. HFSS menu > Boundaries > Assign > Hybrid Region > IE Region | PO Region | SBR+ Region\nScript: oModule.AssignHybridRegion([\"NAME:Hybrid1\", \"Objects:=\", [\"Platform\"], \"Type:=\", \"IE\", ...])",
+      "parameters": [
+        {"name": "Type", "description": "IE (method of moments), PO (physical optics) or SBR+ (shooting and bouncing rays) for that region."},
+        {"name": "Objects", "description": "The bodies assigned to the alternative solver; the remainder of the model stays in FEM."},
+        {"name": "Coupling", "description": "HFSS couples the regions self-consistently for FEM-IE; PO and SBR+ regions are coupled asymptotically, which is faster but one-way in some configurations."},
+        {"name": "Solver requirements", "description": "Hybrid regions require the corresponding solver licences and are not available in the student edition."}
+      ],
+      "example": "hfss.modeler.import_3d_cad(r\"C:\\work\\mast.step\")\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignHybridRegion(\n    [\"NAME:MastIE\", \"Objects:=\", [\"Mast\"], \"Type:=\", \"IE\"])\nhfss.analyze()",
+      "notes": "IE regions must be closed conducting bodies; open sheets and dielectrics are handled differently. Verify the exact argument array for your release by recording the dialog, because the hybrid-region options have changed between versions."
+    },
+    {
+      "name": "Wave Port",
+      "kind": "excitation",
+      "description": "The preferred excitation for any structure fed by a defined transmission line or waveguide. HFSS solves a 2D eigenvalue problem on the port cross-section to find the propagating modes, their fields and their characteristic impedances, then uses those as the incident and reflected wave basis. Wave ports give accurate, de-embeddable, multi-mode S-parameters.",
+      "usage": "1. Draw a sheet covering the full waveguide cross-section on an outer face of the model\n2. HFSS menu > Excitations > Assign > Wave Port...\nScript: oModule.AssignWavePort([\"NAME:P1\", \"Objects:=\", [\"PortSheet\"], \"NumModes:=\", 1, \"RenormalizeAllTerminals:=\", True, \"DoDeembed:=\", False, [\"NAME:Modes\", [\"NAME:Mode1\", \"ModeNum:=\", 1, \"UseIntLine:=\", True, [\"NAME:IntLine\", \"Start:=\", [...], \"End:=\", [...]]]]])\nPyAEDT: hfss.wave_port(assignment, integration_line=..., modes=1, is_microstrip=False, impedance=50, renormalize=True, deembed=None, name=...)",
+      "parameters": [
+        {"name": "NumModes / modes", "description": "How many propagating modes to solve on the port. Include higher-order modes when they can propagate at the top of the band."},
+        {"name": "Integration line", "description": "A line from the reference conductor to the signal conductor, which fixes the sign and the impedance definition (Zpi/Zpv/Zvi). Required for a meaningful characteristic impedance on TEM and quasi-TEM lines."},
+        {"name": "DoDeembed / deembed distance", "description": "Shift the reference plane along the line by a given distance, removing the feed section from the S-parameters."},
+        {"name": "Renormalize / impedance", "description": "Renormalise the modal S-parameters to a fixed impedance, usually 50 ohm."},
+        {"name": "Port size", "description": "The sheet must enclose essentially all of the mode's field. Too small truncates the mode; too large lets unwanted box modes propagate."},
+        {"name": "Terminal mode", "description": "In a Driven Terminal design the same port is defined by terminals on each conductor plus a reference conductor."}
+      ],
+      "example": "port_sheet = hfss.modeler.create_rectangle(\"YZ\", [0, -5, -0.8], [10, 4], name=\"PortSheet\")\np1 = hfss.wave_port(assignment=\"PortSheet\",\n                    integration_line=hfss.AxisDir.ZPos,\n                    modes=1, impedance=50, renormalize=True,\n                    deembed=2, name=\"P1\")\nprint(hfss.excitations)",
+      "notes": "For microstrip, the port height should be about 6-10 times the substrate thickness and the width 3-5 times the trace width, so the quasi-TEM mode is captured without letting a parallel-plate box mode in. A wave port must lie on the outer boundary of the solution region unless it is enclosed in a conductor."
+    },
+    {
+      "name": "Lumped Port",
+      "kind": "excitation",
+      "description": "An internal excitation applied across a small sheet, with a user-specified real impedance and a current direction. It does not solve a 2D mode problem, so it is fast and can sit anywhere inside the model - a patch antenna feed gap, a dipole centre, a component footprint. Accuracy relies on the gap being electrically small.",
+      "usage": "1. Draw a small sheet bridging the feed gap\n2. HFSS menu > Excitations > Assign > Lumped Port...\nScript: oModule.AssignLumpedPort([\"NAME:P1\", \"Objects:=\", [\"FeedSheet\"], \"RenormalizeAllTerminals:=\", True, \"DoDeembed:=\", False, [\"NAME:Modes\", [\"NAME:Mode1\", \"ModeNum:=\", 1, \"UseIntLine:=\", True, [\"NAME:IntLine\", \"Start:=\", [...], \"End:=\", [...]], \"CharImp:=\", \"Zpi\"]], \"Impedance:=\", \"50ohm\"])\nPyAEDT: hfss.lumped_port(assignment, integration_line=..., impedance=50, name=..., renormalize=True)",
+      "parameters": [
+        {"name": "Impedance", "description": "Real reference impedance of the port, typically 50 ohm. Unlike a wave port this value is imposed, not computed."},
+        {"name": "Integration line", "description": "Direction of the assumed current flow across the sheet, from the reference conductor to the signal conductor."},
+        {"name": "Objects / Faces", "description": "The feed sheet; it must touch conductors at both ends of the integration line."},
+        {"name": "Renormalize", "description": "Whether S-parameters are renormalised to the stated impedance."},
+        {"name": "CharImp", "description": "Impedance definition used, typically Zpi for a lumped port."}
+      ],
+      "example": "feed = hfss.modeler.create_rectangle(\"XZ\", [-0.5, 0, 0], [1, 1.575], name=\"FeedSheet\")\nhfss.lumped_port(assignment=\"FeedSheet\",\n                 integration_line=hfss.AxisDir.ZPos,\n                 impedance=50, renormalize=True, name=\"P1\")\nhfss.analyze()\nhfss.post.create_report(\"dB(S(P1,P1))\")",
+      "notes": "A lumped port whose sheet is a significant fraction of a wavelength behaves as a distributed structure and the imposed impedance becomes meaningless. Use a wave port whenever a real transmission line feeds the structure and you need a de-embedded reference plane."
+    },
+    {
+      "name": "Floquet Port",
+      "kind": "excitation",
+      "description": "A port for periodic structures that decomposes the field into Floquet modes - plane waves with the periodicity of the unit cell. Paired with Primary/Secondary boundaries it computes the reflection and transmission of an infinite array or frequency-selective surface as a function of frequency and scan angle, including higher-order grating lobes.",
+      "usage": "1. Set up Primary/Secondary boundaries on the cell walls\n2. Select the top (and bottom) face of the cell\n3. HFSS menu > Excitations > Assign > Floquet Port...\nScript: oModule.AssignFloquetPort([\"NAME:FloquetPort1\", \"Faces:=\", [id], \"NumModes:=\", 2, \"RenormalizeAllTerminals:=\", True, \"DoDeembed:=\", False, [\"NAME:Modes\", ...], \"UseScanAngles:=\", True, \"Phi:=\", \"0deg\", \"Theta:=\", \"0deg\", [\"NAME:LatticeAVector\", ...], [\"NAME:LatticeBVector\", ...]])",
+      "parameters": [
+        {"name": "Lattice A / B vectors", "description": "The two periodicity vectors of the unit cell, which must match the Primary/Secondary pairing."},
+        {"name": "NumModes", "description": "Number of Floquet modes retained; two (TE00 and TM00) is the minimum, more are needed once grating lobes appear."},
+        {"name": "Theta / Phi scan angles", "description": "Incidence or scan direction, normally parameterised so a scan sweep can be run."},
+        {"name": "Modes Calculator", "description": "Dialog that lists the attenuation of each Floquet mode at a given frequency and scan angle, used to decide how many modes to keep."},
+        {"name": "DoDeembed", "description": "Move the port reference plane to the surface of the structure, removing the air gap above it."}
+      ],
+      "example": "hfss[\"scan_theta\"] = \"0deg\"\nhfss[\"scan_phi\"]   = \"0deg\"\n# Primary/Secondary on the four side walls, Floquet port on the top face\n# then sweep the scan angle:\nhfss.parametrics.add(\"scan_theta\", start_point=\"0deg\", end_point=\"70deg\",\n                     step=\"5deg\", variation_type=\"LinearStep\")\nhfss.analyze()",
+      "notes": "Keeping too few Floquet modes under-counts the power once the cell is larger than a wavelength and grating lobes exist; use the Modes Calculator to check the attenuation of the next higher mode at the highest frequency and largest scan angle."
+    },
+    {
+      "name": "Terminal",
+      "kind": "excitation",
+      "description": "In a Driven Terminal design, a port is defined by one terminal per signal conductor plus a reference conductor, instead of by waveguide modes. Terminals give per-conductor voltages and currents, so multi-conductor S-parameters map directly onto circuit pins and differential pairs can be grouped for mixed-mode results.",
+      "usage": "Solution type must be Driven Terminal. When assigning a wave or lumped port, choose Terminal and select the conductor for each terminal plus the reference conductor.\nScript: the port assignment array gains a [\"NAME:Terminals\", [\"NAME:T1\", \"ConductorName:=\", \"Trace1\", ...]] block\nPyAEDT: hfss.wave_port(..., terminals_rename=...) in a Terminal design; differential pairs via hfss.set_differential_pair(...)",
+      "parameters": [
+        {"name": "Terminal conductor", "description": "The signal conductor the terminal voltage is measured on."},
+        {"name": "Reference conductor", "description": "The return conductor; every terminal at a port shares it."},
+        {"name": "Terminal renormalisation", "description": "Per-terminal reference impedance, typically 50 ohm single-ended."},
+        {"name": "Differential pairs", "description": "Two terminals can be declared a differential pair so Sdd11, Scc11, Sdc11 and Scd11 are reported directly."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Terminal\", version=\"2025.1\", non_graphical=True)\n# ... geometry with two traces and a ground plane ...\nhfss.wave_port(assignment=\"PortSheet\", name=\"P1\", modes=2, renormalize=True, impedance=50)\nhfss.set_differential_pair(assignment=\"P1_T1\", reference=\"P1_T2\",\n                           differential_reference=100, common_reference=25)\nhfss.analyze()\nhfss.export_touchstone(output_file=r\"C:\\work\\pair.s4p\")",
+      "notes": "Terminal results can be post-processed into modal results but a modal solution cannot recover per-conductor voltages. For a single-conductor waveguide, terminal mode adds nothing and modal is the natural choice."
+    },
+    {
+      "name": "Incident Wave - Plane Wave",
+      "kind": "excitation",
+      "description": "Illuminate the model with a uniform plane wave of specified direction and polarisation. It is the excitation for radar cross-section, shielding effectiveness, frequency-selective-surface transmission and any scattering problem, and it can be swept over incidence angle to produce a full angular response.",
+      "usage": "HFSS menu > Excitations > Assign > Incident Wave > Plane Wave...\nScript: oModule.AssignPlaneWave([\"NAME:IncPWave1\", \"IsCartesian:=\", True, \"EoX:=\", \"0\", \"EoY:=\", \"1\", \"EoZ:=\", \"0\", \"kX:=\", \"0\", \"kY:=\", \"0\", \"kZ:=\", \"-1\", \"OriginX:=\", \"0mm\", ...])\nPyAEDT: hfss.plane_wave(vector_format=\"Spherical\", origin=..., polarization=..., wave_type=\"Propagating\")",
+      "parameters": [
+        {"name": "E-field vector (EoX/EoY/EoZ)", "description": "Polarisation direction and amplitude of the incident field, in V/m."},
+        {"name": "k vector (kX/kY/kZ)", "description": "Propagation direction of the wave."},
+        {"name": "Spherical form (Theta / Phi)", "description": "Alternative angular specification of the incidence direction, easier to sweep parametrically."},
+        {"name": "Wave type", "description": "Propagating, evanescent or elliptically polarised variants."},
+        {"name": "Origin", "description": "Phase reference point of the incident wave."}
+      ],
+      "example": "hfss[\"inc_theta\"] = \"0deg\"\nhfss[\"inc_phi\"]   = \"0deg\"\nhfss.plane_wave(vector_format=\"Spherical\", origin=[0, 0, 0],\n                polarization=[\"1\", \"0\"], propagation_vector=[\"inc_theta\", \"inc_phi\"])\nhfss.analyze()\n# Monostatic RCS versus incidence angle\nhfss.parametrics.add(\"inc_theta\", start_point=\"0deg\", end_point=\"180deg\",\n                     step=\"2deg\", variation_type=\"LinearStep\")",
+      "notes": "A plane-wave excitation and a port cannot be active in the same solve in the usual sense - scattering problems normally have no ports at all. Radar cross-section is then reported from the Far Fields report category with the Monostatic or Bistatic RCS quantities."
+    },
+    {
+      "name": "Incident Wave - Gaussian Beam",
+      "kind": "excitation",
+      "description": "Illuminate the model with a focused Gaussian beam of specified waist size, direction and polarisation, rather than an infinite plane wave. It models quasi-optical feeds, millimetre-wave test benches, lens illumination and any measurement where the incident field is a beam of finite extent.",
+      "usage": "HFSS menu > Excitations > Assign > Incident Wave > Gaussian Beam...\nScript: oModule.AssignGaussianBeam([\"NAME:GaussBeam1\", \"IsCartesian:=\", True, \"EoX:=\", ..., \"kX:=\", ..., \"OriginX:=\", ..., \"BeamWaist:=\", \"10mm\"])",
+      "parameters": [
+        {"name": "BeamWaist", "description": "Radius of the beam waist, which together with the wavelength fixes the divergence."},
+        {"name": "Origin", "description": "Position of the beam waist, i.e. the focal point."},
+        {"name": "E-field vector", "description": "Polarisation and amplitude at the waist."},
+        {"name": "k vector / Theta, Phi", "description": "Propagation direction of the beam axis."}
+      ],
+      "example": "oModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignGaussianBeam(\n    [\"NAME:GaussBeam1\", \"IsCartesian:=\", True,\n     \"EoX:=\", \"1\", \"EoY:=\", \"0\", \"EoZ:=\", \"0\",\n     \"kX:=\", \"0\", \"kY:=\", \"0\", \"kZ:=\", \"-1\",\n     \"OriginX:=\", \"0mm\", \"OriginY:=\", \"0mm\", \"OriginZ:=\", \"100mm\",\n     \"BeamWaist:=\", \"15mm\"])",
+      "notes": "The Gaussian beam approximation degrades when the waist approaches a wavelength. For a physically realistic feed it is usually better to model the horn itself and link it as a field source."
+    },
+    {
+      "name": "Incident Wave - Hertzian Dipole",
+      "kind": "excitation",
+      "description": "Excite the model with an elementary Hertzian dipole source at a chosen position and orientation, representing an infinitesimal current element. It is used as a probe source for reciprocity studies, as an idealised interferer in EMC analysis, and as a simple way to illuminate a structure from a point without modelling a real antenna.",
+      "usage": "HFSS menu > Excitations > Assign > Incident Wave > Hertzian Dipole Wave...\nScript: oModule.AssignHertzianDipoleWave([\"NAME:HertzDip1\", \"IsCartesian:=\", True, \"EoX:=\", ..., \"OriginX:=\", ..., \"IsElectricDipole:=\", True, \"Moment:=\", ...])",
+      "parameters": [
+        {"name": "Origin", "description": "Position of the dipole."},
+        {"name": "Orientation vector", "description": "Direction of the current element, which sets the polarisation of the radiated field."},
+        {"name": "IsElectricDipole", "description": "True for an electric dipole, False for a magnetic dipole (a small current loop)."},
+        {"name": "Moment / amplitude", "description": "Strength of the source."}
+      ],
+      "example": "oModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignHertzianDipoleWave(\n    [\"NAME:Probe\", \"IsCartesian:=\", True,\n     \"EoX:=\", \"0\", \"EoY:=\", \"0\", \"EoZ:=\", \"1\",\n     \"OriginX:=\", \"0mm\", \"OriginY:=\", \"0mm\", \"OriginZ:=\", \"50mm\",\n     \"IsElectricDipole:=\", True])",
+      "notes": "The field of an ideal dipole is singular at the source point, so keep it away from mesh-critical regions and never place it on a conductor surface. Confirm the exact argument names by recording the dialog for your release."
+    },
+    {
+      "name": "Incident Wave - Linear Antenna",
+      "kind": "excitation",
+      "description": "Excite the model with the field of an idealised linear (finite-length) antenna placed at a given position and orientation, rather than an infinitesimal dipole or an infinite plane wave. It gives a more realistic illuminating field for co-site interference and installed-antenna studies without modelling the source antenna's geometry.",
+      "usage": "HFSS menu > Excitations > Assign > Incident Wave > Linear Antenna Wave...\nScript: oModule.AssignLinearAntennaWave([\"NAME:LinAnt1\", \"IsCartesian:=\", True, \"EoX:=\", ..., \"OriginX:=\", ..., \"Length:=\", ...])",
+      "parameters": [
+        {"name": "Origin", "description": "Centre position of the linear antenna."},
+        {"name": "Orientation", "description": "Axis of the antenna, which sets the polarisation."},
+        {"name": "Length", "description": "Physical length of the radiator, which determines its pattern (half-wave, full-wave and so on)."},
+        {"name": "Amplitude / phase", "description": "Drive level and phase of the source."}
+      ],
+      "example": "oModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignLinearAntennaWave(\n    [\"NAME:Interferer\", \"IsCartesian:=\", True,\n     \"EoX:=\", \"0\", \"EoY:=\", \"0\", \"EoZ:=\", \"1\",\n     \"OriginX:=\", \"0mm\", \"OriginY:=\", \"500mm\", \"OriginZ:=\", \"0mm\"])",
+      "notes": "Idealised source excitations do not include the source antenna's own scattering, so they cannot capture mutual coupling back into the source. When coupling matters, model the source antenna properly or link a solved design as a field source."
+    },
+    {
+      "name": "Incident Wave - Far Field Wave",
+      "kind": "excitation",
+      "description": "Use the far field computed in another solved HFSS design as the incident illumination on this one. It is the mechanism behind installed-antenna and platform studies: solve the antenna once in a small, well-meshed model, then use its pattern as a source on a large platform model without re-solving the antenna geometry.",
+      "usage": "HFSS menu > Excitations > Assign > Incident Wave > Far Field Wave...\nSelect the source design and its infinite-sphere far-field setup, then position and orient the source.\nA .ffd far-field data file exported from the source design can also be used.",
+      "parameters": [
+        {"name": "Source design / solution", "description": "The solved HFSS design and far-field setup providing the pattern."},
+        {"name": "Position and orientation", "description": "Where the equivalent source sits in this model and how it is rotated."},
+        {"name": "Amplitude and phase scaling", "description": "Scale the source so several elements can be combined with an array taper."},
+        {"name": "Far-field data file (.ffd)", "description": "Alternative to a live design link: a stored pattern file."}
+      ],
+      "example": "# 1. Solve the element design and export its pattern\nelem = Hfss(design=\"Element\", version=\"2025.1\")\nelem.insert_infinite_sphere(name=\"3D\")\nelem.analyze()\n\n# 2. In the platform design, assign a Far Field Wave sourced from that setup\nplat = Hfss(design=\"Platform\", version=\"2025.1\")\n# HFSS > Excitations > Assign > Incident Wave > Far Field Wave, pick Element:3D",
+      "notes": "A far-field source is a one-way coupling: the platform does not scatter energy back into the source antenna. For strong interaction, model the antenna geometry in the platform design or use a Near Field Wave, which carries more of the local field information."
+    },
+    {
+      "name": "Incident Wave - Near Field Wave",
+      "kind": "excitation",
+      "description": "Use near-field data - sampled on a surface in another solved design or imported from measurement - as the incident excitation. Because the near field contains reactive as well as radiating components, this is more faithful than a far-field source when the illuminated structure sits close to the original radiator.",
+      "usage": "HFSS menu > Excitations > Assign > Incident Wave > Near Field Wave...\nSelect the source design and its near-field setup (line, sphere or rectangle sampling surface), then position it.",
+      "parameters": [
+        {"name": "Source near-field setup", "description": "The sampling surface defined in the source design (Radiation > Insert Near Field Setup: line, sphere or rectangle)."},
+        {"name": "Position and orientation", "description": "Placement of the equivalent source surface in the receiving model."},
+        {"name": "Amplitude and phase", "description": "Scaling applied to the imported field."},
+        {"name": "Imported data", "description": "Measured or externally computed near-field data can be supplied instead of a design link."}
+      ],
+      "example": "# In the source design, define a near-field sampling surface first:\n# HFSS > Radiation > Insert Near Field Setup > Rectangle\n# Solve, then in the receiving design:\n# HFSS > Excitations > Assign > Incident Wave > Near Field Wave, pick Source:NearFieldRect",
+      "notes": "The sampling surface must enclose or fully cover the radiating aperture, and the sample spacing must resolve the field variation - typically a tenth of a wavelength or finer. Too coarse a sampling aliases the reconstructed field."
+    },
+    {
+      "name": "Voltage Source",
+      "kind": "excitation",
+      "description": "Impose a specified voltage across a sheet along a defined direction, driving the structure without adding a port. There is no reference impedance and no S-parameter, so it is used for field-oriented studies - current distribution, SAR, coupling - rather than network characterisation.",
+      "usage": "1. Draw a sheet bridging the gap and select it\n2. HFSS menu > Excitations > Assign > Voltage...\nScript: oModule.AssignVoltage([\"NAME:V1\", \"Objects:=\", [\"GapSheet\"], [\"NAME:Direction\", \"Start:=\", [...], \"End:=\", [...]], \"Magnitude:=\", \"1V\", \"Phase:=\", \"0deg\"])\nPyAEDT: hfss.assign_voltage(assignment, amplitude=1, phase=\"0deg\", name=None)",
+      "parameters": [
+        {"name": "Magnitude", "description": "Voltage amplitude across the sheet, in volts."},
+        {"name": "Phase", "description": "Drive phase, used when several sources feed an array with a taper."},
+        {"name": "Direction", "description": "Start and end points defining which way the voltage is applied across the sheet."},
+        {"name": "Objects / Faces", "description": "The sheet across which the voltage appears; it must connect two conductors."}
+      ],
+      "example": "gap = hfss.modeler.create_rectangle(\"XZ\", [-0.5, 0, 0], [1, 2], name=\"GapSheet\")\nhfss.assign_voltage(\"GapSheet\", amplitude=1, phase=\"0deg\", name=\"V1\")\nhfss.analyze()\nhfss.post.create_fieldplot_surface(assignment=[\"Antenna\"], quantity=\"Mag_J\")",
+      "notes": "Because there is no reference impedance, S-parameters are not defined for a voltage or current source. Use a lumped port instead when you need reflection and transmission coefficients."
+    },
+    {
+      "name": "Current Source",
+      "kind": "excitation",
+      "description": "Impose a specified current flowing across a sheet in a defined direction. It is the dual of the voltage source and is convenient for driving loops, modelling injected common-mode current in EMC studies, and setting up a known current distribution for field-based post-processing.",
+      "usage": "1. Draw a sheet through which the current flows and select it\n2. HFSS menu > Excitations > Assign > Current...\nScript: oModule.AssignCurrent([\"NAME:I1\", \"Objects:=\", [\"CurrentSheet\"], [\"NAME:Direction\", \"Start:=\", [...], \"End:=\", [...]], \"Magnitude:=\", \"1A\", \"Phase:=\", \"0deg\", \"IsSolid:=\", False])\nPyAEDT: hfss.assign_current(assignment, amplitude=1, phase=\"0deg\", name=None)",
+      "parameters": [
+        {"name": "Magnitude", "description": "Current amplitude in amperes."},
+        {"name": "Phase", "description": "Drive phase relative to other sources."},
+        {"name": "Direction", "description": "Start and end points defining the assumed current direction across the sheet."},
+        {"name": "IsSolid", "description": "Whether the current is applied through a solid cross-section or across a sheet."}
+      ],
+      "example": "loop_gap = hfss.modeler.create_rectangle(\"XZ\", [-0.2, 0, 0], [0.4, 0.4], name=\"CurrentSheet\")\nhfss.assign_current(\"CurrentSheet\", amplitude=1, phase=\"0deg\", name=\"I1\")\nhfss.analyze()",
+      "notes": "Like the voltage source this produces no S-parameters. Current and voltage sources are also the natural excitations when an HFSS field solution is being driven from externally computed circuit currents."
+    },
+    {
+      "name": "Magnetic Bias",
+      "kind": "boundary",
+      "description": "Apply a static magnetic bias field to a ferrite object, either as a uniform applied field or by importing a field computed in a Maxwell magnetostatic design. It is what makes non-reciprocal devices - circulators, isolators, phase shifters, tunable filters - solvable in HFSS, because the ferrite permeability tensor depends on the bias.",
+      "usage": "1. Select the ferrite object\n2. HFSS menu > Boundaries > Assign > Magnetic Bias...\nChoose Uniform (magnitude and direction) or Non-Uniform (link to a Maxwell 3D magnetostatic solution)",
+      "parameters": [
+        {"name": "Uniform bias", "description": "Magnitude in A/m or oersted plus a direction vector, appropriate when the bias magnet is far larger than the ferrite."},
+        {"name": "Non-uniform bias", "description": "Link to a solved Maxwell 3D magnetostatic design so the real, spatially varying internal field is used."},
+        {"name": "Ferrite material", "description": "The object's material must define saturation magnetisation, line width and Lande g factor for the tensor permeability to be computed."},
+        {"name": "Direction", "description": "Bias direction sets the sense of non-reciprocity - reversing it swaps the circulator's ports."}
+      ],
+      "example": "hfss.modeler[\"FerritePuck\"].material_name = \"YIG_custom\"\n# HFSS > Boundaries > Assign > Magnetic Bias > Uniform\n#   magnitude 1500 Oe, direction (0, 0, 1)\nhfss.analyze()\nhfss.post.create_report([\"dB(S(1,1))\", \"dB(S(2,1))\", \"dB(S(3,1))\"])",
+      "notes": "Ferrite simulations are sensitive to the internal (demagnetised) field rather than the applied one, so a uniform bias often over-predicts performance; the Maxwell link gives the internal field distribution. The material must be a proper ferrite definition, not just a high-permeability dielectric."
+    },
+    {
+      "name": "Length Based mesh refinement",
+      "kind": "mesh",
+      "description": "Force the mesh on selected objects or faces to have elements no longer than a specified length, and optionally cap the number of elements. It is the most direct mesh control in HFSS and the usual remedy when adaptive refinement is slow to find a critical region such as a narrow gap, a thin substrate or a coupling slot.",
+      "usage": "1. Select objects or faces\n2. HFSS menu > Mesh > Assign Mesh Operation > On Selection > Length Based...\nScript: oModule = oDesign.GetModule(\"MeshSetup\"); oModule.AssignLengthOp([\"NAME:Length1\", \"RefineInside:=\", True, \"Enabled:=\", True, \"Objects:=\", [\"Sub\"], \"RestrictElem:=\", False, \"RestrictLength:=\", True, \"MaxLength:=\", \"2mm\"])\nPyAEDT: hfss.mesh.assign_length_mesh(assignment, inside_selection=True, maximum_length=..., maximum_elements=...)",
+      "parameters": [
+        {"name": "MaxLength / maximum_length", "description": "Longest permitted element edge in the selection."},
+        {"name": "RefineInside / inside_selection", "description": "True refines the volume inside the selected objects; False refines only their surfaces."},
+        {"name": "RestrictElem / maximum_elements", "description": "Cap the total number of elements generated, as a safety valve against a runaway refinement."},
+        {"name": "Objects / Faces", "description": "The selection the operation applies to."},
+        {"name": "Enabled", "description": "Mesh operations can be disabled without deleting them, which is handy for convergence experiments."}
+      ],
+      "example": "hfss.mesh.assign_length_mesh(assignment=[\"Substrate\"], inside_selection=True,\n                             maximum_length=\"2mm\", maximum_elements=50000,\n                             name=\"SubMesh\")\nhfss.mesh.assign_length_mesh(assignment=[\"CouplingGap\"], inside_selection=False,\n                             maximum_length=\"0.05mm\", name=\"GapMesh\")",
+      "notes": "Over-tight length operations on a large object can produce millions of elements and exhaust memory before the first adaptive pass. Set maximum_elements as a guard, and prefer refining the small critical region rather than the whole volume."
+    },
+    {
+      "name": "Skin Depth Based mesh refinement",
+      "kind": "mesh",
+      "description": "Refine the mesh in a thin layer at a conductor surface so the exponentially decaying field inside the skin depth is resolved. It is the companion to a Finite Conductivity boundary or a solve-inside conductor, and without it the conductor loss and Q predicted by the model are unreliable.",
+      "usage": "1. Select conductor faces or objects\n2. HFSS menu > Mesh > Assign Mesh Operation > On Selection > Skin Depth Based...\nScript: oModule.AssignSkinDepthOp([\"NAME:SkinDepth1\", \"Objects:=\", [\"Trace\"], \"RestrictElem:=\", False, \"RestrictLength:=\", True, \"MaxLength:=\", \"0.1mm\", \"SkinDepth:=\", \"0.002mm\", \"NumLayers:=\", \"2\"])\nPyAEDT: hfss.mesh.assign_skin_depth(assignment, skin_depth, maximum_elements=None, triangulation_max_length=..., layers_number=2)",
+      "parameters": [
+        {"name": "SkinDepth", "description": "Skin depth at the frequency of interest; compute it as sqrt(2/(omega*mu*sigma)) for the conductor and frequency."},
+        {"name": "NumLayers / layers_number", "description": "Number of mesh layers placed within one skin depth; two or three is usual."},
+        {"name": "MaxLength / triangulation_max_length", "description": "Maximum surface triangle size on the conductor face, controlling lateral resolution."},
+        {"name": "Objects / Faces", "description": "Conductor surfaces to refine."}
+      ],
+      "example": "import math\nsigma, mu0, f = 5.8e7, 4e-7 * math.pi, 10e9\ndelta = math.sqrt(2 / (2 * math.pi * f * mu0 * sigma))   # metres\nhfss.assign_finite_conductivity([\"Trace\"], material=\"copper\")\nhfss.mesh.assign_skin_depth(assignment=[\"Trace\"],\n                            skin_depth=f\"{delta*1e3:.4f}mm\",\n                            triangulation_max_length=\"0.1mm\",\n                            layers_number=2, name=\"SkinTrace\")",
+      "notes": "Compute the skin depth at the lowest frequency of the sweep, since it is largest there and sets the layer thickness needed. Applying this to every conductor in a big model is expensive - restrict it to the surfaces that actually carry significant current."
+    },
+    {
+      "name": "Surface Approximation",
+      "kind": "mesh",
+      "description": "Control how closely the faceted mesh follows curved geometry, by setting the maximum surface deviation, the maximum normal (curvature) angle, or the aspect ratio of surface elements. It is the right tool when a cylinder or sphere is being meshed too coarsely and the faceting perturbs the result - coaxial lines, curved horns and lenses in particular.",
+      "usage": "1. Select the curved objects or faces\n2. HFSS menu > Mesh > Assign Mesh Operation > On Selection > Surface Approximation...\nScript: oModule.AssignTrueSurfOp([\"NAME:SurfApprox1\", \"Objects:=\", [\"CoaxDiel\"], \"SurfDevChoice:=\", 2, \"SurfDev:=\", \"0.01mm\", \"NormalDevChoice:=\", 2, \"NormalDev:=\", \"15deg\", \"AspectRatioChoice:=\", 1])\nPyAEDT: hfss.mesh.assign_surface_mesh_manual(assignment, surface_deviation=..., normal_deviation=..., aspect_ratio=...)",
+      "parameters": [
+        {"name": "SurfDev / surface_deviation", "description": "Maximum distance between the true surface and the meshed facet."},
+        {"name": "NormalDev / normal_deviation", "description": "Maximum angle between adjacent facet normals; the most effective control for cylinders."},
+        {"name": "AspectRatio", "description": "Limit on how elongated a surface element may be."},
+        {"name": "Choice flags", "description": "In the native API each of the three controls has a Choice value selecting whether it is ignored, automatic or user-defined."}
+      ],
+      "example": "hfss.mesh.assign_surface_mesh_manual(assignment=[\"CoaxOuter\", \"CoaxDiel\"],\n                                     surface_deviation=\"0.005mm\",\n                                     normal_deviation=\"10deg\",\n                                     name=\"CoaxSurf\")",
+      "notes": "A faceted coaxial line has a slightly different impedance from a round one, so tighten the normal deviation before blaming the model for an impedance mismatch. Curvilinear elements are an alternative that captures curvature without more elements."
+    },
+    {
+      "name": "Model Resolution",
+      "kind": "mesh",
+      "description": "Tell the mesher the smallest geometric feature it needs to honour on selected objects, so smaller details - tiny fillets, sliver faces, threads, cosmetic edges from imported CAD - are ignored rather than driving the element size. It is the single most effective control for making detailed mechanical CAD solvable.",
+      "usage": "1. Select the objects\n2. HFSS menu > Mesh > Assign Mesh Operation > On Selection > Model Resolution...\nScript: oModule.AssignModelResolutionOp([\"NAME:ModelRes1\", \"Objects:=\", [\"Housing\"], \"UseAutoLength:=\", False, \"DefeatureLength:=\", \"0.1mm\"])\nPyAEDT: hfss.mesh.assign_model_resolution(assignment, defeature_length=..., name=...)",
+      "parameters": [
+        {"name": "DefeatureLength / defeature_length", "description": "Smallest feature size the mesh must resolve; anything below it is smoothed over."},
+        {"name": "UseAutoLength", "description": "Let HFSS choose the resolution from the object size instead of specifying it."},
+        {"name": "Objects", "description": "The bodies to defeature, typically imported mechanical parts."}
+      ],
+      "example": "hfss.modeler.import_3d_cad(r\"C:\\work\\housing.step\", healing=True)\nhfss.mesh.assign_model_resolution(assignment=[\"Housing\"],\n                                  defeature_length=\"0.2mm\",\n                                  name=\"HousingRes\")",
+      "notes": "Set the resolution relative to the wavelength, not to the CAD tolerance: features far below a hundredth of a wavelength rarely matter electrically. Combine with Modeler > Model Analysis > Remove Faces to delete the offending features outright when defeaturing is not enough."
+    },
+    {
+      "name": "Apply Curvilinear Elements",
+      "kind": "mesh",
+      "description": "Allow mesh elements adjacent to curved surfaces to have curved edges and faces, so a cylinder or sphere is represented accurately with far fewer elements than flat-faceted tetrahedra would need. It is particularly valuable for coaxial structures, curved waveguides, lenses and radomes.",
+      "usage": "1. Select the curved objects or faces\n2. HFSS menu > Mesh > Assign Mesh Operation > On Selection > Curvilinear Elements...\nScript: oModule.AssignApplyCurvlinearElementsOp([\"NAME:Curvilinear1\", \"Objects:=\", [\"Lens\"], \"Apply:=\", True, \"Disable for Faceted Surfaces:=\", True])\nPyAEDT: hfss.mesh.assign_curvilinear_elements(assignment, enable=True, name=...)",
+      "parameters": [
+        {"name": "Apply / enable", "description": "Turn curved-element generation on for the selection."},
+        {"name": "Disable for Faceted Surfaces", "description": "Skip surfaces that are genuinely faceted, avoiding wasted curvature on flat geometry."},
+        {"name": "Objects / Faces", "description": "The curved bodies or surfaces."},
+        {"name": "Interaction with basis order", "description": "Curvilinear elements pair naturally with second-order basis functions; together they give high accuracy on curved structures."}
+      ],
+      "example": "hfss.mesh.assign_curvilinear_elements(assignment=[\"CoaxOuter\", \"CoaxDiel\"],\n                                      enable=True, name=\"CoaxCurv\")\nsetup = hfss.get_setup(\"Setup1\")\nsetup.props[\"BasisOrder\"] = 2\nsetup.update()",
+      "notes": "Curved elements cost more per element to assemble and solve, so they pay off only where curvature genuinely limits accuracy. Applying them to the whole model rather than the curved parts can make the solve slower for no gain."
+    },
+    {
+      "name": "Initial Mesh Settings",
+      "kind": "mesh",
+      "description": "Choose the algorithm and quality targets used to build the very first mesh, before any adaptive passes. The modern TAU mesher handles complex and imported geometry far more robustly than the classic mesher, and the settings here control the trade-off between initial mesh size, robustness and how much work adaptive refinement has left to do.",
+      "usage": "HFSS menu > Mesh > Initial Mesh Settings...\nOptions include the mesh method (Auto / TAU / Classic), whether to apply curvilinear meshing globally, and surface approximation defaults.",
+      "parameters": [
+        {"name": "Mesh method", "description": "Auto lets HFSS choose; TAU is the robust modern volume mesher; Classic is the legacy algorithm kept for compatibility."},
+        {"name": "Apply curvilinear meshing", "description": "Global switch for curved elements on curved surfaces and conductors."},
+        {"name": "Surface approximation defaults", "description": "Global deviation and normal-angle limits applied where no per-object operation exists."},
+        {"name": "Mesh quality / slider", "description": "A global coarse-to-fine control that scales the initial mesh density."}
+      ],
+      "example": "# Recorded from the dialog; run before the first analyse\noDesign = hfss.odesign\noModule = oDesign.GetModule(\"MeshSetup\")\noModule.InitialMeshSettings(\n    [\"NAME:MeshSettings\",\n     [\"NAME:GlobalSurfApproximation\", \"CurvedSurfaceApproxChoice:=\", \"UseSlider\", \"SliderMeshSettings:=\", 5],\n     [\"NAME:GlobalCurvilinear\", \"Apply:=\", True],\n     \"MeshMethod:=\", \"AnsoftTAU\", \"UseLegacyFaceterForTauVolumeMesh:=\", False])",
+      "notes": "A very fine initial mesh wastes time because the adaptive algorithm is better at deciding where refinement is needed. Start coarse and let the adaptive passes work, unless the initial mesh misses a geometric feature entirely."
+    },
+    {
+      "name": "Adaptive mesh settings (Maximum Passes / Delta S)",
+      "kind": "mesh",
+      "description": "The convergence criteria of the adaptive solution: how many refinement passes are allowed, how small the change in S-parameters between passes must be, and how many consecutive passes must meet it. These are the settings that decide whether an answer is converged or merely plausible, and they live on the analysis setup rather than on a mesh operation.",
+      "usage": "Analysis setup > General / Options tab:\n  Maximum Number of Passes, Maximum Delta S, Minimum Converged Passes, Minimum Number of Passes, Maximum Refinement Per Pass\nScript: part of the InsertSetup property array\nPyAEDT: setup.props[\"MaximumPasses\"] = 20; setup.props[\"MaxDeltaS\"] = 0.01; setup.update()",
+      "parameters": [
+        {"name": "MaximumPasses", "description": "Upper limit on adaptive passes. Hitting this limit without meeting Delta S means the result is not converged."},
+        {"name": "MaxDeltaS", "description": "Largest permitted change in the magnitude of any S-parameter between consecutive passes; 0.02 is a common target, 0.005 for tight work."},
+        {"name": "MinimumConvergedPasses", "description": "How many consecutive passes must satisfy Delta S before the solve stops. Two or three guards against a lucky single pass."},
+        {"name": "MinimumPasses", "description": "Forces at least this many passes even if Delta S is met immediately."},
+        {"name": "Maximum Refinement Per Pass", "description": "Percentage of elements refined each pass; lower values converge more smoothly, higher values converge faster but less reliably."},
+        {"name": "Delta Energy / Delta Frequency", "description": "The equivalent criteria used by Eigenmode and some other solution types."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\")\nsetup.props[\"Frequency\"] = \"10GHz\"\nsetup.props[\"MaximumPasses\"] = 20\nsetup.props[\"MaxDeltaS\"] = 0.01\nsetup.props[\"MinimumConvergedPasses\"] = 2\nsetup.props[\"BasisOrder\"] = 1\nsetup.update()\nhfss.analyze()\n\n# Check what actually happened\nprint(hfss.get_setup(\"Setup1\").name, hfss.setups[0].props[\"MaxDeltaS\"])",
+      "notes": "Delta S measures the change between passes, not the error against truth, so a converged Delta S with a mesh that never resolved a critical gap is still wrong. Always look at the Convergence tab and check the solve stopped because Delta S was met, not because the pass limit was reached."
+    },
+    {
+      "name": "Plot Mesh and Mesh Statistics",
+      "kind": "mesh",
+      "description": "Display the generated mesh on selected objects or faces and read the element counts, minimum and maximum edge lengths and per-object statistics. It is the first diagnostic to reach for when a result looks wrong or a solve runs out of memory, because it shows immediately where the elements have gone.",
+      "usage": "HFSS menu > Fields > Plot Mesh...   (select objects or faces first)\nSolution Data window > Mesh Statistics tab (HFSS > Results > Solution Data)\nScript: oDesign.ExportMeshStats(<setup>, <variation>, <path>)\nPyAEDT: hfss.mesh.plot(...); hfss.post.export_mesh_obj(...); setup.props / hfss.export_mesh_stats(setup_name)",
+      "parameters": [
+        {"name": "Selection", "description": "Objects or faces whose mesh is drawn; plotting the whole model at once is usually unreadable."},
+        {"name": "Mesh Statistics tab", "description": "Per-object element count, minimum and maximum edge length, RMS edge length and total elements."},
+        {"name": "ExportMeshStats", "description": "Writes the statistics to a text file for a given setup and variation, so a script can compare meshes across runs."},
+        {"name": "Adaptive pass selection", "description": "The mesh from any completed adaptive pass can be displayed, which shows where refinement concentrated."}
+      ],
+      "example": "hfss.analyze()\nhfss.export_mesh_stats(setup=\"Setup1\", variations=\"\", output_file=r\"C:\\work\\mesh.txt\")\n\n# Native call\nhfss.odesign.ExportMeshStats(\"Setup1\", \"\", r\"C:\\work\\mesh_stats.txt\")",
+      "notes": "A huge element count concentrated in an air region or a thick conductor usually means Solve Inside was left on where it was not needed, or a length operation was applied too broadly. Comparing statistics between adaptive passes shows whether refinement is targeting the region you expect."
+    },
+    {
+      "name": "Mesh Fusion",
+      "kind": "mesh",
+      "description": "Mesh parts of a large assembly independently and then fuse them into one solution, so a detailed component keeps its fine mesh while the surrounding structure stays coarse. It makes assemblies of 3D components tractable and lets a sub-assembly be re-meshed without regenerating everything else.",
+      "usage": "HFSS menu > Mesh > Mesh Fusion (enable), then define mesh regions per 3D component or object group\nEach region carries its own mesh operations and can be solved and reused independently.",
+      "parameters": [
+        {"name": "Mesh regions", "description": "Groups of objects or 3D components that are meshed as independent units."},
+        {"name": "Per-region mesh operations", "description": "Length, skin-depth and model-resolution operations scoped to one region only."},
+        {"name": "Interface handling", "description": "HFSS stitches the independently generated meshes across region interfaces."},
+        {"name": "Reuse", "description": "A region's mesh can be kept while another region changes, which saves re-meshing a large platform for every antenna variant."}
+      ],
+      "example": "# Typical workflow, mostly driven from the GUI\n# 1. Build the platform and insert the antenna as a 3D component\n# 2. HFSS > Mesh > Mesh Fusion: enable\n# 3. Define a mesh region for the antenna component with fine operations\n# 4. Leave the platform region coarse\n# 5. Analyse - only the changed region is re-meshed on the next run",
+      "notes": "Mesh Fusion is aimed at assemblies built from 3D components; it adds little to a single monolithic model. Interface quality between regions matters, so keep region boundaries in low-field areas where possible."
+    },
+    {
+      "name": "Phi mesher (layout meshing)",
+      "kind": "mesh",
+      "description": "A layout-aware volume mesher used by HFSS 3D Layout and by 3D designs built from stackups, which exploits the layered nature of a PCB or package to generate far fewer, better-shaped elements than a general-purpose 3D mesher. It is what makes full-wave simulation of real boards practical.",
+      "usage": "HFSS 3D Layout: the Phi mesher is the default meshing technology for layout designs\n3D designs: Mesh > Initial Mesh Settings, where a Phi-based option is offered for stackup-like geometry (availability varies by release)",
+      "parameters": [
+        {"name": "Layer-aware meshing", "description": "Elements align with the layer structure, so thin dielectric layers do not force tiny elements laterally."},
+        {"name": "Phi Plus", "description": "An extended variant that handles bondwires, solder balls and non-planar features alongside the layered geometry."},
+        {"name": "Mesh frequency", "description": "The frequency used to size the initial layout mesh, set on the analysis setup."},
+        {"name": "Defeaturing", "description": "Layout-level defeaturing options that merge slivers and simplify polygons before meshing."}
+      ],
+      "example": "from ansys.aedt.core import Hfss3dLayout\nh3d = Hfss3dLayout(project=r\"C:\\work\\board.aedb\", version=\"2025.1\", non_graphical=True)\nsetup = h3d.create_setup(\"Setup1\")\nh3d.analyze()\nprint(h3d.setups[0].name)",
+      "notes": "The Phi mesher is tied to layout-style geometry; a general mechanical assembly imported as STEP will not benefit from it. Check the meshing options available in your release, since the layout meshing technology has been extended over several versions."
+    },
+    {
+      "name": "Boundary Display (Solver View)",
+      "kind": "tool",
+      "description": "Show exactly which boundary the solver will apply to every face of the model, including the default boundaries HFSS assigns implicitly to faces you never touched. It is the definitive way to check that a boundary landed where you intended, and it routinely reveals faces that silently inherited a default Perfect E from the outer region.",
+      "usage": "HFSS menu > Boundary Display (Solver View)...\nA dialog lists every boundary, including the implicit outer and default boundaries, with visibility checkboxes that highlight the affected faces in the 3D view.",
+      "parameters": [
+        {"name": "Solver view list", "description": "Every boundary the solver sees, user-defined and implicit, in the order they are applied."},
+        {"name": "Visibility toggles", "description": "Highlight the faces belonging to one boundary at a time in the modeller."},
+        {"name": "Default boundaries", "description": "Outer faces of the solution region and interfaces between objects get implicit conditions unless overridden."},
+        {"name": "Precedence", "description": "Later assignments override earlier ones on the same face, which this view makes visible."}
+      ],
+      "example": "# GUI-only diagnostic; the scripted equivalents are the boundary queries\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\nprint(\"Boundaries:\", oModule.GetBoundaries())\nprint(\"Excitations:\", oModule.GetExcitations())\nprint(hfss.boundaries)\nprint(hfss.excitations)",
+      "notes": "When a result is inexplicably lossless, shorted or reflective, check this view first - a stray default Perfect E on an outer face is one of the most common causes. Boundary order matters because later assignments win on overlapping faces."
+    }
+  ]
+}

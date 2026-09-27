@@ -1,0 +1,554 @@
+{
+  "category": "Signal routing, attributes & ports",
+  "description": "Blocks that move, group, split, select and store signals inside a Simulink model, together with the blocks that set or convert a signal's attributes (data type, dimensions, sample rate) and the Inport/Outport blocks that define a component's interface. This is the layer you script when you build a diagram programmatically: bundling signals into buses, wiring points without drawing lines, switching between sources, converting types and bridging rate boundaries.",
+  "tools": [
+    {
+      "name": "Mux",
+      "kind": "block",
+      "description": "Combines several scalar or vector input signals of the same data type into a single wider vector signal. The Mux block is purely virtual: it changes only how signals are drawn, not how they are computed, and the result is a plain vector rather than a structured bus. Use it when downstream blocks expect one vector input (for example a Gain with a matrix gain, or a Scope with one port) and you want to avoid drawing many parallel lines. Do not use it to group mixed data types or named elements - use Bus Creator for that.",
+      "usage": "Simulink > Signal Routing > Mux  |  add_block('simulink/Signal Routing/Mux', [mdl '/Mux'])",
+      "parameters": [
+        {
+          "name": "Inputs",
+          "description": "Number of input ports, or a vector of the expected width of each input (for example '[1 3 2]'). A scalar sets the port count and lets widths be inherited."
+        },
+        {
+          "name": "DisplayOption",
+          "description": "Icon appearance: 'none', 'signals' (show the incoming signal names) or 'bar' (thin black bar, the default)."
+        }
+      ],
+      "example": "mdl = 'muxDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('simulink/Signal Routing/Mux', [mdl '/Mux']);\nset_param([mdl '/Mux'], 'Inputs', '3', 'DisplayOption', 'bar');\nadd_block('simulink/Sources/Sine Wave', [mdl '/S1']);\nadd_line(mdl, 'S1/1', 'Mux/1', 'autorouting', 'on');",
+      "notes": "Mux signals must share a data type and numeric complexity. Using Mux to feed blocks that expect buses is flagged by the 'Mux blocks used to create bus signals' diagnostic; migrate such models to Bus Creator. Mux/Demux pairs are optimised away at compile time and never appear in generated code.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/mux.html"
+    },
+    {
+      "name": "Demux",
+      "kind": "block",
+      "description": "Splits a vector signal back into a set of narrower signals, the inverse of Mux. The Outputs parameter controls how the incoming width is partitioned: a scalar gives that many equal-width outputs, a vector gives explicit widths, and -1 entries absorb whatever width is left over. Use it to pull individual channels out of a bundled vector so each can be processed separately. For structured buses use Bus Selector instead.",
+      "usage": "Simulink > Signal Routing > Demux  |  add_block('simulink/Signal Routing/Demux', [mdl '/Demux'])",
+      "parameters": [
+        {
+          "name": "Outputs",
+          "description": "Number of outputs as a scalar, or a vector of widths such as '[2 1 -1]' where -1 means 'take the remaining elements'."
+        },
+        {
+          "name": "BusSelectionMode",
+          "description": "'on' | 'off'. When 'on' the block splits a virtual bus rather than a vector. Kept for backward compatibility; prefer Bus Selector for bus signals."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Demux', [mdl '/Demux']);\nset_param([mdl '/Demux'], 'Outputs', '[2 1 -1]');\nadd_line(mdl, 'Mux/1', 'Demux/1', 'autorouting', 'on');",
+      "notes": "The sum of explicit widths must equal the input width or the model fails to compile with a width-mismatch error. Demux is virtual: it produces no code and adds no computation.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/demux.html"
+    },
+    {
+      "name": "Bus Creator",
+      "kind": "block",
+      "description": "Bundles several input signals into one bus signal whose elements keep their own names, data types, dimensions and complexity. Unlike Mux, a bus can mix types and carry nested buses, which makes it the standard way to pass a structured interface between components. Associate the block with a Simulink.Bus object to enforce a fixed interface and to generate a C struct in code. Use it wherever a subsystem or referenced model needs more than a handful of related inputs.",
+      "usage": "Simulink > Signal Routing > Bus Creator  |  add_block('simulink/Signal Routing/Bus Creator', [mdl '/Bus Creator'])",
+      "parameters": [
+        {
+          "name": "Inputs",
+          "description": "Number of input ports to bundle."
+        },
+        {
+          "name": "InheritFromInputs",
+          "description": "'on' | 'off'. When 'on' the element names come from the connected signal names; when 'off' you specify them explicitly."
+        },
+        {
+          "name": "OutDataTypeStr",
+          "description": "Output bus data type: 'Inherit: auto' or 'Bus: <BusObjectName>' to bind the block to a Simulink.Bus object."
+        },
+        {
+          "name": "NonVirtualBus",
+          "description": "'on' | 'off'. 'on' makes the bus non-virtual, so it occupies contiguous memory and maps to a struct in generated code. Requires a bus object."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Bus Creator', [mdl '/BC']);\nset_param([mdl '/BC'], 'Inputs', '2', ...\n    'OutDataTypeStr', 'Bus: SensorBus', 'NonVirtualBus', 'on');",
+      "notes": "A non-virtual bus requires every element to match the bus object exactly in name, type and dimensions; mismatches are reported at update-diagram time. Build the matching Simulink.Bus object with Simulink.Bus.createObject. Related: Bus Selector, Bus Assignment, Bus to Vector.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/buscreator.html"
+    },
+    {
+      "name": "Bus Selector",
+      "kind": "block",
+      "description": "Extracts one or more elements from an incoming bus, either as separate output signals or as a smaller bus. Selected elements are addressed by their dotted path, so nested buses are reached with names like 'imu.gyro.x'. Use it at the receiving end of a bus interface to pick out only the signals a component actually needs, which keeps the diagram readable and lets Simulink prune unused computation.",
+      "usage": "Simulink > Signal Routing > Bus Selector  |  add_block('simulink/Signal Routing/Bus Selector', [mdl '/Bus Selector'])",
+      "parameters": [
+        {
+          "name": "InputSignals",
+          "description": "Read-only list of the elements available on the input bus; query it with get_param after the diagram has been updated."
+        },
+        {
+          "name": "OutputSignals",
+          "description": "Comma-separated list of the element paths to output, for example 'gyro.x,gyro.y,accel'."
+        },
+        {
+          "name": "OutputAsBus",
+          "description": "'on' | 'off'. 'on' emits the selection as a single (sub)bus on one port instead of one port per element."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Bus Selector', [mdl '/BS']);\nset_param(mdl, 'SimulationCommand', 'update');\navail = get_param([mdl '/BS'], 'InputSignals');\nset_param([mdl '/BS'], 'OutputSignals', 'gyro.x,accel', 'OutputAsBus', 'off');",
+      "notes": "InputSignals is only populated once the model has been compiled or updated, so call set_param(mdl,'SimulationCommand','update') first when discovering names programmatically. Selecting an element that no longer exists on the bus produces an 'unresolved signal' error. In new designs consider bus element ports (In Bus Element / Out Bus Element) instead of Bus Creator/Selector pairs.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/busselector.html"
+    },
+    {
+      "name": "Bus Assignment",
+      "kind": "block",
+      "description": "Replaces the value of selected elements inside a bus while passing every other element through unchanged. The block takes the full bus on its first port and one additional input port per element being assigned. Use it to override part of a structured interface - for example to inject a calibrated value or a fault into one field of a sensor bus - without tearing the bus apart and rebuilding it.",
+      "usage": "Simulink > Signal Routing > Bus Assignment  |  add_block('simulink/Signal Routing/Bus Assignment', [mdl '/Bus Assignment'])",
+      "parameters": [
+        {
+          "name": "InputSignals",
+          "description": "Read-only list of the elements present on the incoming bus, available through get_param after an update."
+        },
+        {
+          "name": "AssignedSignals",
+          "description": "Comma-separated list of element paths to overwrite, for example 'sine,chirp'. Each name adds one input port to the block."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Bus Assignment', [mdl '/BA']);\nset_param(mdl, 'SimulationCommand', 'update');\nset_param([mdl '/BA'], 'AssignedSignals', 'gyro.x,accel');",
+      "notes": "The replacement signal must match the original element's data type and dimensions. If an assigned name is missing from the bus the block errors at update time; guard scripted edits by reading InputSignals first. Related: Bus Creator, Bus Selector.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/busassignment.html"
+    },
+    {
+      "name": "Vector Concatenate / Matrix Concatenate",
+      "kind": "block",
+      "description": "Joins several input signals end to end along a chosen dimension to form one larger signal. In Vector mode all inputs must be vectors or scalars and the result is a single vector; in Multidimensional array mode the inputs are arrays concatenated along the dimension you pick, so it behaves like MATLAB's horzcat/vertcat/cat. Unlike Mux this is a real computational block that works on matrices and appears in generated code. Use it to assemble measurement vectors, build matrices from columns, or grow a signal before a matrix operation.",
+      "usage": "Simulink > Signal Routing > Vector Concatenate (Vector mode)  |  Simulink > Math Operations > Matrix Concatenate (Multidimensional array mode)  |  add_block('simulink/Signal Routing/Vector Concatenate', [mdl '/Concat'])",
+      "parameters": [
+        {
+          "name": "NumInputs",
+          "description": "Number of signals to concatenate."
+        },
+        {
+          "name": "Mode",
+          "description": "'Vector' or 'Multidimensional array'. Vector mode always produces a vector; array mode concatenates along ConcatenateDimension."
+        },
+        {
+          "name": "ConcatenateDimension",
+          "description": "Dimension along which to concatenate in Multidimensional array mode: 1 for vertical (rows), 2 for horizontal (columns)."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Vector Concatenate', [mdl '/Cat']);\nset_param([mdl '/Cat'], 'NumInputs', '3', 'Mode', 'Vector');\n% matrix form:\n% set_param([mdl '/Cat'],'Mode','Multidimensional array','ConcatenateDimension','2');",
+      "notes": "Vector Concatenate and Matrix Concatenate are the same underlying block (BlockType 'Concatenate') shown in two libraries with different default Mode values. All inputs must share a data type; insert Data Type Conversion blocks if they do not. Non-concatenated dimensions must agree.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/vectorconcatenate.html"
+    },
+    {
+      "name": "Selector",
+      "kind": "block",
+      "description": "Extracts a subset of elements from a vector, matrix or N-D input, the Simulink equivalent of MATLAB indexing such as u(3:5) or u(:,2). Each dimension gets its own indexing rule, so you can take one element, a fixed range, a starting index plus a length, or indices supplied on an input port at run time. Use it to slice a channel out of a bus-free vector, to pick a row or column of a matrix, or to implement dynamic addressing driven by another signal.",
+      "usage": "Simulink > Signal Routing > Selector  |  add_block('simulink/Signal Routing/Selector', [mdl '/Selector'])",
+      "parameters": [
+        {
+          "name": "NumberOfDimensions",
+          "description": "Number of dimensions of the input signal (1 for a vector)."
+        },
+        {
+          "name": "IndexMode",
+          "description": "'Zero-based' or 'One-based' interpretation of the index values."
+        },
+        {
+          "name": "IndexOptionArray",
+          "description": "Cell array of per-dimension modes: 'Select all', 'Index vector (dialog)', 'Index vector (port)', 'Starting index (dialog)', 'Starting index (port)', 'Starting and ending indices (port)'."
+        },
+        {
+          "name": "IndexParamArray",
+          "description": "Cell array of the index expressions used by the dialog-based modes, for example {'[1 3 5]'}."
+        },
+        {
+          "name": "OutputSizeArray",
+          "description": "Cell array giving the output length for each dimension when a starting-index mode is used."
+        },
+        {
+          "name": "InputPortWidth",
+          "description": "Width of the input signal for one-dimensional inputs."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Selector', [mdl '/Sel']);\nset_param([mdl '/Sel'], 'NumberOfDimensions', '1', ...\n    'IndexMode', 'One-based', ...\n    'IndexOptionArray', '{''Index vector (dialog)''}', ...\n    'IndexParamArray', '{''[1 3 5]''}', ...\n    'InputPortWidth', '10');",
+      "notes": "Cell-array parameters must be passed as a string containing MATLAB cell syntax, with quotes doubled inside the outer string. Out-of-range indices are a run-time error unless the 'Index out of bounds' diagnostic is relaxed. Related: Index Vector (a Multiport Switch configured for element selection) and Assignment for writing elements back.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/selector.html"
+    },
+    {
+      "name": "Merge",
+      "kind": "block",
+      "description": "Combines several conditionally executed signal paths into one output by passing through whichever input most recently updated. It is the standard way to join the outputs of mutually exclusive Enabled, Triggered, If Action or Switch Case Action subsystems so that exactly one branch drives the result at each time step. Set Initial output to define the value before any branch has executed.",
+      "usage": "Simulink > Signal Routing > Merge  |  add_block('simulink/Signal Routing/Merge', [mdl '/Merge'])",
+      "parameters": [
+        {
+          "name": "Inputs",
+          "description": "Number of input ports to merge."
+        },
+        {
+          "name": "InitialOutput",
+          "description": "Value the output holds before any driving branch has executed. Leave empty to inherit the initial value from the driving blocks."
+        },
+        {
+          "name": "AllowUnequalInputPortWidths",
+          "description": "'on' | 'off'. Allows inputs of different widths that are merged into different regions of the output."
+        },
+        {
+          "name": "InputPortOffsets",
+          "description": "Vector giving the offset of each input within the output when unequal widths are allowed."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Merge', [mdl '/Merge']);\nset_param([mdl '/Merge'], 'Inputs', '2', 'InitialOutput', '0');\nadd_line(mdl, 'EnabledA/1', 'Merge/1', 'autorouting', 'on');\nadd_line(mdl, 'EnabledB/1', 'Merge/2', 'autorouting', 'on');",
+      "notes": "All driving branches must be genuinely mutually exclusive and run at the same rate; overlapping execution is reported by the 'Merge block input conflict' diagnostic. Merge inputs must come from conditionally executed subsystems or other Merge blocks, not from ordinary always-executing blocks.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/merge.html"
+    },
+    {
+      "name": "Goto",
+      "kind": "block",
+      "description": "Sends a signal to matching From blocks by name instead of by a drawn line, creating an invisible wireless connection. The tag identifies the signal and the visibility setting controls which parts of the hierarchy may receive it. Use it to remove long crossing lines for widely used signals such as a clock, a mode flag or a fault status, and to break visual clutter in large diagrams.",
+      "usage": "Simulink > Signal Routing > Goto  |  add_block('simulink/Signal Routing/Goto', [mdl '/Goto'])",
+      "parameters": [
+        {
+          "name": "GotoTag",
+          "description": "Tag name matched by the corresponding From blocks."
+        },
+        {
+          "name": "TagVisibility",
+          "description": "'local' (same subsystem only), 'scoped' (limited by a Goto Tag Visibility block) or 'global' (whole model hierarchy)."
+        },
+        {
+          "name": "IconDisplay",
+          "description": "Icon text: 'Tag', 'Signal name' or 'Tag and signal name'."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Goto', [mdl '/GotoFault']);\nset_param([mdl '/GotoFault'], 'GotoTag', 'FaultFlag', ...\n    'TagVisibility', 'scoped', 'IconDisplay', 'Tag');",
+      "notes": "Overusing Goto/From hides data flow and makes models hard to review; many modelling standards (MAAB/High-Integrity) restrict them. A global tag must be unique in the model. A Goto with no matching From is allowed, but a From with no Goto is a compile error.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/goto.html"
+    },
+    {
+      "name": "From",
+      "kind": "block",
+      "description": "Receives the signal published by the Goto block that carries the same tag, acting as the wireless source end of the pair. Its output inherits the data type, dimensions and sample time of the original signal. Use it wherever a widely shared signal is consumed, and click the tag list in the dialog (or read GotoTag programmatically) to discover which tags are reachable from the block's location.",
+      "usage": "Simulink > Signal Routing > From  |  add_block('simulink/Signal Routing/From', [mdl '/From'])",
+      "parameters": [
+        {
+          "name": "GotoTag",
+          "description": "Tag of the Goto block to receive from; must be visible from this block's position in the hierarchy."
+        },
+        {
+          "name": "IconDisplay",
+          "description": "Icon text: 'Tag', 'Signal name' or 'Tag and signal name'."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/From', [mdl '/FromFault']);\nset_param([mdl '/FromFault'], 'GotoTag', 'FaultFlag');\nadd_line(mdl, 'FromFault/1', 'Logic/1', 'autorouting', 'on');",
+      "notes": "A From whose tag is not visible from its location fails at update-diagram time with an unresolved tag error - check that a Goto Tag Visibility block covers the scope for 'scoped' tags. Use find_system(mdl,'BlockType','From','GotoTag','FaultFlag') to locate every consumer.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/from.html"
+    },
+    {
+      "name": "Goto Tag Visibility",
+      "kind": "block",
+      "description": "Declares the scope of a Goto tag whose TagVisibility is set to 'scoped'. Placing this block in a subsystem makes the named tag reachable by From blocks in that subsystem and everything below it, but nowhere else. Use it to share a signal across a component's internal hierarchy without exposing it globally, which keeps tag names from colliding between independent components.",
+      "usage": "Simulink > Signal Routing > Goto Tag Visibility  |  add_block('simulink/Signal Routing/Goto Tag Visibility', [mdl '/Sub/TagVis'])",
+      "parameters": [
+        {
+          "name": "GotoTag",
+          "description": "Name of the scoped tag whose visibility this block defines."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Goto Tag Visibility', [mdl '/Ctrl/TagVis']);\nset_param([mdl '/Ctrl/TagVis'], 'GotoTag', 'FaultFlag');",
+      "notes": "Only needed for 'scoped' tags - 'local' and 'global' Goto blocks ignore it. The block must sit at or above the level of both the Goto and the From blocks that use the tag; placing it too deep silently hides the tag from the Goto.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/gototagvisibility.html"
+    },
+    {
+      "name": "Data Store Memory",
+      "kind": "block",
+      "description": "Declares a named shared memory region that Data Store Read and Data Store Write blocks access by name, giving the model the equivalent of a global variable. The block sets the store's data type, dimensions, initial value and diagnostics; it has no ports of its own. Use it for state shared between parts of a model that cannot be connected by a signal line, such as a calibration table updated in one component and consumed in several others.",
+      "usage": "Simulink > Signal Routing > Data Store Memory  |  add_block('simulink/Signal Routing/Data Store Memory', [mdl '/DSM'])",
+      "parameters": [
+        {
+          "name": "DataStoreName",
+          "description": "Name of the data store, matched by Data Store Read and Data Store Write blocks."
+        },
+        {
+          "name": "InitialValue",
+          "description": "Value the store holds at t = 0. Its size and type also set the store's dimensions and class when inherited."
+        },
+        {
+          "name": "OutDataTypeStr",
+          "description": "Data type of the stored value, for example 'Inherit: auto', 'double', 'single', 'int16' or 'Bus: MyBus'."
+        },
+        {
+          "name": "Dimensions",
+          "description": "Size of the stored signal, for example '1' or '[3 3]'."
+        },
+        {
+          "name": "ReadBeforeWriteMsg",
+          "description": "Diagnostic when a store is read before it has been written in a time step: 'none', 'warning' or 'error'."
+        },
+        {
+          "name": "WriteAfterWriteMsg",
+          "description": "Diagnostic for two writes in the same time step: 'none', 'warning' or 'error'."
+        },
+        {
+          "name": "WriteAfterReadMsg",
+          "description": "Diagnostic for a write occurring after a read in the same time step: 'none', 'warning' or 'error'."
+        },
+        {
+          "name": "DataLogging",
+          "description": "'on' | 'off'. Logs the store's value to the simulation output."
+        },
+        {
+          "name": "StateMustResolveToSignalObject",
+          "description": "'on' | 'off'. Requires the store to resolve to a Simulink.Signal object of the same name in a workspace or data dictionary."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Data Store Memory', [mdl '/DSM']);\nset_param([mdl '/DSM'], 'DataStoreName', 'CalTable', ...\n    'InitialValue', 'zeros(1,8)', 'OutDataTypeStr', 'single', ...\n    'ReadBeforeWriteMsg', 'error');",
+      "notes": "Data stores hide data dependencies from the solver, so execution order between readers and writers is not guaranteed unless the blocks are inside the same atomic subsystem or ordered explicitly. Keep the read/write diagnostics at 'error' during development. A store declared at the top level of a model is visible to that model's whole hierarchy; use Simulink.Signal with a global scope to share one across referenced models.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/datastorememory.html"
+    },
+    {
+      "name": "Data Store Read",
+      "kind": "block",
+      "description": "Outputs the current value of a named data store at each time step. The store must be declared by a Data Store Memory block at or above the read block's level in the hierarchy, or by a Simulink.Signal object for model-wide stores. Use it wherever shared state has to be consumed without a signal line, and optionally select individual bus elements when the store carries a bus.",
+      "usage": "Simulink > Signal Routing > Data Store Read  |  add_block('simulink/Signal Routing/Data Store Read', [mdl '/DSR'])",
+      "parameters": [
+        {
+          "name": "DataStoreName",
+          "description": "Name of the data store to read; must match a Data Store Memory block or a global Simulink.Signal."
+        },
+        {
+          "name": "SampleTime",
+          "description": "Interval between reads. '-1' inherits from the surrounding context."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Data Store Read', [mdl '/DSR']);\nset_param([mdl '/DSR'], 'DataStoreName', 'CalTable', 'SampleTime', '-1');\nadd_line(mdl, 'DSR/1', 'Lookup/1', 'autorouting', 'on');",
+      "notes": "Reading a store before anything writes it in a time step yields the initial value; enable the ReadBeforeWriteMsg diagnostic on the Data Store Memory block to catch that. Model Advisor and the Data Store Memory block dialog can list every reader and writer of a store.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/datastoreread.html"
+    },
+    {
+      "name": "Data Store Write",
+      "kind": "block",
+      "description": "Writes its input to the named data store at each time step, replacing the stored value. With a bus-valued store you can write only selected elements, leaving the rest untouched. Use it as the producer side of shared state, for example to publish a computed mode, an accumulated counter, or a calibration updated by an adaptation algorithm.",
+      "usage": "Simulink > Signal Routing > Data Store Write  |  add_block('simulink/Signal Routing/Data Store Write', [mdl '/DSW'])",
+      "parameters": [
+        {
+          "name": "DataStoreName",
+          "description": "Name of the data store to write; must match a Data Store Memory block or a global Simulink.Signal."
+        },
+        {
+          "name": "SampleTime",
+          "description": "Interval between writes. '-1' inherits from the surrounding context."
+        }
+      ],
+      "example": "add_block('simulink/Signal Routing/Data Store Write', [mdl '/DSW']);\nset_param([mdl '/DSW'], 'DataStoreName', 'CalTable');\nadd_line(mdl, 'Adapt/1', 'DSW/1', 'autorouting', 'on');",
+      "notes": "The input data type and dimensions must match the store exactly. Two writers executing in the same time step trigger the WriteAfterWriteMsg diagnostic and usually indicate a design fault. Writes inside conditionally executed subsystems only happen when that subsystem runs.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/datastorewrite.html"
+    },
+    {
+      "name": "Data Type Conversion",
+      "kind": "block",
+      "description": "Converts an input signal to the data type you specify, with explicit control over rounding, overflow handling and how fixed-point scaling is interpreted. The Input and output to have equal option decides whether the stored integer or the real-world value is preserved across a fixed-point conversion. Use it to make types match at a component boundary, to quantise a double to an embedded integer type, or to force a boolean out of a comparison chain.",
+      "usage": "Simulink > Signal Attributes > Data Type Conversion  |  add_block('simulink/Signal Attributes/Data Type Conversion', [mdl '/DTC'])",
+      "parameters": [
+        {
+          "name": "OutDataTypeStr",
+          "description": "Target data type, for example 'double', 'single', 'int16', 'boolean', 'fixdt(1,16,7)' or 'Inherit: Inherit via back propagation'."
+        },
+        {
+          "name": "ConvertRealWorld",
+          "description": "'Real World Value (RWV)' keeps the physical value; 'Stored Integer (SI)' keeps the raw bit pattern."
+        },
+        {
+          "name": "RndMeth",
+          "description": "Rounding mode: 'Floor', 'Ceiling', 'Round', 'Nearest', 'Zero', 'Simplest' or 'Convergent'."
+        },
+        {
+          "name": "SaturateOnIntegerOverflow",
+          "description": "'on' | 'off'. Saturates to the type limits instead of wrapping on overflow."
+        },
+        {
+          "name": "SampleTime",
+          "description": "Interval between samples; '-1' inherits."
+        }
+      ],
+      "example": "add_block('simulink/Signal Attributes/Data Type Conversion', [mdl '/DTC']);\nset_param([mdl '/DTC'], 'OutDataTypeStr', 'fixdt(1,16,7)', ...\n    'ConvertRealWorld', 'Real World Value (RWV)', ...\n    'RndMeth', 'Nearest', 'SaturateOnIntegerOverflow', 'on');",
+      "notes": "Stored Integer mode reinterprets bits and can change the physical meaning of a signal - use it only for deliberate bit-level work. Related blocks: Data Type Conversion Inherited (takes the target type from a reference signal on a second port), Data Type Duplicate (forces several signals to agree without converting) and Data Type Propagation.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/datatypeconversion.html"
+    },
+    {
+      "name": "Rate Transition",
+      "kind": "block",
+      "description": "Handles the transfer of data between blocks running at different sample rates, inserting the buffering or holding needed to keep the transfer safe. The Integrity and Deterministic options trade latency against guarantees: with both on the block behaves like a Zero-Order Hold for fast-to-slow transfers and a unit delay for slow-to-fast, giving repeatable timing at the cost of one sample of delay. Use it at every rate boundary in a multirate model, or let Simulink insert them automatically.",
+      "usage": "Simulink > Signal Attributes > Rate Transition  |  add_block('simulink/Signal Attributes/Rate Transition', [mdl '/RT'])",
+      "parameters": [
+        {
+          "name": "Integrity",
+          "description": "'on' | 'off'. 'on' guarantees the downstream task never sees a partially updated value (data integrity)."
+        },
+        {
+          "name": "Deterministic",
+          "description": "'on' | 'off'. 'on' guarantees constant, repeatable transfer timing; turning it off reduces latency but makes timing data dependent."
+        },
+        {
+          "name": "InitialCondition",
+          "description": "Output value before the first valid transfer, used for slow-to-fast transitions."
+        },
+        {
+          "name": "OutPortSampleTimeOpt",
+          "description": "How the output rate is set: 'Inherit', 'Specify', 'Multiple of input port sample time' or 'Inherit via internal rule'."
+        },
+        {
+          "name": "OutPortSampleTime",
+          "description": "Explicit output sample time when OutPortSampleTimeOpt is 'Specify'."
+        },
+        {
+          "name": "OutPortSampleTimeMultiple",
+          "description": "Output rate as a multiple of the input rate when that option is selected."
+        }
+      ],
+      "example": "add_block('simulink/Signal Attributes/Rate Transition', [mdl '/RT']);\nset_param([mdl '/RT'], 'Integrity', 'on', 'Deterministic', 'on', ...\n    'InitialCondition', '0', 'OutPortSampleTimeOpt', 'Specify', ...\n    'OutPortSampleTime', '0.01');",
+      "notes": "Set the model configuration parameter 'Automatically handle rate transition for data transfer' ('AutoInsertRateTranBlk') to 'on' to have Simulink insert these blocks for you, but insert them explicitly when you need to control latency. Turning Deterministic off in a real-time application permits data-dependent jitter; turning Integrity off can produce corrupted values across preempting tasks.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/ratetransition.html"
+    },
+    {
+      "name": "Signal Specification",
+      "kind": "block",
+      "description": "Asserts the attributes a signal must have - data type, dimensions, sample time, complexity and variable-size status - and errors during update diagram if propagation produces anything else. The signal itself passes through unchanged, so the block is a pure compile-time check. Use it to lock down an interface, to document what a line carries, or to break ambiguous inheritance loops where Simulink cannot resolve a type on its own.",
+      "usage": "Simulink > Signal Attributes > Signal Specification  |  add_block('simulink/Signal Attributes/Signal Specification', [mdl '/SigSpec'])",
+      "parameters": [
+        {
+          "name": "OutDataTypeStr",
+          "description": "Required data type, for example 'Inherit: auto', 'double', 'int32' or 'Bus: MyBus'."
+        },
+        {
+          "name": "Dimensions",
+          "description": "Required dimensions, for example '-1' (inherited), '3' or '[2 4]'."
+        },
+        {
+          "name": "SampleTime",
+          "description": "Required sample time; '-1' inherits, a positive value pins the rate."
+        },
+        {
+          "name": "SignalType",
+          "description": "'auto', 'real' or 'complex'."
+        },
+        {
+          "name": "VarSizeSig",
+          "description": "'Inherit', 'No' or 'Yes' - whether the signal is allowed to be variable-size."
+        }
+      ],
+      "example": "add_block('simulink/Signal Attributes/Signal Specification', [mdl '/Spec']);\nset_param([mdl '/Spec'], 'OutDataTypeStr', 'single', ...\n    'Dimensions', '3', 'SampleTime', '0.001', 'SignalType', 'real');",
+      "notes": "The block never converts - it only verifies. Put a Data Type Conversion block upstream if the incoming type is genuinely different. Related: Signal Conversion (changes how a signal is stored, e.g. virtual bus to non-virtual) and Data Type Duplicate (forces several signals to share one type without stating which).",
+      "docs": "https://www.mathworks.com/help/simulink/slref/signalspecification.html"
+    },
+    {
+      "name": "In1",
+      "kind": "block",
+      "description": "The Inport block. At the top level of a model it is an external input, fed by the Input configuration parameter, a Simulink.SimulationInput external input, or the parent Model block when the model is referenced. Inside a subsystem it creates one input port on the subsystem icon, numbered by the Port parameter. Use it to define a component's input interface, and set its type, dimensions and sample time to publish that interface explicitly rather than relying on inheritance.",
+      "usage": "Simulink > Sources > In1  |  add_block('simulink/Sources/In1', [mdl '/Sub/In1'])",
+      "parameters": [
+        {
+          "name": "Port",
+          "description": "Port number, which fixes the position of the port on the parent subsystem or Model block icon."
+        },
+        {
+          "name": "OutDataTypeStr",
+          "description": "Signal data type, for example 'Inherit: auto', 'double', 'int16' or 'Bus: MyBus'."
+        },
+        {
+          "name": "PortDimensions",
+          "description": "Signal dimensions: '-1' to inherit, or an explicit size such as '3' or '[2 4]'."
+        },
+        {
+          "name": "SampleTime",
+          "description": "Sample time of the input; '-1' inherits."
+        },
+        {
+          "name": "SignalType",
+          "description": "'auto', 'real' or 'complex'."
+        },
+        {
+          "name": "Interpolate",
+          "description": "'on' | 'off'. Interpolates the loaded external input data between supplied time points (root-level inports only)."
+        },
+        {
+          "name": "OutputFunctionCall",
+          "description": "'on' | 'off'. Marks the port as carrying a function-call signal, used in export-function models."
+        },
+        {
+          "name": "LatchByDelayingOutsideSignal",
+          "description": "'on' | 'off'. In a triggered subsystem, latches the value from the previous time step to avoid an algebraic loop."
+        }
+      ],
+      "example": "add_block('simulink/Sources/In1', [mdl '/Ctrl/In1']);\nset_param([mdl '/Ctrl/In1'], 'Port', '1', 'OutDataTypeStr', 'single', ...\n    'PortDimensions', '3', 'SampleTime', '0.01');",
+      "notes": "Adding or deleting an Inport renumbers the ports on the parent subsystem and can silently break existing lines - re-check add_line calls after scripted edits. The same block is also available at 'simulink/Ports & Subsystems/In1'. For bus interfaces prefer the In Bus Element block, which exposes one element per port.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/inport.html"
+    },
+    {
+      "name": "Out1",
+      "kind": "block",
+      "description": "The Outport block. At the top level it defines a model output that is logged to yout and returned by sim; inside a subsystem it creates one output port on the subsystem icon. For conditionally executed subsystems it also defines what the port emits while the subsystem is disabled, either holding the last value or resetting to an initial condition. Use it to declare a component's output interface and its disabled-state behaviour.",
+      "usage": "Simulink > Sinks > Out1  |  add_block('simulink/Sinks/Out1', [mdl '/Sub/Out1'])",
+      "parameters": [
+        {
+          "name": "Port",
+          "description": "Port number, fixing the position of the port on the parent subsystem or Model block icon."
+        },
+        {
+          "name": "OutDataTypeStr",
+          "description": "Signal data type, for example 'Inherit: auto', 'double' or 'Bus: MyBus'."
+        },
+        {
+          "name": "PortDimensions",
+          "description": "Signal dimensions: '-1' to inherit or an explicit size."
+        },
+        {
+          "name": "SampleTime",
+          "description": "Sample time of the output; '-1' inherits."
+        },
+        {
+          "name": "OutputWhenDisabled",
+          "description": "'held' or 'reset' - what a conditionally executed subsystem emits on this port while it is not executing."
+        },
+        {
+          "name": "InitialOutput",
+          "description": "Value emitted before the first execution, or on reset. '[]' inherits the value from the driving block."
+        },
+        {
+          "name": "SourceOfInitialOutputValue",
+          "description": "'Dialog' or 'Input signal' - where the initial output value comes from."
+        }
+      ],
+      "example": "add_block('simulink/Sinks/Out1', [mdl '/Ctrl/Out1']);\nset_param([mdl '/Ctrl/Out1'], 'Port', '1', 'OutDataTypeStr', 'single', ...\n    'OutputWhenDisabled', 'held', 'InitialOutput', '0');",
+      "notes": "OutputWhenDisabled and InitialOutput only take effect inside Enabled, Triggered, Function-Call or Action subsystems. Root-level outports are captured in the SimulationOutput as yout unless signal logging is used instead. The same block is also available at 'simulink/Ports & Subsystems/Out1'; for bus interfaces prefer Out Bus Element.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/outport.html"
+    },
+    {
+      "name": "Simulink.Bus.createObject",
+      "kind": "function",
+      "description": "Creates Simulink.Bus objects in the base workspace (or writes them to a file) from an existing bus signal in a model or from a MATLAB structure. Pointing it at a Bus Creator block, a subsystem port or a block output captures the whole nested hierarchy in one call, so you do not have to define each Simulink.BusElement by hand. Use it to turn an ad-hoc virtual bus into a formal, reusable interface definition that can be checked into source control and shared across models.",
+      "usage": "busInfo = Simulink.Bus.createObject(mdl, busSource)\nbusInfo = Simulink.Bus.createObject(S)\nbusInfo = Simulink.Bus.createObject(___, file, fileFormat)",
+      "parameters": [
+        {
+          "name": "mdl",
+          "description": "Name or handle of the model containing the bus signal."
+        },
+        {
+          "name": "busSource",
+          "description": "Block path, block handle, port handle or line handle identifying the bus to capture."
+        },
+        {
+          "name": "S",
+          "description": "A MATLAB structure whose fields (including nested structures) define the bus hierarchy."
+        },
+        {
+          "name": "file",
+          "description": "Optional file name; the generated bus definitions are written to this MATLAB file instead of only living in the workspace."
+        },
+        {
+          "name": "fileFormat",
+          "description": "'cell' (compact cell-array form, the default) or 'object' (explicit Simulink.Bus/Simulink.BusElement constructor calls)."
+        },
+        {
+          "name": "scope",
+          "description": "Used with the structure syntax: the workspace the generated objects are assigned to."
+        }
+      ],
+      "example": "mdl = 'BusHierarchy';\nload_system(mdl);\nbusInfo = Simulink.Bus.createObject(mdl, [mdl '/Bus Creator1'], 'busDefs', 'object');\n% bind the Bus Creator to the generated object\nset_param([mdl '/Bus Creator1'], 'OutDataTypeStr', ['Bus: ' busInfo.busName], ...\n    'NonVirtualBus', 'on');\n% inspect the resulting definition\nbo = evalin('base', busInfo.busName);\nfor k = 1:numel(bo.Elements)\n    fprintf('%s : %s\\n', bo.Elements(k).Name, bo.Elements(k).DataType);\nend",
+      "notes": "The returned busInfo struct carries the top-level bus name and the names of every nested bus created. The model must compile (or at least update) before the bus signal can be captured. Related API: Simulink.Bus.save writes existing bus objects to a file, Simulink.Bus.createMATLABStruct builds a ground-value struct matching a bus (handy for initial conditions), and Simulink.Signal defines the attributes and storage class of a single named signal or data store.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.bus.createobject.html"
+    }
+  ]
+}

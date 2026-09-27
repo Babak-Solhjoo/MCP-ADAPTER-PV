@@ -1,0 +1,568 @@
+{
+  "category": "DXF File Structure, Group Codes & Entity Records",
+  "description": "The Drawing Exchange Format as documented in the AutoCAD DXF Reference: file sections (HEADER, CLASSES, TABLES, BLOCKS, ENTITIES, OBJECTS, THUMBNAILIMAGE), group-code ranges and their value types, the most important common and entity-specific group codes (LINE, CIRCLE, ARC, LWPOLYLINE, POLYLINE, TEXT, MTEXT, HATCH, DIMENSION, SPLINE, LAYER, DICTIONARY/XRECORD), header variables, version codes AC1009-AC1032, binary DXF and the common third-party tools (ezdxf, ODA File Converter). The same group codes appear in AutoLISP entget lists, ssget filters, XData and ObjectARX resbufs.",
+  "tools": [
+    {
+      "name": "DXF file structure (SECTION / ENDSEC / EOF)",
+      "kind": "format",
+      "description": "A DXF file is a sequence of group-code/value pairs, each on two lines: the integer group code, then the value. The file is divided into sections, each starting with 0 SECTION, 2 <name> and ending with 0 ENDSEC, and the file ends with 0 EOF. Sections appear in the order HEADER, CLASSES, TABLES, BLOCKS, ENTITIES, OBJECTS, THUMBNAILIMAGE.",
+      "usage": "  0\nSECTION\n  2\nHEADER\n...\n  0\nENDSEC\n  0\nSECTION\n  2\nENTITIES\n...\n  0\nENDSEC\n  0\nEOF",
+      "parameters": [
+        {"name": "group code line", "description": "Integer right-justified in a 3-character field by AutoCAD (readers must accept any whitespace)."},
+        {"name": "value line", "description": "Value whose type depends on the code range (string, integer, real, handle, boolean)."},
+        {"name": "999", "description": "Comment group; ignored by readers."}
+      ],
+      "example": "with open(\"plan.dxf\", encoding=\"utf-8\", errors=\"replace\") as f:\n    lines = [l.strip() for l in f]\npairs = [(int(lines[i]), lines[i + 1]) for i in range(0, len(lines) - 1, 2)]\nsections = [pairs[i + 1][1] for i, p in enumerate(pairs[:-1]) if p == (0, \"SECTION\")]\nprint(sections)  # ['HEADER', 'CLASSES', 'TABLES', 'BLOCKS', 'ENTITIES', 'OBJECTS']",
+      "notes": "Always pair lines strictly two at a time; values may legitimately be empty or look like numbers. Since AutoCAD 2007 (AC1021) ASCII DXF is written in UTF-8; older files use the code page in $DWGCODEPAGE.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D939EA11-0CEC-4636-91A8-756640A031D3"
+    },
+    {
+      "name": "HEADER section (DXF)",
+      "kind": "format",
+      "description": "Holds the drawing's header (system) variables. Each variable is introduced by group code 9 with the name prefixed by $, followed by one or more value groups; points use 10/20/30. It stores drawing-level settings such as version, units, extents, handle seed and current layer.",
+      "usage": "  0\nSECTION\n  2\nHEADER\n  9\n$ACADVER\n  1\nAC1032\n  9\n$INSUNITS\n 70\n4\n  0\nENDSEC",
+      "parameters": [
+        {"name": "9", "description": "Variable name, e.g. $EXTMIN."},
+        {"name": "value groups", "description": "Code depends on the variable: 1 text, 70 integer, 40 real, 10/20/30 point, 5 handle."}
+      ],
+      "example": "; read header variables from a DXF opened in AutoCAD is unnecessary - use getvar:\n(getvar \"INSUNITS\")  ; same value as $INSUNITS",
+      "notes": "Readers must skip unknown variables. Only $ACADVER is strictly required for newer-version files; AutoCAD uses defaults for missing variables.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A85E8E67-27CD-4C59-BE61-4DC9FADBE74A"
+    },
+    {
+      "name": "DXF header variables ($ACADVER $INSBASE $EXTMIN $EXTMAX $INSUNITS $HANDSEED $DWGCODEPAGE)",
+      "kind": "format",
+      "description": "The header variables most relevant to DXF readers and writers: $ACADVER (format version code), $DWGCODEPAGE (code page for pre-2007 text), $INSBASE (insertion base), $EXTMIN/$EXTMAX (drawing extents), $LIMMIN/$LIMMAX, $INSUNITS (drawing units for insertion scaling), $MEASUREMENT (0 imperial, 1 metric), $HANDSEED (next available handle) and $TDCREATE/$TDUPDATE (Julian dates).",
+      "usage": "  9\n$EXTMIN\n 10\n0.0\n 20\n0.0\n 30\n0.0\n  9\n$HANDSEED\n  5\n2A1",
+      "parameters": [
+        {"name": "$INSUNITS (70)", "description": "0 unitless, 1 inches, 2 feet, 4 millimetres, 5 centimetres, 6 metres (more values for other units)."},
+        {"name": "$HANDSEED (5)", "description": "Hex string greater than every handle used in the file; writers must keep it correct."},
+        {"name": "$DWGCODEPAGE (3)", "description": "E.g. ANSI_1252; relevant for AC1018 and older files."}
+      ],
+      "example": "import ezdxf\ndoc = ezdxf.readfile(\"plan.dxf\")\nprint(doc.dxfversion, doc.header[\"$INSUNITS\"], doc.header[\"$EXTMIN\"], doc.header[\"$EXTMAX\"])",
+      "notes": "$EXTMIN/$EXTMAX may be stale or set to +/-1e20 if the writer never computed extents; recompute from entities when accuracy matters.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A85E8E67-27CD-4C59-BE61-4DC9FADBE74A"
+    },
+    {
+      "name": "CLASSES section (DXF)",
+      "kind": "format",
+      "description": "Lists the application-defined classes whose instances appear in the BLOCKS, ENTITIES and OBJECTS sections (for example ACDBDICTIONARYWDFLT, LAYOUT-related, IMAGE, custom objects). Each CLASS record gives the DXF record name, C++ class name, application name, proxy flags and whether the class is an entity. Introduced with R13.",
+      "usage": "  0\nCLASS\n  1\nACDBPLACEHOLDER\n  2\nAcDbPlaceHolder\n  3\nObjectDBX Classes\n 90\n0\n 91\n0\n280\n0\n281\n0",
+      "parameters": [
+        {"name": "1", "description": "DXF record name used as the 0 group of instances."},
+        {"name": "2 / 3", "description": "C++ class name and application name."},
+        {"name": "90 / 91", "description": "Proxy capabilities flag and instance count."},
+        {"name": "280 / 281", "description": "Was-a-proxy flag and is-an-entity flag."}
+      ],
+      "example": "doc = ezdxf.readfile(\"plan.dxf\")\nfor cls in doc.classes: print(cls.dxf.name, cls.dxf.cpp_class_name, cls.dxf.app_name)",
+      "notes": "Objects of classes whose application is not loaded are shown as proxies in AutoCAD. R12 files have no CLASSES section.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D939EA11-0CEC-4636-91A8-756640A031D3"
+    },
+    {
+      "name": "TABLES section (DXF)",
+      "kind": "format",
+      "description": "Contains the symbol tables in the order VPORT, LTYPE, LAYER, STYLE, VIEW, UCS, APPID, DIMSTYLE and BLOCK_RECORD. Each table starts with 0 TABLE, 2 <name>, its handle and entry count, then the table records, and ends with 0 ENDTAB.",
+      "usage": "  0\nTABLE\n  2\nLAYER\n  5\n2\n330\n0\n100\nAcDbSymbolTable\n 70\n1\n  0\nLAYER\n...\n  0\nENDTAB",
+      "parameters": [
+        {"name": "2", "description": "Table name."},
+        {"name": "70", "description": "Maximum number of entries (informational)."},
+        {"name": "100 AcDbSymbolTable / AcDbSymbolTableRecord", "description": "Subclass markers for tables and records (R13+)."}
+      ],
+      "example": "for layer in ezdxf.readfile(\"plan.dxf\").layers:\n    print(layer.dxf.name, layer.dxf.color, layer.dxf.linetype)",
+      "notes": "Entities referencing a layer, linetype or style not defined in TABLES are still loaded by AutoCAD (it creates missing layers), but linetypes and styles fall back to defaults.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D939EA11-0CEC-4636-91A8-756640A031D3"
+    },
+    {
+      "name": "LAYER table record (DXF)",
+      "kind": "format",
+      "description": "The LAYER symbol-table entry stores the layer name, state flags, color, linetype, plot flag, lineweight and plot style. A negative color number means the layer is off.",
+      "usage": "  0\nLAYER\n  5\n10\n100\nAcDbSymbolTableRecord\n100\nAcDbLayerTableRecord\n  2\nA-WALL\n 70\n0\n 62\n7\n  6\nContinuous\n290\n1\n370\n-3",
+      "parameters": [
+        {"name": "70", "description": "Flags: 1 frozen, 2 frozen in new viewports, 4 locked, 16 xref-dependent, 32 xref resolved."},
+        {"name": "62", "description": "Color number; negative = layer off."},
+        {"name": "290 / 370", "description": "Plot flag (0 = do not plot) and lineweight enum (-3 default)."}
+      ],
+      "example": "(entget (tblobjname \"LAYER\" \"A-WALL\"))\n; -> ((-1 . <Entity name>) (0 . \"LAYER\") ... (2 . \"A-WALL\") (70 . 0) (62 . 7) (6 . \"Continuous\") (290 . 1) (370 . -3) ...)",
+      "notes": "Xref-dependent layers carry names like SITE|C-TOPO. The layer 0 and DEFPOINTS records are always present in AutoCAD-written files.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "ENTITIES section (DXF)",
+      "kind": "format",
+      "description": "Contains the graphical objects of model space and the active paper-space layout; entities of other layouts live in their *Paper_Space block definitions in the BLOCKS section. Each entity starts with 0 <TYPE> followed by common groups and subclass-specific groups.",
+      "usage": "  0\nSECTION\n  2\nENTITIES\n  0\nLINE\n  5\n2F\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbLine\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 11\n100.0\n 21\n50.0\n 31\n0.0\n  0\nENDSEC",
+      "parameters": [
+        {"name": "67", "description": "1 when the entity is in paper space (absent or 0 for model space)."},
+        {"name": "410", "description": "Layout tab name for paper-space entities."}
+      ],
+      "example": "doc = ezdxf.readfile(\"plan.dxf\")\nfor e in doc.modelspace().query(\"LINE CIRCLE\"):\n    print(e.dxftype(), e.dxf.layer)",
+      "notes": "When DXFOUT uses Select Objects, the ENTITIES section contains only the selected objects. Entity order in the file is the database order, not the draw order (see SORTENTSTABLE in OBJECTS).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD"
+    },
+    {
+      "name": "OBJECTS section (DXF)",
+      "kind": "format",
+      "description": "Contains the non-graphical objects: the root named object dictionary first, then dictionaries, XRECORDs, LAYOUTs, GROUPs, MLINESTYLEs, PLOTSETTINGS, MATERIALs, VISUALSTYLEs, SORTENTSTABLE, IMAGEDEF and other objects. Introduced with R13.",
+      "usage": "  0\nSECTION\n  2\nOBJECTS\n  0\nDICTIONARY\n  5\nC\n330\n0\n100\nAcDbDictionary\n  3\nACAD_GROUP\n350\nD\n...\n  0\nENDSEC",
+      "parameters": [
+        {"name": "first object", "description": "Must be the root dictionary (named object dictionary)."},
+        {"name": "350 / 360", "description": "Soft-owner and hard-owner handles linking dictionary entries to objects."}
+      ],
+      "example": "doc = ezdxf.readfile(\"plan.dxf\")\nfor name, obj in doc.rootdict.items(): print(name, obj)",
+      "notes": "Objects are tied together by handles; writers must keep ownership (330) and dictionary (350/360) references consistent or AutoCAD reports errors and runs an audit.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D939EA11-0CEC-4636-91A8-756640A031D3"
+    },
+    {
+      "name": "THUMBNAILIMAGE section (DXF)",
+      "kind": "format",
+      "description": "Optional section holding the preview image of the drawing as a hex-encoded BMP: group 90 gives the byte count and repeated 310 groups carry the binary data. Written only when a preview is saved.",
+      "usage": "  0\nSECTION\n  2\nTHUMBNAILIMAGE\n 90\n<bytes>\n310\n<hex data>\n...\n  0\nENDSEC",
+      "parameters": [
+        {"name": "90", "description": "Number of bytes in the image."},
+        {"name": "310", "description": "Binary chunk as hexadecimal text (up to 127 bytes per group)."}
+      ],
+      "example": "raw = bytes.fromhex(\"\".join(hex_chunks))   # concatenated 310 values\n# raw is a DIB (BITMAPINFOHEADER + palette + pixels);\n# prepend a 14-byte BITMAPFILEHEADER before saving it as preview.bmp",
+      "notes": "The data is a DIB without the BITMAPFILEHEADER; add a header to view it. Writers may omit the section entirely.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-D939EA11-0CEC-4636-91A8-756640A031D3"
+    },
+    {
+      "name": "Binary DXF",
+      "kind": "format",
+      "description": "A binary encoding of DXF that stores the same group-code/value stream as ASCII DXF in a more compact form, about 25 percent smaller and faster to read and write. AutoCAD writes it with the Binary option of DXFOUT/SAVEAS DXF options.",
+      "usage": "Sentinel: \"AutoCAD Binary DXF\" CR LF SUB NUL (22 bytes)\nthen group codes (2-byte little-endian for R13+) followed by typed binary values",
+      "parameters": [
+        {"name": "sentinel", "description": "The 22-byte header identifying binary DXF."},
+        {"name": "values", "description": "Strings null-terminated; integers and doubles in binary little-endian according to the group-code type."}
+      ],
+      "example": "with open(\"plan.dxf\", \"rb\") as f:\n    is_binary = f.read(22).startswith(b\"AutoCAD Binary DXF\")\n# ezdxf.readfile() detects and reads both variants",
+      "notes": "Many third-party readers support only ASCII DXF; use ASCII for exchange unless file size matters.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "DXF version codes (AC1009-AC1032)",
+      "kind": "format",
+      "description": "The $ACADVER header value identifies the DXF/DWG format: AC1009 R11/R12, AC1012 R13, AC1014 R14, AC1015 2000-2002, AC1018 2004-2006, AC1021 2007-2009, AC1024 2010-2012, AC1027 2013-2017, AC1032 2018 and later (still the current format in AutoCAD 2025). The same codes appear in the first 6 bytes of a DWG file.",
+      "usage": "  9\n$ACADVER\n  1\nAC1032",
+      "parameters": [
+        {"name": "AC1009", "description": "R12: simplest structure, no CLASSES/OBJECTS, widely supported by CNC/CAM tools."},
+        {"name": "AC1015", "description": "2000 format: first with lineweights and plot styles in the modern form."},
+        {"name": "AC1021", "description": "2007: DXF becomes UTF-8."},
+        {"name": "AC1032", "description": "2018 format used by current releases."}
+      ],
+      "example": "with open(\"file.dwg\", \"rb\") as f:\n    print(f.read(6).decode(\"ascii\"))   # e.g. AC1032\n# DXF: read the value after 9/$ACADVER",
+      "notes": "Choose the oldest version that preserves your data when exchanging with other software (often R2000 or R2010 DXF). Down-saving loses newer object types, which become proxies or simpler geometry.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-A85E8E67-27CD-4C59-BE61-4DC9FADBE74A"
+    },
+    {
+      "name": "DXF group code value types",
+      "kind": "format",
+      "description": "The group code number determines the value type: 0-9 strings (up to 2049 bytes in newer files), 10-39 double-precision 3D point coordinates, 40-59 doubles, 60-79 16-bit integers, 90-99 32-bit integers, 100 subclass string, 102 control string, 105 handle, 110-149 doubles, 160-169 64-bit integers, 170-179 16-bit, 210-239 doubles, 270-289 16-bit, 290-299 booleans, 300-309 text, 310-319 binary chunks, 320-369 handles/pointers, 370-389 16-bit, 390-399 handles, 400-409 16-bit, 410-419 strings, 420-429 32-bit, 430-439 strings, 440-459 32-bit, 460-469 doubles, 470-479 strings, 480-481 handles, 999 comments, 1000-1071 XData.",
+      "usage": "code -> type: 0-9 str | 10-59 float | 60-79 int16 | 90-99 int32 | 290-299 bool | 310-319 hex binary | 320-369 handle | 1000-1071 XData",
+      "parameters": [
+        {"name": "handles", "description": "Hexadecimal strings (codes 5, 105, 320-369, 390-399, 480-481, 1005)."},
+        {"name": "points", "description": "X in 1x, Y in 2x, Z in 3x (e.g. 10/20/30)."}
+      ],
+      "example": "def value_type(code):\n    if 0 <= code <= 9 or code in (100, 102) or 300 <= code <= 309 or 410 <= code <= 419 or 430 <= code <= 439 or 470 <= code <= 479 or code == 999 or 1000 <= code <= 1009: return str\n    if 10 <= code <= 59 or 110 <= code <= 149 or 210 <= code <= 239 or 460 <= code <= 469 or 1010 <= code <= 1059: return float\n    return int  # simplified",
+      "notes": "Handle groups must not be parsed as integers. Readers should be tolerant of unknown codes and skip them.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-2553CF98-44F6-4828-82DD-FE3BC7448113"
+    },
+    {
+      "name": "DXF group code 0",
+      "kind": "format",
+      "description": "Group code 0 marks the start of every entity, object, table, table record, section boundary and the end of file: its value is the type name (LINE, LWPOLYLINE, TABLE, SECTION, ENDSEC, EOF...). In AutoLISP entget lists and ssget filters, (0 . \"LINE\") is the entity type.",
+      "usage": "  0\nLWPOLYLINE\n(ssget \"_X\" '((0 . \"LINE,ARC,LWPOLYLINE\")))",
+      "parameters": [
+        {"name": "value", "description": "Entity or object type name in upper case; wildcards allowed in ssget filters."}
+      ],
+      "example": "(ssget \"_X\" '((0 . \"INSERT\") (2 . \"DOOR*\")))",
+      "notes": "In ObjectARX filter lists use RTDXF0 instead of 0, because 0 terminates acutBuildList.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 1",
+      "kind": "format",
+      "description": "Primary text value of an entity: the string of TEXT, ATTRIB and ATTDEF entities, the text or override of a DIMENSION, and (with 3 for continuation) MTEXT content. In AutoLISP it is read with (cdr (assoc 1 (entget e))).",
+      "usage": "  1\nROOM 1.07",
+      "parameters": [
+        {"name": "DIMENSION 1", "description": "\"<>\" represents the measured value; empty means no override."},
+        {"name": "MTEXT 1 / 3", "description": "Text longer than 250 characters is split into 3 groups followed by a final 1 group."}
+      ],
+      "example": "(setq ed (entget (car (entsel))))\n(entmod (subst (cons 1 \"NEW TEXT\") (assoc 1 ed) ed))",
+      "notes": "Special characters use %%c (diameter), %%d (degree), %%p (plus/minus) in TEXT and \\U+XXXX for Unicode.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 2",
+      "kind": "format",
+      "description": "Name value: block name for INSERT and BLOCK, attribute tag for ATTRIB/ATTDEF, section name after 0 SECTION, table name after 0 TABLE, symbol-table record name (layer, style, linetype) and hatch pattern name.",
+      "usage": "  2\nDOOR",
+      "parameters": [
+        {"name": "INSERT 2", "description": "Referenced block name; anonymous dynamic block references show *U names."},
+        {"name": "HATCH 2", "description": "Pattern name such as ANSI31 or SOLID."}
+      ],
+      "example": "(ssget \"_X\" '((0 . \"INSERT\") (2 . \"TITLE*,`*U*\")))",
+      "notes": "Use a backquote to escape the * of anonymous block names in wildcard filters.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 5",
+      "kind": "format",
+      "description": "Entity or object handle: a hexadecimal string of up to 16 digits that is unique within the drawing and persistent across sessions. DIMSTYLE table records use 105 instead of 5.",
+      "usage": "  5\n2A7F",
+      "parameters": [
+        {"name": "value", "description": "Hex string; must be below $HANDSEED."}
+      ],
+      "example": "(cdr (assoc 5 (entget (car (entsel)))))   ; -> \"2A7F\"\n(handent \"2A7F\")                            ; back to an entity name",
+      "notes": "R12 DXF files may omit handles ($HANDLING = 0); R13+ files require them. Pointers to other objects (330, 340, 350, 360) reference these handle values.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 8",
+      "kind": "format",
+      "description": "Layer name of an entity (fixed meaning). Every entity has one; if it references a layer not in the LAYER table, AutoCAD creates it on import.",
+      "usage": "  8\nA-WALL",
+      "parameters": [
+        {"name": "value", "description": "Layer name; wildcards and comma lists in ssget filters."}
+      ],
+      "example": "(ssget \"_X\" '((8 . \"A-*\") (0 . \"LINE\")))\n(entmod (subst '(8 . \"0\") (assoc 8 ed) ed))",
+      "notes": "Layer names are case-insensitive in AutoCAD but stored with their case.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 10/20/30",
+      "kind": "format",
+      "description": "Primary point of an entity: X in 10, Y in 20, Z in 30 (in DXF files), combined into one (10 x y z) list in AutoLISP. Its meaning depends on the entity: start point of a LINE, center of a CIRCLE/ARC, insertion point of TEXT/INSERT/MTEXT, vertex of an LWPOLYLINE (repeated).",
+      "usage": " 10\n100.0\n 20\n50.0\n 30\n0.0\n; AutoLISP: (10 100.0 50.0 0.0)",
+      "parameters": [
+        {"name": "coordinate system", "description": "WCS for LINE, POINT, 3D entities; OCS for 2D entities such as CIRCLE, ARC, LWPOLYLINE, TEXT, INSERT (depends on 210 extrusion)."}
+      ],
+      "example": "(setq ctr (cdr (assoc 10 (entget circ))))   ; OCS center\n(trans ctr circ 0)                             ; to WCS",
+      "notes": "For planar entities with a non-default extrusion (210), transform with trans from the entity's OCS before comparing with WCS points.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group codes 11-18 / 21-28 / 31-38",
+      "kind": "format",
+      "description": "Secondary points: X in 11-18, Y in 21-28, Z in 31-37. Examples: 11/21/31 endpoint of a LINE, second alignment point of TEXT, X-axis direction of MTEXT, text midpoint of DIMENSION; 12-16 hold further definition points of dimensions and splines. Group 38 is the entity elevation in older 2D entities.",
+      "usage": " 11\n200.0\n 21\n50.0\n 31\n0.0",
+      "parameters": [
+        {"name": "11", "description": "LINE end point; TEXT alignment point; MTEXT direction vector."},
+        {"name": "13 / 14", "description": "DIMENSION extension-line definition points."},
+        {"name": "38", "description": "Elevation (LWPOLYLINE, legacy entities)."}
+      ],
+      "example": "(setq ed (entget ln))\n(entmod (subst (list 11 200.0 50.0 0.0) (assoc 11 ed) ed))   ; move the line's end point",
+      "notes": "For TEXT, 11 is used only when horizontal/vertical justification (72/73) is not left/baseline.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 39",
+      "kind": "format",
+      "description": "Entity thickness (extrusion height along the extrusion direction), present only when nonzero. Gives 2D entities a 2.5D height, as set by the THICKNESS system variable.",
+      "usage": " 39\n2400.0",
+      "parameters": [
+        {"name": "value", "description": "Real thickness; absent means 0."}
+      ],
+      "example": "(ssget \"_X\" '((0 . \"LINE\") (-4 . \">\") (39 . 0.0)))   ; lines with thickness",
+      "notes": "Thickness is often an unwanted leftover in imported drawings; set it to 0 with CHPROP or entmod.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group codes 40-48",
+      "kind": "format",
+      "description": "Double-precision real values whose meaning depends on the entity: 40 radius (CIRCLE/ARC), text height (TEXT/MTEXT) or start width (LWPOLYLINE vertex); 41 X scale (INSERT), width factor (TEXT) or end width; 42 bulge (polyline vertex) or Z scale/actual measurement; 43 constant width; 44/45 spacing values; 48 linetype scale (common entity code).",
+      "usage": " 40\n12.5",
+      "parameters": [
+        {"name": "40", "description": "Radius, height or start width depending on entity."},
+        {"name": "42", "description": "Bulge = tan(included angle / 4) of an arc segment."},
+        {"name": "48", "description": "Entity linetype scale (CELTSCALE)."}
+      ],
+      "example": "(foreach e (list-of-circles)\n  (setq ed (entget e))\n  (entmod (subst (cons 40 5.0) (assoc 40 ed) ed)))",
+      "notes": "49 holds repeated values such as linetype dash lengths. Angles are in 50-58, in degrees in DXF files but radians in AutoLISP entget lists.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 62",
+      "kind": "format",
+      "description": "ACI color number of an entity (fixed meaning): 1-255 for index colors, 0 for BYBLOCK and 256 for BYLAYER; absent means BYLAYER. In LAYER records a negative value means the layer is off.",
+      "usage": " 62\n1",
+      "parameters": [
+        {"name": "0 / 256", "description": "BYBLOCK / BYLAYER."},
+        {"name": "420", "description": "True color as 24-bit integer 0x00RRGGBB, written in addition to 62."},
+        {"name": "430", "description": "Color-book color name."}
+      ],
+      "example": "; entities explicitly red (not ByLayer)\n(ssget \"_X\" '((62 . 1)))\n; true color 255,128,0 via entmod\n(entmod (append (entget e) (list (cons 420 (+ (* 255 65536) (* 128 256) 0)))))",
+      "notes": "An ssget filter on 62 does not find ByLayer entities whose layer is red; filter on the layer instead.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF common entity group codes (6/48/60/67/370/410/420/440)",
+      "kind": "format",
+      "description": "Group codes shared by all entities in the AcDbEntity subclass: 6 linetype name (absent = BYLAYER), 48 linetype scale, 60 visibility (1 = invisible), 67 paper-space flag, 410 layout name, 370 lineweight, 420 true color, 430 color name, 440 transparency, 347 material handle and 390 plot style handle, in addition to 5 handle, 8 layer and 62 color.",
+      "usage": "100\nAcDbEntity\n 67\n1\n410\nLayout1\n  8\n0\n  6\nHIDDEN\n370\n35\n440\n33554559",
+      "parameters": [
+        {"name": "370", "description": "Lineweight in 1/100 mm (e.g. 35 = 0.35 mm), -1 BYLAYER, -2 BYBLOCK, -3 DEFAULT."},
+        {"name": "440", "description": "Transparency: 0x02000000 flag plus alpha 0-255 (255 opaque)."},
+        {"name": "60", "description": "0 visible, 1 invisible."}
+      ],
+      "example": "(ssget \"_X\" '((410 . \"Model\") (370 . 50)))   ; model-space objects with 0.50 mm lineweight",
+      "notes": "Optional groups are written only when they differ from the default, so readers must apply defaults for missing codes.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3610039E-27D1-4E23-B6D3-7E60B22BB5BD"
+    },
+    {
+      "name": "DXF group codes 70-78",
+      "kind": "format",
+      "description": "16-bit integer values, mostly bit-coded flags, counters and mode selectors whose meaning depends on the entity or table: 70 LWPOLYLINE closed flag, POLYLINE type flags, LAYER state flags, DIMENSION type; 71-78 justification, attachment and counts (e.g. TEXT 72/73 justification, MTEXT 71 attachment point, HATCH 75-78 style and pattern data).",
+      "usage": " 70\n1",
+      "parameters": [
+        {"name": "70 (LWPOLYLINE)", "description": "1 closed, 128 linetype generation (PLINEGEN)."},
+        {"name": "70 (POLYLINE)", "description": "1 closed, 8 3D polyline, 16 3D mesh, 64 polyface mesh."},
+        {"name": "72/73 (TEXT)", "description": "Horizontal and vertical justification."}
+      ],
+      "example": "; closed lightweight polylines only (bit test with &)\n(ssget \"_X\" '((0 . \"LWPOLYLINE\") (-4 . \"&=\") (70 . 1)))",
+      "notes": "Use the bitwise relational operators & and &= in selection filters; a plain (70 . 1) misses closed polylines that also have PLINEGEN set (129).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 100",
+      "kind": "format",
+      "description": "Subclass data marker introduced with R13: a string naming the C++ class whose data follows (AcDbEntity, AcDbLine, AcDbText, AcDbPolyline...). Groups after a marker belong to that subclass, which disambiguates codes reused at different class levels.",
+      "usage": "100\nAcDbEntity\n  8\n0\n100\nAcDbCircle\n 10\n0.0\n...\n100\nAcDbArc\n 50\n0.0\n 51\n90.0",
+      "parameters": [
+        {"name": "value", "description": "Class name, e.g. AcDbBlockReference for INSERT."}
+      ],
+      "example": "; TEXT has two AcDbText markers; the second precedes 73 (vertical justification)\n(entmake '((0 . \"TEXT\") (100 . \"AcDbEntity\") (8 . \"0\") (100 . \"AcDbText\") (10 0 0 0) (40 . 2.5) (1 . \"A\") (100 . \"AcDbText\")))",
+      "notes": "R12 DXF has no subclass markers. entmake usually accepts lists without 100 groups for standard entities but some objects (e.g. custom or table objects) require them.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 210/220/230",
+      "kind": "format",
+      "description": "Extrusion direction (normal vector) of planar entities: X in 210, Y in 220, Z in 230, default (0,0,1). It defines the Object Coordinate System (OCS) in which the entity's 2D coordinates are expressed, via the arbitrary axis algorithm.",
+      "usage": "210\n0.0\n220\n0.0\n230\n-1.0",
+      "parameters": [
+        {"name": "(0,0,1)", "description": "Default; OCS equals WCS in X/Y."},
+        {"name": "(0,0,-1)", "description": "Common after MIRROR in 2D: OCS X axis is reversed."}
+      ],
+      "example": "(setq n (cdr (assoc 210 (entget e))))\n(if (equal n '(0.0 0.0 -1.0) 1e-9) (princ \"\\nMirrored OCS - transform coordinates!\"))",
+      "notes": "DXF importers that ignore 210 place mirrored arcs and circles in the wrong position (X negated). Apply the arbitrary axis algorithm or trans.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group code 330/360",
+      "kind": "format",
+      "description": "Pointer groups that link objects by handle: 330 is the soft-pointer to the owner (e.g. the BLOCK_RECORD of model space for entities, the dictionary for an object), 360 is a hard-owner handle (e.g. an entity's extension dictionary). Related: 340 hard pointer, 350 soft owner, and 102 control groups {ACAD_REACTORS and {ACAD_XDICTIONARY that enclose them.",
+      "usage": "102\n{ACAD_XDICTIONARY\n360\n2B1\n102\n}\n330\n1F",
+      "parameters": [
+        {"name": "330", "description": "Soft-pointer ID/handle to owner object."},
+        {"name": "340", "description": "Hard-pointer (e.g. text style or dimension style of an entity)."},
+        {"name": "350 / 360", "description": "Soft-owner and hard-owner handles, used by dictionaries."}
+      ],
+      "example": "; find an entity's extension dictionary in AutoLISP\n(cdr (assoc 360 (member '(102 . \"{ACAD_XDICTIONARY\") (entget e))))",
+      "notes": "In AutoLISP entget lists these pointers appear as entity names, not handles. Dangling pointers are fixed by AUDIT/RECOVER.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "DXF group codes 1000-1071 (extended data)",
+      "kind": "format",
+      "description": "Extended entity data (XData) groups appended after the -3 sentinel in AutoLISP (or at the end of the entity in DXF): 1001 registered application name starts each application's block, followed by 1000 strings, 1002 braces, 1003 layer name, 1004 binary, 1005 handle, 1010-1013 points/vectors, 1040-1042 reals/distances/scales and 1070/1071 integers.",
+      "usage": "(-3 (\"ACME\" (1000 . \"PUMP-07\") (1040 . 3.2) (1070 . 5)))",
+      "parameters": [
+        {"name": "1001", "description": "Application name, must be registered (regapp) first; max 31 characters."},
+        {"name": "1000", "description": "String up to 255 bytes."},
+        {"name": "1005", "description": "Handle that is translated when objects are copied between drawings."},
+        {"name": "1041 / 1042", "description": "Distance and scale factor that scale with the entity."}
+      ],
+      "example": "(regapp \"ACME\")\n(entmod (append (entget e) '((-3 (\"ACME\" (1000 . \"PUMP-07\") (1040 . 3.2))))))\n(entget e '(\"ACME\"))   ; read back",
+      "notes": "Total XData per entity is limited to about 16 KB. Select objects with XData of an application using the filter (-3 (\"ACME\")).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-3F0380A5-1C15-464D-BC66-2C5F094BCFB9"
+    },
+    {
+      "name": "LINE (DXF)",
+      "kind": "format",
+      "description": "DXF record of a line: subclass AcDbLine with start point 10/20/30 and end point 11/21/31 in WCS, optional thickness 39 and extrusion 210/220/230.",
+      "usage": "  0\nLINE\n  5\n2F\n330\n1F\n100\nAcDbEntity\n  8\n0\n100\nAcDbLine\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 11\n100.0\n 21\n0.0\n 31\n0.0",
+      "parameters": [
+        {"name": "10/20/30", "description": "Start point (WCS)."},
+        {"name": "11/21/31", "description": "End point (WCS)."}
+      ],
+      "example": "(entmake '((0 . \"LINE\") (8 . \"0\") (10 0.0 0.0 0.0) (11 100.0 0.0 0.0)))",
+      "notes": "Unlike most 2D entities, LINE coordinates are always WCS.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "CIRCLE (DXF)",
+      "kind": "format",
+      "description": "DXF record of a circle: subclass AcDbCircle with center 10/20/30 in OCS, radius 40, optional thickness 39 and extrusion 210/220/230.",
+      "usage": "  0\nCIRCLE\n100\nAcDbEntity\n  8\nHOLES\n100\nAcDbCircle\n 10\n50.0\n 20\n50.0\n 30\n0.0\n 40\n5.0",
+      "parameters": [
+        {"name": "10/20/30", "description": "Center in OCS."},
+        {"name": "40", "description": "Radius."}
+      ],
+      "example": "(entmake '((0 . \"CIRCLE\") (8 . \"HOLES\") (10 50.0 50.0 0.0) (40 . 5.0)))",
+      "notes": "Circles with a mirrored extrusion (0,0,-1) have a negated X in OCS.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "ARC (DXF)",
+      "kind": "format",
+      "description": "DXF record of an arc: the AcDbCircle data (center 10/20/30, radius 40) followed by subclass AcDbArc with start angle 50 and end angle 51 in degrees, measured counterclockwise in the OCS.",
+      "usage": "  0\nARC\n100\nAcDbEntity\n  8\n0\n100\nAcDbCircle\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 40\n20.0\n100\nAcDbArc\n 50\n0.0\n 51\n90.0",
+      "parameters": [
+        {"name": "50 / 51", "description": "Start and end angles in degrees (radians in AutoLISP entget)."}
+      ],
+      "example": "(entmake (list '(0 . \"ARC\") '(10 0.0 0.0 0.0) '(40 . 20.0) (cons 50 0.0) (cons 51 (/ pi 2))))  ; AutoLISP uses radians",
+      "notes": "The DXF file uses degrees while entget/entmake use radians - a classic conversion bug.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "LWPOLYLINE (DXF)",
+      "kind": "format",
+      "description": "DXF record of a lightweight polyline: subclass AcDbPolyline with vertex count 90, flag 70, constant width 43, elevation 38, and repeated per-vertex groups 10/20 (OCS X/Y), 40/41 start/end width and 42 bulge.",
+      "usage": "  0\nLWPOLYLINE\n100\nAcDbEntity\n  8\n0\n100\nAcDbPolyline\n 90\n3\n 70\n1\n 43\n0.0\n 10\n0.0\n 20\n0.0\n 10\n100.0\n 20\n0.0\n 42\n1.0\n 10\n100.0\n 20\n50.0",
+      "parameters": [
+        {"name": "90", "description": "Number of vertices."},
+        {"name": "70", "description": "1 closed, 128 plinegen."},
+        {"name": "10/20 + 40/41/42", "description": "Vertex coordinates and the following segment's widths and bulge (bulge belongs to the segment starting at that vertex)."}
+      ],
+      "example": "(entmake (list '(0 . \"LWPOLYLINE\") '(100 . \"AcDbEntity\") '(100 . \"AcDbPolyline\")\n              '(90 . 4) '(70 . 1)\n              '(10 0.0 0.0) '(10 100.0 0.0) '(10 100.0 50.0) '(10 0.0 50.0)))",
+      "notes": "entmake of LWPOLYLINE requires the 100 subclass markers. Coordinates are OCS; with the default extrusion the elevation 38 is the Z value.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-748FC305-F3F2-4F74-825A-61F04D757A50"
+    },
+    {
+      "name": "POLYLINE / VERTEX / SEQEND (DXF)",
+      "kind": "format",
+      "description": "The heavy (old-style) polyline used for 2D polylines with curve fitting, 3D polylines, polygon meshes and polyface meshes. A POLYLINE header entity is followed by one VERTEX entity per point and terminated by SEQEND.",
+      "usage": "  0\nPOLYLINE\n 66\n1\n 10\n0.0\n 20\n0.0\n 30\n0.0\n 70\n8\n  0\nVERTEX\n 10\n0.0\n 20\n0.0\n 30\n5.0\n 70\n32\n...\n  0\nSEQEND",
+      "parameters": [
+        {"name": "70 (POLYLINE)", "description": "1 closed, 2 curve-fit, 4 spline-fit, 8 3D polyline, 16 3D mesh, 32 mesh closed in N, 64 polyface mesh, 128 plinegen."},
+        {"name": "70 (VERTEX)", "description": "32 3D polyline vertex, 64 3D mesh vertex, 128 polyface vertex, 8/16 spline vertices."},
+        {"name": "71/72", "description": "Mesh M and N vertex counts; polyface vertex and face counts."}
+      ],
+      "example": "; iterate vertices of a POLYLINE in AutoLISP\n(setq v (entnext pl))\n(while (= (cdr (assoc 0 (entget v))) \"VERTEX\")\n  (print (cdr (assoc 10 (entget v))))\n  (setq v (entnext v)))",
+      "notes": "2D POLYLINEs are converted to LWPOLYLINE on load when PLINETYPE is 2, unless they are curve- or spline-fit.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "TEXT (DXF)",
+      "kind": "format",
+      "description": "DXF record of single-line text: first alignment point 10/20/30, height 40, string 1, rotation 50, width factor 41, oblique angle 51, style 7, generation flags 71, horizontal justification 72, second alignment point 11/21/31 and vertical justification 73 (after a second AcDbText marker).",
+      "usage": "  0\nTEXT\n100\nAcDbEntity\n  8\nA-ANNO\n100\nAcDbText\n 10\n10.0\n 20\n10.0\n 30\n0.0\n 40\n2.5\n  1\nROOM 1.07\n 72\n1\n 11\n20.0\n 21\n10.0\n 31\n0.0\n100\nAcDbText\n 73\n2",
+      "parameters": [
+        {"name": "72", "description": "0 left, 1 center, 2 right, 3 aligned, 4 middle, 5 fit."},
+        {"name": "73", "description": "0 baseline, 1 bottom, 2 middle, 3 top."},
+        {"name": "71", "description": "2 backward (mirrored in X), 4 upside down."}
+      ],
+      "example": "(entmake (list '(0 . \"TEXT\") '(8 . \"A-ANNO\") '(10 20.0 10.0 0.0) '(11 20.0 10.0 0.0)\n              '(40 . 2.5) '(1 . \"ROOM 1.07\") '(72 . 1) '(73 . 2)))  ; middle-center",
+      "notes": "When 72 or 73 is nonzero AutoCAD ignores the first alignment point and recomputes it from 11 and the text size, so writers should set 11 for justified text.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-62E5383D-8A14-47B4-BFC4-35824CAE8363"
+    },
+    {
+      "name": "MTEXT (DXF)",
+      "kind": "format",
+      "description": "DXF record of multiline text: insertion point 10/20/30, nominal height 40, reference rectangle width 41, attachment point 71, drawing direction 72, text in 1 (with 3 for chunks beyond 250 characters), style 7, X-axis direction 11/21/31 or rotation 50, line spacing 44/73 and background fill 90/63/45.",
+      "usage": "  0\nMTEXT\n100\nAcDbEntity\n  8\n0\n100\nAcDbMText\n 10\n0.0\n 20\n100.0\n 30\n0.0\n 40\n3.5\n 41\n120.0\n 71\n1\n  1\nGENERAL NOTES\\PAll dimensions in mm.",
+      "parameters": [
+        {"name": "71", "description": "Attachment: 1 top-left, 2 top-center, 3 top-right, 4-6 middle, 7-9 bottom."},
+        {"name": "1 / 3", "description": "Content with inline formatting codes; long text is split into 250-character 3 groups plus a final 1."},
+        {"name": "50", "description": "Rotation angle - note: in radians for MTEXT."}
+      ],
+      "example": "(entmake (list '(0 . \"MTEXT\") '(100 . \"AcDbEntity\") '(100 . \"AcDbMText\")\n              '(10 0.0 100.0 0.0) '(40 . 3.5) '(41 . 120.0) '(71 . 1)\n              '(1 . \"GENERAL NOTES\\\\PAll dimensions in mm.\")))",
+      "notes": "If both 11 (direction) and 50 are present, 11 wins. See the MTEXT formatting codes entry for the inline code syntax.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-5E5DB93B-F8D3-4433-ADF7-E92E250D2BAB"
+    },
+    {
+      "name": "HATCH (DXF)",
+      "kind": "format",
+      "description": "DXF record of a hatch: pattern name 2, solid-fill flag 70, associativity 71, number of boundary paths 91 and, per path, a path type 92 with either polyline data (72 has-bulge, 73 closed, 93 vertex count, 10/20/42) or edge data (93 edge count, 72 edge type and edge geometry), 97/330 source boundary handles; then style 75, pattern type 76, angle 52, scale 41, pattern definition lines 78..., seed points 98 and gradient codes 450+.",
+      "usage": "  0\nHATCH\n100\nAcDbHatch\n 10\n0.0\n 20\n0.0\n 30\n0.0\n210\n0.0\n220\n0.0\n230\n1.0\n  2\nANSI31\n 70\n0\n 71\n0\n 91\n1\n 92\n7\n 72\n0\n 73\n1\n 93\n4\n 10\n0.0\n 20\n0.0\n...\n 97\n0\n 75\n1\n 76\n1\n 52\n0.0\n 41\n1.0\n 77\n0\n 78\n1\n...\n 98\n0",
+      "parameters": [
+        {"name": "92", "description": "Path type bits: 1 external, 2 polyline, 4 derived, 8 textbox, 16 outermost."},
+        {"name": "72 (edge)", "description": "1 line, 2 circular arc, 3 elliptic arc, 4 spline."},
+        {"name": "75 / 76", "description": "Hatch style (0 normal, 1 outer, 2 ignore) and pattern type (0 user, 1 predefined, 2 custom)."}
+      ],
+      "example": "import ezdxf\ndoc = ezdxf.new(\"R2018\")\nmsp = doc.modelspace()\nh = msp.add_hatch(color=3)\nh.set_pattern_fill(\"ANSI31\", scale=2)\nh.paths.add_polyline_path([(0, 0), (100, 0), (100, 50), (0, 50)], is_closed=True)\ndoc.saveas(\"hatch.dxf\")",
+      "notes": "Writing HATCH by hand is error-prone because the pattern-definition lines (53, 43-46, 79, 49) must be included for pattern fills; libraries such as ezdxf generate them.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-C6C71CED-CE0F-4184-82A5-07AD6241F15B"
+    },
+    {
+      "name": "DIMENSION (DXF)",
+      "kind": "format",
+      "description": "DXF record of a dimension: 2 names the anonymous *D block holding the dimension graphics, 10/20/30 is the definition point, 11/21/31 the text midpoint, 70 the dimension type, 1 the text override, 3 the dimension style and 42 the actual measurement, followed by subclass data such as AcDbAlignedDimension (13/23/33, 14/24/34) or AcDbRotatedDimension (50 angle).",
+      "usage": "  0\nDIMENSION\n100\nAcDbDimension\n  2\n*D5\n 10\n...\n 11\n...\n 70\n33\n  1\n\n  3\nISO-25\n 42\n100.0\n100\nAcDbAlignedDimension\n 13\n...\n 14\n...",
+      "parameters": [
+        {"name": "70", "description": "0 rotated/horizontal/vertical, 1 aligned, 2 angular, 3 diameter, 4 radius, 5 angular 3-point, 6 ordinate; +32 block used only by this dimension, +64 ordinate X type, +128 user text position."},
+        {"name": "1", "description": "\"\" or \"<>\" shows the measurement; other text overrides it."}
+      ],
+      "example": "(setq ed (entget dim))\n(cdr (assoc 42 ed))   ; measured value\n(cdr (assoc 1 ed))    ; override text",
+      "notes": "Readers that do not evaluate dimension styles can simply draw the *D block to get the graphics.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-EDD54EAC-A339-4EBA-AEA6-EC8066505E2B"
+    },
+    {
+      "name": "SPLINE (DXF)",
+      "kind": "format",
+      "description": "DXF record of a NURBS spline: flags 70, degree 71, knot/control/fit point counts 72/73/74, tolerances 42/43/44, optional start/end tangents 12 and 13, knot values 40, optional weights 41, control points 10/20/30 and fit points 11/21/31.",
+      "usage": "  0\nSPLINE\n100\nAcDbSpline\n 70\n8\n 71\n3\n 72\n8\n 73\n4\n 74\n0\n 40\n0.0\n...\n 10\n0.0\n 20\n0.0\n 30\n0.0\n...",
+      "parameters": [
+        {"name": "70", "description": "1 closed, 2 periodic, 4 rational, 8 planar, 16 linear."},
+        {"name": "72 / 73", "description": "Number of knots = control points + degree + 1."}
+      ],
+      "example": "doc = ezdxf.readfile(\"curves.dxf\")\nfor sp in doc.modelspace().query(\"SPLINE\"):\n    print(sp.dxf.degree, len(sp.control_points), len(sp.fit_points))",
+      "notes": "Weights (41) appear only for rational splines. Some CAM tools need splines converted to polylines/arcs before import.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "DICTIONARY / XRECORD (DXF)",
+      "kind": "format",
+      "description": "Non-graphical objects in the OBJECTS section. A DICTIONARY lists entries as pairs of 3 (entry name) and 350/360 (handle of the owned object). An XRECORD stores application data in ordinary group codes (1-369, except 5 and 105) after its AcDbXrecord subclass marker and 280 cloning flag.",
+      "usage": "  0\nDICTIONARY\n  5\n2C0\n330\nC\n100\nAcDbDictionary\n281\n1\n  3\nSETTINGS\n350\n2C1\n  0\nXRECORD\n  5\n2C1\n330\n2C0\n100\nAcDbXrecord\n280\n1\n  1\nProject 2026-017\n 40\n50.0",
+      "parameters": [
+        {"name": "281", "description": "Duplicate record cloning flag."},
+        {"name": "3 / 350 / 360", "description": "Entry name and soft/hard owner handle."}
+      ],
+      "example": "(setq d (dictadd (namedobjdict) \"ACME\" (entmakex '((0 . \"DICTIONARY\") (100 . \"AcDbDictionary\")))))\n(dictadd d \"SETTINGS\" (entmakex '((0 . \"XRECORD\") (100 . \"AcDbXrecord\") (1 . \"Project 2026-017\") (40 . 50.0))))",
+      "notes": "XRECORDs preserve data through DXF round trips, unlike LISP LDATA which uses a custom VLO class.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "Minimal DXF file (R12 ENTITIES-only)",
+      "kind": "format",
+      "description": "The simplest DXF a program can write: an R12-style file containing only an ENTITIES section with LINE, CIRCLE, ARC, TEXT, POINT or POLYLINE records, terminated by EOF. AutoCAD and most CAD/CAM readers accept it, which makes it a convenient export format for scripts and machine tools.",
+      "usage": "  0\nSECTION\n  2\nENTITIES\n  0\nLINE\n  8\n0\n 10\n0\n 20\n0\n 11\n100\n 21\n50\n  0\nENDSEC\n  0\nEOF",
+      "parameters": [
+        {"name": "handles", "description": "May be omitted in R12 files (no 5 groups)."},
+        {"name": "layers", "description": "Referenced layers need not exist; AutoCAD creates them."}
+      ],
+      "example": "def write_min_dxf(path, lines):\n    out = [\"0\", \"SECTION\", \"2\", \"ENTITIES\"]\n    for (x1, y1), (x2, y2) in lines:\n        out += [\"0\", \"LINE\", \"8\", \"0\", \"10\", str(x1), \"20\", str(y1), \"11\", str(x2), \"21\", str(y2)]\n    out += [\"0\", \"ENDSEC\", \"0\", \"EOF\"]\n    open(path, \"w\", newline=\"\\r\\n\").write(\"\\n\".join(out) + \"\\n\")\nwrite_min_dxf(\"out.dxf\", [((0, 0), (100, 50))])",
+      "notes": "R13+ features (LWPOLYLINE, MTEXT, subclass markers) require a complete file with tables, handles and objects; use a library such as ezdxf for those.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=GUID-235B22E0-A567-4CF6-92D3-38A2306D73F3"
+    },
+    {
+      "name": "ezdxf",
+      "kind": "library",
+      "description": "Open-source (MIT) Python library for reading, creating and modifying DXF files from R12 up to R2018 (AC1032) without AutoCAD. It provides a high-level document/layout/entity API, an entity query language, bounding boxes and rendering add-ons, and an odafc add-on that converts DWG through the ODA File Converter.",
+      "usage": "pip install ezdxf\nimport ezdxf\ndoc = ezdxf.new(\"R2018\") | ezdxf.readfile(path)\nmsp = doc.modelspace(); msp.add_line(...); doc.saveas(path)",
+      "parameters": [
+        {"name": "ezdxf.new(dxfversion, setup=True)", "description": "New document; setup=True adds standard linetypes, text and dimension styles."},
+        {"name": "msp.query('LINE[layer==\"A-WALL\"]')", "description": "Entity query by type and attributes."},
+        {"name": "ezdxf.addons.odafc", "description": "readfile/export_dwg via the ODA File Converter executable."}
+      ],
+      "example": "import ezdxf\ndoc = ezdxf.new(\"R2018\", setup=True)\nmsp = doc.modelspace()\ndoc.layers.add(\"HOLES\", color=1)\nmsp.add_lwpolyline([(0, 0), (100, 0), (100, 50), (0, 50)], close=True)\nmsp.add_circle((50, 25), radius=5, dxfattribs={\"layer\": \"HOLES\"})\nmsp.add_text(\"PLATE 1\", height=3.5).set_placement((5, 55))\ndoc.saveas(\"plate.dxf\")",
+      "notes": "ezdxf does not read DWG directly; convert with the ODA File Converter or AutoCAD first. Custom/proxy objects are preserved but not interpreted.",
+      "docs": "https://ezdxf.readthedocs.io/"
+    },
+    {
+      "name": "ODA File Converter",
+      "kind": "tool",
+      "description": "Free Open Design Alliance utility that batch-converts DWG and DXF files between format versions (R12 to 2018) and between DWG, DXF and DXB, with optional auditing. Commonly used in pipelines that need DWG input without AutoCAD, e.g. before processing with ezdxf.",
+      "usage": "ODAFileConverter.exe \"<input folder>\" \"<output folder>\" <output version> <output type> <recurse 0|1> <audit 0|1> [\"<input filter>\"]",
+      "parameters": [
+        {"name": "output version", "description": "ACAD9, ACAD10, ACAD12, ACAD13, ACAD14, ACAD2000, ACAD2004, ACAD2007, ACAD2010, ACAD2013, ACAD2018."},
+        {"name": "output type", "description": "DWG, DXF or DXB."},
+        {"name": "input filter", "description": "Wildcard such as \"*.DWG\" (default all DWG and DXF)."}
+      ],
+      "example": "\"C:\\Program Files\\ODA\\ODAFileConverter\\ODAFileConverter.exe\" \"C:\\in\" \"C:\\out\" ACAD2018 DXF 0 1 \"*.DWG\"",
+      "notes": "Third-party tool, not an Autodesk product; check its licence terms for commercial use. Output fidelity is high for standard objects; custom vertical-product objects become proxies.",
+      "docs": "https://www.opendesign.com/guestfiles/oda_file_converter"
+    }
+  ]
+}

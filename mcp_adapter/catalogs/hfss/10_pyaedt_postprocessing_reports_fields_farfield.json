@@ -1,0 +1,472 @@
+{
+  "category": "PyAEDT: Reports, Solution Data, Field Plots, Far Fields & Data Export",
+  "description": "The hfss.post PostProcessor3D object and the classes it hands out: typed report builders by category, the Standard/FarField report objects with their traces, markers, limit lines and axis editing, SolutionData for numeric access and plotting, field plots on surfaces/volumes/cut planes/lines and their PyVista rendering, field-file exports, the Fields Calculator wrapper and expression builder, model pictures and mesh export, antenna far-field data (FfdSolutionData), monostatic RCS export and Touchstone post-processing.",
+  "tools": [
+    {
+      "name": "hfss.post.reports_by_category.standard / far_field / fields / near_field / antenna_parameters / modal_solution / terminal_solution / eigenmode / emission / spectral",
+      "kind": "api",
+      "description": "Typed report factories that return an unsaved report object of the right class for a category, with the category-specific properties exposed (far_field_sphere for far fields, polyline for fields, source context for antenna parameters). The object is configured through attributes - expressions, primary_sweep, variations, report_type, domain - and then create() adds it to AEDT; this is the more controllable alternative to the one-shot post.create_report.",
+      "usage": "rep = hfss.post.reports_by_category.standard(expressions=None, setup=None)\nrep = hfss.post.reports_by_category.far_field(expressions=None, setup=None, sphere_name=None, source_context=None)\nrep = hfss.post.reports_by_category.fields(expressions=None, setup=None, polyline=None)\nrep = hfss.post.reports_by_category.near_field(expressions=None, setup=None)\nrep = hfss.post.reports_by_category.antenna_parameters(expressions=None, setup=None, infinite_sphere=None)\nrep = hfss.post.reports_by_category.modal_solution(expressions=None, setup=None)\nrep = hfss.post.reports_by_category.terminal_solution(expressions=None, setup=None)\nrep = hfss.post.reports_by_category.eigenmode(expressions=None, setup=None)\nrep = hfss.post.reports_by_category.emission(expressions=None, setup=None)\nrep.create(name=None)",
+      "parameters": [
+        {"name": "expressions", "description": "String or list of report expressions for the category."},
+        {"name": "setup", "description": "\"Setup1 : Sweep1\" or \"Setup1 : LastAdaptive\" (hfss.nominal_sweep / nominal_adaptive)."},
+        {"name": "sphere_name / infinite_sphere", "description": "Infinite sphere used as context for far-field and antenna-parameter reports."},
+        {"name": "polyline", "description": "Polyline name giving the Fields report its distance sweep."},
+        {"name": "rep.report_type", "description": "Display type: \"Rectangular Plot\", \"Polar Plot\", \"3D Polar Plot\", \"Smith Chart\", \"Data Table\", \"Radiation Pattern\", \"Rectangular Contour Plot\", \"Rectangular Stacked Plot\"."}
+      ],
+      "example": "ff = hfss.post.reports_by_category.far_field(\"dB(RealizedGainTotal)\", hfss.nominal_adaptive, sphere_name=\"3D\")\nff.variations = {\"Freq\": [\"2.45GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"0deg\", \"90deg\"]}\nff.primary_sweep = \"Theta\"\nff.report_type = \"Radiation Pattern\"\nff.create(\"Gain cuts\")\n\nfld = hfss.post.reports_by_category.fields(\"Mag_E\", hfss.nominal_adaptive, polyline=\"Probe\")\nfld.variations = {\"Freq\": [\"2.45GHz\"], \"Phase\": [\"0deg\"], \"Distance\": [\"All\"]}\nfld.create(\"E along probe\")\n\nap = hfss.post.reports_by_category.antenna_parameters(\"PeakRealizedGain\", hfss.nominal_adaptive, infinite_sphere=\"3D\")\nap.report_type = \"Data Table\"\nap.create()",
+      "notes": "Available categories depend on the solution type (hfss.post.available_report_types). The report object's traces property lists the traces after creation; hfss.post.plots holds all report objects of the design.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/report.html"
+    },
+    {
+      "name": "Standard report object (expressions, primary_sweep, variations, domain, report_type, create, traces)",
+      "kind": "api",
+      "description": "The class behind every 2D/3D report created by PyAEDT (returned by post.create_report and the reports_by_category factories). Its properties mirror the Modify Report dialog - expressions, primary and secondary sweep, variations (families), domain (Sweep/Time), report_category, report_type, plot_name - and after create() it owns the traces, limit lines and notes in the plot. Reports are created in AEDT by name and can be re-fetched later from hfss.post.plots.",
+      "usage": "rep = hfss.post.reports_by_category.standard([\"dB(S(1,1))\", \"dB(S(2,1))\"], hfss.nominal_sweep)\nrep.expressions / rep.primary_sweep / rep.secondary_sweep / rep.variations / rep.domain\nrep.report_category / rep.report_type / rep.plot_name / rep.setup\nrep.create(name=None)\nrep.traces / rep.limit_lines / rep.notes / rep.internal_plot_name\nrep.get_solution_data()\nrep.update_expressions_with_defaults(quantities_category=None)\nrep.delete()",
+      "parameters": [
+        {"name": "expressions", "description": "List of Y expressions; each becomes a trace."},
+        {"name": "primary_sweep / secondary_sweep", "description": "X axis variable (\"Freq\", \"Time\", \"Theta\", \"Phi\", \"Distance\" or a design variable) and the second axis for 3D/contour plots."},
+        {"name": "variations", "description": "Dict {variable: [values]} - \"All\" or explicit values; a variable with several values produces a family of traces."},
+        {"name": "domain", "description": "\"Sweep\" (frequency) or \"Time\"."},
+        {"name": "update_expressions_with_defaults", "description": "Fill expressions with all quantities of a category (e.g. every S-parameter)."}
+      ],
+      "example": "rep = hfss.post.reports_by_category.standard([\"dB(S(1,1))\", \"dB(S(2,1))\"], hfss.nominal_sweep)\nrep.variations = {\"Freq\": [\"All\"], \"patch_l\": [\"27mm\", \"29mm\", \"31mm\"]}\nrep.primary_sweep = \"Freq\"\nrep.report_type = \"Rectangular Plot\"\nrep.create(\"S vs length\")\nprint(rep.traces)\ndata = rep.get_solution_data()\nprint(data.primary_sweep_values[:5])\n\n# 3D contour: S11 versus frequency and patch length\nrep2 = hfss.post.reports_by_category.standard(\"dB(S(1,1))\", hfss.nominal_sweep)\nrep2.variations = {\"Freq\": [\"All\"], \"patch_l\": [\"All\"]}\nrep2.primary_sweep = \"Freq\"; rep2.secondary_sweep = \"patch_l\"\nrep2.report_type = \"Rectangular Contour Plot\"\nrep2.create(\"S11 map\")",
+      "notes": "Native: oModule(\"ReportSetup\").CreateReport(name, \"Modal Solution Data\", \"Rectangular Plot\", \"Setup1 : Sweep1\", [\"Domain:=\", \"Sweep\"], [\"Freq:=\", [\"All\"], \"patch_l:=\", [\"27mm\", \"29mm\"]], [\"X Component:=\", \"Freq\", \"Y Component:=\", [\"dB(S(1,1))\"]]). Report names must be unique in the design; create() renames on clash.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.report.standard.Standard.html"
+    },
+    {
+      "name": "report.add_trace_to_report / update_trace_in_report / delete_traces / import_traces",
+      "kind": "api",
+      "description": "Trace management on an existing report: append expressions as new traces (optionally with their own setup, variations and sweep), update existing traces with new settings, delete traces by name, and import traces from a CSV/TAB/DAT file (measured data overlaid on simulation). These replace the right-click > Add Trace / Modify Report / Import workflow.",
+      "usage": "rep.add_trace_to_report(traces, setup_name=None, variations=None, context=None)\nrep.update_trace_in_report(traces, setup_name=None, variations=None, context=None)\nrep.delete_traces(plot_name, traces_list)\nrep.import_traces(input_file, plot_name)\nrep.add_trace_characteristics(name, arguments=None, solution_range=None)",
+      "parameters": [
+        {"name": "traces", "description": "Expression or list of expressions."},
+        {"name": "setup_name / variations / context", "description": "Override the report's defaults for the added traces."},
+        {"name": "traces_list", "description": "Trace names as shown in rep.traces (expression plus variation suffix)."},
+        {"name": "input_file", "description": ".csv, .tab or .dat with a header line naming the columns."},
+        {"name": "add_trace_characteristics", "description": "Add a trace characteristic (e.g. \"XAtYVal\", \"max\", \"BandwidthAtYVal\") with its arguments to the plot's characteristics table."}
+      ],
+      "example": "rep = hfss.post.create_report(\"dB(S(1,1))\")\nrep.add_trace_to_report(\"dB(S(2,1))\")\nrep.import_traces(\"C:/meas/vna_s11.csv\", rep.plot_name)\nrep.add_trace_characteristics(\"XAtYVal\", arguments=[\"-10\"], solution_range=[\"Full\"])\nrep.delete_traces(rep.plot_name, [rep.traces[-1]])",
+      "notes": "Native: oModule.AddTraces(report, solution, context, families, data), oModule.UpdateTraces, oModule.DeleteTraces([report], [traces]), oModule.ImportIntoReport(report, file). Imported traces carry no variations and cannot be re-solved.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.report.standard.Standard.html"
+    },
+    {
+      "name": "report.add_limit_line_from_points / add_limit_line_from_equation / add_cartesian_x_marker / add_cartesian_y_marker / add_note",
+      "kind": "api",
+      "description": "Annotations on a 2D report: limit lines from x/y point lists or from an equation over a range (specification masks for return loss, isolation, emissions), Cartesian markers at fixed X or Y values, and text notes at a position. Combined with export_report_to_jpg they produce spec-check figures for reports directly from the script.",
+      "usage": "rep.add_limit_line_from_points(x_list, y_list, x_units=\"\", y_units=\"\", y_axis=\"Y1\")\nrep.add_limit_line_from_equation(start_x, stop_x, step, equation=\"x\", units=\"GHz\", y_axis=1)\nrep.add_cartesian_x_marker(value, name=None)\nrep.add_cartesian_y_marker(value, name=None, y_axis=1)\nrep.add_note(text, x_position=2000, y_position=2000)\nrep.limit_lines / rep.notes",
+      "parameters": [
+        {"name": "x_list / y_list", "description": "Point coordinates of the mask; units strings apply to both lists."},
+        {"name": "equation / start_x / stop_x / step", "description": "Expression in x evaluated over the range."},
+        {"name": "value", "description": "Marker position with units, e.g. \"2.45GHz\" or \"-10\"."},
+        {"name": "x_position / y_position", "description": "Note anchor in plot pixel units."}
+      ],
+      "example": "rep = hfss.post.create_report(\"dB(S(1,1))\")\nrep.add_limit_line_from_points([2.4, 2.4, 2.5, 2.5], [0, -10, -10, 0], x_units=\"GHz\", y_units=\"dB\")\nrep.add_cartesian_x_marker(\"2.45GHz\", name=\"f0\")\nrep.add_cartesian_y_marker(\"-10\", name=\"spec\")\nrep.add_note(\"Return loss spec: -10 dB over 2.4-2.5 GHz\", x_position=1500, y_position=3000)\nhfss.post.export_report_to_jpg(hfss.working_directory, rep.plot_name)",
+      "notes": "Limit lines are static (they do not follow variations) and are stored with the report. Native: oModule.AddCartesianLimitLine(...), AddCartesianXMarker, AddCartesianYMarker, AddNote through ChangeProperty of the report.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.report.standard.Standard.html"
+    },
+    {
+      "name": "report.edit_x_axis / edit_y_axis / edit_x_axis_scaling / edit_y_axis_scaling / edit_grid / edit_legend / edit_general_settings / edit_header / hide_legend",
+      "kind": "api",
+      "description": "Formatting of a 2D report from Python: axis fonts, labels and colours, axis scaling (linear/log, min/max, auto), grid style, legend content and position, general appearance (background, plot area colours), the header/title block and legend visibility. They wrap the report's ChangeProperty calls so plots exported for documentation look consistent without touching the GUI.",
+      "usage": "rep.edit_x_axis(font=\"Arial\", font_size=12, italic=False, bold=False, color=(0, 0, 0), label=\"\")\nrep.edit_y_axis(name=\"Y1\", font=\"Arial\", font_size=12, italic=False, bold=False, color=(0, 0, 0), label=\"\")\nrep.edit_x_axis_scaling(linear_scaling=True, min_scale=None, max_scale=None, minor_tick_divs=5, min_spacing=None, units=None)\nrep.edit_y_axis_scaling(name=\"Y1\", linear_scaling=True, min_scale=None, max_scale=None, minor_tick_divs=5, min_spacing=None, units=None)\nrep.edit_grid(minor_x=True, minor_y=True, major_x=True, major_y=True, style_minor=\"Solid\", style_major=\"Solid\", minor_color=(0,0,0), major_color=(0,0,0))\nrep.edit_legend(show_solution_name=True, show_variation_key=True, show_trace_name=True, back_color=(255,255,255), font=\"Arial\", font_size=9, ...)\nrep.edit_general_settings(background_color=(255,255,255), plot_color=(255,255,255), enable_y_stripes=True, field_width=4, precision=4, use_scientific_notation=True)\nrep.edit_header(company_name=\"\", show_design_name=True, font=\"Arial\", title_size=12, subtitle_size=12, ...)\nrep.hide_legend(solution_name=True, trace_name=True, variation_key=True, font_height=100)",
+      "parameters": [
+        {"name": "min_scale / max_scale / units", "description": "Fixed axis range and units (e.g. \"GHz\"); None keeps auto scaling."},
+        {"name": "linear_scaling", "description": "False switches the axis to logarithmic."},
+        {"name": "label", "description": "Axis label text; empty keeps the automatic label."},
+        {"name": "name (Y axis)", "description": "\"Y1\", \"Y2\"... for stacked/secondary axes."}
+      ],
+      "example": "rep = hfss.post.create_report([\"dB(S(1,1))\", \"dB(S(2,1))\"])\nrep.edit_x_axis_scaling(min_scale=\"1GHz\", max_scale=\"6GHz\", units=\"GHz\")\nrep.edit_y_axis_scaling(min_scale=\"-40\", max_scale=\"0\")\nrep.edit_x_axis(font_size=14, label=\"Frequency\")\nrep.edit_y_axis(font_size=14, label=\"S-parameters (dB)\")\nrep.edit_grid(minor_x=False, minor_y=False)\nrep.edit_legend(show_solution_name=False, show_variation_key=False)\nrep.edit_header(company_name=\"RF Lab\", show_design_name=True)",
+      "notes": "All of these map to oModule(\"ReportSetup\").ChangeProperty([\"NAME:AllTabs\", [\"NAME:Axis\" / \"Legend\" / \"General\" / \"Header\" ..., [\"NAME:PropServers\", \"<plot>:AxisX\"], [\"NAME:ChangedProps\", ...]]]). Default report appearance for new plots is set in Tools > Options > Report2D options.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.report.standard.Standard.html"
+    },
+    {
+      "name": "report.export_config / hfss.post.create_report_from_configuration / report.apply_report_template",
+      "kind": "api",
+      "description": "Report templates in PyAEDT form: export_config writes a report's full definition (expressions, context, variations, formatting, limit lines) to a JSON file, create_report_from_configuration rebuilds a report from such a JSON/TOML, from an AEDT .rpt template or from a dictionary against any solution, and apply_report_template applies an .rpt template file to an existing report. This is how a standard set of plots is reproduced on every design of a project family.",
+      "usage": "rep.export_config(output_file)\nrep = hfss.post.create_report_from_configuration(input_file=None, report_settings=None, solution_name=None, name=None,\n                                                 matplotlib=False, show=True, hide_legend=False, snapshot_path=None, width=800, height=450)\nrep.apply_report_template(input_file, property_type=\"Graphical\")",
+      "parameters": [
+        {"name": "output_file / input_file", "description": ".json or .toml (PyAEDT format) or .rpt (AEDT template exported with Save As Report Template)."},
+        {"name": "report_settings", "description": "Dictionary with the same structure as the JSON (read_json / read_toml helpers)."},
+        {"name": "solution_name", "description": "\"Setup1 : Sweep1\" to apply the template to; None keeps the one in the file."},
+        {"name": "matplotlib / snapshot_path", "description": "Render with the PyAEDT ReportPlotter instead of AEDT and/or save an image."},
+        {"name": "property_type", "description": "\"Graphical\", \"Data\" or \"All\" - which parts of the .rpt template to apply."}
+      ],
+      "example": "rep = hfss.post.create_report([\"dB(S(1,1))\", \"dB(S(2,1))\"])\nrep.edit_y_axis_scaling(min_scale=\"-40\", max_scale=\"0\")\nrep.export_config(\"C:/templates/sparam_report.json\")\n\nother = Hfss(project=\"C:/work/filter_v2.aedt\")\nother.post.create_report_from_configuration(\"C:/templates/sparam_report.json\", solution_name=\"Setup1 : Sweep1\")\nother.post.create_report_from_configuration(\"C:/templates/aedt_template.rpt\")",
+      "notes": "Native: oModule.CreateReportFromTemplate(path) and SaveReportAsTemplate(report, path) for .rpt files; the JSON path is PyAEDT-only. The PyAEDT 'Generate Report' extension uses these JSON files to build PDF reports.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.create_report_from_configuration.html"
+    },
+    {
+      "name": "FarField report object (far_field_sphere, source_context, primary_sweep_range, display_families_type)",
+      "kind": "api",
+      "description": "The report class for the Far Fields category returned by reports_by_category.far_field. Besides the Standard properties it carries the infinite-sphere context (far_field_sphere), the array/source context for component arrays, primary and secondary sweep ranges (to restrict Theta/Phi without listing values) and the families display type. Radiation Pattern (polar) and 3D Polar plot types are selected through report_type.",
+      "usage": "ff = hfss.post.reports_by_category.far_field(\"dB(GainTotal)\", hfss.nominal_adaptive, sphere_name=\"3D\")\nff.far_field_sphere = \"3D\"\nff.primary_sweep = \"Theta\"; ff.secondary_sweep = \"Phi\"\nff.primary_sweep_range = [\"-180deg\", \"180deg\"]\nff.variations = {\"Freq\": [\"2.45GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"All\"]}\nff.report_type = \"3D Polar Plot\"      # or \"Radiation Pattern\", \"Rectangular Plot\", \"Data Table\"\nff.create(\"Gain3D\")",
+      "parameters": [
+        {"name": "far_field_sphere", "description": "Name of the infinite sphere setup that defines the angular grid and coordinate system."},
+        {"name": "source_context / source_group", "description": "For component arrays: which array/source context the pattern is computed for."},
+        {"name": "primary_sweep_range / secondary_sweep_range", "description": "[start, stop] limits for the angular sweeps."},
+        {"name": "display_families_type", "description": "How families are displayed for reports with X and Y components."}
+      ],
+      "example": "ff = hfss.post.reports_by_category.far_field([\"dB(GainTheta)\", \"dB(GainPhi)\"], hfss.nominal_adaptive, sphere_name=\"3D\")\nff.variations = {\"Freq\": [\"10GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"0deg\", \"90deg\"]}\nff.primary_sweep = \"Theta\"\nff.report_type = \"Radiation Pattern\"\nff.create(\"E and H plane cuts\")\nhfss.post.export_report_to_csv(hfss.working_directory, \"E and H plane cuts\")",
+      "notes": "Native context array for far fields: [\"Context:=\", \"3D\"] plus [\"Domain:=\", \"Sweep\"]; for arrays [\"Context:=\", \"3D\", \"SourceContext:=\", ...]. Far-field quantities include GainTotal/Theta/Phi/LHCP/RHCP/X/Y/L3X/L3Y, RealizedGain*, DirTotal*, rE*, AxialRatio, Polarization ratios and RCS quantities.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.report.field.FarField.html"
+    },
+    {
+      "name": "SolutionData (expressions, primary_sweep_values, variations, active_variation, set_active_variation, intrinsics)",
+      "kind": "api",
+      "description": "The container returned by post.get_solution_data, setup.get_solution_data and report.get_solution_data: all traces of a report as arrays indexed by the primary sweep, for every variation solved. active_variation selects which variation the accessors return, primary_sweep_values gives the x axis, expressions the trace names, and the full_matrix_* properties expose everything at once (as pandas DataFrames when settings.enable_pandas_output is True).",
+      "usage": "data = hfss.post.get_solution_data(expressions=[\"S(1,1)\", \"dB(S(2,1))\"], setup_sweep_name=hfss.nominal_sweep)\ndata.expressions                # ['S(1,1)', 'dB(S(2,1))']\ndata.primary_sweep              # 'Freq'\ndata.primary_sweep_values       # list of floats\ndata.variations                 # list of variation dicts\ndata.active_variation           # current selection\ndata.set_active_variation(var_id=0)\ndata.intrinsics / data.intrinsics_by_variation(variation) / data.variation_values(variation)\ndata.nominal_variation\ndata.full_matrix_real_imag / data.full_matrix_mag_phase\ndata.is_real_only(expression=None)\ndata.units_sweeps / data.units_data (unit dictionaries)",
+      "parameters": [
+        {"name": "set_active_variation(var_id)", "description": "Index into data.variations; subsequent get_expression_data/plot calls use it."},
+        {"name": "full_matrix_real_imag", "description": "Tuple (real, imag) of nested dicts/DataFrames covering all expressions and variations."},
+        {"name": "is_real_only", "description": "True when the expression has no imaginary part (e.g. dB values)."}
+      ],
+      "example": "data = hfss.post.get_solution_data(\"S(1,1)\", hfss.nominal_sweep, variations={\"Freq\": [\"All\"], \"patch_l\": [\"All\"]})\nprint(data.expressions, data.primary_sweep, len(data.primary_sweep_values))\nfor i, var in enumerate(data.variations):\n    data.set_active_variation(i)\n    mag = data.get_expression_data(\"S(1,1)\", formula=\"mag\")\n    print(var, min(mag[1]))",
+      "notes": "Native: oModule(\"ReportSetup\").GetSolutionDataPerVariation(reportType, solution, context, families, expressions) returning ISolutionDataResult objects with GetSweepValues/GetRealDataValues/GetImagDataValues. Older PyAEDT exposed data_real()/data_imag()/data_magnitude()/data_db20()/data_phase(); current releases use get_expression_data with a formula.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.solution_data.SolutionData.html"
+    },
+    {
+      "name": "SolutionData.get_expression_data / SolutionData.plot / plot_3d / export_data_to_csv",
+      "kind": "api",
+      "description": "Numeric and graphical access to a SolutionData: get_expression_data returns (x, y) lists for an expression after applying a formula (re, im, mag, db10, db20, phasedeg, phaserad, abs) for the active variation; plot draws one or more curves with matplotlib through the ReportPlotter (Cartesian or polar, with labels and an optional snapshot); plot_3d makes a 3D surface over primary and secondary sweeps; export_data_to_csv writes all data to CSV.",
+      "usage": "x, y = data.get_expression_data(expression=None, formula=None, convert_to_SI=False)\nplotter = data.plot(curves=None, formula=None, size=(1920, 1440), show_legend=True, x_label=\"\", y_label=\"\", title=\"\",\n                    snapshot_path=None, is_polar=False, show=True)\nplotter = data.plot_3d(curve=None, primary_sweep=\"Theta\", secondary_sweep=\"Phi\", x_axis=\"Theta\", y_axis=\"Phi\", formula=None, ...)\ndata.export_data_to_csv(output, delimiter=\";\")\nplotter = data.get_report_plotter(curves=None, formula=None, to_radians=False)",
+      "parameters": [
+        {"name": "expression", "description": "Trace name; None uses the first expression."},
+        {"name": "formula", "description": "\"re\", \"im\", \"mag\"/\"abs\", \"db10\", \"db20\", \"phasedeg\", \"phaserad\"; None returns the real part."},
+        {"name": "curves", "description": "Expression(s) to plot; None plots the first."},
+        {"name": "snapshot_path", "description": "Save the matplotlib figure to this image path."},
+        {"name": "is_polar", "description": "Polar axes for pattern cuts (primary sweep in degrees)."}
+      ],
+      "example": "data = hfss.post.get_solution_data(\"GainTotal\", hfss.nominal_adaptive, report_category=\"Far Fields\", context=\"3D\",\n                                   primary_sweep_variable=\"Theta\",\n                                   variations={\"Freq\": [\"2.45GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"0deg\"]})\ntheta, gain_db = data.get_expression_data(\"GainTotal\", formula=\"db10\")\nprint(max(gain_db))\ndata.plot(formula=\"db10\", is_polar=True, snapshot_path=\"C:/work/gain_cut.png\", show=False)\ndata.export_data_to_csv(\"C:/work/gain_cut.csv\", delimiter=\",\")\n\ns = hfss.post.get_solution_data(\"S(1,1)\")\nf, s11_db = s.get_expression_data(\"S(1,1)\", formula=\"db20\")",
+      "notes": "Formulas are applied by PyAEDT on the complex data, so request the raw quantity (\"S(1,1)\") rather than \"dB(S(1,1))\" when several representations are needed. Plotting needs the [graphics]/[all] extras (matplotlib).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.solution_data.SolutionData.plot.html"
+    },
+    {
+      "name": "SolutionData.ifft / ifft_to_file",
+      "kind": "api",
+      "description": "Inverse FFT of complex frequency-domain data along the primary sweep, turning a swept field or S-parameter into a time-domain response on the Python side: ifft returns the time series matrix, ifft_to_file writes one CSV per time step of a 2D field grid. It underpins time-gating, quick TDR-like views of a frequency sweep and animated time-domain field movies from a frequency-domain solve.",
+      "usage": "t, y = data.ifft(curve_header=\"NearE\", u_axis=\"_u\", v_axis=\"_v\", window=False)\nfolder = data.ifft_to_file(u_axis=\"_u\", v_axis=\"_v\", coord_system_center=None, db_val=False, num_frames=None, csv_path=None, name=\"res\")",
+      "parameters": [
+        {"name": "curve_header", "description": "Prefix of the expression columns to transform (e.g. \"NearE\" for NearEx/NearEy/NearEz)."},
+        {"name": "u_axis / v_axis", "description": "Sweep variables that span the 2D grid (near-field rectangle U/V)."},
+        {"name": "window", "description": "Apply a window before the transform."},
+        {"name": "num_frames / db_val", "description": "Number of time frames to export and whether to write dB values."}
+      ],
+      "example": "nf = hfss.post.get_solution_data([\"NearEx\", \"NearEy\", \"NearEz\"], hfss.nominal_sweep, report_category=\"Near Fields\",\n                                 context=\"NF_plane\", primary_sweep_variable=\"Freq\",\n                                 variations={\"Freq\": [\"All\"], \"_u\": [\"All\"], \"_v\": [\"All\"]})\nfolder = nf.ifft_to_file(u_axis=\"_u\", v_axis=\"_v\", num_frames=50, csv_path=hfss.working_directory, name=\"pulse\")\nhfss.post.plot_scene(frames=folder, output_gif_path=\"C:/work/pulse.gif\", norm_index=0)",
+      "notes": "Requires a broadband sweep with enough points for the desired time window (dt = 1/BW, T = 1/df). The native Transient solver is the alternative when nonlinear or dispersive effects must be captured in time.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.solution_data.SolutionData.html"
+    },
+    {
+      "name": "hfss.post.get_solution_data_per_variation",
+      "kind": "api",
+      "description": "Low-level fetch that mirrors the native GetSolutionDataPerVariation call: a report category, a solution, a context list and a sweeps dictionary with the expressions to retrieve, returned as SolutionData. It is used when the higher-level get_solution_data guesses the wrong context or category (custom contexts for arrays, matrices, differential pairs, polylines).",
+      "usage": "data = hfss.post.get_solution_data_per_variation(solution_type=\"Far Fields\", setup_sweep_name=\"\", context=None, sweeps=None, expressions=\"\")",
+      "parameters": [
+        {"name": "solution_type", "description": "Report category string: \"Modal Solution Data\", \"Terminal Solution Data\", \"Far Fields\", \"Fields\", \"Near Fields\", \"Eigenmode Parameters\", \"Antenna Parameters\", \"Emission Test\"."},
+        {"name": "setup_sweep_name", "description": "\"Setup1 : Sweep1\"; empty uses the nominal adaptive solution."},
+        {"name": "context", "description": "Native context array such as [\"Context:=\", \"3D\"] or [\"Domain:=\", \"Sweep\"]."},
+        {"name": "sweeps", "description": "Families dict, default {\"Theta\": \"All\", \"Phi\": \"All\", \"Freq\": \"All\"}."},
+        {"name": "expressions", "description": "Trace expression(s)."}
+      ],
+      "example": "d = hfss.post.get_solution_data_per_variation(\"Far Fields\", hfss.nominal_adaptive, context=[\"Context:=\", \"3D\"],\n                                                sweeps={\"Freq\": [\"2.45GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"0deg\"]},\n                                                expressions=[\"GainTotal\", \"AxialRatioValue\"])\nprint(d.expressions, len(d.primary_sweep_values))",
+      "notes": "Native: oModule(\"ReportSetup\").GetSolutionDataPerVariation(\"Far Fields\", \"Setup1 : LastAdaptive\", [\"Context:=\", \"3D\"], [\"Freq:=\", [\"2.45GHz\"], \"Theta:=\", [\"All\"], \"Phi:=\", [\"0deg\"]], [\"GainTotal\"]). The returned native objects must be released (ReleaseData) - PyAEDT does it for you.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.get_solution_data_per_variation.html"
+    },
+    {
+      "name": "hfss.post.available_report_types / available_report_quantities / available_quantities_categories / available_display_types / available_report_solutions / get_all_report_quantities",
+      "kind": "api",
+      "description": "Discovery of what can be plotted: the report categories valid for the design (available_report_types), the quantity categories inside a report category (S Parameter, Y Parameter, Gain, Directivity, ...), every expression of a quantity category with an optional context (available_report_quantities), the display types allowed for a category, the solutions that can feed reports, and a full tree of everything (get_all_report_quantities). Scripts use them to build reports without hard-coding names that depend on solution type and port naming.",
+      "usage": "hfss.post.available_report_types\nhfss.post.available_quantities_categories(report_category=None, display_type=None, solution=None, context=None, is_siwave_dc=False)\nhfss.post.available_report_quantities(report_category=None, display_type=None, solution=None, quantities_category=None, context=None,\n                                      is_siwave_dc=False, differential_pairs=False)\nhfss.post.available_display_types(report_category=None)\nhfss.post.available_report_solutions(report_category=None)\nhfss.post.get_all_report_quantities(solution=None, context=None, is_siwave_dc=False)",
+      "parameters": [
+        {"name": "report_category", "description": "e.g. \"Modal Solution Data\", \"Far Fields\", \"Antenna Parameters\", \"Fields\"."},
+        {"name": "quantities_category", "description": "Sub-category such as \"S Parameter\", \"Gain\", \"Antenna Params\"."},
+        {"name": "context", "description": "Infinite sphere name for far fields, matrix or differential pair context otherwise."},
+        {"name": "differential_pairs", "description": "Return mixed-mode quantities (Terminal designs with differential pairs)."}
+      ],
+      "example": "print(hfss.post.available_report_types)\nprint(hfss.post.available_quantities_categories(\"Far Fields\", context=\"3D\"))\ngains = hfss.post.available_report_quantities(\"Far Fields\", quantities_category=\"Gain\", context=\"3D\")\nprint(gains)\nhfss.post.create_report([g for g in gains if g.startswith(\"GainTotal\")], hfss.nominal_adaptive,\n                        report_category=\"Far Fields\", context=\"3D\", primary_sweep_variable=\"Theta\")\nprint(hfss.post.available_display_types(\"Far Fields\"))",
+      "notes": "Native: oModule(\"ReportSetup\").GetAllCategories(reportType, displayType, solution, context), GetAllQuantities(reportType, displayType, solution, context, category), GetAvailableReportTypes(), GetAvailableDisplayTypes(reportType), GetAvailableSolutions(reportType).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.available_report_quantities.html"
+    },
+    {
+      "name": "hfss.post.export_report_to_jpg / export_report_to_file / delete_report / rename_report / all_report_names / copy_report_data / paste_report_data",
+      "kind": "api",
+      "description": "Report file operations and housekeeping: export a plot image (jpg/png) at a given size, export its data with a chosen extension and unit specification, delete one or all reports, rename a plot, list all report names, and copy/paste the data of reports as static traces (freeze a solved curve before re-solving, for comparisons). export_report_to_csv is the CSV special case of export_report_to_file.",
+      "usage": "hfss.post.export_report_to_jpg(project_path, plot_name, width=800, height=450, image_format=\"jpg\")\nhfss.post.export_report_to_file(output_dir, plot_name, extension, unique_file=False, uniform=False, start=None, end=None, step=None, use_trace_number_format=False)\nhfss.post.export_report_to_csv(project_dir, plot_name, uniform=False, start=None, end=None, step=None, use_trace_number_format=False)\nhfss.post.delete_report(plot_name=None)\nhfss.post.rename_report(plot_name, new_name)\nhfss.post.all_report_names\nhfss.post.copy_report_data(plot_name=None, paste=True)\nhfss.post.paste_report_data()",
+      "parameters": [
+        {"name": "plot_name", "description": "Report name as in the project tree (delete_report(None) deletes all)."},
+        {"name": "extension", "description": "\".csv\", \".tab\", \".txt\", \".dat\", \".rdat\" (report data), \".m\" (MATLAB)."},
+        {"name": "uniform / start / end / step", "description": "Resample the traces on a uniform grid before export."},
+        {"name": "width / height", "description": "Image size in pixels (0 = current window size)."}
+      ],
+      "example": "rep = hfss.post.create_report(\"dB(S(1,1))\", plot_name=\"S11\")\nhfss.post.export_report_to_jpg(hfss.working_directory, \"S11\", width=1600, height=900, image_format=\"png\")\nhfss.post.export_report_to_file(hfss.working_directory, \"S11\", \".csv\", uniform=True, start=\"1GHz\", end=\"3GHz\", step=\"10MHz\")\nhfss.post.copy_report_data(\"S11\")          # freeze as static data\nhfss.post.rename_report(\"S11\", \"S11_baseline\")\nprint(hfss.post.all_report_names)",
+      "notes": "Native: oModule(\"ReportSetup\").ExportImageToFile(report, file, width, height), ExportToFile(report, file, overwrite, unitSpec, useTraceNumberFormat), ExportUniformPointsToFile(...), DeleteReports([..]), DeleteAllReports(), RenameReport(old, new), GetAllReportNames(), CopyReportsData([..]), PasteReports(). Image export in -ng sessions works from 2022 R2 on.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.export_report_to_jpg.html"
+    },
+    {
+      "name": "hfss.post.create_fieldplot_cutplane / create_fieldplot_line (and surface / volume)",
+      "kind": "api",
+      "description": "Create field overlay plots in AEDT (Plot Fields) on cut planes, along polylines, on object surfaces or in volumes, for any field quantity (Mag_E, Vector_E, ComplexMag_E, Mag_H, Vector_Jsurf, Mag_Jvol, Poynting, Local_SAR, Average_SAR, Mag_RealPoynting, named calculator expressions) at the given intrinsics (frequency, phase, time). The returned FieldPlot object can be modified, exported as an image or as raw data.",
+      "usage": "plot = hfss.post.create_fieldplot_cutplane(assignment, quantity, setup=None, intrinsics=None, plot_name=None, filter_objects=None, field_type=\"DC R/L Fields\")\nplot = hfss.post.create_fieldplot_line(assignment, quantity, setup=None, intrinsics=None, plot_name=None, field_type=\"DC R/L Fields\")\nplot = hfss.post.create_fieldplot_surface(assignment, quantity, setup=None, intrinsics=None, plot_name=None, field_type=\"DC R/L Fields\")\nplot = hfss.post.create_fieldplot_volume(assignment, quantity, setup=None, intrinsics=None, plot_name=None, field_type=\"DC R/L Fields\")",
+      "parameters": [
+        {"name": "assignment", "description": "Plane names (\"Global:XY\", \"Global:YZ\", \"Global:XZ\" or user planes) for cut planes; polyline names for lines; object names, face IDs or face-list names for surfaces; object names for volumes."},
+        {"name": "quantity", "description": "Field quantity name as in the Plot Fields menu, or a named expression from the Fields Calculator."},
+        {"name": "setup", "description": "\"Setup1 : LastAdaptive\" / \"Setup1 : Sweep1\"; None = nominal adaptive."},
+        {"name": "intrinsics", "description": "Dict {\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"} (or \"Time\" for transient), or a string \"2.45GHz\"; auto-computed when None."},
+        {"name": "filter_objects", "description": "Restrict a cut-plane plot to these objects."},
+        {"name": "field_type", "description": "Only used for Q3D (\"DC R/L Fields\", \"AC R/L Fields\", \"CG Fields\")."}
+      ],
+      "example": "hfss.analyze()\ncut = hfss.post.create_fieldplot_cutplane([\"Global:XZ\"], \"Mag_E\", setup=hfss.nominal_adaptive,\n                                          intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"}, plot_name=\"E_xz\",\n                                          filter_objects=[\"Sub\", \"Region\"])\nsurf = hfss.post.create_fieldplot_surface(\"Patch\", \"Mag_Jsurf\", intrinsics=\"2.45GHz\", plot_name=\"J_patch\")\nline = hfss.post.create_fieldplot_line(\"Probe\", \"Mag_E\", intrinsics=\"2.45GHz\", plot_name=\"E_probe\")\nprint(hfss.post.field_plot_names)",
+      "notes": "Native: oModule(\"FieldsReporter\").CreateFieldPlot([\"NAME:E_xz\", \"SolutionName:=\", \"Setup1 : LastAdaptive\", \"UserSpecifyName:=\", 1, \"UserSpecifyFolder:=\", 0, \"QuantityName:=\", \"Mag_E\", \"PlotFolder:=\", \"E Field\", \"StreamlinePlot:=\", False, \"AdjacentSidePlot:=\", False, \"FullModelPlot:=\", False, \"IntrinsicVar:=\", \"Freq='2.45GHz' Phase='0deg'\", \"PlotGeomInfo:=\", [1, \"Surface\", \"CutPlane\", 1, \"Global:XZ\"], \"FilterBoxes:=\", [2, \"Sub\", \"Region\"], [\"NAME:PlotOnSurfaceSettings\", ...]], \"Field\"). Fields must have been saved for the requested solution (SaveFields on the sweep, or LastAdaptive).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.create_fieldplot_cutplane.html"
+    },
+    {
+      "name": "FieldPlot object (update, delete, export_image, field_plot_settings, folder_settings, get_points_value)",
+      "kind": "api",
+      "description": "Handle for a field overlay plot: its definition (surfaces, volumes, cutplanes, lines, quantity, intrinsics, solution) is editable and re-applied with update(); field_plot_settings / plotsettings hold the appearance (scale, marker, arrow, transparency, iso-value style) and folder_settings the plot-folder colour map and scale; export_image saves the AEDT view, export_image_from_aedtplt renders with PyVista, and get_points_value samples the plotted field at points.",
+      "usage": "plot = hfss.post.create_fieldplot_surface(\"Patch\", \"Mag_E\", plot_name=\"E_patch\")\nplot.name, plot.quantity, plot.intrinsics, plot.solution\nplot.surfaces / plot.volumes / plot.cutplanes / plot.lines / plot.filter_boxes\nplot.update()\nplot.folder_settings.color_map_settings.map_type = \"Rainbow\"\nplot.folder_settings.scale_settings.scale_type = \"Log\"   # via Scale3DSettings / MinMaxScale / AutoScale classes\nplot.folder_settings.update()\nplot.change_plot_scale(minimum_value, maximum_value, is_log=False, is_db=False, scale_levels=None)\nplot.export_image(full_path=None, width=1920, height=1080, orientation=\"isometric\", display_wireframe=True, selections=None, show_region=True, show_axis=True, show_grid=True, show_ruler=True)\nplot.export_image_from_aedtplt(export_path=None, view=\"isometric\", plot_mesh=False, scale_min=None, scale_max=None, plot_cad_objs=True, log_scale=True, dark_mode=False, show_grid=False, show_bounding=False, show_legend=True, plot_as_separate_objects=True)\nvalues = plot.get_points_value(points, filename=None, visibility=False)\nplot.delete()",
+      "parameters": [
+        {"name": "folder_settings", "description": "FolderPlotSettings with color_map_settings (ColorMapSettings), scale_settings (AutoScale / MinMaxScale / Scale3DSettings), number_format (NumberFormat), marker_settings, arrow_settings; call update() after edits."},
+        {"name": "change_plot_scale", "description": "Shortcut for a fixed min/max, log or dB scale on the plot's folder."},
+        {"name": "export_image", "description": "AEDT-rendered picture of the model with the plot (works in -ng from 2022 R2)."},
+        {"name": "get_points_value", "description": "Field values at [x,y,z] points; also writes them to a file when filename is given."}
+      ],
+      "example": "plot = hfss.post.create_fieldplot_cutplane([\"Global:XY\"], \"Mag_E\", intrinsics=\"2.45GHz\", plot_name=\"E_xy\")\nplot.change_plot_scale(0, 500, is_log=False)\nplot.folder_settings.color_map_settings.map_type = \"Spectrum\"\nplot.folder_settings.update()\nplot.export_image(\"C:/work/E_xy.png\", width=1600, height=1200, orientation=\"top\", show_grid=False)\nvals = plot.get_points_value([[0, 0, \"h/2\"], [5, 0, \"h/2\"]])\nplot.intrinsics = {\"Freq\": \"2.5GHz\", \"Phase\": \"90deg\"}\nplot.update()",
+      "notes": "Native: oModule(\"FieldsReporter\").ModifyFieldPlot(name, [...]), SetPlotFolderSettings(folder, [...]), ExportPlotImageToFile(file, folder, plot, ...), DeleteFieldPlot([name]), UpdateAllFieldsPlots(). Plot folders (\"E Field\", \"H Field\", \"J Field\") group plots that share scale and colour map.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.field_data.FieldPlot.html"
+    },
+    {
+      "name": "hfss.post.plot_field (PyVista rendering to image)",
+      "kind": "api",
+      "description": "One call that creates a temporary field plot (surface, volume or cut plane), exports it, renders it with PyVista together with the CAD objects and writes an image (jpg/png/svg/webp) - the headless way to get field pictures on Linux clusters and in CI without AEDT's own renderer. Options cover view direction, fixed or log scale, mesh overlay, dark mode, legend, bounding box and whether the AEDT plot is kept afterwards.",
+      "usage": "plotter = hfss.post.plot_field(quantity, assignment, plot_type=\"Surface\", setup=None, intrinsics=None, mesh_on_fields=False, view=\"isometric\",\n                               plot_label=None, show=True, scale_min=None, scale_max=None, plot_cad_objs=True, log_scale=False,\n                               export_path=\"\", image_format=\"jpg\", keep_plot_after_generation=False, dark_mode=False, show_bounding=False,\n                               show_grid=False, show_legend=True, filter_objects=None, plot_as_separate_objects=True, file_format=\"case\")",
+      "parameters": [
+        {"name": "quantity / assignment / plot_type", "description": "Field name, objects/faces/planes, and \"Surface\", \"Volume\" or \"CutPlane\"."},
+        {"name": "view", "description": "\"isometric\", \"xy\", \"xz\", \"yz\"."},
+        {"name": "scale_min / scale_max / log_scale", "description": "Colour scale limits and log mapping."},
+        {"name": "export_path / image_format", "description": "Output image path (working directory when empty) and format."},
+        {"name": "show", "description": "False renders off-screen only (required on headless machines)."},
+        {"name": "return", "description": "ModelPlotter object (ansys.aedt.core.visualization.plot.pyvista) that can be further customised or animated."}
+      ],
+      "example": "img = hfss.post.plot_field(\"Mag_E\", [\"Global:XZ\"], plot_type=\"CutPlane\", setup=hfss.nominal_adaptive,\n                           intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"}, view=\"xz\", log_scale=True,\n                           scale_min=1, scale_max=1000, show=False, export_path=\"C:/work/E_xz.png\", image_format=\"png\",\n                           filter_objects=[\"Sub\", \"Region\"])\nprint(img.image_file if hasattr(img, 'image_file') else \"rendered\")",
+      "notes": "Needs pyvista (pip install pyaedt[graphics]). plot_field_from_fieldplot renders an existing FieldPlot; plot_model_obj renders geometry only; export_field_plot writes the .aedtplt/.case that PyVista reads.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.plot_field.html"
+    },
+    {
+      "name": "hfss.post.plot_animated_field / plot_scene / animate_fields_from_aedtplt",
+      "kind": "api",
+      "description": "Animations rendered with PyVista: plot_animated_field steps a variation variable (Phase for a standing/travelling wave, Freq, Time, or any design variable) through a list of values, creating the field plot for each frame and writing an animated GIF; plot_scene assembles frames from exported files (e.g. IFFT time steps) into a GIF over the model; animate_fields_from_aedtplt does the same from existing .aedtplt exports. They replace the GUI Animate dialog in headless workflows.",
+      "usage": "plotter = hfss.post.plot_animated_field(quantity, assignment, plot_type=\"Surface\", setup=None, intrinsics=None, variation_variable=\"Phi\",\n                                        variations=None, view=\"isometric\", show=True, scale_min=None, scale_max=None, plot_cad_objs=True,\n                                        log_scale=True, zoom=None, export_gif=False, export_path=\"\", force_opacity_value=0.1, dark_mode=False,\n                                        show_grid=False, show_bounding=False, show_legend=True, filter_objects=None, file_format=\"case\")\nhfss.post.plot_scene(frames, output_gif_path, norm_index=0, dy_rng=0, fps=30, show=True, view=\"yz\", zoom=2.0, convert_fields_in_db=False, log_multiplier=10.0)",
+      "parameters": [
+        {"name": "variation_variable / variations", "description": "Variable to animate and the list of values with units, e.g. \"Phase\" with [\"0deg\", \"30deg\", ..., \"330deg\"]."},
+        {"name": "export_gif / export_path", "description": "Write an animated GIF into export_path."},
+        {"name": "force_opacity_value", "description": "Uniform CAD transparency so the field stays visible."},
+        {"name": "frames", "description": "Folder or list of frame files (CSV field grids) for plot_scene."}
+      ],
+      "example": "phases = [f\"{p}deg\" for p in range(0, 360, 20)]\nhfss.post.plot_animated_field(\"Mag_E\", [\"Global:XY\"], plot_type=\"CutPlane\", setup=hfss.nominal_adaptive,\n                              intrinsics={\"Freq\": \"2.45GHz\"}, variation_variable=\"Phase\", variations=phases,\n                              view=\"xy\", log_scale=True, export_gif=True, export_path=\"C:/work/anim\", show=False)",
+      "notes": "Each frame creates and deletes a field plot, so long animations take time; keep the variation list short or reduce the plot region. AEDT's own animation export (GIF/AVI) is only available through the GUI Animate dialog.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.plot_animated_field.html"
+    },
+    {
+      "name": "hfss.post.export_field_plot / hfss.post.export_field_jpg / field_plot_names / delete_field_plot",
+      "kind": "api",
+      "description": "Export an existing field plot to a file (.aedtplt for PyVista, .case for EnSight, .fldplt), export an image of a plot with its coordinate system, list the plots that exist in the design and delete plots by name. The .aedtplt route is how PyAEDT renders AEDT plots outside the desktop and how plots are archived for later comparison.",
+      "usage": "path = hfss.post.export_field_plot(plot_name, output_dir, file_name=\"\", file_format=\"aedtplt\")\nhfss.post.export_field_jpg(file_name, plot_name, folder_name, orientation=\"isometric\", width=1920, height=1080, display_wireframe=True, selections=None, show_axis=True, show_grid=True, show_ruler=True, show_region=\"Default\")\nhfss.post.field_plot_names\nhfss.post.delete_field_plot(name)\nhfss.post.plots               # FieldPlot objects",
+      "parameters": [
+        {"name": "plot_name / output_dir / file_name", "description": "Plot to export, destination folder and optional file name."},
+        {"name": "file_format", "description": "\"aedtplt\" (default), \"case\" or \"fldplt\"."},
+        {"name": "folder_name", "description": "Plot folder (e.g. \"E Field\") for export_field_jpg."}
+      ],
+      "example": "hfss.post.create_fieldplot_surface(\"Patch\", \"Mag_Jsurf\", intrinsics=\"2.45GHz\", plot_name=\"J_patch\")\nf = hfss.post.export_field_plot(\"J_patch\", hfss.working_directory, file_format=\"aedtplt\")\nhfss.post.export_field_jpg(\"C:/work/J_patch.jpg\", \"J_patch\", \"J Field\", orientation=\"top\")\nprint(hfss.post.field_plot_names)\nhfss.post.delete_field_plot(\"J_patch\")",
+      "notes": "Native: oModule(\"FieldsReporter\").ExportFieldPlot(plot, showHeader, file) writes a .dsp/.aedtplt style file; ExportPlotImageToFile(file, folder, plot, ...). Plots must be regenerated (UpdateAllFieldsPlots) after re-solving before export.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.export_field_plot.html"
+    },
+    {
+      "name": "hfss.post.export_field_file / hfss.post.export_field_file_on_grid",
+      "kind": "api",
+      "description": "Write raw field values to a .fld text file using the Fields Calculator: export_field_file evaluates a quantity on the mesh nodes of objects (volume or surface) or at a list of sample points, export_field_file_on_grid samples it on a Cartesian, cylindrical or spherical grid with start/stop/step. Exported fields feed SAR post-processing, coupling to other solvers, EMC limit checks and custom Python analysis.",
+      "usage": "hfss.post.export_field_file(quantity, solution=None, variations=None, output_file=None, assignment=\"AllObjects\", objects_type=\"Vol\",\n                            intrinsics=None, sample_points_file=None, sample_points=None, export_with_sample_points=True,\n                            reference_coordinate_system=\"Global\", export_in_si_system=True, export_field_in_reference=True)\npath = hfss.post.export_field_file_on_grid(quantity, solution=None, variations=None, file_name=None, grid_type=\"Cartesian\",\n                                           grid_center=None, grid_start=None, grid_stop=None, grid_step=None, is_vector=False,\n                                           intrinsics=None, export_with_sample_points=True, reference_coordinate_system=\"Global\",\n                                           export_in_si_system=True, export_field_in_reference=True)",
+      "parameters": [
+        {"name": "quantity", "description": "Calculator quantity: \"E\", \"H\", \"Jsurf\", \"Mag_E\", \"Poynting\", or a named expression."},
+        {"name": "solution / variations / intrinsics", "description": "\"Setup1 : LastAdaptive\", variation dict, and {\"Freq\": ..., \"Phase\": ...}."},
+        {"name": "assignment / objects_type", "description": "Object(s) to evaluate on and \"Vol\" or \"Surf\"."},
+        {"name": "sample_points / sample_points_file", "description": "Explicit [x,y,z] points or a points file instead of the mesh."},
+        {"name": "grid_type / grid_start / grid_stop / grid_step / grid_center", "description": "\"Cartesian\", \"Cylindrical\" or \"Spherical\" grid definition in the reference CS."},
+        {"name": "is_vector", "description": "Export the vector components rather than a scalar."}
+      ],
+      "example": "hfss.post.export_field_file(\"Mag_E\", solution=hfss.nominal_adaptive, output_file=\"C:/work/E_sub.fld\",\n                            assignment=\"Sub\", objects_type=\"Vol\", intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"})\nhfss.post.export_field_file_on_grid(\"E\", hfss.nominal_adaptive, hfss.available_variations.nominal_values,\n                                    \"C:/work/E_grid.fld\", grid_type=\"Cartesian\", grid_start=[-50, -50, 5],\n                                    grid_stop=[50, 50, 5], grid_step=[1, 1, 1], is_vector=True, intrinsics=\"2.45GHz\")",
+      "notes": "Native: oModule(\"FieldsReporter\").EnterQty(\"E\"); CalcOp(\"Mag\"); ExportToFile(file, solution, variations, points) or ExportOnGrid(file, min, max, spacing, solution, variations, exportOptions, csType, offsets, byCount). Grid coordinates are in model units unless export_in_si_system converts them.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.export_field_file_on_grid.html"
+    },
+    {
+      "name": "hfss.post.get_scalar_field_value / hfss.post.get_field_extremum",
+      "kind": "api",
+      "description": "Single-number field results through the calculator: get_scalar_field_value evaluates a scalar function (Maximum, Minimum, Mean, Integrate, Value ...) of a quantity over an object's volume, surface or at a point, and get_field_extremum returns the position and value of the field maximum or minimum on an object. They give peak SAR, maximum E in a dielectric (breakdown checks), radiated power through a surface or the hot spot location without creating a plot.",
+      "usage": "val = hfss.post.get_scalar_field_value(quantity, scalar_function=\"Maximum\", solution=None, variations=None, is_vector=False,\n                                       intrinsics=None, object_name=\"AllObjects\", object_type=\"volume\", adjacent_side=False)\n(x, y, z), value = hfss.post.get_field_extremum(assignment, max_min, location, field, setup=None, intrinsics=None)",
+      "parameters": [
+        {"name": "quantity / field", "description": "Field name (\"Mag_E\", \"Average_SAR\", \"Poynting\") or named expression."},
+        {"name": "scalar_function", "description": "\"Maximum\", \"Minimum\", \"Mean\", \"Integrate\", \"Value\"."},
+        {"name": "object_name / object_type", "description": "Object and \"volume\", \"surface\" or \"point\"."},
+        {"name": "max_min / location", "description": "\"Max\"/\"Min\" and \"Surface\"/\"Volume\" for get_field_extremum."},
+        {"name": "adjacent_side", "description": "Evaluate on the adjacent side of a surface (fields are discontinuous across material interfaces)."}
+      ],
+      "example": "emax = hfss.post.get_scalar_field_value(\"Mag_E\", \"Maximum\", solution=hfss.nominal_adaptive,\n                                        intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"}, object_name=\"Sub\", object_type=\"volume\")\nprint(\"peak E in substrate:\", emax, \"V/m\")\npos, sar = hfss.post.get_field_extremum(\"Head\", \"Max\", \"Volume\", \"Average_SAR\", intrinsics={\"Freq\": \"1.8GHz\"})\nprint(pos, sar)\nprad = hfss.post.get_scalar_field_value(\"Poynting\", \"Integrate\", is_vector=True, object_name=\"Region\", object_type=\"surface\")",
+      "notes": "Native: EnterQty/CalcOp/EnterVol/CalcOp(\"Maximum\")/ClcEval(solution, variations)/GetTopEntryValue(solution, variations). Phase matters for instantaneous quantities (Mag_E at a phase) but not for ComplexMag_E or time-averaged Poynting.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.get_scalar_field_value.html"
+    },
+    {
+      "name": "hfss.post.fields_calculator (FieldsCalculator: add_expression, evaluate, expression_plot, export, delete_expression, expression_names)",
+      "kind": "api",
+      "description": "PyAEDT's wrapper around the Fields Calculator: named expressions are defined from a built-in catalog (expression_catalog.toml, e.g. voltage_line, current_line, radiated_power, dielectric_loss, surface loss, energy) or from a dictionary listing the calculator operations, evaluated for a setup and intrinsics, plotted as reports, exported to files, and removed. It hides the stack-based EnterQty/CalcOp choreography behind reusable, documented expressions.",
+      "usage": "fc = hfss.post.fields_calculator\nname = fc.add_expression(calculation, assignment, name=None)     # calculation: catalog key or dict\nvalue = fc.evaluate(expression, setup=None, intrinsics=None)\nfc.expression_plot(calculation, assignment, names, setup=None)\nfc.export(quantity, solution=None, variations=None, output_file=None, assignment=\"AllObjects\", objects_type=\"Vol\", intrinsics=None, sample_points=None, ...)\nfc.delete_expression(name=None)\nfc.expression_names / fc.get_expressions() / fc.is_expression_defined(name) / fc.is_general_expression(name)\nfc.load_expression_file(input_file) / fc.create_expression_file(name, output_file) / fc.write(...)",
+      "parameters": [
+        {"name": "calculation", "description": "Catalog key such as \"voltage_line\", \"current_line\", \"radiated_power\", or a dict with name, description, design_type, fields_type, primary_sweep, assignment_type, operations (list of Fundamental_Quantity/Operation/EnterLine/EnterSurface strings) and report types."},
+        {"name": "assignment", "description": "Geometry the expression applies to (polyline, sheet, object), or empty for global quantities."},
+        {"name": "intrinsics", "description": "{\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"}; computed from the setup when None."},
+        {"name": "load_expression_file", "description": "Add a user TOML catalog with company-specific expressions."}
+      ],
+      "example": "fc = hfss.post.fields_calculator\nline = hfss.modeler.create_polyline([[0, 0, 0], [0, 0, \"h\"]], name=\"VLine\")\nv = fc.add_expression(\"voltage_line\", \"VLine\", name=\"V_feed\")\nprint(fc.evaluate(\"V_feed\", setup=hfss.nominal_adaptive, intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"}))\n\nmy_expr = {\"name\": \"E2_surf\", \"description\": \"|E|^2 integrated on a sheet\", \"design_type\": [\"HFSS\"],\n           \"fields_type\": [\"Fields\"], \"solution_type\": \"\", \"primary_sweep\": \"Freq\", \"assignment\": \"\",\n           \"assignment_type\": [\"Surface\"],\n           \"operations\": [\"Fundamental_Quantity('E')\", \"Operation('ComplexMag')\", \"Operation('Pow', 2)\",\n                          \"EnterSurface('assignment')\", \"Operation('SurfaceValue')\", \"Operation('Integrate')\"],\n           \"report\": [\"Data Table\", \"Rectangular Plot\"]}\nfc.add_expression(my_expr, \"Aperture\")\nfc.expression_plot(my_expr, \"Aperture\", [\"E2_surf\"])",
+      "notes": "Named expressions are stored in the design and appear in Plot Fields and in report quantity lists under the Fields category (Calculator Expressions). Native: oModule(\"FieldsReporter\").EnterQty(...), CalcOp(...), AddNamedExpression(name, \"Fields\"). The Advanced Fields Calculator extension offers the same catalog with a GUI.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.fields_calculator.FieldsCalculator.html"
+    },
+    {
+      "name": "FieldExpressions builder (hfss.post.fields_calculator.expressions: scalar, vector, magnitude, dot, cross, integrate over Surface/Volume/Line)",
+      "kind": "api",
+      "description": "A typed, fluent builder for calculator expressions: start from a fundamental scalar or vector quantity (E, H, J, Poynting, named expressions, design variables, constants), chain algebraic and vector operations (magnitude, real/imag, conj, dot, cross, normal/tangent projections, sqrt, pow, ln, exp, trig) and finish with a domain aggregation (integrate, maximum, minimum, mean over a Surface, Volume or Line). The result is registered as a named expression, avoiding hand-written operation lists and stack errors.",
+      "usage": "from ansys.aedt.core.visualization.post.field_calculator_expressions import Surface, Volume, Line, FieldExpressions\nfx = hfss.post.fields_calculator.expressions      # FieldExpressions bound to the design's calculator\ne = fx.vector(\"E\", is_complex=True)\nh = fx.vector(\"H\", is_complex=True)\nexpr = (e.magnitude() * e.magnitude()).integrate(Surface(\"Aperture\"))\npoynt = e.cross(h.conj()).real().dot(fx.normal_vector()).integrate(Surface(\"RadSurf\"))\n# the built expression is then added to the calculator as a named expression (see notes)",
+      "parameters": [
+        {"name": "fx.scalar(quantity, is_complex) / fx.vector(quantity, is_complex)", "description": "Fundamental quantities (E, H, Jvol, Jsurf, Poynting, Temp ...)."},
+        {"name": "fx.scalar_constant / complex_constant / vector_constant / function(variable)", "description": "Constants and design-variable driven scalars."},
+        {"name": "fx.named_expression(name)", "description": "Reuse an existing named expression."},
+        {"name": "fx.normal_vector() / tangent_vector()", "description": "Geometry unit normal / tangent for flux and line integrals."},
+        {"name": "ScalarReal / ScalarComplex / VectorReal / VectorComplex", "description": "Result types with methods magnitude(), real(), imag(), conj(), phase(), dot(), cross(), integrate(domain), maximum(domain), minimum(domain), mean(domain), sqrt(), pow(), ln(), exp(), abs(), db()."},
+        {"name": "Surface(name) / Volume(name) / Line(name)", "description": "Domains for the aggregations."}
+      ],
+      "example": "from ansys.aedt.core.visualization.post.field_calculator_expressions import Surface, Line\nfx = hfss.post.fields_calculator.expressions\ne = fx.vector(\"E\", is_complex=True)\nv_line = e.real().dot(fx.tangent_vector()).integrate(Line(\"VLine\"))      # voltage along a line\nloss = fx.scalar(\"Ohmic_Loss\").integrate(Surface(\"Patch\"))               # conductor loss on a sheet\nenergy = (e.magnitude() * e.magnitude()).integrate(Surface(\"Aperture\"))\nprint(v_line, loss, energy)   # each object renders the calculator operation sequence it represents",
+      "notes": "Introduced with the 1.x PyAEDT releases; the builder produces the same operation strings that the dictionary form of fields_calculator.add_expression accepts, and the 'Field expression builder' page of the user guide for the installed version documents how a built expression is registered as a named expression. Check hfss.post.fields_calculator.expression_names afterwards.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.field_calculator_expressions.FieldExpressions.html"
+    },
+    {
+      "name": "hfss.post.ofieldsreporter / hfss.post.oreportsetup (native module handles for calculator and report scripting)",
+      "kind": "api",
+      "description": "Direct handles to the native FieldsReporter and ReportSetup modules from the post-processor, for stack-based calculator sequences and report calls that PyAEDT does not wrap: EnterQty/EnterVol/EnterSurf/EnterLine/EnterScalar/CalcOp/ClcEval/AddNamedExpression/ExportOnGrid on ofieldsreporter, and CreateReport/AddTraces/ExportToFile/CreateOutputVariable-style calls on oreportsetup. Recorded GUI scripts paste in unchanged.",
+      "usage": "ofr = hfss.post.ofieldsreporter          # == hfss.get_module(\"FieldsReporter\")\nors = hfss.post.oreportsetup             # == hfss.get_module(\"ReportSetup\")\nofr.EnterQty(\"Poynting\"); ofr.CalcOp(\"Real\"); ofr.EnterSurf(\"RadSurf\"); ofr.CalcOp(\"Normal\"); ofr.CalcOp(\"Integrate\")\nofr.AddNamedExpression(\"Prad\", \"Fields\")\nofr.ClcEval(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])\nvalue = ofr.GetTopEntryValue(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])",
+      "parameters": [
+        {"name": "Stack operations", "description": "CalcStack(\"push\"/\"pop\"/\"clear\"/\"exch\"/\"rlup\"/\"rldn\"), ClearAllNamedExpr(), CopyNamedExprToStack(name), DeleteNamedExpr(name)."},
+        {"name": "CalcOp names", "description": "Mag, ComplexMag, Real, Imag, Phase, Conj, Smooth, Normal, Tangent, Dot, Cross, Integrate, Maximum, Minimum, Mean, Value, dB, +, -, *, /, Sqrt, Pow, Exp, Ln, Abs, Grad, Div, Curl, ScalarX/Y/Z, VecX/Y/Z, Domain, AtPhase, AtTime, Derivative."},
+        {"name": "GetTopEntryValue", "description": "Evaluates the top of the stack and returns the value as a list of strings."}
+      ],
+      "example": "ofr = hfss.post.ofieldsreporter\nofr.CalcStack(\"clear\")\nofr.EnterQty(\"E\")\nofr.CalcOp(\"ComplexMag\")\nofr.EnterVol(\"Sub\")\nofr.CalcOp(\"Maximum\")\nofr.AddNamedExpression(\"Emax_sub\", \"Fields\")\nval = ofr.GetTopEntryValue(hfss.nominal_adaptive, [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])\nprint(float(val[0]))\n\nors = hfss.post.oreportsetup\nors.CreateReport(\"Emax vs f\", \"Fields\", \"Rectangular Plot\", hfss.nominal_sweep, [\"Domain:=\", \"Sweep\"],\n                 [\"Freq:=\", [\"All\"], \"Phase:=\", [\"0deg\"]], [\"X Component:=\", \"Freq\", \"Y Component:=\", [\"Emax_sub\"]])",
+      "notes": "The calculator is stateful: always clear the stack before a sequence and after AddNamedExpression. Named expressions defined natively are visible to hfss.post.fields_calculator.expression_names and usable in create_report with report_category=\"Fields\".",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.html"
+    },
+    {
+      "name": "hfss.get_antenna_data / FfdSolutionDataExporter (far-field export with metadata)",
+      "kind": "api",
+      "description": "Export the far fields of every port (embedded element patterns) for chosen frequencies on an infinite sphere to .ffd files plus a JSON metadata file describing ports, frequencies, geometry and power, and return an exporter whose farfield_data attribute is an FfdSolutionData ready for beamforming, cuts and 3D plots. With link_to_hfss=False the same data is read back from the files without AEDT, which is the basis of array post-processing in Python.",
+      "usage": "ffd = hfss.get_antenna_data(frequencies=None, setup=None, sphere=None, variations=None, overwrite=True, link_to_hfss=True,\n                            export_touchstone=True, set_phase_center_per_port=True)\nffd.metadata_file / ffd.farfield_data / ffd.incident_power\nhfss.export_element_pattern(frequencies, setup, sphere, variations=None, element_name=\"element\", output_dir=None)\nhfss.export_antenna_metadata(frequencies, setup, sphere, variations=None, output_dir=None, export_element_pattern=True, export_objects=True, export_touchstone=True, export_power=True)",
+      "parameters": [
+        {"name": "frequencies", "description": "Float, list, or None for all solved frequencies of the setup (numbers in Hz or strings with units)."},
+        {"name": "setup / sphere", "description": "\"Setup1 : Sweep1\" (or LastAdaptive) and the infinite sphere name; a sphere is created if None."},
+        {"name": "variations", "description": "Variation dict; nominal when None."},
+        {"name": "link_to_hfss", "description": "True returns FfdSolutionDataExporter bound to the design; False returns a standalone FfdSolutionData from the exported files."},
+        {"name": "export_touchstone / set_phase_center_per_port", "description": "Also export the S-matrix (for accepted power) and set port phase centres."}
+      ],
+      "example": "hfss.insert_infinite_sphere(name=\"3D\", x_step=2, y_step=2)\nhfss.analyze()\nffd = hfss.get_antenna_data(frequencies=[2.45e9], setup=hfss.nominal_sweep, sphere=\"3D\")\nprint(ffd.metadata_file)\ndata = ffd.farfield_data\nprint(data.frequencies, data.all_element_names, data.radiated_power)\ndata.plot_cut(quantity=\"RealizedGain\", primary_sweep=\"theta\", secondary_sweep_value=[0, 90], quantity_format=\"dB10\")",
+      "notes": "Native: oModule(\"RadField\").ExportRadiationFieldsToFile(...) per port plus PyAEDT-written JSON. Each port is excited alone (others matched) so the files contain embedded element patterns; combine_farfield applies weights afterwards.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.get_antenna_data.html"
+    },
+    {
+      "name": "FfdSolutionData (plot_cut, plot_contour, plot_3d, combine_farfield, farfield_data, radiated_power, accepted_power, phase/magnitude weights)",
+      "kind": "api",
+      "description": "Standalone far-field post-processor working on exported .ffd data: select the frequency, set per-port magnitude and phase weights or a scan direction (theta_scan/phi_scan with taper), combine the element patterns into the array pattern, and plot 2D cuts, contour maps or interactive 3D patterns over the geometry with PyVista/matplotlib. It also reports incident, accepted and radiated power per element and in total, and exposes the raw pattern arrays for custom processing.",
+      "usage": "from ansys.aedt.core.visualization.advanced.farfield_visualization import FfdSolutionData\ndata = FfdSolutionData(input_file, frequency=None, variation=None, model_info=None, incident_power=None, touchstone_file=None)\ndata.frequency = 2.45e9\ndata.magnitude = {\"P1\": 1, \"P2\": 1}; data.phase = {\"P1\": 0, \"P2\": 90}\ndata.theta_scan = 30; data.phi_scan = 0; data.taper = \"flat\"   # or \"cosine\", \"triangular\", \"hamming\"\nff = data.combine_farfield(phi_scan=0, theta_scan=0)\ndata.farfield_data          # dict of arrays: rETheta, rEPhi, rETotal, Gain*, RealizedGain*, Directivity*, Theta, Phi\ndata.plot_cut(quantity=\"RealizedGain\", primary_sweep=\"theta\", secondary_sweep_value=0, phi=0, theta=0, title=\"\", quantity_format=\"dB10\", output_file=None, show=True, is_polar=False, show_legend=True)\ndata.plot_contour(quantity=\"RealizedGain\", phi=0, theta=0, title=\"\", quantity_format=\"dB10\", output_file=None, show=True, polar=False, max_theta=180, levels=64)\ndata.plot_3d(quantity=\"RealizedGain\", phi=0, theta=0, quantity_format=\"dB10\", output_file=None, show=True, show_geometry=True, background=None, rotation=None)\ndata.plot_3d_chart(quantity=\"RealizedGain\", ...)\ndata.get_far_field_mesh(quantity=\"RealizedGain\", quantity_format=\"dB10\")\ndata.radiated_power / data.accepted_power / data.incident_power / *_element / data.active_s_parameters",
+      "parameters": [
+        {"name": "input_file", "description": "The JSON metadata file written by get_antenna_data (pyaedt_antenna_metadata.json)."},
+        {"name": "quantity", "description": "\"rETheta\", \"rEPhi\", \"rETotal\", \"GainTotal\", \"RealizedGainTotal\", \"Directivity\", \"AxialRatio\"... (check data.farfield_data.keys())."},
+        {"name": "quantity_format", "description": "\"dB10\", \"dB20\", \"abs\", \"real\", \"imag\", \"phase\"."},
+        {"name": "primary_sweep / secondary_sweep_value", "description": "\"theta\" or \"phi\" as the x axis, and the fixed value(s) of the other angle."},
+        {"name": "magnitude / phase / taper / theta_scan / phi_scan", "description": "Array weights: explicit per-port dicts, or a scan direction with an amplitude taper."}
+      ],
+      "example": "from ansys.aedt.core.visualization.advanced.farfield_visualization import FfdSolutionData\ndata = FfdSolutionData(\"C:/work/ffd/pyaedt_antenna_metadata.json\")\ndata.frequency = data.frequencies[0]\ndata.theta_scan = 20; data.phi_scan = 0; data.taper = \"cosine\"\ndata.plot_cut(\"RealizedGain\", primary_sweep=\"theta\", secondary_sweep_value=[0, 90], quantity_format=\"dB10\",\n              is_polar=True, output_file=\"C:/work/cuts.png\", show=False)\ndata.plot_3d(\"RealizedGain\", show_geometry=True, output_file=\"C:/work/pattern3d.png\", show=False)\nprint(\"Prad =\", data.radiated_power, \"W; Pacc =\", data.accepted_power, \"W\")",
+      "notes": "Works without a license or AEDT once the files exist - the basis of the Array Post-Processing example and of the antenna-array toolkit. Element patterns are embedded (mutual coupling included) because each port was solved with the others matched; the combination is exact for the solved element positions.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.advanced.farfield_visualization.FfdSolutionData.html"
+    },
+    {
+      "name": "hfss.get_rcs_data / MonostaticRCSExporter (monostatic RCS export and plotting)",
+      "kind": "api",
+      "description": "Export monostatic radar cross section results (ComplexMonostaticRCSTheta/Phi over the incident-angle sweep of a plane-wave excitation) for chosen frequencies to an HDF5/JSON dataset with metadata, and return an exporter whose rcs_data gives access to the MonostaticRCSData/Plotter classes for angular cuts, 2D maps, range profiles, ISAR images and waterfall plots computed in Python from the exported data.",
+      "usage": "rcs = hfss.get_rcs_data(frequencies=None, setup=None, expression=\"ComplexMonostaticRCSTheta\", variations=None, overwrite=True,\n                        link_to_hfss=True, variation_name=None)\nrcs.metadata_file / rcs.rcs_data\nplotter = rcs.rcs_data.plotter   # MonostaticRCSPlotter: plot_rcs(), plot_range_profile(), plot_waterfall(), plot_isar_2d(), plot_scene()",
+      "parameters": [
+        {"name": "frequencies", "description": "Hz floats or strings with units; None = all solved frequencies."},
+        {"name": "setup", "description": "\"Setup1 : Sweep1\" or LastAdaptive."},
+        {"name": "expression", "description": "\"ComplexMonostaticRCSTheta\" or \"ComplexMonostaticRCSPhi\" (co-/cross-polar components)."},
+        {"name": "link_to_hfss", "description": "False returns only the metadata path for offline processing."},
+        {"name": "variation_name", "description": "Label for the exported variation folder."}
+      ],
+      "example": "hfss = Hfss(project=\"C:/work/rcs_target.aedt\", solution_type=\"SBR+\")\nhfss.plane_wave(vector_format=\"Spherical\", polarization=\"Vertical\", propagation_vector=[[\"0deg\", \"180deg\", 181], [\"90deg\", \"90deg\", 1]])\nhfss.create_setup(\"SBR1\", setup_type=\"HFSSSBR\", RangeStart=\"9GHz\", RangeEnd=\"11GHz\", RangeStep=\"0.05GHz\")\nhfss.analyze()\nrcs = hfss.get_rcs_data(setup=\"SBR1 : Sweep\", expression=\"ComplexMonostaticRCSTheta\", variation_name=\"vv\")\nprint(rcs.metadata_file)\nrcs.rcs_data.plotter.plot_rcs(primary_sweep=\"IWavePhi\", secondary_sweep_value=90, show=False, output_file=\"C:/work/rcs.png\")",
+      "notes": "Monostatic RCS requires a plane wave with an angular sweep (the incident direction becomes the IWaveTheta/IWavePhi sweeps) in Far Fields reports; SBR+ is the usual solver for electrically large targets, FEM with FE-BI for small ones. Bistatic RCS is reported directly from Far Fields (RCSTotal/Theta/Phi vs Theta/Phi).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.get_rcs_data.html"
+    },
+    {
+      "name": "hfss.get_touchstone_data / TouchstoneData (scikit-rf based Touchstone post-processing)",
+      "kind": "api",
+      "description": "Read the solved S-matrix as a TouchstoneData object (a scikit-rf Network subclass) either straight from the design or from an .sNp file, and analyse it in Python: plot insertion/return losses and crosstalk, find the worst curve against a limit, convert to mixed-mode with a given port ordering, reduce the port set, and use every scikit-rf method (renormalize, time-domain, cascading). It complements export_touchstone for scripts that post-process channel results.",
+      "usage": "ts = hfss.get_touchstone_data(setup=None, sweep=None, variations=None)     # list of TouchstoneData, one per variation\nfrom ansys.aedt.core.visualization.advanced.touchstone_parser import TouchstoneData\nts = TouchstoneData(touchstone_file=\"C:/work/board.s8p\")\nts.plot_insertion_losses(threshold=-3, plot=True)\nts.plot_return_losses(threshold=-10, plot=True)\nts.plot_next_xtalk(threshold=-40, plot=True) / ts.plot_fext_xtalk(threshold=-40, plot=True)\nts.get_return_loss_index(excitation_name_prefix=\"\") / get_insertion_loss_index(threshold=-3)\nts.get_worst_curve(freq_min=None, freq_max=None, worst_is_higher=True, curve_list=None, plot=True)\nts.get_mixed_mode_touchstone_data(num_of_diff_ports=None, port_ordering=\"1234\")\nts.reduce(ports)\nts.port_names / ts.s / ts.f / ts.frequency   # scikit-rf attributes",
+      "parameters": [
+        {"name": "setup / sweep / variations", "description": "Solution to read from the design; all variations are returned as a list."},
+        {"name": "touchstone_file", "description": "Path of an .sNp file (Touchstone 1.0 or 2.0)."},
+        {"name": "threshold", "description": "Limit in dB used to colour/flag curves in the plots and indices."},
+        {"name": "port_ordering", "description": "\"1234\" or \"1324\" pairing convention for mixed-mode conversion."}
+      ],
+      "example": "ts_list = hfss.get_touchstone_data(setup=\"Setup1\", sweep=\"Sweep1\")\nts = ts_list[0]\nprint(ts.port_names, ts.f[:3])\nworst = ts.get_worst_curve(freq_min=1e9, freq_max=10e9, worst_is_higher=False, curve_list=ts.get_insertion_loss_index(), plot=False)\nmm = ts.get_mixed_mode_touchstone_data(port_ordering=\"1324\")\nmm.write_touchstone(\"C:/work/board_mixed.s4p\")",
+      "notes": "Requires scikit-rf (pyaedt[all]). The same class powers the Circuit create_touchstone_report helpers; the raw native export remains oModule(\"Solutions\").ExportNetworkData.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.advanced.touchstone_parser.TouchstoneData.html"
+    },
+    {
+      "name": "hfss.set_export_touchstone (Touchstone export options: format, passivity, causality, renormalization, precision)",
+      "kind": "api",
+      "description": "Configure the design's Export Options for network data - the settings behind Results > Solution Data > Export Matrix Data and the automatic export after simulation: Touchstone 1.0 or 2.0, passivity and causality enforcement with fitting controls, common-ground reference, gamma/impedance comments, renormalisation impedance, MA/RI/DB data format, frequency unit and numeric precision. Set once per design; export_touchstone and export_touchstone_on_completion then honour them.",
+      "usage": "hfss.set_export_touchstone(file_format=\"TouchStone1.0\", enforce_passivity=True, enforce_causality=False, use_common_ground=True,\n                           show_gamma_comments=True, renormalize=False, impedance=50.0, fitting_error=0.5, maximum_poles=1000,\n                           passivity_type=\"PassivityByPerturbation\", column_fitting_type=\"Matrix\", state_space_fitting=\"IterativeRational\",\n                           relative_error_tolerance=True, ensure_accurate_fit=False, touchstone_output=\"MA\", units=\"GHz\", precision=11)",
+      "parameters": [
+        {"name": "file_format", "description": "\"TouchStone1.0\" or \"TouchStone2.0\" (2.0 supports per-port reference impedances and mixed-mode)."},
+        {"name": "enforce_passivity / passivity_type / enforce_causality", "description": "Post-processing of the S-matrix before export; passivity by perturbation or by the fitting algorithm, causality via rational fitting."},
+        {"name": "fitting_error / maximum_poles / column_fitting_type / state_space_fitting / ensure_accurate_fit", "description": "Rational-fit controls used when causality is enforced or a state-space model is produced."},
+        {"name": "renormalize / impedance", "description": "Renormalise all ports to a real impedance."},
+        {"name": "touchstone_output / units / precision", "description": "\"MA\", \"RI\" or \"DB\"; frequency unit; significant digits."}
+      ],
+      "example": "hfss.set_export_touchstone(file_format=\"TouchStone2.0\", enforce_passivity=True, enforce_causality=True,\n                           renormalize=True, impedance=50.0, touchstone_output=\"RI\", units=\"GHz\", precision=15)\nhfss.export_touchstone_on_completion(True, output_dir=\"C:/work/snp\")\nhfss.analyze()",
+      "notes": "Native: oDesign.SetDesignSettings([...\"Export After Simulation:=\", True ...]) plus oModule(\"Solutions\").ExportNetworkData options. Causality enforcement changes the data; keep an unmodified export for comparison when debugging a model.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.set_export_touchstone.html"
+    },
+    {
+      "name": "hfss.post.export_model_picture / hfss.post.export_mesh_obj / hfss.post.plot_model_obj",
+      "kind": "api",
+      "description": "Pictures and mesh exports of the model: export_model_picture saves an AEDT-rendered snapshot with chosen orientation, size, visible selections and optional field plots; export_mesh_obj writes the current mesh (surface or volume, with or without air) in the .aedtplt format for PyVista, and plot_model_obj renders the CAD objects with PyVista to an image - the standard documentation figures of a build script.",
+      "usage": "path = hfss.post.export_model_picture(full_name=None, show_axis=True, show_grid=True, show_ruler=True, show_region=\"Default\", selections=None,\n                                      field_selections=None, orientation=\"isometric\", width=0, height=0)\nmesh_file = hfss.post.export_mesh_obj(setup=None, intrinsics=None, export_air_objects=False, on_surfaces=True)\nplotter = hfss.post.plot_model_obj(objects=None, show=True, export_path=None, plot_as_separate_objects=True, plot_air_objects=False, force_opacity_value=None, clean_files=False, array_coordinates=None, view=\"isometric\", show_legend=True, dark_mode=False, show_bounding=False, show_grid=False)\nhfss.plot(objects=None, show=True, export_path=None, ...)",
+      "parameters": [
+        {"name": "orientation", "description": "\"top\", \"bottom\", \"front\", \"back\", \"left\", \"right\", \"isometric\", \"trimetric\", \"dimetric\"."},
+        {"name": "selections / field_selections", "description": "Objects to show, and field plots to include (\"all\" for every plot)."},
+        {"name": "width / height", "description": "Pixels; 0 uses the current window size."},
+        {"name": "export_air_objects / on_surfaces", "description": "Include vacuum objects and export the surface (True) or volume mesh."}
+      ],
+      "example": "hfss.modeler.fit_all()\npic = hfss.post.export_model_picture(\"C:/work/model_iso.jpg\", orientation=\"isometric\", show_grid=False, show_ruler=False,\n                                     selections=[\"Patch\", \"Sub\", \"Gnd\"], width=1600, height=1200)\nhfss.analyze()\nmesh = hfss.post.export_mesh_obj(setup=hfss.nominal_adaptive)\nhfss.post.plot_model_obj(objects=[\"Patch\", \"Sub\"], show=False, export_path=\"C:/work/cad.png\", plot_air_objects=False)",
+      "notes": "Native: oEditor.ExportModelImageToFile(file, width, height, [\"NAME:SaveImageParams\", \"ShowAxis:=\", \"True\", \"ShowGrid:=\", \"True\", \"ShowRuler:=\", \"True\", \"ShowRegion:=\", \"Default\", \"Selections:=\", \"\", \"FieldPlotSelections:=\", \"\", \"Orientation:=\", \"isometric\"]). Model pictures need a graphics context; in -ng mode the export works from 2022 R2 with the internal renderer.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.export_model_picture.html"
+    },
+    {
+      "name": "hfss.create_scattering / hfss.get_traces_for_plot / hfss.create_q_factor_report / hfss.get_next_xtalk_list / get_fext_xtalk_list",
+      "kind": "api",
+      "description": "Report shortcuts on the Hfss object: create_scattering builds the standard S-parameter plot for all ports (or given ones) of a sweep, get_traces_for_plot assembles expression lists filtered by port name patterns and a category (S, Y, Z, VSWR...), create_q_factor_report exports the eigenmode Q table as CSV, and the crosstalk helpers list near-end / far-end coupling expressions between driver and receiver ports for SI reports.",
+      "usage": "hfss.create_scattering(plot=\"S Parameter Plot Nominal\", sweep=None, ports=None, ports_excited=None, variations=None)\ntraces = hfss.get_traces_for_plot(get_self_terms=True, get_mutual_terms=True, first_element_filter=None, second_element_filter=None, category=\"dB(S\", differential_pairs=None)\nhfss.create_q_factor_report(setup=None, output_file=None)\nhfss.get_next_xtalk_list(trlist=None, tx_prefix=\"\", rx_prefix=\"\", math_formula=\"\") / hfss.get_fext_xtalk_list(...)",
+      "parameters": [
+        {"name": "ports / ports_excited", "description": "Receiving and exciting port subsets for create_scattering (None = all)."},
+        {"name": "first_element_filter / second_element_filter", "description": "Wildcards on the two S indices, e.g. \"P1*\" and \"*\"."},
+        {"name": "category", "description": "Prefix such as \"dB(S\", \"S\", \"VSWR(\", \"Y(\", \"Z(\"."},
+        {"name": "tx_prefix / rx_prefix / math_formula", "description": "Port-name prefixes identifying drivers and receivers, and the wrapping function (\"dB\")."}
+      ],
+      "example": "hfss.create_scattering(\"All S\", sweep=hfss.nominal_sweep)\ntraces = hfss.get_traces_for_plot(get_self_terms=False, get_mutual_terms=True, first_element_filter=\"P1*\", category=\"dB(S\")\nhfss.post.create_report(traces, plot_name=\"Coupling from P1\")\nnext_ = hfss.get_next_xtalk_list(tx_prefix=\"TX\", rx_prefix=\"RX\", math_formula=\"dB\")\nhfss.post.create_report(next_, plot_name=\"NEXT\")",
+      "notes": "In Modal designs traces refer to port modes (S(P1:1,P2:1)); in Terminal designs to terminal names. create_q_factor_report only applies to Eigenmode designs.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.create_scattering.html"
+    }
+  ]
+}

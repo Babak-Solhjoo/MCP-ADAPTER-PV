@@ -1,0 +1,514 @@
+{
+  "category": "Fixed-Point Designer > fi Objects, Quantization, Bit Operations, CORDIC & Float-to-Fixed Conversion",
+  "description": "Fixed-Point Designer functions for creating and manipulating fixed-point (fi) data, controlling arithmetic with fimath and numerictype, quantizing data, bit-level operations, CORDIC math, instrumentation-based range collection, automated float-to-fixed conversion, lookup table approximation and data type optimization of Simulink models.",
+  "tools": [
+    {
+      "name": "fi",
+      "kind": "function",
+      "description": "Creates a fixed-point numeric object with a given signedness, word length and fraction length (or slope/bias scaling), optionally with attached fimath arithmetic rules. fi objects simulate the exact bit-true behavior of embedded fixed-point hardware in MATLAB.",
+      "usage": "a = fi(v)\na = fi(v, s, w)\na = fi(v, s, w, f)\na = fi(v, s, w, slope, bias)\na = fi(v, T)\na = fi(v, T, F)\na = fi(___, Name=Value)",
+      "parameters": [
+        {"name": "v", "description": "Real-world value(s) to quantize."},
+        {"name": "s", "description": "Signedness: true/1 signed (default), false/0 unsigned."},
+        {"name": "w, f", "description": "Word length and fraction length in bits (default 16-bit, best-precision fraction length)."},
+        {"name": "T", "description": "numerictype object defining the data type."},
+        {"name": "F / RoundingMethod / OverflowAction", "description": "fimath object or individual fimath properties such as RoundingMethod=\"Nearest\", OverflowAction=\"Saturate\"."}
+      ],
+      "example": "a = fi(pi, 1, 16, 13)          % signed Q2.13\na.bin                           % stored bits\nb = fi(0.1, 1, 8, 7, RoundingMethod=\"Floor\");\nc = a * b                        % full-precision product type\ndouble(c)",
+      "notes": "sfi and ufi are shortcuts for signed/unsigned fi. Use storedInteger, bin, hex or int to inspect bits. Arithmetic word growth follows the fimath ProductMode/SumMode; cast results back with fi(x, T) or subscripted assignment y(:) = x.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.html"
+    },
+    {
+      "name": "fimath",
+      "kind": "function",
+      "description": "Creates a fimath object that defines fixed-point arithmetic rules: rounding method, overflow action, and how product and sum word/fraction lengths are computed. Attach it to fi objects to control the results of +, -, * and other operations.",
+      "usage": "F = fimath\nF = fimath(Name=Value)",
+      "parameters": [
+        {"name": "RoundingMethod", "description": "\"Nearest\" (default), \"Floor\", \"Ceiling\", \"Convergent\", \"Round\", \"Zero\"."},
+        {"name": "OverflowAction", "description": "\"Saturate\" (default) or \"Wrap\"."},
+        {"name": "ProductMode / ProductWordLength", "description": "\"FullPrecision\" (default), \"KeepLSB\", \"KeepMSB\" or \"SpecifyPrecision\"."},
+        {"name": "SumMode / SumWordLength / CastBeforeSum", "description": "Rules for additions."}
+      ],
+      "example": "F = fimath(RoundingMethod=\"Floor\", OverflowAction=\"Wrap\", ...\n    ProductMode=\"KeepLSB\", ProductWordLength=32, ...\n    SumMode=\"KeepLSB\", SumWordLength=32);\na = fi(0.75, 1, 16, 15, F);\nb = fi(0.5, 1, 16, 15, F);\nc = a*b + a",
+      "notes": "Floor + Wrap is cheapest in hardware and matches typical C integer behavior. globalfimath sets the default for all new fi objects; setfimath/removefimath attach or strip fimath in code-generation-friendly algorithms.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fimath.html"
+    },
+    {
+      "name": "numerictype",
+      "kind": "function",
+      "description": "Creates a numerictype object describing a data type: fixed point (binary-point or slope-bias scaling), scaled double, double, single, half or boolean. It separates the type from the data so the same type can be applied to many variables.",
+      "usage": "T = numerictype\nT = numerictype(s, w)\nT = numerictype(s, w, f)\nT = numerictype(s, w, slope, bias)\nT = numerictype(\"double\" | \"single\" | \"half\" | \"boolean\")\nT = numerictype(___, Name=Value)",
+      "parameters": [
+        {"name": "s, w, f", "description": "Signedness, word length, fraction length."},
+        {"name": "Signedness", "description": "\"Signed\", \"Unsigned\" or \"Auto\"."},
+        {"name": "DataTypeMode", "description": "E.g. \"Fixed-point: binary point scaling\", \"Scaled double: binary point scaling\", \"Double\"."}
+      ],
+      "example": "T = numerictype(1, 16, 12);\nx = fi(randn(4,1), T);\nT2 = numerictype(Signedness=\"Unsigned\", WordLength=12, FractionLength=8);\ny = fi(3.3, T2)",
+      "notes": "Switching DataTypeMode to scaled double keeps the fixed-point scaling but computes in double, useful for detecting overflows. fixed.extractNumericType returns the type of existing data.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.numerictype.html"
+    },
+    {
+      "name": "fipref",
+      "kind": "function",
+      "description": "Sets session-wide fixed-point preferences: how fi values are displayed, whether min/max and overflow logging is on, and data type override to scaled or true doubles/singles for debugging.",
+      "usage": "P = fipref\nP = fipref(Name=Value)",
+      "parameters": [
+        {"name": "NumberDisplay", "description": "\"RealWorldValue\" (default), \"bin\", \"dec\", \"hex\", \"int\" or \"none\"."},
+        {"name": "NumericTypeDisplay / FimathDisplay", "description": "Level of type and fimath detail shown."},
+        {"name": "LoggingMode", "description": "\"on\" to log max/min, overflows and underflows."},
+        {"name": "DataTypeOverride", "description": "\"ForceOff\", \"ScaledDoubles\", \"TrueDoubles\" or \"TrueSingles\"."}
+      ],
+      "example": "p = fipref(NumberDisplay=\"bin\", LoggingMode=\"on\");\na = fi(pi, 1, 8, 5);\nb = a*a;\nlogreport(a, b)\nreset(p)",
+      "notes": "Settings persist for the session; savefipref saves them for future sessions. DataTypeOverride lets you compare fixed-point and floating-point runs without editing code.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fipref.html"
+    },
+    {
+      "name": "globalfimath",
+      "kind": "function",
+      "description": "Configures the global default fimath used by fi objects that do not have a local fimath, and returns a handle to it. Useful to change rounding and overflow behavior for a whole script or session.",
+      "usage": "G = globalfimath\nG = globalfimath(Name=Value)\nG = globalfimath(F)",
+      "parameters": [
+        {"name": "Name=Value", "description": "Any fimath property, e.g. RoundingMethod=\"Floor\", OverflowAction=\"Wrap\"."},
+        {"name": "F", "description": "Existing fimath object to use as the global default."}
+      ],
+      "example": "G = globalfimath(RoundingMethod=\"Floor\", OverflowAction=\"Wrap\");\na = fi(0.9, 1, 8, 7) + fi(0.9, 1, 8, 7)   % uses global fimath\nresetglobalfimath",
+      "notes": "resetglobalfimath restores the factory default; removeglobalfimathpref removes a saved preference. Prefer explicit setfimath in algorithms meant for code generation.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/globalfimath.html"
+    },
+    {
+      "name": "setfimath",
+      "kind": "function",
+      "description": "Attaches a fimath object to a fi variable (or passes built-in types through unchanged) so that subsequent arithmetic uses those rules. Together with removefimath it is the recommended pattern for type-agnostic, code-generation-ready algorithms.",
+      "usage": "y = setfimath(x, F)",
+      "parameters": [
+        {"name": "x", "description": "fi object or built-in numeric value."},
+        {"name": "F", "description": "fimath object."}
+      ],
+      "example": "function y = accumulate(x)\n    F = fimath(RoundingMethod=\"Floor\", OverflowAction=\"Wrap\", SumMode=\"KeepLSB\", SumWordLength=32);\n    x = setfimath(x, F);\n    acc = zeros(1, 1, \"like\", x);\n    for k = 1:numel(x)\n        acc(:) = acc + x(k);\n    end\n    y = removefimath(acc);\nend",
+      "notes": "In generated C code setfimath/removefimath produce no overhead; they only affect bit-true simulation semantics.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/setfimath.html"
+    },
+    {
+      "name": "removefimath",
+      "kind": "function",
+      "description": "Removes the local fimath from a fi object so that it falls back to the global fimath, typically at function outputs to avoid propagating internal arithmetic rules to callers.",
+      "usage": "y = removefimath(x)",
+      "parameters": [
+        {"name": "x", "description": "fi object (built-in types pass through unchanged)."}
+      ],
+      "example": "a = fi(pi, 1, 16, 13, OverflowAction=\"Wrap\");\nb = removefimath(a);\nisfimathlocal(b)   % false",
+      "notes": "Pairs with setfimath. isfimathlocal tests whether a fi object carries its own fimath.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.removefimath.html"
+    },
+    {
+      "name": "quantizer",
+      "kind": "function",
+      "description": "Creates a quantizer object that describes a fixed-point or custom floating-point format with rounding and overflow modes. Use it with quantize, num2bin/num2hex and related functions to study quantization effects on ordinary double data.",
+      "usage": "q = quantizer\nq = quantizer(mode, roundmode, overflowmode, format)\nq = quantizer(Name=Value)",
+      "parameters": [
+        {"name": "mode", "description": "\"fixed\", \"ufixed\", \"float\", \"single\" or \"double\"."},
+        {"name": "roundmode", "description": "\"ceil\", \"convergent\", \"fix\", \"floor\" (default) or \"nearest\"/\"round\"."},
+        {"name": "overflowmode", "description": "\"saturate\" (default) or \"wrap\" (fixed-point only)."},
+        {"name": "format", "description": "[wordlength fractionlength] for fixed, [wordlength exponentlength] for float."}
+      ],
+      "example": "q = quantizer(\"fixed\", \"nearest\", \"saturate\", [8 6]);\nx = linspace(-3, 3, 13);\ny = quantize(q, x)\nnoverflows(q)",
+      "notes": "Unlike fi, quantized results are returned as doubles. unitquantizer treats values within eps of +1 specially.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.quantizer.html"
+    },
+    {
+      "name": "quantize",
+      "kind": "function",
+      "description": "Quantizes numeric data with a quantizer object, applying its rounding and overflow rules and returning double values on the quantization grid. It also records overflow/underflow counts in the quantizer.",
+      "usage": "y = quantize(q, x)\n[y1, ..., yN] = quantize(q, x1, ..., xN)",
+      "parameters": [
+        {"name": "q", "description": "quantizer object."},
+        {"name": "x", "description": "Numeric data, cell arrays or structures of numeric data."}
+      ],
+      "example": "q = quantizer([16 14]);\ne = quantize(q, sin(0:0.1:1)) - sin(0:0.1:1);\nmax(abs(e))",
+      "notes": "For fi data use quantizenumeric or fi casting. errmean, errvar and errpdf give statistics of quantization error for a quantizer.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.quantizer.quantize.html"
+    },
+    {
+      "name": "storedInteger",
+      "kind": "function",
+      "description": "Returns the stored integer value (the raw bits interpreted as an integer) of a fi object, in the smallest built-in integer type that holds its word length. This is the value a C integer variable would contain.",
+      "usage": "i = storedInteger(f)",
+      "parameters": [
+        {"name": "f", "description": "fi object."}
+      ],
+      "example": "a = fi(0.75, 1, 8, 7);\nstoredInteger(a)     % int8(96)\nclass(storedInteger(fi(1, 1, 20, 10)))   % int32",
+      "notes": "storedIntegerToDouble returns the same value as double (useful above 64 bits). Real-world value = storedInteger * 2^-FractionLength for binary-point scaling.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.storedinteger.html"
+    },
+    {
+      "name": "reinterpretcast",
+      "kind": "function",
+      "description": "Reinterprets the bits of a fixed-point or integer value as a different numerictype of the same word length, without changing the underlying stored integer. Used to change signedness or fraction length views of register data.",
+      "usage": "y = reinterpretcast(x, T)",
+      "parameters": [
+        {"name": "x", "description": "fi object or built-in integer."},
+        {"name": "T", "description": "numerictype with the same word length as x."}
+      ],
+      "example": "x = fi(-1, 1, 8, 0);                        % bits 11111111\ny = reinterpretcast(x, numerictype(0, 8, 0))  % 255\nz = reinterpretcast(int8(64), numerictype(1, 8, 7))   % 0.5",
+      "notes": "Differs from casting (fi(x,T)), which preserves the real-world value and requantizes.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.reinterpretcast.html"
+    },
+    {
+      "name": "bin",
+      "kind": "function",
+      "description": "Returns the stored integer of a fi object as a binary (two's complement) character representation. Handy for checking bit patterns against hardware or register specifications.",
+      "usage": "b = bin(a)",
+      "parameters": [
+        {"name": "a", "description": "fi object."}
+      ],
+      "example": "a = fi(-0.5, 1, 8, 7);\nbin(a)     % '11000000'\nhex(a)     % 'c0'",
+      "notes": "hex, oct and dec return other radices; the corresponding properties can also be set to assign bit patterns (a.bin = '01000000'). For quantizer objects use num2bin/num2hex.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.bin.html"
+    },
+    {
+      "name": "upperbound",
+      "kind": "function",
+      "description": "Returns the largest real-world value representable by the numerictype of a fi object; lowerbound returns the smallest. Use them to check headroom and design saturation limits.",
+      "usage": "u = upperbound(a)\nl = lowerbound(a)",
+      "parameters": [
+        {"name": "a", "description": "fi object."}
+      ],
+      "example": "a = fi(0, 1, 16, 12);\n[double(lowerbound(a)) double(upperbound(a))]   % [-8  7.9998]",
+      "notes": "range(a) returns both bounds as a fi vector; eps(a) gives the quantization step (LSB weight).",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.upperbound.html"
+    },
+    {
+      "name": "range",
+      "kind": "function",
+      "description": "Returns the numerical range [min max] of a fi object's data type, or the range of a quantizer object format.",
+      "usage": "R = range(a)\n[lo, hi] = range(a)\n[lo, hi] = range(q)",
+      "parameters": [
+        {"name": "a / q", "description": "fi object or quantizer object."}
+      ],
+      "example": "[lo, hi] = range(fi(0, 0, 8, 4))   % unsigned Q4.4: 0 .. 15.9375\n[lo, hi] = range(quantizer([12 8]))",
+      "notes": "This fi/quantizer method is unrelated to Statistics Toolbox range (max - min of data).",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.range.html"
+    },
+    {
+      "name": "lsb",
+      "kind": "function",
+      "description": "Returns the scaling of the least significant bit of a fi object, i.e. its quantization step, as a fi value (or the LSB value of a quantizer).",
+      "usage": "b = lsb(a)",
+      "parameters": [
+        {"name": "a", "description": "fi or quantizer object."}
+      ],
+      "example": "a = fi(pi, 1, 16, 13);\nlsb(a)          % 2^-13\neps(a)          % same quantization step",
+      "notes": "Half an LSB is the maximum rounding error with round-to-nearest.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.lsb.html"
+    },
+    {
+      "name": "bitsliceget",
+      "kind": "function",
+      "description": "Extracts a consecutive slice of bits from a fi object between left and right bit indices, returning an unsigned fixed-point integer. Mirrors bit-field extraction in HDL.",
+      "usage": "c = bitsliceget(a)\nc = bitsliceget(a, lidx)\nc = bitsliceget(a, lidx, ridx)",
+      "parameters": [
+        {"name": "lidx, ridx", "description": "Left (MSB side) and right (LSB side) bit indices, 1 = LSB."}
+      ],
+      "example": "a = fi(85, 0, 8, 0);      % 01010101\nnib = bitsliceget(a, 8, 5);\nbin(nib)                   % '0101'",
+      "notes": "Related bit functions: bitget, bitset, bitconcat, bitshift, bitsll, bitsra, bitsrl, bitrol, bitror, getmsb, getlsb.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/bitsliceget.html"
+    },
+    {
+      "name": "bitconcat",
+      "kind": "function",
+      "description": "Concatenates the bits of two or more fi objects into a single unsigned fixed-point integer whose word length is the sum of the inputs. Used to pack fields into registers or HDL buses.",
+      "usage": "y = bitconcat(a, b, ...)\ny = bitconcat(a)",
+      "parameters": [
+        {"name": "a, b, ...", "description": "fi objects (fraction length ignored; bits concatenated MSB first)."}
+      ],
+      "example": "hi = fi(5, 0, 4, 0); lo = fi(10, 0, 4, 0);\nbyte = bitconcat(hi, lo);\nbin(byte)     % '01011010'",
+      "notes": "Single-argument form concatenates the elements of a vector. Output is always unsigned with fraction length 0.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.bitconcat.html"
+    },
+    {
+      "name": "bitsra",
+      "kind": "function",
+      "description": "Performs an arithmetic right shift of a fi object (or integer) by a number of bits, preserving the sign bit and ignoring fimath overflow and rounding. Efficient replacement for division by powers of two.",
+      "usage": "c = bitsra(a, k)",
+      "parameters": [
+        {"name": "a", "description": "fi object or built-in integer."},
+        {"name": "k", "description": "Number of bits to shift (non-negative integer)."}
+      ],
+      "example": "a = fi(-8, 1, 8, 0);\nbitsra(a, 2)     % -2\nbitsrl(a, 2)     % logical shift: zero-fills MSBs\nbitsll(a, 1)     % logical left shift",
+      "notes": "bitsll (logical left) and bitsrl (logical right) complete the family; bitshift is the general signed shift that respects fimath overflow.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.bitsra.html"
+    },
+    {
+      "name": "divide",
+      "kind": "function",
+      "description": "Divides two fi objects and returns the quotient in an explicitly specified numerictype, giving full control of the result's word and fraction length (the / operator requires a constant or power-of-two denominator in many cases).",
+      "usage": "c = divide(T, a, b)",
+      "parameters": [
+        {"name": "T", "description": "numerictype of the result."},
+        {"name": "a, b", "description": "Numerator and denominator (fi or numeric)."}
+      ],
+      "example": "a = fi(3, 1, 16, 8); b = fi(7, 1, 16, 8);\nT = numerictype(1, 16, 14);\nc = divide(T, a, b)      % 0.4286 in Q1.14",
+      "notes": "Division is expensive on embedded targets; consider fixed.cordicDivide, reciprocal lookup tables or multiplication by a precomputed reciprocal.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.divide.html"
+    },
+    {
+      "name": "castFiToMATLAB",
+      "kind": "function",
+      "description": "Casts a fi object to the equivalent built-in MATLAB type when one exists (e.g. a signed 16-bit fi with zero fraction length to int16, or scaled types to double). Simplifies interfacing fixed-point results with ordinary MATLAB code.",
+      "usage": "y = castFiToMATLAB(x)",
+      "parameters": [
+        {"name": "x", "description": "fi object."}
+      ],
+      "example": "y = castFiToMATLAB(fi(100, 1, 16, 0));   % int16\nclass(y)\nz = castIntToFi(int8(-5))                % fi with numerictype(1,8,0)",
+      "notes": "castFiToInt, castIntToFi, cast64BitFiToInt and cast64BitIntToFi cover other directions; use double(x) to get the real-world value.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/castfitomatlab.html"
+    },
+    {
+      "name": "fixed.extractNumericType",
+      "kind": "function",
+      "description": "Returns the numerictype that describes an input, whether it is a fi object, a built-in numeric array, or a data type name. Useful for writing functions that adapt to their input data type.",
+      "usage": "T = fixed.extractNumericType(x)",
+      "parameters": [
+        {"name": "x", "description": "fi object, built-in numeric value, numerictype or data type string."}
+      ],
+      "example": "fixed.extractNumericType(int16(3))\nfixed.extractNumericType(fi(pi, 1, 12, 9))\nfixed.extractNumericType(\"single\")",
+      "notes": "Combine with fi(..., T) or zeros(...,'like',x) to create variables of matching type.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fixed.extractnumerictype.html"
+    },
+    {
+      "name": "isfi",
+      "kind": "function",
+      "description": "Returns true if a variable is a fi object. Use it to branch between fixed-point and floating-point code paths in type-agnostic algorithms.",
+      "usage": "tf = isfi(a)",
+      "parameters": [
+        {"name": "a", "description": "Any variable."}
+      ],
+      "example": "isfi(fi(1))      % true\nisfi(1)          % false\nisfixed(fi(1))   % true (fixed-point data type)",
+      "notes": "Related predicates: isfixed, isfloat, isscaleddouble, issigned, isfimath, isnumerictype, isquantizer.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/embedded.fi.isfi.html"
+    },
+    {
+      "name": "logreport",
+      "kind": "function",
+      "description": "Prints a quantization report (min/max logged values, representable range, number of overflows and underflows) for fi or quantizer objects when fipref LoggingMode is on.",
+      "usage": "logreport(a)\nlogreport(a, b, ...)",
+      "parameters": [
+        {"name": "a, b, ...", "description": "fi or quantizer objects with logging data."}
+      ],
+      "example": "p = fipref(LoggingMode=\"on\");\nx = fi(zeros(1,50), 1, 8, 6);\nx(:) = 3*randn(1,50);      % some values overflow\nlogreport(x)\nnoverflows(x)\nreset(p)",
+      "notes": "maxlog, minlog, noverflows, nunderflows and resetlog query and clear the logs individually.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/logreport.html"
+    },
+    {
+      "name": "fiaccel",
+      "kind": "function",
+      "description": "Compiles fixed-point MATLAB code into a MEX function to accelerate bit-true simulation, and with -float2fixed converts floating-point MATLAB code to fixed-point MATLAB code using a coder.FixPtConfig object and a test bench.",
+      "usage": "fiaccel -options fcn\nfiaccel -float2fixed fixptcfg fcn",
+      "parameters": [
+        {"name": "-args", "description": "Cell array of example inputs defining size, class and complexity."},
+        {"name": "-o", "description": "Name of the generated MEX function."},
+        {"name": "-report", "description": "Generate a code generation report."},
+        {"name": "-float2fixed", "description": "Convert to fixed point using the given coder.FixPtConfig."},
+        {"name": "-config / -nargout", "description": "MEX configuration (coder.mexconfig) and output count."}
+      ],
+      "example": "x = fi(rand(100,1), 1, 16, 15);\nfiaccel myFilter -args {x} -o myFilter_mex -report\n\nfixptcfg = coder.config(\"fixpt\");\nfixptcfg.TestBenchName = \"myFilter_tb\";\nfiaccel -float2fixed fixptcfg myFilter",
+      "notes": "The function must be code-generation compatible. The legacy Fixed-Point Converter app has been removed in recent releases; its projects can be turned into scripts with fixedPointConverter -tocode.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fiaccel.html"
+    },
+    {
+      "name": "buildInstrumentedMex",
+      "kind": "function",
+      "description": "Generates an instrumented MEX function that logs the minimum and maximum values (and optionally histograms) of every variable and intermediate expression while running your test data. The logged ranges drive data type proposals for manual fixed-point conversion.",
+      "usage": "buildInstrumentedMex fcn -options\nbuildInstrumentedMex fcn_1 ... fcn_n -options -coder",
+      "parameters": [
+        {"name": "-args", "description": "Example inputs, e.g. {x, coder.Constant(w)}."},
+        {"name": "-histogram", "description": "Also log log2 histograms of values."},
+        {"name": "-o / -d", "description": "Output MEX name and folder."},
+        {"name": "-coder", "description": "Use MATLAB Coder (needed for multiple entry points)."}
+      ],
+      "example": "x = randn(256,1);\nbuildInstrumentedMex myAlgo -o myAlgo_inst -args {x} -histogram\nfor k = 1:20, myAlgo_inst(randn(256,1)); end\nshowInstrumentationResults myAlgo_inst -proposeFL -defaultDT numerictype(1,16)",
+      "notes": "Logged results accumulate across calls until clearInstrumentationResults. Works on floating-point code, so you can size types before converting.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/buildinstrumentedmex.html"
+    },
+    {
+      "name": "showInstrumentationResults",
+      "kind": "function",
+      "description": "Opens the code generation report for an instrumented MEX function showing logged min/max values, histograms and proposed fraction or word lengths for each variable.",
+      "usage": "showInstrumentationResults mexFcn\nshowInstrumentationResults mexFcn -options",
+      "parameters": [
+        {"name": "-proposeFL / -proposeWL", "description": "Propose fraction lengths (for a default word length) or word lengths (for a default fraction length)."},
+        {"name": "-defaultDT", "description": "Default numerictype used for proposals, e.g. numerictype(1,16)."},
+        {"name": "-printable / -nocode", "description": "Printable report; hide code."}
+      ],
+      "example": "showInstrumentationResults myAlgo_inst -proposeFL -defaultDT numerictype(1,16)\nclearInstrumentationResults myAlgo_inst",
+      "notes": "Proposals assume the logged data is representative; add safety margin for untested input ranges.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/showinstrumentationresults.html"
+    },
+    {
+      "name": "coder.FixPtConfig",
+      "kind": "function",
+      "description": "Configuration object for automated floating-point to fixed-point conversion of MATLAB code with fiaccel -float2fixed (or codegen). It specifies the test bench, default word lengths, range analysis method, numerics comparison and function replacements.",
+      "usage": "fixptcfg = coder.config(\"fixpt\")",
+      "parameters": [
+        {"name": "TestBenchName", "description": "Script/function that exercises the design with representative inputs."},
+        {"name": "DefaultWordLength / ProposeFractionLengthsForDefaultWordLength", "description": "Type proposal strategy."},
+        {"name": "ComputeDerivedRange / ComputeSimulationRange", "description": "Use static (derived) and/or simulation ranges."},
+        {"name": "TestNumerics / LogIOForComparisonPlotting", "description": "Compare fixed-point output with floating point and plot errors."},
+        {"name": "fimath / SafetyMargin", "description": "fimath used in generated code and extra range margin in percent."}
+      ],
+      "example": "cfg = coder.config(\"fixpt\");\ncfg.TestBenchName = \"dti_test\";\ncfg.DefaultWordLength = 16;\ncfg.TestNumerics = true;\ncfg.addApproximation(coder.approximation(\"log\"));\nfiaccel -float2fixed cfg dti",
+      "notes": "Methods addApproximation, addFunctionReplacement and addDesignRangeSpecification customize conversion. Generated fixed-point code appears in codegen/<fcn>/fixpt.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/coder.fixptconfig-class.html"
+    },
+    {
+      "name": "coder.approximation",
+      "kind": "function",
+      "description": "Creates a function replacement configuration that approximates a math function (e.g. log, exp, sqrt, custom handles) with a lookup table during automated fixed-point conversion.",
+      "usage": "q = coder.approximation(functionName)\nq = coder.approximation(Function=fcn, Name=Value)",
+      "parameters": [
+        {"name": "Function", "description": "Name of the function to replace or a function handle for custom functions."},
+        {"name": "InputRange", "description": "Range of the input for which to build the table."},
+        {"name": "FunctionNamePrefix / NumberOfPoints / InterpolationDegree", "description": "Generated function name prefix and table resolution."}
+      ],
+      "example": "q = coder.approximation(Function=\"log\", InputRange=[0.1 100], ...\n    FunctionNamePrefix=\"log_\", NumberOfPoints=1024);\ncfg = coder.config(\"fixpt\");\ncfg.addApproximation(q);",
+      "notes": "For optimized, memory-constrained tables in Simulink or standalone use FunctionApproximation.Problem.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/coder.approximation.html"
+    },
+    {
+      "name": "fxpopt",
+      "kind": "function",
+      "description": "Optimizes the fixed-point data types of a Simulink model or subsystem to minimize total bit width while meeting numerical tolerances on logged signals, iteratively simulating candidate solutions.",
+      "usage": "result = fxpopt(model, sud, options)",
+      "parameters": [
+        {"name": "model", "description": "Model name."},
+        {"name": "sud", "description": "Path of the system under design (subsystem) to optimize."},
+        {"name": "options", "description": "fxpOptimizationOptions object with word lengths, tolerances and iteration limits."}
+      ],
+      "example": "model = 'ex_auto_gain_controller';\nsud = 'ex_auto_gain_controller/sud';\nopt = fxpOptimizationOptions(AllowableWordLengths=10:24, MaxIterations=50);\naddTolerance(opt, [model '/output_signal'], 1, 'AbsTol', 1e-2);\nresult = fxpopt(model, sud, opt);\nexplore(result)",
+      "notes": "Requires Simulink. The OptimizationResult lets you explore solutions and revert(result) to restore the original types.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fxpopt.html"
+    },
+    {
+      "name": "fxpOptimizationOptions",
+      "kind": "function",
+      "description": "Specifies options for fxpopt data type optimization: allowable word lengths, iteration limits, patience for early stopping, parallel simulation and signal tolerances added with addTolerance.",
+      "usage": "opt = fxpOptimizationOptions\nopt = fxpOptimizationOptions(Name=Value)\naddTolerance(opt, blockPath, portIndex, toleranceType, value)",
+      "parameters": [
+        {"name": "AllowableWordLengths", "description": "Vector of candidate word lengths, e.g. 8:32."},
+        {"name": "MaxIterations / MaxTime / Patience", "description": "Stopping criteria."},
+        {"name": "UseParallel", "description": "Simulate candidates in parallel."},
+        {"name": "addTolerance", "description": "Add \"AbsTol\", \"RelTol\" or \"TimeTol\" constraints on logged outputs."}
+      ],
+      "example": "opt = fxpOptimizationOptions(AllowableWordLengths=[8 16 32], Patience=5, UseParallel=true);\naddTolerance(opt, 'myModel/Out1', 1, 'RelTol', 0.01);",
+      "notes": "Tolerances are evaluated against the floating-point baseline simulation.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fxpoptimizationoptions-class.html"
+    },
+    {
+      "name": "fxptdlg",
+      "kind": "tool",
+      "description": "Opens the Fixed-Point Tool for a Simulink model, which collects simulation or derived ranges, proposes fixed-point data types, applies them and compares fixed-point results with the floating-point baseline.",
+      "usage": "fxptdlg(system)",
+      "parameters": [
+        {"name": "system", "description": "Model or subsystem name."}
+      ],
+      "example": "open_system('mSimpleFIR');\nfxptdlg('mSimpleFIR')",
+      "notes": "Workflows: optimized conversion (fxpopt), iterative conversion, and range collection. Data type override in the tool is handy to debug overflows.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fixedpointtool.html"
+    },
+    {
+      "name": "fixed.interp1",
+      "kind": "function",
+      "description": "Performs 1-D table-lookup interpolation designed for fixed-point and code generation, with interp1-like syntax. fixed.interp2, fixed.interp3 and fixed.interpn handle gridded multidimensional tables.",
+      "usage": "vq = fixed.interp1(x, v, xq)\nvq = fixed.interp1(x, v, xq, method)\nvq = fixed.interp1(x, v, xq, method, extrapval)",
+      "parameters": [
+        {"name": "x, v", "description": "Breakpoints and table values (fi or floating point)."},
+        {"name": "xq", "description": "Query points."},
+        {"name": "method", "description": "\"linear\" (default), \"nearest\", \"previous\" or \"next\"."}
+      ],
+      "example": "x = fi(linspace(0, 1, 17), 0, 16, 15);\nv = fi(sqrt(double(x)), 0, 16, 15);\nvq = fixed.interp1(x, v, fi(0.3, 0, 16, 15))",
+      "notes": "Use evenly spaced (power-of-two spacing) breakpoints for efficient index computation in generated code.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/fixed.interp1.html"
+    },
+    {
+      "name": "FunctionApproximation.Problem",
+      "kind": "function",
+      "description": "Defines a function (or an existing lookup table block) to approximate with an optimized lookup table under input/output data types, input bounds and accuracy/memory constraints. solve returns the smallest table meeting the constraints.",
+      "usage": "problem = FunctionApproximation.Problem(function)\nsolution = solve(problem)",
+      "parameters": [
+        {"name": "function", "description": "Function name, handle, cfit/sfit object or Simulink (lookup table) block path."},
+        {"name": "InputTypes / OutputType", "description": "numerictype objects for inputs and output."},
+        {"name": "InputLowerBounds / InputUpperBounds", "description": "Input range to approximate."},
+        {"name": "Options", "description": "FunctionApproximation.Options (AbsTol, RelTol, WordLengths, BreakpointSpecification, MemoryUnits...)."}
+      ],
+      "example": "problem = FunctionApproximation.Problem('log');\nproblem.InputTypes = numerictype(1,16,10);\nproblem.OutputType = numerictype(1,16,13);\nproblem.InputLowerBounds = 0.1;\nproblem.InputUpperBounds = 10;\nproblem.Options.AbsTol = 1e-3;\nsolution = solve(problem);\ncompare(solution)",
+      "notes": "approximate(solution) creates a Lookup Table block or MATLAB function. The Lookup Table Optimizer app offers the same workflow interactively.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/functionapproximation.problem-class.html"
+    },
+    {
+      "name": "cordicsincos",
+      "kind": "function",
+      "description": "Computes sine and cosine simultaneously with the shift-and-add CORDIC algorithm, which suits fixed-point hardware without multipliers. Accuracy increases with the number of iterations.",
+      "usage": "[y, x] = cordicsincos(theta)\n[y, x] = cordicsincos(theta, niters)",
+      "parameters": [
+        {"name": "theta", "description": "Angle in radians within [-2*pi, 2*pi) (fi or floating point)."},
+        {"name": "niters", "description": "Number of CORDIC iterations (default: word length - 1 for fi inputs)."}
+      ],
+      "example": "theta = fi(linspace(-pi, pi, 64), 1, 16, 13);\n[s, c] = cordicsincos(theta, 12);\nmax(abs(double(s) - sin(double(theta))))",
+      "notes": "cordicsin, cordiccos and cordiccexp are related; for very small word lengths a lookup table can be cheaper.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/cordicsincos.html"
+    },
+    {
+      "name": "cordicatan2",
+      "kind": "function",
+      "description": "Computes the four-quadrant inverse tangent using CORDIC vectoring mode, a common building block for phase detection and Cartesian-to-polar conversion in fixed-point DSP.",
+      "usage": "theta = cordicatan2(y, x)\ntheta = cordicatan2(y, x, niters)",
+      "parameters": [
+        {"name": "y, x", "description": "Real inputs of the same fixed-point type or floating point."},
+        {"name": "niters", "description": "Number of iterations."}
+      ],
+      "example": "x = fi(0.5, 1, 16, 14); y = fi(-0.5, 1, 16, 14);\ntheta = cordicatan2(y, x)     % about -pi/4",
+      "notes": "cordiccart2pol returns angle and magnitude together; cordicangle computes the phase of complex inputs.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/cordicatan2.html"
+    },
+    {
+      "name": "cordicsqrt",
+      "kind": "function",
+      "description": "Computes the square root with the hyperbolic CORDIC algorithm, avoiding division and multiplication; useful for magnitude and normalization computations on fixed-point targets.",
+      "usage": "y = cordicsqrt(u)\ny = cordicsqrt(u, niters)\ny = cordicsqrt(___, ScaleOutput=tf)",
+      "parameters": [
+        {"name": "u", "description": "Non-negative input (fi or floating point)."},
+        {"name": "niters", "description": "Number of iterations."},
+        {"name": "ScaleOutput", "description": "Whether to compensate the CORDIC gain (default true)."}
+      ],
+      "example": "u = fi(2, 0, 16, 12);\ny = cordicsqrt(u)      % about 1.4142",
+      "notes": "cordicabs computes the magnitude of complex values directly.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/cordicsqrt.html"
+    },
+    {
+      "name": "cordicrotate",
+      "kind": "function",
+      "description": "Rotates complex input values by given angles using CORDIC rotation mode, as used in mixers, NCOs and QR/Givens rotations in fixed-point implementations.",
+      "usage": "v = cordicrotate(theta, u)\nv = cordicrotate(theta, u, niters)\nv = cordicrotate(___, ScaleOutput=tf)",
+      "parameters": [
+        {"name": "theta", "description": "Rotation angle(s) in radians."},
+        {"name": "u", "description": "Complex input values."},
+        {"name": "ScaleOutput", "description": "Compensate the CORDIC gain (default true)."}
+      ],
+      "example": "u = fi(complex(0.5, 0), 1, 16, 14);\nv = cordicrotate(fi(pi/3, 1, 16, 13), u)   % 0.25 + 0.433i",
+      "notes": "cordicpol2cart and cordiccexp are related rotation-mode helpers.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/cordicrotate.html"
+    },
+    {
+      "name": "half",
+      "kind": "function",
+      "description": "Constructs half-precision (16-bit IEEE 754 binary16) floating-point values. Half precision offers floating-point dynamic range at 16 bits, and is supported for simulation, GPU and embedded/HDL code generation.",
+      "usage": "a = half(v)",
+      "parameters": [
+        {"name": "v", "description": "Numeric (single, double, integer) or logical input, real or complex."}
+      ],
+      "example": "a = half(pi)                 % 3.1406\nb = half(single(magic(3)));\neps(half(1))                 % 9.7656e-04",
+      "notes": "Only a subset of MATLAB functions support half inputs. Useful for deep learning inference and FPGA designs where single is too costly.",
+      "docs": "https://www.mathworks.com/help/fixedpoint/ref/half.html"
+    }
+  ]
+}

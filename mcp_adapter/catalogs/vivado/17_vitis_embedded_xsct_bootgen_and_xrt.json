@@ -1,0 +1,354 @@
+{
+  "category": "Vitis Embedded Software: XSCT/XSDB, Platforms, Boot Images (bootgen/BIF), Drivers, PetaLinux & XRT",
+  "description": "The software side of a Vivado hardware design: XSCT project commands for platforms, domains, applications and BSPs (classic flow) and the Vitis Python API (unified flow), XSDB debugging beyond the basics (target selection, memory/register access, breakpoints, JTAG utilities, PS initialisation), hsi:: hardware-handoff queries, device-tree generation, bootgen and .bif syntax for Zynq-7000, Zynq UltraScale+ and Versal boot images, boot components (FSBL, PMU firmware, PLM, ATF, U-Boot), standalone BSP conventions, PetaLinux basics, and the XRT host API, v++ linking configuration and Vitis kernel file formats (.xo/.xclbin).",
+  "tools": [
+    {
+      "name": "platform create / platform generate / platform write / platform active / platform list (XSCT)",
+      "kind": "tcl-command",
+      "description": "XSCT (classic Vitis) platform project commands: platform create makes a platform project from an .xsa hardware handoff (-hw), optionally creating a first domain (-proc, -os) and an output directory (-out); platform generate builds the platform (BSPs, boot components such as FSBL/PMU firmware, linker scripts); platform write saves the platform metadata; platform active selects the current platform for subsequent domain/app commands and platform list shows the platforms in the workspace. Platform projects are reusable across applications and are what the Vitis IDE creates with File > New > Platform Project.",
+      "usage": "setws <workspace_dir>\nplatform create -name <platform_name> -hw <design.xsa> [-proc <processor>] [-os standalone|linux|freertos10_xilinx] [-arch 32-bit|64-bit] [-out <dir>] [-no-boot-bsp] [-fsbl-target <proc>] [-hw_emu <hw_emu.xsa>]\nplatform generate [-domains <list>]\nplatform write\nplatform active [<name>]\nplatform list\nplatform read <platform.spr>\nplatform remove <name>\nplatform config -desc <text> | -updatehw <new.xsa> | -samples <dir> | -prebuilt-data <dir> | -fsbl-elf <fsbl.elf> | -pmufw-elf <pmufw.elf>",
+      "parameters": [
+        {"name": "-hw", "description": "The .xsa from write_hw_platform (fixed platform) or the pre-synth extensible .xsa for acceleration."},
+        {"name": "-proc / -os", "description": "Create the first domain immediately: e.g. -proc psu_cortexa53_0 -os standalone, -proc microblaze_0, -proc psv_cortexa72_0."},
+        {"name": "-out", "description": "Directory for the platform (default the workspace)."},
+        {"name": "platform config -updatehw", "description": "Point the platform at a new .xsa after a hardware change, then platform generate again."}
+      ],
+      "example": "xsct\nsetws ./ws\nplatform create -name zcu104_plat -hw ./hw/zcu104_wrapper.xsa -proc psu_cortexa53_0 -os standalone -arch 64-bit -out ./ws\ndomain create -name r5_fw -os freertos10_xilinx -proc psu_cortexr5_0\nplatform generate\nplatform list",
+      "notes": "Classic (XSCT) project management is supported up to and including 2024.x alongside the unified Python flow; in the unified IDE the equivalent is the platform component (vitis.create_platform_component). Workspace metadata is stored in .metadata and the platform in <name>/platform.spr.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Platform-Project-Commands"
+    },
+    {
+      "name": "domain create / domain config / domain active / domain list (XSCT)",
+      "kind": "tcl-command",
+      "description": "A domain is the software environment for one processor (or cluster) in a platform: OS (standalone, FreeRTOS, Linux), processor instance, and the BSP settings (libraries, drivers, stdin/stdout, compiler flags). domain create adds one to the active platform, domain config changes its settings (e.g. for Linux domains the image, sysroot, boot files and BIF), domain active selects it and domain list shows all; bsp commands (below) refine standalone/FreeRTOS domains.",
+      "usage": "domain create -name <domain> -os standalone|freertos10_xilinx|linux -proc <processor> [-arch 32-bit|64-bit] [-display-name <text>] [-desc <text>] [-support-app <template>] [-runtime cpp]\ndomain config [-display-name <t>] [-desc <t>] [-image <linux_image_dir>] [-sysroot <dir>] [-boot <dir>] [-bif <file.bif>] [-readme <f>] [-qemu-args <f>] [-pmuqemu-args <f>] [-qemu-data <dir>] [-mss <file.mss>] [-hw <xsa>]\ndomain active [<name>]\ndomain list\ndomain remove <name>",
+      "parameters": [
+        {"name": "-os", "description": "standalone (bare metal), freertos10_xilinx, linux (uses PetaLinux/common images)."},
+        {"name": "-proc", "description": "ps7_cortexa9_0, psu_cortexa53_0, psu_cortexr5_0, psu_pmu_0, microblaze_0, microblaze_riscv_0, psv_cortexa72_0, psv_cortexr5_0 ..."},
+        {"name": "-support-app", "description": "Pre-configure the BSP for an application template (e.g. zynqmp_fsbl, lwip_echo_server)."},
+        {"name": "Linux domain config", "description": "-image/-sysroot/-boot/-bif point at PetaLinux outputs so app packaging (sd_card) works."}
+      ],
+      "example": "platform active zcu104_plat\ndomain create -name linux_a53 -os linux -proc psu_cortexa53 -arch 64-bit\ndomain config -image ./petalinux/images/linux -sysroot ./sysroots/cortexa72-cortexa53-xilinx-linux -boot ./petalinux/images/linux -bif ./boot/linux.bif\ndomain create -name r5_std -os standalone -proc psu_cortexr5_0\ndomain active r5_std\nbsp setlib -name xilffs\nbsp config stdin psu_uart_1\nbsp config stdout psu_uart_1\nplatform generate",
+      "notes": "Domain names must be unique per platform; the FSBL/PMU firmware domains are created automatically unless -no-boot-bsp was used. Changing domain settings requires platform generate to rebuild the BSP.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Domain-Commands"
+    },
+    {
+      "name": "app create / app build / app config / app run? (XSCT application commands)",
+      "kind": "tcl-command",
+      "description": "Application project commands: app create makes an application from a template (Hello World, Empty Application, lwIP Echo Server, Zynq MP FSBL, Peripheral Tests, Memory Tests, FreeRTOS Hello World, Dhrystone, ...) on a platform/domain, in C or C++; app build compiles it (all or by name); app config reads/sets build settings (compiler symbols, include paths, libraries, library search paths, linker options, optimisation, build configuration Debug/Release) with -set/-add/-remove/-get; app list, app remove, app report and app switch (change platform/domain) complete the set. Running/debugging on hardware is done with the XSDB commands (connect, dow, con) or the Vitis debugger, not an 'app run' command.",
+      "usage": "app create -name <app> -platform <platform> -domain <domain> -template <\"Hello World\"|\"Empty Application\"|...> [-lang c|c++] [-sysproj <sysproj>] [-hw <xsa> -proc <proc> -os <os>]\napp build -name <app> | -all\napp config -name <app> -set|-add|-remove|-get <param> [<value>]\n  params: build-config, compiler-optimization, compiler-misc, define-compiler-symbols, undef-compiler-symbols, include-path, libraries, library-search-path, linker-misc, linker-script, assembler-flags\napp list ; app remove <app> ; app report <app> ; app switch -name <app> -platform <plat> | -domain <dom>\nrepo -set <dir> ; repo -scan   ;# custom application/driver templates",
+      "parameters": [
+        {"name": "-template", "description": "Template names as shown in the IDE (quote names with spaces); 'Empty Application' + importsources for existing code."},
+        {"name": "app config parameters", "description": "compiler-optimization (None (-O0) ... Optimize most (-O3)), define-compiler-symbols, include-path, libraries (e.g. m), library-search-path, linker-misc, linker-script, build-config (Debug/Release)."},
+        {"name": "importsources", "description": "importsources -name <app> -path <dir> [-soft-link] copies or links source files into the app."}
+      ],
+      "example": "app create -name hello_r5 -platform zcu104_plat -domain r5_std -template {Hello World} -lang c\napp config -name hello_r5 -add define-compiler-symbols BOARD_ZCU104=1\napp config -name hello_r5 -add include-path ../common/include\napp config -name hello_r5 -set compiler-optimization {Optimize more (-O2)}\nimportsources -name hello_r5 -path ./src/hello_r5\napp build -name hello_r5\n# ELF at ws/hello_r5/Debug/hello_r5.elf",
+      "notes": "The linker script (lscript.ld) is generated per app from the platform's memory map; edit it in the app's src folder for custom sections. A system project (sysproj) groups apps for multi-processor boot image generation (sysproj build / sysproj report).",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Application-Project-Commands"
+    },
+    {
+      "name": "bsp config / bsp setlib / bsp removelib / bsp regenerate / bsp listparams / bsp getdrivers / bsp setosversion (XSCT)",
+      "kind": "tcl-command",
+      "description": "Board Support Package configuration for the active standalone/FreeRTOS domain: bsp setlib adds libraries (xilffs FAT filesystem, lwip220? version per release, xilpm, xilsecure, xilfpga, xilmailbox, xilisf/xilflash? legacy, libmetal/openamp, xiltimer), bsp removelib removes them, bsp config sets OS and library parameters (stdin/stdout UART, microblaze_exceptions, use_lfn for xilffs, lwip options such as dhcp_does_arp_check, api_mode, mem_size), bsp listparams shows parameters (-lib, -os, -proc) and bsp getdrivers lists the driver assigned to each IP (bsp setdriver changes it), bsp regenerate rebuilds the BSP sources after changes, bsp setosversion / getos handle OS versions. Everything maps to the system.mss file the Vitis IDE edits graphically (Board Support Package Settings).",
+      "usage": "domain active <domain>\nbsp setlib -name <lib> [-ver <version>]\nbsp removelib -name <lib>\nbsp config <param> <value>        ;# e.g. bsp config stdout psu_uart_0 ; bsp config use_lfn 1 (with -lib? see notes)\nbsp listparams -os | -proc | -lib <lib>\nbsp getlibs ; bsp getdrivers ; bsp setdriver -ip <ip_instance> -driver <driver> -ver <ver>\nbsp regenerate\nbsp getos ; bsp setosversion -ver <version>\nplatform generate",
+      "parameters": [
+        {"name": "Libraries", "description": "xilffs, lwip (version-suffixed), xilpm, xilsecure, xilfpga, xilmailbox, xiltimer, xilskey, libmetal, openamp, xilloader? (Versal PLM only), xilsem, xilnvm."},
+        {"name": "OS parameters", "description": "stdin, stdout, microblaze_exceptions, enable_sw_intrusive_profiling, hypervisor_guest, zynqmp_fsbl_bsp, sleep_timer, ttc_select_cntr, xil_interrupt."},
+        {"name": "Driver assignment", "description": "bsp setdriver -ip axi_gpio_0 -driver gpio (or 'none' to exclude an IP)."}
+      ],
+      "example": "domain active a53_std\nbsp setlib -name xilffs\nbsp config use_lfn 1\nbsp setlib -name lwip220\nbsp config api_mode SOCKET_API\nbsp config dhcp_does_arp_check true\nbsp config stdout psu_uart_0\nbsp regenerate\nplatform generate",
+      "notes": "Library parameters are set with bsp config after the library is added; bsp listparams -lib <lib> lists their names. Driver sources and the generated xparameters.h live under <platform>/<domain>/bsp/<proc>/libsrc and include.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/BSP-Settings-Commands"
+    },
+    {
+      "name": "Vitis Python API (vitis -s script.py: create_platform_component, create_app_component, build)",
+      "kind": "api",
+      "description": "The scripting interface of the Vitis Unified IDE (2023.2+): the vitis Python module exposes a client (vitis.create_client()) with a workspace (set_workspace), platform components created from an .xsa (create_platform_component with cpu/os/domain settings, then get_platform_component().build()), application components (create_app_component with a template and platform .xpfm, then build()), HLS components (create_hls_component with a cfg file), system projects (create_sys_project for Vitis acceleration), domain/BSP configuration (domain.set_config, add_lib, set_lib_config) and utilities (get_component, delete_component, list_components). It replaces XSCT project commands in the unified flow and runs headless with vitis -s <script.py> or in the IDE's Python console; XSDB debugging remains Tcl (xsdb) or the vitis debug flow.",
+      "usage": "import vitis\nclient = vitis.create_client()\nclient.set_workspace(path='./ws')\nplatform = client.create_platform_component(name='zcu104_plat', hw_design='./hw/zcu104_wrapper.xsa', cpu='psu_cortexa53_0', os='standalone', domain_name='a53_std')\ndomain = platform.get_domain(name='a53_std')\ndomain.set_config(option='os', param='standalone_stdin', value='psu_uart_0')\ndomain.add_lib(lib_name='xilffs')\nplatform.build()\napp = client.create_app_component(name='hello', platform='./ws/zcu104_plat/export/zcu104_plat/zcu104_plat.xpfm', domain='a53_std', template='hello_world')\napp.import_files(from_loc='./src', files=['main.c'], dest_dir_in_cmp='src')\napp.set_app_config(key='USER_COMPILE_DEFINITIONS', values=['BOARD_ZCU104'])\napp.build()\nclient.close()",
+      "parameters": [
+        {"name": "create_platform_component(name, hw_design, cpu, os, domain_name, ...)", "description": "Platform from XSA; options for generate_boot_artifacts, fsbl target, hw_emu XSA."},
+        {"name": "create_app_component(name, platform, domain, template, ...)", "description": "Templates are the same set as the IDE (hello_world, empty_application, lwip_echo_server, zynqmp_fsbl ...)."},
+        {"name": "set_app_config(key, values)", "description": "Keys such as USER_COMPILE_DEFINITIONS, USER_INCLUDE_DIRECTORIES, USER_LINK_LIBRARIES, USER_COMPILE_OPTIMIZATION_LEVEL, USER_LINK_OTHER_FLAGS."},
+        {"name": "vitis -s / -i", "description": "Run a script or start an interactive Python shell with the vitis module."}
+      ],
+      "example": "# Headless build\n$ vitis -s build_all.py\n# Interactive exploration\n$ vitis -i\n>>> import vitis; client = vitis.create_client(); client.set_workspace('./ws'); client.list_components()",
+      "notes": "API names are documented in UG1400 'Vitis Unified IDE Python API' (help(client) works in the shell). Components are directories with vitis-comp.json; they can be built with the IDE or the API interchangeably. XSCT-created classic projects are not the same format (a migration flow exists in the IDE).",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Vitis-Python-CLI"
+    },
+    {
+      "name": "targets (-set, -filter, -nocase, -index) target selection in XSDB",
+      "kind": "tcl-command",
+      "description": "After connect, targets lists the debug targets the hw_server exposes (JTAG cables, devices, ARM DAPs, individual Cortex-A/R cores, MicroBlaze debug modules, the PS TAP, PL, PMU/PLM, and on Versal the PMC/PSM), each with an index and a state (Running, Stopped, Reset ...); targets -set -nocase -filter {name =~ \"*A53*#0\"} (or targets <index>) makes one the current target so that dow, con, rst, mrd/mwr, fpga, loadhw and breakpoints apply to it. Filters use Tcl glob on name, and properties such as parent, jtag_cable_name, is_current? are available with targets -target-properties / -filter.",
+      "usage": "targets [-set] [-regexp] [-nocase] [-filter <expr>] [-target-properties] [-index <n>] [-timeout <s>] [<target_id>]",
+      "parameters": [
+        {"name": "-set", "description": "Make the matched (single) target current."},
+        {"name": "-filter", "description": "Expression on properties: name, parent, jtag_cable_name, jtag_device_ctx, level, state ... e.g. {name =~ \"Cortex-R5 #0\"}, {name =~ \"*MicroBlaze Debug*\"}."},
+        {"name": "-target-properties", "description": "Return a dict of properties per target (for scripts)."},
+        {"name": "<target_id>", "description": "Numeric index from the list (unstable across sessions; prefer -filter)."}
+      ],
+      "example": "connect -url tcp:127.0.0.1:3121\ntargets\n#  1  PS TAP\n#     2  PMU\n#     3  PL\n#  4  PSU\n#     5  RPU\n#        6  Cortex-R5 #0 (Halted)\n#        7  Cortex-R5 #1 (Lock Step Mode)\n#     8  APU\n#        9  Cortex-A53 #0 (Running)\ntargets -set -nocase -filter {name =~ \"*A53*#0\"}\nrst -processor\ndow ./hello.elf\ncon",
+      "notes": "Zynq UltraScale+: program the PL with 'targets -set -filter {name =~ \"PL*\"}; fpga -file top.bit' (or via the PS TAP as in the meta example) before releasing the APU. MicroBlaze targets appear only after the bitstream containing the MDM is loaded and the hw_server rescans (targets may need a moment).",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/targets"
+    },
+    {
+      "name": "XSDB memory & register access (mrd, mwr, rrd, rwr, mask_write, mask_poll, dow -data, memmap)",
+      "kind": "tcl-command",
+      "description": "Reading and writing target memory and registers from XSDB on the current target: mrd <addr> [count] reads words (options -size b|h|w|d, -bin/-file to dump to a file, -force to bypass access checks, -value for scripting), mwr <addr> <values> writes (with -size, -bin/-file to upload a binary image, -bypass-cache-sync), rrd/rwr read/write processor registers (rrd r0, rrd pc, rwr pc 0x0) and, on ARM, coprocessor/system registers by name, mask_write/mask_poll perform read-modify-write and polling used by ps7_init/psu_init sequences, dow -data <file> <addr> downloads a raw binary to memory (e.g. device tree, image.ub, bitstream for xilfpga tests) and memmap adds/removes address map entries for symbol lookup. Used for register-level debug of peripherals and for scripted board bring-up.",
+      "usage": "mrd [-size b|h|w|d] [-force] [-bin -file <f>] [-value] [-unaligned-access] <address> [<num_words>]\nmwr [-size b|h|w|d] [-force] [-bin -file <f>] [-bypass-cache-sync] <address> <value> [<num_words>]\nrrd [-defs] [-no-bits] [<register_name>] ; rwr <register_name> <value>\nmask_write <addr> <mask> <value> ; mask_poll <addr> <mask> [<expected>] [<sleep>] [<timeout>]\ndow [-data] [-clear] [-force] <file> [<address>]\nmemmap -addr <a> -size <s> [-flags <f>] [-osa? see help] ; memmap -clear",
+      "parameters": [
+        {"name": "-size", "description": "Access width: b (8), h (16), w (32, default), d (64)."},
+        {"name": "-force", "description": "Access even if the address is outside the known memory map (e.g. peripheral registers not in the map)."},
+        {"name": "-bin -file", "description": "Binary dump/load; mwr -bin -file image.bin 0x10000000."},
+        {"name": "-value (mrd)", "description": "Return the value(s) as a Tcl list instead of printing."}
+      ],
+      "example": "targets -set -filter {name =~ \"*A53*#0\"}\nmrd -force 0xFF0A0000 4          ;# GPIO registers\nmwr -force 0xFF0A0044 0x1\nset v [mrd -value 0x80000000]\nrrd pc ; rrd sp\nmwr -bin -file ./image.ub 0x10000000\nmask_write 0xFF5E0238 0x00000007 0x00000000   ;# release resets (psu_init style)\nmask_poll  0xFFCA3000 0x00000004 0x00000004 10 1000",
+      "notes": "Caches: after mwr into memory used by a running core, flush/invalidate caches or use -bypass-cache-sync appropriately; XSDB normally handles coherency when the target is stopped. Addresses are physical unless an MMU-aware target and memmap symbol info are used.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Memory-Access-Commands"
+    },
+    {
+      "name": "XSDB breakpoints & execution control (bpadd, bpremove, bplist, bpenable, con, stp, nxt, stpi, stpout, stop, backtrace, print, locals, dis)",
+      "kind": "tcl-command",
+      "description": "Source-level and address-level debugging in XSDB after dow of an ELF with debug info: bpadd sets breakpoints on addresses, functions or file:line (with -type hw|sw|auto, -ct-input/-ct-output for cross-triggers, -mode, -enable), bplist/bpremove/bpenable/bpdisable manage them, con resumes (with -addr, -block, -timeout), stp/nxt/stpi/nxti/stpout step into/over at source or instruction level, stop halts, backtrace/bt prints the call stack, print evaluates expressions and variables (-add for watch), locals shows local variables, dis disassembles, and profile/mbprofile handle MicroBlaze profiling. The Vitis IDE debugger uses the same engine (TCF) so behaviour matches.",
+      "usage": "bpadd [-addr <addr> | -file <f> -line <n> | <function>] [-type auto|hw|sw] [-mode 0x1|0x2|0x4|0x8] [-enable 0|1] [-ct-input <n>] [-ct-output <n>] [-skip-on-step? see help] [-target-id <id>]\nbplist ; bpremove <id>|-all ; bpenable <id>|-all ; bpdisable <id>|-all ; bpstatus <id>\ncon [-addr <a>] [-block] [-timeout <s>]\nstp [n] ; nxt [n] ; stpi [n] ; nxti [n] ; stpout\nstop\nbacktrace (bt) [-maxframes <n>]\nprint [-add | -remove | -set <v> | -defs | -dict] <expr>\nlocals [-defs | -dict] [<name>]\ndis [<addr>] [<num>]\nrst [-processor | -cores | -system | -srst | -por | -ps? see help] [-clear-registers] [-skip-activate-subsystem] [-type <t>]",
+      "parameters": [
+        {"name": "bpadd -type", "description": "sw (memory patch), hw (debug unit comparators, limited count), auto."},
+        {"name": "-ct-input / -ct-output", "description": "Cross-trigger with fabric ILAs or other cores (Zynq CTI)."},
+        {"name": "con -block", "description": "Block until the target stops (breakpoint hit) for scripted tests; -timeout limits the wait."},
+        {"name": "rst modes", "description": "-processor (current core), -cores (all cores of the cluster), -system (whole PS+PL), -srst (system reset pin), -por (power-on reset)."}
+      ],
+      "example": "targets -set -filter {name =~ \"*R5*#0\"}\nrst -processor\ndow ./fw.elf\nbpadd -file main.c -line 120\nbpadd XGpio_DiscreteWrite\ncon -block -timeout 30\nbacktrace\nlocals\nprint counter\nprint -set counter 0\nstp 3\nbpremove -all\ncon",
+      "notes": "Software breakpoints need writable code memory (not in flash/ROM); use -type hw there. Optimised code (-O2) may not stop where expected; build Debug (-O0 -g) for stepping. jtagterminal opens a JTAG UART console for MDM/psu_pmu? (MicroBlaze) designs.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Breakpoints-Commands"
+    },
+    {
+      "name": "loadhw / ps7_init & psu_init / plm (PS initialisation and hardware handoff in XSDB)",
+      "kind": "tcl-command",
+      "description": "Bringing up a Zynq/Versal system under XSDB without a boot image: loadhw -hw <xsa> loads the hardware description (memory map, processors, peripherals) so symbols/addresses and the PS initialisation scripts are known (-mem-ranges restricts valid memory for the debugger); for Zynq-7000 the generated ps7_init.tcl (from the FSBL/platform: source ps7_init.tcl; ps7_init; ps7_post_config) configures clocks, DDR, MIO; for Zynq UltraScale+ psu_init.tcl (source psu_init.tcl; psu_init; psu_ps_pl_isolation_removal; psu_ps_pl_reset_config) plus loading the PMU firmware into the PMU target (targets -set -filter {name =~ \"PMU\"}; dow pmufw.elf; con) before releasing the APU/RPU; on Versal there is no init script: the PLM in the PDI performs initialisation, so 'device program <file.pdi>' (on the Versal target) boots the device and JTAG-boot mode is used. Alternatively the FSBL ELF can be downloaded and run to initialise the PS (dow fsbl.elf; con; then stop) which is the recommended way for complex DDR setups.",
+      "usage": "loadhw -hw <design.xsa> [-mem-ranges [list {<lo> <hi>} ...]] [-list? see help]\n# Zynq-7000\ntargets -set -filter {name =~ \"APU*\"}\nsource ./ps7_init.tcl ; ps7_init ; ps7_post_config\n# Zynq UltraScale+\ntargets -set -filter {name =~ \"PSU\"}\nsource ./psu_init.tcl ; psu_init ; psu_ps_pl_isolation_removal ; psu_ps_pl_reset_config\ntargets -set -filter {name =~ \"PMU\"} ; dow ./pmufw.elf ; con\n# Versal\ntargets -set -nocase -filter {name =~ \"*Versal*\"}\ndevice program ./boot.pdi\n# or via FSBL on ZynqMP\ntargets -set -filter {name =~ \"*A53*#0\"} ; rst -processor ; dow ./fsbl.elf ; con ; after 3000 ; stop",
+      "parameters": [
+        {"name": "loadhw -mem-ranges", "description": "List of {low high} address pairs the debugger may access (e.g. DDR ranges) to avoid bus errors."},
+        {"name": "ps7_init / psu_init procs", "description": "Generated in the platform's hw or boot folder (ps7_init.tcl, psu_init.tcl) and identical to the C versions used by the FSBL."},
+        {"name": "device program (Versal)", "description": "XSDB command that loads a PDI into the device through the PMC (also 'device status', 'device authjtag')."},
+        {"name": "fpga -file", "description": "Programs the PL bitstream (7 series/Zynq/ZynqMP) through the JTAG/PS TAP target."}
+      ],
+      "example": "# Full ZynqMP JTAG bring-up script\nconnect\ntargets -set -filter {name =~ \"PSU\"}\nsource ./psu_init.tcl ; psu_init\ntargets -set -filter {name =~ \"PL\"}\nfpga -file ./top.bit\ntargets -set -filter {name =~ \"PSU\"}\npsu_ps_pl_isolation_removal ; psu_ps_pl_reset_config\ntargets -set -filter {name =~ \"PMU\"} ; dow ./pmufw.elf ; con\ntargets -set -filter {name =~ \"*A53*#0\"} ; rst -processor\ndow ./app.elf ; con",
+      "notes": "Boot mode pins should be set to JTAG for this flow (otherwise the boot ROM may have started something). The Vitis IDE 'Debug Configuration' performs exactly this sequence with its 'Initialize using FSBL' / 'PS init' options. Versal boot over JTAG requires a boot PDI built by bootgen for the design.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Running-and-Debugging"
+    },
+    {
+      "name": "jtag targets / jtag frequency / jtag servers / jtag devices? (XSDB JTAG utilities) and jtagterminal",
+      "kind": "tcl-command",
+      "description": "Low-level JTAG control in XSDB: jtag targets lists the JTAG scan chains and devices (independent of the debug targets), jtag frequency reads or sets the TCK rate of the current cable, jtag servers lists/opens/closes JTAG server connections (e.g. to add an XVC server: jtag servers -open xilinx-xvc:host:2542), jtag sequence lets you build raw IR/DR shift sequences for custom TAP access, and jtag targets -set selects the chain for the jtag * commands; jtagterminal opens a console connected to the MDM's JTAG UART (MicroBlaze designs) or the Versal? (ZynqMP PMU) JTAG UART so printf output appears without a physical UART.",
+      "usage": "jtag targets [-set] [-filter <expr>] [<id>]\njtag frequency [<Hz>]\njtag servers [-list | -open <url> | -close <url> | -format]\njtag sequence ... ; jtag device_properties ; jtag skew?\njtagterminal [-start | -stop] [-socket]",
+      "parameters": [
+        {"name": "jtag frequency", "description": "Set the cable TCK in Hz (e.g. 10000000); persists for the session."},
+        {"name": "jtag servers -open", "description": "Attach an XVC server or a second cable to the running hw_server."},
+        {"name": "jtagterminal -socket", "description": "Expose the JTAG UART as a TCP socket instead of a window (for scripts/CI)."}
+      ],
+      "example": "connect\njtag targets\njtag frequency 15000000\njtag servers -open xilinx-xvc:192.168.1.50:2542\ntargets -set -filter {name =~ \"*MicroBlaze*#0\"}\ndow ./hello.elf\njtagterminal -start\ncon",
+      "notes": "jtag frequency also affects Vivado Hardware Manager sessions sharing the hw_server. Custom jtag sequence use requires knowing the device IR lengths and BSCAN user instructions (see BSCANE2).",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/JTAG-UART-Commands"
+    },
+    {
+      "name": "hsi::open_hw_design / hsi::get_cells / hsi::get_property / hsi::generate_app (Hardware Software Interface queries)",
+      "kind": "tcl-command",
+      "description": "The hsi:: namespace in XSCT reads a hardware handoff (.xsa/.hdf) so scripts can inspect the design's processors, peripherals, memory map and parameters and generate software: hsi::open_hw_design opens the XSA (returns a design object), hsi::get_cells -hier lists IP instances (with -filter {IP_TYPE == PROCESSOR}), hsi::get_property reads parameters (CONFIG.C_BASEADDR, VLNV, IP_NAME, CONFIG.C_GPIO_WIDTH ...), hsi::get_mem_ranges gives address ranges per processor, hsi::get_ports/hsi::get_nets the connectivity, hsi::generate_app -app zynqmp_fsbl|zynq_fsbl|... -proc <p> -dir <d> creates template applications (FSBL, PMU firmware) without a Vitis workspace, hsi::generate_bsp? (via hsi::create_sw_design + hsi::generate_bsp) builds BSPs, and hsi::close_hw_design releases it. It is the engine behind platform creation and device-tree generation.",
+      "usage": "hsi::open_hw_design <design.xsa>\nhsi::get_cells -hier [-filter <expr>]\nhsi::get_property <PROP> <object>\nhsi::get_mem_ranges -of_objects [hsi::get_cells -hier <processor>]\nhsi::get_hw_files? (see help) ; hsi::get_ports ; hsi::get_nets ; hsi::get_pins\nhsi::generate_app -app zynqmp_fsbl -proc psu_cortexa53_0 -dir ./fsbl -os standalone -compile\nhsi::generate_app -app zynqmp_pmufw -proc psu_pmu_0 -dir ./pmufw -compile\nhsi::create_sw_design <name> -proc <proc> -os standalone ; hsi::generate_bsp -dir <dir>\nhsi::close_hw_design [hsi::current_hw_design]",
+      "parameters": [
+        {"name": "Cell properties", "description": "IP_NAME, IP_TYPE (PROCESSOR, PERIPHERAL, BUS, MEMORY_CNTLR), VLNV, CONFIG.* parameters, IS_PL? etc."},
+        {"name": "Memory ranges", "description": "BASE_VALUE, HIGH_VALUE, SLAVE_INTERFACE, INSTANCE, IS_DATA/IS_INSTRUCTION on mem_range objects."},
+        {"name": "generate_app -app", "description": "zynq_fsbl, zynqmp_fsbl, zynqmp_pmufw, versal_plm, versal_psmfw, hello_world, empty_application ... with -compile to build immediately."}
+      ],
+      "example": "xsct\nhsi::open_hw_design ./zcu104_wrapper.xsa\nforeach c [hsi::get_cells -hier -filter {IP_TYPE == PERIPHERAL}] {\n  puts \"$c [hsi::get_property IP_NAME $c] base=[hsi::get_property CONFIG.C_S_AXI_BASEADDR $c]\"\n}\nhsi::generate_app -app zynqmp_fsbl -proc psu_cortexa53_0 -dir ./boot/fsbl -compile\nhsi::generate_app -app zynqmp_pmufw -proc psu_pmu_0 -dir ./boot/pmufw -compile\nhsi::close_hw_design [hsi::current_hw_design]",
+      "notes": "The same commands are used by the Vivado 'open_hw_platform' Tcl? (Vivado has open_hw_platform? see UG835 open_hw_platform / write_hw_platform) for reading XSAs; in XSCT the hsi:: prefix is required. Generated FSBL/PMUFW sources can be customised (xfsbl_config.h) and rebuilt with make.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/HSI-Commands"
+    },
+    {
+      "name": "createdts (device tree generation from XSA)",
+      "kind": "tcl-command",
+      "description": "Generate a Linux device tree (.dts/.dtsi plus pl.dtsi for the PL peripherals and optionally a compiled .dtb) from an .xsa using the device-tree generator (DTG, the device-tree-xlnx repository) directly in XSCT, without PetaLinux: createdts -hw <xsa> -zocl (for XRT zocl node) -platform-name <name> -git-branch <dtg_branch> -board <board dts, e.g. zcu104-revc> -out <dir> -compile; the result is used with the common Linux images (xilinx-zynqmp-common) or custom kernels. In PetaLinux the same generator runs during petalinux-build with system-user.dtsi overrides.",
+      "usage": "createdts -hw <design.xsa> -platform-name <name> [-board <board_name>] [-git-url <url>] [-git-branch <branch>] [-local-repo <dir>] [-zocl] [-dtsi <extra.dtsi>] [-overlay] [-compile] [-out <dir>] [-update? see help]",
+      "parameters": [
+        {"name": "-board", "description": "Board dtsi from the DTG repo (zcu102-rev1.0, zcu104-revc, kv260? ...) providing board-level nodes (PHY, I2C devices)."},
+        {"name": "-git-branch / -local-repo", "description": "Version of device-tree-xlnx matching the tool release, or a local clone."},
+        {"name": "-zocl", "description": "Add the zocl node needed by XRT on embedded platforms."},
+        {"name": "-overlay", "description": "Generate a device-tree overlay (pl.dtbo) for dynamic loading of PL peripherals (fpga-manager/dfx)."},
+        {"name": "-compile", "description": "Run dtc to produce system.dtb / pl.dtbo."}
+      ],
+      "example": "xsct\ncreatedts -hw ./zcu104_wrapper.xsa -platform-name zcu104_custom -board zcu104-revc -git-branch xlnx_rel_v2024.2 -zocl -compile -out ./dt\n# outputs: ./dt/zcu104_custom/psu_cortexa53_0/device_tree_domain/bsp/{system-top.dts, pl.dtsi, pcw.dtsi, zynqmp.dtsi, system.dtb}",
+      "notes": "Requires network access to clone device-tree-xlnx unless -local-repo is given. Overlays (pl.dtbo) are the mechanism used by Kria SOM 'xmutil loadapp' and by DFX designs to load PL device nodes at run time.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/createdts"
+    },
+    {
+      "name": "bootgen options (-arch, -image, -o, -w, -log, -encrypt, -authentication? (-generate_keys, -efuseppkbits), -split, -process_bitstream, -dump, -read)",
+      "kind": "command",
+      "description": "Boot image generator command line: -arch zynq|zynqmp|versal|fpga selects the device family, -image <file.bif> the boot image description, -o <BOOT.BIN|.pdi|.mcs> the output (format from extension: .bin, .mcs; -o also accepts a .bit for -arch fpga), -w on|off overwrite, -log error|warning|info|trace verbosity, -split bin|mcs writes each partition as a separate file, -process_bitstream bin|mcs converts a .bit into a .bin/.mcs (byte-swapped for PCAP on Zynq-7000), -generate_keys aes|rsa|pem|rk? creates key files referenced by the BIF, -efuseppkbits <file> writes the PPK hash for eFUSE programming, -encrypt bbram|efuse selects the AES key source, -read <BOOT.BIN> and -dump parse an existing image (e.g. -dump pmc_bh? for Versal), -padimageheader, -fill, -spksignature and -zynqmpes1 handle special cases. The BIF (see the per-family entries) lists bootloader, firmware, bitstream, ATF, U-Boot, Linux images and attributes such as destination_cpu, exception_level, partition_owner, load, offset, encryption, authentication.",
+      "usage": "bootgen -arch zynq|zynqmp|versal|fpga -image <boot.bif> -o <output> [-w on|off] [-log error|warning|info|trace] [-split bin|mcs] [-process_bitstream bin|mcs] [-encrypt bbram|efuse] [-generate_keys aes|rsa|pem] [-efuseppkbits <file>] [-p <part>] [-read <image>] [-dump [<section>]] [-padimageheader 0|1] [-fill <hex>] [-spksignature <f>] [-zynqmpes1] [-encryption_dump] [-verify <image>]",
+      "parameters": [
+        {"name": "-arch", "description": "zynq (Zynq-7000), zynqmp (Zynq UltraScale+), versal, fpga (7 series/UltraScale bitstream-only images, e.g. encrypted .bit)."},
+        {"name": "-o", "description": "Output image; .bin for SD/QSPI raw, .mcs for flash programming via Vivado."},
+        {"name": "-split", "description": "Also emit each partition as an individual file (for partial updates)."},
+        {"name": "-process_bitstream bin", "description": "Produce a PCAP-ready .bin from a .bit (older flows; Vivado 2016+ -bin_file output is already usable on ZynqMP)."},
+        {"name": "-read / -dump / -verify", "description": "Inspect or verify (authentication) an existing boot image."}
+      ],
+      "example": "bootgen -arch zynqmp -image boot.bif -o BOOT.BIN -w on -log info\nbootgen -arch zynqmp -image boot.bif -o boot.mcs -w on -split mcs\nbootgen -arch fpga -image bit.bif -o top_encrypted.bit -w on   ;# with [encryption=aes, keysrc? aeskeyfile] in the BIF\nbootgen -read BOOT.BIN\nbootgen -arch versal -image versal.bif -o BOOT.BIN -w on",
+      "notes": "bootgen ships with Vitis (and Vivado's Vitis subset); a GUI front-end exists in the Vitis IDE (Create Boot Image, classic) and 'Package' step of unified components. Keys and authentication details are in UG1283 (Bootgen User Guide); Versal PDIs have different section semantics (PLM, boot header, images with ids).",
+      "docs": "https://docs.amd.com/r/en-US/ug1283-bootgen-user-guide"
+    },
+    {
+      "name": ".bif syntax for Zynq-7000 (bootloader, bitstream, u-boot / Linux partitions)",
+      "kind": "format",
+      "description": "Boot Image Format file for bootgen -arch zynq: a named image block listing partitions in boot order with attributes in brackets: [bootloader] fsbl.elf (FSBL, must be first), the PL bitstream (loaded by the FSBL through PCAP; no attribute needed, or [destination_device=pl]), then u-boot.elf and optionally [load=0x...] raw data (device tree, kernel image, ramdisk) with [offset=0x...] to place partitions at fixed flash offsets and [partition_owner=uboot] for partitions the FSBL should skip; security attributes [encryption=aes], [authentication=rsa] plus key files ([aeskeyfile], [pskfile], [sskfile]) and [init] for register initialisation files. Applications for the second CPU or standalone can also be listed ([destination_cpu? not on Zynq-7000; the FSBL hands off to the last ELF? see notes]).",
+      "usage": "// zynq_boot.bif\nthe_ROM_image:\n{\n  [bootloader] ./fsbl/executable.elf\n  ./hw/system_top.bit\n  ./u-boot/u-boot.elf\n  [offset=0x00500000, load=0x02000000? optional] ./linux/image.ub\n}\n$ bootgen -arch zynq -image zynq_boot.bif -o BOOT.BIN -w on",
+      "parameters": [
+        {"name": "[bootloader]", "description": "The FSBL ELF; exactly one, first partition."},
+        {"name": "bitstream (.bit)", "description": "Loaded via PCAP by the FSBL before subsequent partitions; may appear before or after U-Boot depending on when the PL is needed."},
+        {"name": "[load=<addr>]", "description": "Address to load a raw partition (data) to; ELFs use their own load addresses."},
+        {"name": "[offset=<addr>]", "description": "Fixed position of the partition inside the image (e.g. for U-Boot to find image.ub)."},
+        {"name": "[init=<file>]", "description": "Register initialisation (.int) executed by the boot ROM before the FSBL."},
+        {"name": "[encryption=aes] / [authentication=rsa] / [aeskeyfile=..] / [pskfile=..] / [sskfile=..]", "description": "Secure boot attributes and key files."}
+      ],
+      "example": "// standalone application boot (no Linux)\nthe_ROM_image:\n{\n  [bootloader] fsbl.elf\n  system.bit\n  app.elf\n}",
+      "notes": "The FSBL executes the last ELF partition it loaded (hand-off); U-Boot then loads Linux from SD/QSPI using image.ub or separate uImage/dtb/rootfs at known offsets. Partition data for Zynq-7000 bitstreams is byte-swapped by bootgen automatically. The Vitis 'Create Boot Image' dialog writes this file.",
+      "docs": "https://docs.amd.com/r/en-US/ug1283-bootgen-user-guide/BIF-Syntax-and-Supported-File-Types"
+    },
+    {
+      "name": ".bif syntax for Zynq UltraScale+ MPSoC (pmufw_image, destination_cpu, exception_level, trustzone, destination_device=pl)",
+      "kind": "format",
+      "description": "Boot Image Format for bootgen -arch zynqmp: partitions carry the target processor and execution level: [bootloader, destination_cpu=a53-0] fsbl.elf (A53 or R5 FSBL), [pmufw_image] pmufw.elf (PMU firmware loaded by the boot ROM/FSBL), [destination_device=pl] design.bit (PL configured by the FSBL), [destination_cpu=a53-0, exception_level=el-3, trustzone] bl31.elf (Arm Trusted Firmware), [destination_cpu=a53-0, exception_level=el-2] u-boot.elf, and optional R5 applications [destination_cpu=r5-0] or [destination_cpu=r5-lockstep] app_r5.elf, plus [load=..], [offset=..], [partition_owner=uboot], [checksum=md5], [encryption=aes], [authentication=rsa], [bhkey? keys], [fsbl_config a53_x64|a53_x32|r5_single|r5_dual, bh_auth_enable, ...] and [pskfile]/[sskfile]/[aeskeyfile]/[bbram_kek_iv? ...] for secure boot; U-Boot is executed after ATF (EL2), Linux is loaded by U-Boot from image.ub/boot.scr.",
+      "usage": "// zynqmp_boot.bif\nthe_ROM_image:\n{\n  [fsbl_config] a53_x64\n  [bootloader, destination_cpu=a53-0] ./fsbl/executable.elf\n  [pmufw_image] ./pmufw/executable.elf\n  [destination_device=pl] ./hw/system_top.bit\n  [destination_cpu=a53-0, exception_level=el-3, trustzone] ./atf/bl31.elf\n  [destination_cpu=a53-0, exception_level=el-2] ./u-boot/u-boot.elf\n  [destination_cpu=r5-0] ./rpu/rpu_app.elf\n}\n$ bootgen -arch zynqmp -image zynqmp_boot.bif -o BOOT.BIN -w on",
+      "parameters": [
+        {"name": "destination_cpu", "description": "a53-0..a53-3, r5-0, r5-1, r5-lockstep, pmu."},
+        {"name": "exception_level", "description": "el-0..el-3 for A53 partitions (ATF at el-3, U-Boot/Linux at el-2, apps at el-1)."},
+        {"name": "trustzone", "description": "Secure world for the partition (ATF)."},
+        {"name": "[fsbl_config]", "description": "a53_x64 (default), a53_x32, r5_single, r5_dual, bh_auth_enable, pufhd_bh, auth_only, opt_key, shutter=... ."},
+        {"name": "[pmufw_image]", "description": "PMU firmware partition (required for most boards; loaded before the FSBL runs)."},
+        {"name": "[destination_device=pl]", "description": "Bitstream partition (also accepts a .bin)."}
+      ],
+      "example": "// Linux boot with image.ub in the boot image (alternative to a separate file on SD)\nthe_ROM_image:\n{\n  [bootloader, destination_cpu=a53-0] fsbl.elf\n  [pmufw_image] pmufw.elf\n  [destination_device=pl] system.bit\n  [destination_cpu=a53-0, exception_level=el-3, trustzone] bl31.elf\n  [destination_cpu=a53-0, load=0x00100000] system.dtb\n  [destination_cpu=a53-0, exception_level=el-2] u-boot.elf\n}",
+      "notes": "PetaLinux's petalinux-package --boot --fsbl --pmufw --atf --u-boot --fpga generates an equivalent BIF automatically (images/linux/bootgen.bif). For QSPI boot use -o boot.mcs? no: create BOOT.BIN then program with program_flash or Vivado write_cfgmem? (bootgen -o .mcs directly works with -arch zynqmp). Kria SOMs use the same structure with the boot firmware in QSPI and applications in the SD/eMMC.",
+      "docs": "https://docs.amd.com/r/en-US/ug1283-bootgen-user-guide/Zynq-UltraScale-MPSoC-Boot-and-Configuration"
+    },
+    {
+      "name": "Boot components: FSBL, PMU firmware, PLM/PSM firmware (Versal), Arm Trusted Firmware (BL31), U-Boot, image.ub / boot.scr",
+      "kind": "reference",
+      "description": "What goes into a boot image and where it comes from. Zynq-7000: FSBL (First Stage Boot Loader, from the Vitis template zynq_fsbl or PetaLinux, includes ps7_init) initialises PS, loads the bitstream and the next partition. Zynq UltraScale+: PMU firmware (pmufw, runs on the PMU MicroBlaze; power management, error handling; generated from the zynqmp_pmufw template), FSBL (zynqmp_fsbl template, runs on A53-0 or R5-0, psu_init inside), Arm Trusted Firmware (bl31.elf from the arm-trusted-firmware repo/PetaLinux, EL3 secure monitor for PSCI), U-Boot (u-boot.elf, EL2, loads Linux), optionally OP-TEE, then Linux (Image + system.dtb + rootfs, packaged as image.ub FIT image and started via boot.scr or U-Boot environment). Versal: PLM (Platform Loader and Manager, runs on the PMC MicroBlaze; versal_plm template; loads all partitions from the PDI), PSM firmware (versal_psmfw; power management on the PSM MicroBlaze), the CDO (configuration data objects) generated by Vivado for PS/NoC/PL init inside the PDI, then ATF, U-Boot, Linux as on ZynqMP. All are built by PetaLinux automatically or individually in Vitis (templates) and combined by bootgen; Vitis 'Generate boot artifacts' on platform creation builds FSBL/PMUFW (or PLM/PSM) ELFs into <platform>/boot? export folder.",
+      "usage": "# Vitis templates that produce the firmware ELFs\napp create -name fsbl -platform <plat> -domain <a53_std> -template {Zynq MP FSBL}\napp create -name pmufw -platform <plat> -domain <pmu_std> -template {ZynqMP PMU Firmware}\napp create -name plm -platform <versal_plat> -domain <pmc_std> -template {versal PLM}\n# PetaLinux equivalents\npetalinux-build -c fsbl ; -c pmufw ; -c arm-trusted-firmware ; -c u-boot ; -c kernel ; -c device-tree ; -c plm ; -c psmfw\npetalinux-package --boot --format BIN --fsbl images/linux/zynqmp_fsbl.elf --pmufw images/linux/pmufw.elf --atf images/linux/bl31.elf --u-boot images/linux/u-boot.elf --fpga images/linux/system.bit --force",
+      "parameters": [
+        {"name": "FSBL customisation", "description": "xfsbl_config.h (debug prints FSBL_DEBUG_INFO, PL load options, secure options), xfsbl_hooks.c (user hooks before/after PL load, before hand-off)."},
+        {"name": "PMU firmware modules", "description": "xpfw_config.h enables PM (power management), EM (error management), STL, RTC, scheduler; required for Linux power management via ATF/PSCI."},
+        {"name": "ATF / U-Boot", "description": "Built from AMD forks (arm-trusted-firmware, u-boot-xlnx) matching the release; U-Boot device tree and environment define boot commands (boot.scr generated by PetaLinux)."},
+        {"name": "image.ub", "description": "FIT (Flattened Image Tree) containing kernel, dtb and optional ramdisk; alternative: separate Image, system.dtb, rootfs.cpio.gz.u-boot or ext4 partition."}
+      ],
+      "example": "# Boot sequence ZynqMP: BootROM -> (PMUFW) -> FSBL (psu_init, PL bitstream, load ATF/U-Boot) -> ATF (EL3) -> U-Boot (EL2) -> Linux\n# Boot sequence Versal: BootROM -> PLM (CDOs: PS/NoC/DDR/PL) -> PSMFW -> ATF -> U-Boot -> Linux",
+      "notes": "Version consistency matters: FSBL/PMUFW/PLM from release N with a hardware design from release N-1 usually works, mixing kernel/U-Boot/ATF across major releases usually does not. Debug prints from the FSBL (UART) are the first thing to enable when a board does not boot.",
+      "docs": "https://docs.amd.com/r/en-US/ug1137-zynq-ultrascale-mpsoc-swdev/Boot-Process-Overview"
+    },
+    {
+      "name": "Standalone BSP conventions: xparameters.h, x<ip>.h drivers, xil_printf, xil_io, Xil_ExceptionHandler, lscript.ld",
+      "kind": "reference",
+      "description": "Bare-metal software on MicroBlaze/Zynq/Versal uses the standalone BSP generated per domain: xparameters.h holds every IP instance's base address, device ID, interrupt IDs and configuration constants (XPAR_<INSTANCE>_BASEADDR, XPAR_<INSTANCE>_DEVICE_ID, XPAR_FABRIC_<INST>_<PORT>_INTR ...) generated from the hardware design; each IP has a driver (xgpio.h, xaxidma.h, xuartps.h, xiicps.h, xtmrctr.h, xscugic.h, xsdps.h, xemacps.h, xqspipsu.h, xrtcpsu.h, xzdma.h, xilfpga.h ...) with an X<Ip>_LookupConfig / X<Ip>_CfgInitialize (or X<Ip>_Initialize) pattern and self-test/example code under the driver's examples folder; xil_printf is a lightweight printf over the configured stdout UART, xil_io.h provides Xil_In32/Xil_Out32 register access, xil_cache.h cache control (Xil_DCacheFlushRange before DMA), xil_exception.h and xscugic.h set up interrupts (XScuGic_Connect, Xil_ExceptionRegisterHandler), xil_types.h the u8/u32 types, sleep.h usleep/sleep, xtime_l.h timers; the linker script lscript.ld places sections into DDR/OCM/BRAM per the memory map and sets stack/heap sizes. In 2023.2+ (System Device Tree flow) device IDs are replaced by base addresses in LookupConfig and xparameters.h content changes (XPAR_XGPIO_0_BASEADDR style).",
+      "usage": "#include \"xparameters.h\"\n#include \"xgpio.h\"\n#include \"xil_printf.h\"\nXGpio gpio;\nint main(void) {\n  XGpio_Config *cfg = XGpio_LookupConfig(XPAR_AXI_GPIO_0_DEVICE_ID);   // 2023.2+: XPAR_AXI_GPIO_0_BASEADDR\n  XGpio_CfgInitialize(&gpio, cfg, cfg->BaseAddress);\n  XGpio_SetDataDirection(&gpio, 1, 0x0);\n  XGpio_DiscreteWrite(&gpio, 1, 0xA5);\n  xil_printf(\"LEDs set: 0x%02x\\r\\n\", XGpio_DiscreteRead(&gpio, 1));\n  return 0;\n}",
+      "parameters": [
+        {"name": "xparameters.h", "description": "Generated constants; regenerate the platform/BSP after hardware changes (platform config -updatehw; platform generate)."},
+        {"name": "Driver examples", "description": "<bsp>/libsrc/<driver>/src/examples or the embeddedsw repo (github.com/Xilinx/embeddedsw) with x<ip>_intr_example.c etc."},
+        {"name": "Interrupts", "description": "XScuGic (Zynq/ZynqMP/Versal GIC) or XIntc (MicroBlaze axi_intc); IDs from xparameters.h (XPAR_FABRIC_*_INTR)."},
+        {"name": "lscript.ld", "description": "Memory regions from the platform (psu_ddr_0_MEM_0, axi_bram_ctrl_0_Mem0, microblaze_0_local_memory_...); _STACK_SIZE/_HEAP_SIZE symbols."}
+      ],
+      "example": "// DMA transfer with cache maintenance\nXil_DCacheFlushRange((UINTPTR)tx_buf, len);\nXAxiDma_SimpleTransfer(&dma, (UINTPTR)tx_buf, len, XAXIDMA_DMA_TO_DEVICE);\nwhile (XAxiDma_Busy(&dma, XAXIDMA_DMA_TO_DEVICE)) ;\nXil_DCacheInvalidateRange((UINTPTR)rx_buf, len);",
+      "notes": "Drivers are versioned with the release; APIs occasionally change (e.g. the device-ID to base-address migration in 2023.2). FreeRTOS domains use the same drivers with the FreeRTOS kernel (freertos10_xilinx) and its port (FreeRTOSConfig.h).",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded/Standalone-Library"
+    },
+    {
+      "name": "PetaLinux (petalinux-create, petalinux-config --get-hw-description, petalinux-build, petalinux-package)",
+      "kind": "command",
+      "description": "AMD's Yocto-based embedded Linux build tool for Zynq/ZynqMP/Versal/MicroBlaze: petalinux-create -t project --template zynqMP|zynq|versal|microblaze -n <name> (or -s <bsp.bsp> to start from a board BSP) creates a project; petalinux-config --get-hw-description <dir_or_xsa> imports the hardware design (generating the device tree, FSBL/PLM config and memory map) and opens the system configuration menu (boot device, rootfs type, image packaging); petalinux-config -c kernel|rootfs|u-boot for component menus; petalinux-build (all, or -c <component>) runs BitBake to produce images/linux/ (Image, system.dtb, rootfs, u-boot.elf, bl31.elf, zynqmp_fsbl.elf, pmufw.elf, image.ub, boot.scr); petalinux-package --boot creates BOOT.BIN (bootgen underneath), --wic creates an SD card image, --bsp exports a BSP, --sysroot the SDK; petalinux-boot --jtag/--qemu boots via JTAG (XSDB) or QEMU. Customisation lives in project-spec/meta-user (device tree overrides in system-user.dtsi, recipes, kernel config fragments).",
+      "usage": "source /opt/petalinux/2024.2/settings.sh\npetalinux-create -t project --template zynqMP -n zcu104_linux\ncd zcu104_linux\npetalinux-config --get-hw-description ../hw/zcu104_wrapper.xsa   ;# or --silentconfig\npetalinux-config -c kernel ; petalinux-config -c rootfs\npetalinux-build\npetalinux-package --boot --format BIN --fsbl --pmufw --atf --u-boot --fpga images/linux/system.bit --force\npetalinux-package --wic --bootfiles \"BOOT.BIN image.ub boot.scr\"\npetalinux-boot --jtag --kernel --fpga --hw_server-url tcp:labpc:3121\npetalinux-build --sdk ; petalinux-package --sysroot",
+      "parameters": [
+        {"name": "--get-hw-description", "description": "Path to the .xsa (or its directory); re-run after every hardware change (the device tree and xparameters update)."},
+        {"name": "-c <component>", "description": "kernel, u-boot, rootfs, device-tree, fsbl, pmufw, arm-trusted-firmware, plm, psmfw, or any recipe."},
+        {"name": "meta-user", "description": "project-spec/meta-user/recipes-bsp/device-tree/files/system-user.dtsi, recipes-kernel/linux/linux-xlnx_%.bbappend with cfg fragments, recipes-apps for user applications."},
+        {"name": "--boot options", "description": "--fsbl/--pmufw/--atf/--u-boot/--fpga/--plm/--psmfw pick the components; --format BIN|MCS|DOWNLOAD.BIT."}
+      ],
+      "example": "# Add PL peripheral nodes / fix a PHY in system-user.dtsi\n&gem3 { phy-handle = <&phy0>; phy0: ethernet-phy@c { reg = <0xc>; ti,rx-internal-delay = <0x8>; }; };\n&axi_gpio_0 { status = \"okay\"; };\n# then\npetalinux-build -c device-tree ; petalinux-build ; petalinux-package --boot ... --force",
+      "notes": "Requires a supported Linux host and a large build directory (tens of GB); build times are long the first time (sstate cache/downloads mirrors help). Alternative for quick bring-up: the pre-built common images (xilinx-zynqmp-common-v<rel>.tar.gz) plus createdts device trees. Kria uses the same flow with SOM BSPs.",
+      "docs": "https://docs.amd.com/r/en-US/ug1144-petalinux-tools-reference-guide"
+    },
+    {
+      "name": "XRT native C++ host API (xrt::device, xrt::uuid, xrt::kernel, xrt::bo, xrt::run)",
+      "kind": "api",
+      "description": "The Xilinx Runtime host-side API for Vitis acceleration (data-center Alveo and embedded Zynq/Versal platforms with zocl): xrt::device opens a device by index or BDF, device.load_xclbin(path) programs it and returns the xrt::uuid, xrt::kernel(device, uuid, \"name\") gets a handle to a compute unit (with optional :{cu_name} selection), xrt::bo(device, size, flags, kernel.group_id(arg_index)) allocates host/device buffers in the memory bank connected to the kernel argument (bo.map<T>() for host pointer, bo.sync(XCL_BO_SYNC_BO_TO_DEVICE / FROM_DEVICE)), xrt::run = kernel(args...) starts an execution and run.wait() blocks; xrt::run objects can be reused with set_arg and start(), and xrt::graph handles AI Engine graphs. It replaces the OpenCL API for new code and is available in C++ (xrt/xrt_device.h etc.) and Python (pyxrt).",
+      "usage": "#include \"xrt/xrt_device.h\"\n#include \"xrt/xrt_kernel.h\"\n#include \"xrt/xrt_bo.h\"\nauto device = xrt::device(0);\nauto uuid   = device.load_xclbin(\"vadd.xclbin\");\nauto krnl   = xrt::kernel(device, uuid, \"vadd\");\nauto bo_a = xrt::bo(device, bytes, krnl.group_id(0));\nauto bo_b = xrt::bo(device, bytes, krnl.group_id(1));\nauto bo_c = xrt::bo(device, bytes, krnl.group_id(2));\nauto a = bo_a.map<int*>(); /* fill */\nbo_a.sync(XCL_BO_SYNC_BO_TO_DEVICE); bo_b.sync(XCL_BO_SYNC_BO_TO_DEVICE);\nauto run = krnl(bo_a, bo_b, bo_c, n);\nrun.wait();\nbo_c.sync(XCL_BO_SYNC_BO_FROM_DEVICE);\n// build: g++ -std=c++17 host.cpp -I$XILINX_XRT/include -L$XILINX_XRT/lib -lxrt_coreutil -pthread",
+      "parameters": [
+        {"name": "xrt::device(index | bdf)", "description": "Device handle; device.get_info<xrt::info::device::name>() etc."},
+        {"name": "xrt::kernel(device, uuid, \"kernel[:{cu}]\")", "description": "Kernel handle; group_id(i) returns the memory bank for argument i."},
+        {"name": "xrt::bo(device, size, flags, grp)", "description": "Buffer object; flags normal/device_only/host_only/p2p; map(), sync(), write()/read(), address()."},
+        {"name": "xrt::run", "description": "Execution handle: wait(), wait(timeout), state(), set_arg(); start()/stop for reuse."},
+        {"name": "Utilities", "description": "xbutil examine/validate/program, xbmgmt (device management), xclbinutil (inspect/modify .xclbin)."}
+      ],
+      "example": "# Python (pyxrt)\nimport pyxrt\nd = pyxrt.device(0); uuid = d.load_xclbin('vadd.xclbin'); k = pyxrt.kernel(d, uuid, 'vadd')\nbo = pyxrt.bo(d, 4096, pyxrt.bo.normal, k.group_id(0))\nrun = k(bo, bo, bo, 1024); run.wait()",
+      "notes": "Embedded platforms use the same API against the zocl driver (device tree node from createdts -zocl); the xclbin is loaded from the file system at run time. XRT version must match the platform/xclbin XRT dependency (xbutil examine shows versions). OpenCL (cl::Kernel, clCreateBuffer with CL_MEM_EXT_PTR_XILINX) remains supported for legacy hosts.",
+      "docs": "https://xilinx.github.io/XRT/master/html/xrt_native_apis.html"
+    },
+    {
+      "name": "v++ link configuration (--config connectivity.nk/sp/sc/slr, --kernel_frequency, --vivado.prop, --advanced.param, --profile/--debug options)",
+      "kind": "command",
+      "description": "The linking step of a Vitis kernel build (v++ -l) takes the .xo kernels and the platform and produces the .xclbin by running Vivado IP Integrator and implementation inside the platform's dynamic region; most decisions are given in a config file (--config link.cfg) with sections: [connectivity] nk=<kernel>:<count>:<cu_names> (number of compute units), sp=<cu>.<arg>:<memory> (assign kernel ports to DDR/HBM/PLRAM banks, e.g. HBM[0]), sc=<cu1>.<stream>:<cu2>.<stream> (AXI4-Stream connections between kernels), slr=<cu>:SLR1 (SLR placement), [hls] clock=..., [vivado] prop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=Explore (any Vivado run property), impl.strategies? / synth.jobs=8, [advanced] param=compiler.userPostSysLinkOverlayTcl=<script.tcl> (custom Tcl hooks), misc=solution_name=..., plus command-line options --kernel_frequency <MHz> (or -k:freq), --profile.data/--profile.stall/--profile.exec (insert profile monitors), --debug.chipscope <cu> (insert System ILA on a kernel), --optimize 0-3, -R 1|2 (report level), --save-temps and --temp_dir/--report_dir/--log_dir. Emulation targets (-t sw_emu|hw_emu) skip implementation.",
+      "usage": "v++ -l -t hw --platform <platform.xpfm> --config link.cfg --kernel_frequency 300 --save-temps -R 2 -o vadd.xclbin vadd.xo mm.xo\n# link.cfg\n[connectivity]\nnk=vadd:2:vadd_1.vadd_2\nsp=vadd_1.a:DDR[0]\nsp=vadd_1.b:DDR[0]\nsp=vadd_1.c:DDR[1]\nsp=vadd_2.a:HBM[0]\nsc=producer_1.out:consumer_1.in\nslr=vadd_1:SLR0\nslr=vadd_2:SLR1\n[vivado]\nprop=run.impl_1.STEPS.PLACE_DESIGN.ARGS.DIRECTIVE=ExtraNetDelay_high\nprop=run.impl_1.STEPS.PHYS_OPT_DESIGN.IS_ENABLED=true\nsynth.jobs=8\n[advanced]\nparam=compiler.userPostSysLinkOverlayTcl=./post_link.tcl\n[profile]\ndata=all:all:all\n[debug]\nchipscope=vadd_1:m_axi_gmem",
+      "parameters": [
+        {"name": "connectivity.nk", "description": "kernel:count:name1.name2 creates multiple CUs."},
+        {"name": "connectivity.sp", "description": "cu.arg:bank; bank names from the platform (platforminfo <xpfm>): DDR[n], HBM[n] or HBM[0:3], PLRAM[n], MC_NOC0 (Versal)."},
+        {"name": "connectivity.sc", "description": "Stream connections between CUs (AXI4-Stream kernel ports)."},
+        {"name": "vivado.prop", "description": "run.<run>.<PROPERTY>=<value> or fileset.<fs>.<prop>; e.g. run.impl_1.strategy=Performance_Explore."},
+        {"name": "--kernel_frequency", "description": "Target clock for kernels (platform clocks permitting); multiple clocks with id:freq syntax."},
+        {"name": "--profile / --debug", "description": "Insert AXI Performance Monitors / System ILA (uses hardware resources and affects timing)."}
+      ],
+      "example": "# Compile and link an HLS kernel for an Alveo U250 with two CUs on different SLRs\nv++ -c -t hw --platform xilinx_u250_gen3x16_xdma_4_1_202210_1 -k vadd -o vadd.xo vadd.cpp\nv++ -l -t hw --platform xilinx_u250_gen3x16_xdma_4_1_202210_1 --config link.cfg -o vadd.xclbin vadd.xo\n# inspect\nxclbinutil --info -i vadd.xclbin\nplatforminfo -p xilinx_u250_gen3x16_xdma_4_1_202210_1",
+      "notes": "The Vivado project created by the link is under _x/link/vivado/vpl/prj (with --save-temps) and can be opened to analyse timing failures; --vivado.prop and the userPostSysLinkOverlayTcl hook are the sanctioned ways to influence it. v++ --package (-p) builds the SD card image or the final xclbin for embedded targets.",
+      "docs": "https://docs.amd.com/r/en-US/ug1393-vitis-application-acceleration/v-Linking-Options"
+    },
+    {
+      "name": ".xo / .xclbin (Vitis kernel object and binary container)",
+      "kind": "format",
+      "description": ".xo is the compiled kernel object produced by v++ -c (from HLS C/C++ or OpenCL) or by the RTL kernel packaging flow (package_xo, or export_design -format xo in Vitis HLS): a zip-like container with the kernel's RTL/IP (IP-XACT), kernel.xml describing arguments, interfaces and ports, and metadata; .xclbin is the output of v++ -l (or v++ -p for packaging): a container holding the implemented bitstream/PDI for the platform's dynamic region, the memory topology (banks), IP layout (compute units with base addresses), connectivity, clock frequencies, debug/profile IP metadata, the platform UUID and optional AIE graph data, loaded by XRT (device.load_xclbin) and inspected/modified with xclbinutil (--info, --dump-section, --add-section, --remove-section, --update-section? per help). Emulation xclbins (sw_emu/hw_emu) contain models instead of bitstreams.",
+      "usage": "v++ -c ... -o kernel.xo\npackage_xo -xo_path ./rtl_kernel.xo -kernel_name rtl_kernel -ip_directory ./ip_repo/rtl_kernel -kernel_xml ./kernel.xml   ;# Vivado Tcl for RTL kernels\nv++ -l ... -o design.xclbin kernel.xo rtl_kernel.xo\nxclbinutil --info -i design.xclbin\nxclbinutil --dump-section MEM_TOPOLOGY:JSON:mem.json -i design.xclbin\nxclbinutil --dump-section IP_LAYOUT:JSON:ip.json -i design.xclbin\nxclbinutil --remove-section DEBUG_IP_LAYOUT -i design.xclbin -o stripped.xclbin",
+      "parameters": [
+        {"name": "kernel.xml (in .xo)", "description": "Kernel name, VLNV, args with id/type/size/offset/hostOffset/memory port, port protocols (addressable, stream), control type (ap_ctrl_hs/chain/none)."},
+        {"name": "xclbin sections", "description": "BITSTREAM/PDI, MEM_TOPOLOGY, IP_LAYOUT, CONNECTIVITY, CLOCK_FREQ_TOPOLOGY, DEBUG_IP_LAYOUT, BUILD_METADATA, EMBEDDED_METADATA, AIE_METADATA, SYSTEM_METADATA."},
+        {"name": "package_xo", "description": "Vivado Tcl command (Vitis-installed) that packages an RTL IP as a kernel .xo; -kernel_files/-kernel_xml/-ctrl_protocol options."}
+      ],
+      "example": "# RTL kernel packaging (from the RTL Kernel Wizard or manual)\nipx::package_project ... ; # IP with s_axi_control (0x00 CTRL, 0x04 GIE, 0x08 IER, 0x0C ISR, args from 0x10) and m_axi ports\npackage_xo -xo_path ./krnl.xo -kernel_name krnl -ip_directory ./ip_repo/krnl -kernel_xml ./krnl.xml -ctrl_protocol ap_ctrl_hs\nv++ -l -t hw --platform <xpfm> -o krnl.xclbin krnl.xo",
+      "notes": "xclbins are platform-specific (the platform UUID must match the shell loaded on the card; xbmgmt program --base for the shell). The RTL Kernel Wizard (Vivado, Tools > RTL Kernel Wizard? in Vitis-enabled installs) generates a compliant AXI4-Lite control interface and kernel.xml.",
+      "docs": "https://docs.amd.com/r/en-US/ug1393-vitis-application-acceleration/xclbinutil-Utility"
+    },
+    {
+      "name": "Vitis platform creation from an XSA (embedded: platform component with Linux domain, sw_repo, QEMU args; data-center: shell/DSA notion)",
+      "kind": "reference",
+      "description": "An embedded acceleration platform (.xpfm) wraps the hardware (extensible .xsa with PFM properties from Vivado) and the software domains needed by v++ and XRT: for Linux the domain needs the boot components (BOOT.BIN inputs: fsbl/pmufw/plm/psmfw, bl31, u-boot), the kernel Image, system.dtb (with zocl), rootfs, a boot.scr and the sysroot for cross-compiling hosts, typically taken from PetaLinux (images/linux) or the common images plus createdts; the platform is created in the Vitis IDE (File > New Component > Platform, hardware = XSA, OS = linux, processor = psu_cortexa53) or via XSCT platform create + domain create -os linux + domain config -image/-boot/-bif/-sysroot? and platform generate, giving <platform>/export/<platform>/<platform>.xpfm used by v++ --platform and hw_emu with QEMU (qemu args in the domain). Applications are built with v++ -c/-l/-p (packaging the SD image: v++ -p --package.boot_mode sd --package.rootfs --package.sd_file host.elf ...). Data-center (Alveo) platforms are pre-built shells installed as .xpfm/.xsa packages (xilinx_u250_gen3x16_xdma_...); custom Alveo shells are an advanced flow (UG1393 'Creating a Vitis Platform' for embedded, custom shell docs for Alveo).",
+      "usage": "# Vivado side (extensible platform)\nset_property platform.extensible true [current_project]\n# ... PFM.* properties on the BD ...\nwrite_hw_platform -hw -force ./xsa/zcu104_custom.xsa\n# Vitis side (XSCT)\nplatform create -name zcu104_custom -hw ./xsa/zcu104_custom.xsa -no-boot-bsp -out ./ws\ndomain create -name xrt -proc psu_cortexa53 -os linux -arch 64-bit -runtime cpp -sd-dir ./sd_dir\ndomain config -boot ./boot -bif ./boot/linux.bif -image ./petalinux/images/linux -sysroot ./sysroot -qemu-args ./qemu_args.txt -pmuqemu-args ./pmu_args.txt -qemu-data ./boot\nplatform generate\n# Vitis kernel build against it\nv++ -c -t hw --platform ./ws/zcu104_custom/export/zcu104_custom/zcu104_custom.xpfm -k vadd -o vadd.xo vadd.cpp\nv++ -l -t hw --platform ... -o vadd.xclbin vadd.xo\nv++ -p -t hw --platform ... --package.out_dir ./pkg --package.rootfs ./rootfs.ext4 --package.sd_file ./host.elf --package.boot_mode sd vadd.xclbin",
+      "parameters": [
+        {"name": "Extensible XSA requirements", "description": "PFM_NAME, PFM.AXI_PORT (free AXI ports), PFM.CLOCK (clocks with default), PFM.IRQ (free interrupts), platform.design_intent.embedded/datacenter, platform.extensible."},
+        {"name": "Linux domain inputs", "description": "boot dir (BOOT.BIN components), bif, image dir (Image, rootfs, system.dtb, boot.scr), sysroot (for host cross-compile), qemu args (hw_emu)."},
+        {"name": "v++ -p (package) options", "description": "--package.boot_mode sd|ospi|qspi, --package.rootfs, --package.sd_file, --package.image_format ext4|fat32, --package.kernel_image, --package.ramdisk? etc."}
+      ],
+      "example": "# Verify a platform\nplatforminfo -p ./ws/zcu104_custom/export/zcu104_custom/zcu104_custom.xpfm\n# Run: copy pkg/sd_card contents to an SD card, boot, then on target: ./host.elf vadd.xclbin",
+      "notes": "The Vitis Platform Creation tutorials (github.com/Xilinx/Vitis-Tutorials, Vitis_Platform_Creation) walk through ZCU104/VCK190/Kria examples per release. Kria SOMs use the same concept with 'accelerated applications' loaded by xmutil.",
+      "docs": "https://docs.amd.com/r/en-US/ug1393-vitis-application-acceleration/Creating-Embedded-Platforms-in-Vitis"
+    },
+    {
+      "name": "Standalone / FreeRTOS / Linux domains and choosing a software stack",
+      "kind": "reference",
+      "description": "Per-processor software options in a Vitis platform. Standalone: single-threaded bare-metal BSP with the AMD drivers, fastest boot and lowest latency, used for MicroBlaze controllers, R5 real-time firmware and bring-up tests (Peripheral Tests, Memory Tests templates); FreeRTOS (freertos10_xilinx): the FreeRTOS kernel with the same drivers and a tick timer (TTC on Zynq, timer on MicroBlaze), for real-time multitasking on R5/MicroBlaze/A-cores; Linux: PetaLinux/Yocto or Ubuntu (Kria, some boards) on the A-cores with the AMD kernel drivers (uio, dma, gpio, spi, i2c, v4l2 for video, zocl for XRT), device tree from createdts/PetaLinux, and user-space access via UIO/mmap, XRT or libmetal; OpenAMP/libmetal provides Linux-to-R5 (or A53 bare-metal) inter-processor communication (RPMsg) for asymmetric multiprocessing; hypervisor options (Xen) exist for ZynqMP/Versal. Choice drivers: determinism (bare metal/FreeRTOS), connectivity stacks and filesystems (Linux), mixed via AMP with OpenAMP.",
+      "usage": "# XSCT: one platform, three domains\nplatform create -name mp -hw ./sys.xsa -no-boot-bsp\ndomain create -name a53_linux -os linux -proc psu_cortexa53 -arch 64-bit\ndomain create -name r5_rtos  -os freertos10_xilinx -proc psu_cortexr5_0\ndomain create -name mb_std   -os standalone -proc microblaze_0\nplatform generate\napp create -name motor_ctrl -platform mp -domain r5_rtos -template {FreeRTOS Hello World}\napp create -name mb_monitor -platform mp -domain mb_std -template {Peripheral Tests}\n# Linux + R5 RPMsg: OpenAMP echo demo (libmetal/openamp libs in the R5 domain; remoteproc in Linux loads the R5 ELF from /lib/firmware)",
+      "parameters": [
+        {"name": "Standalone", "description": "xil_* libraries, no scheduler; interrupts via XScuGic/XIntc; optional lwIP raw API, xilffs FAT."},
+        {"name": "FreeRTOS", "description": "Tasks/queues/semaphores; FreeRTOSConfig.h in the BSP; lwIP socket API available; tick from TTC/timer."},
+        {"name": "Linux", "description": "remoteproc/rpmsg for R5 firmware, fpga-manager for PL/DFX, UIO for simple PL registers, XRT/zocl for kernels, V4L2/DRM for video pipelines."},
+        {"name": "Boot", "description": "All domains' ELFs can be placed in BOOT.BIN (destination_cpu) or loaded later by Linux (remoteproc) / JTAG."}
+      ],
+      "example": "# Linux side: load R5 firmware via remoteproc\ncp motor_ctrl.elf /lib/firmware/\necho motor_ctrl.elf > /sys/class/remoteproc/remoteproc0/firmware\necho start > /sys/class/remoteproc/remoteproc0/state",
+      "notes": "Memory partitioning between Linux and firmware is defined in the device tree (reserved-memory) and the R5 linker script (TCM vs DDR). The Embedded Design Tutorials (github.com/Xilinx/Embedded-Design-Tutorials) cover each combination per release.",
+      "docs": "https://docs.amd.com/r/en-US/ug1400-vitis-embedded"
+    }
+  ]
+}

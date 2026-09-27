@@ -1,0 +1,661 @@
+{
+  "category": "Scripting: AEDT Object Model & PyAEDT",
+  "description": "How Ansys Electronics Desktop is driven from code: the native scripting object model (oDesktop, oProject, oDesign, oEditor and the modules returned by oDesign.GetModule) that the GUI records and replays, and PyAEDT, the ansys.aedt.core Python client that wraps the same calls in pythonic classes. Also covers the ansysedt command-line switches that run a script or a solve headless, and the Record Script To File workflow that is the reliable way to discover the exact argument array behind any dialog.",
+  "tools": [
+    {
+      "name": "oDesktop.NewProject / OpenProject / SetActiveProject",
+      "kind": "api",
+      "description": "The top of the scripting hierarchy. oDesktop represents the running Electronics Desktop session and hands out oProject handles: NewProject() creates an empty project, OpenProject(path) loads one from disk, and SetActiveProject(name) makes an already-open project current and returns its handle. In a standalone script oDesktop only exists after ScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\") has bound it, which is why every recorded script starts with those two lines.",
+      "usage": "oProject = oDesktop.NewProject()\noProject = oDesktop.OpenProject(<project_file>)\noProject = oDesktop.SetActiveProject(<project_name>)\noDesktop.GetProjectList()",
+      "parameters": [
+        {"name": "<project_file>", "description": "Full path to a .aedt, .aedtz or legacy .hfss file for OpenProject. Forward slashes work on Windows and Linux alike and avoid escaping problems in Python."},
+        {"name": "<project_name>", "description": "Project name without extension, exactly as it appears in the project tree, for SetActiveProject."},
+        {"name": "oDesktop.GetProjects()", "description": "Returns the array of open project objects; GetProjectList() returns just their names, which is cheaper when you only need to test whether something is already open."},
+        {"name": "oDesktop.RestoreWindow()", "description": "Brings the desktop window to the front. Recorded scripts always begin with it; it is harmless in a -ng run."},
+        {"name": "oDesktop.AddMessage(project, design, severity, text)", "description": "Writes to the Message Manager. Severity 0 = info, 1 = warning, 2 = error, 3 = fatal. The only practical logging channel in a headless run."},
+        {"name": "oDesktop.CloseProject(name)", "description": "Closes a project by name; QuitApplication() shuts the whole desktop down and releases the licence."}
+      ],
+      "example": "import ScriptEnv\nScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\")\noDesktop.RestoreWindow()\n\noProject = oDesktop.NewProject()\noProject.SaveAs(\"C:/work/filter.aedt\", True)\n\n# A later run reopens it and makes it current\noProject = oDesktop.OpenProject(\"C:/work/filter.aedt\")\noProject = oDesktop.SetActiveProject(\"filter\")\n\nfor name in oDesktop.GetProjectList():\n    oDesktop.AddMessage(name, \"\", 0, \"open project: \" + name)",
+      "notes": "ScriptEnv.Initialize is what makes oDesktop, and therefore the whole object model, reachable from an IronPython file launched with Tools > Run Script or ansysedt -RunScriptAndExit. Inside PyAEDT the identical object is hfss.odesktop, so any raw call in this category can be pasted into a PyAEDT script unchanged. A project must exist before anything else in the hierarchy can be reached."
+    },
+    {
+      "name": "oProject.InsertDesign / SetActiveDesign / GetDesigns",
+      "kind": "api",
+      "description": "Creates and selects designs inside a project. InsertDesign takes the application name, a design name, a solution type and a fourth option string that is normally empty; SetActiveDesign returns the oDesign handle for an existing design. Because a single .aedt project can hold HFSS, 3D Layout, Circuit, Maxwell, Icepak and Q3D designs side by side, this is where a script chooses which solver it is talking to.",
+      "usage": "oProject.InsertDesign(<design_type>, <design_name>, <solution_type>, <option>)\noDesign = oProject.SetActiveDesign(<design_name>)\noProject.GetDesigns()",
+      "parameters": [
+        {"name": "<design_type>", "description": "Application name as in the Insert menu: \"HFSS\", \"HFSS 3D Layout Design\", \"Maxwell 3D\", \"Q3D Extractor\", \"Icepak\", \"Circuit Design\", \"Twin Builder\"."},
+        {"name": "<design_name>", "description": "Name of the new design. If the name is already taken AEDT appends a suffix and returns the name actually used."},
+        {"name": "<solution_type>", "description": "For HFSS: \"DrivenModal\", \"DrivenTerminal\", \"Eigenmode\", \"Transient Network\", \"SBR+\", \"Characteristic Mode\". The string must match the dialog exactly."},
+        {"name": "<option>", "description": "Fourth argument, normally the empty string \"\". It carries extra creation options for a few design types."},
+        {"name": "oProject.GetDesigns()", "description": "Array of oDesign objects in the project; each one answers GetName()."},
+        {"name": "oDesign.SetSolutionType(type)", "description": "Changes the solution type of an existing design, e.g. from DrivenModal to DrivenTerminal."}
+      ],
+      "example": "oProject.InsertDesign(\"HFSS\", \"Patch\", \"DrivenModal\", \"\")\noDesign = oProject.SetActiveDesign(\"Patch\")\n\nfor d in oProject.GetDesigns():\n    oDesktop.AddMessage(\"\", \"\", 0, \"design: \" + d.GetName())\n\n# Add a linked circuit design in the same project\noProject.InsertDesign(\"Circuit Design\", \"Matching\", \"\", \"\")\noDesign = oProject.SetActiveDesign(\"Patch\")",
+      "notes": "Solution-type strings drift between releases, so record the Insert Design action once on the target version rather than typing them from memory. oProject.DeleteDesign(name) removes one, and copy/paste of a whole design is scripted with oProject.CopyDesign / oProject.Paste. The PyAEDT equivalent is simply constructing Hfss(project=..., design=..., solution_type=...)."
+    },
+    {
+      "name": "oProject.SaveAs",
+      "kind": "api",
+      "description": "Writes the project to a named file, creating the companion .aedtresults folder next to it. SaveAs is how a generated project gets a location on disk; Save() writes an already-located project in place. A project has to be saved at least once before it can be solved, because the solver puts its mesh and field data in that results folder.",
+      "usage": "oProject.SaveAs(<file_path>, <overwrite>)\noProject.Save()\noProject.Close()",
+      "parameters": [
+        {"name": "<file_path>", "description": "Full path of the .aedt file to write. The directory must already exist."},
+        {"name": "<overwrite>", "description": "Boolean. True replaces an existing file; False fails instead of prompting, which is the safe choice in an unattended run."},
+        {"name": "oProject.Save()", "description": "Saves in place. Call it after building geometry and before Analyze so a crash does not lose the model."},
+        {"name": "oProject.Close()", "description": "Closes the project. oDesktop.CloseProject(name) does the same from the desktop level."}
+      ],
+      "example": "oProject.SaveAs(\"C:/work/patch_v2.aedt\", True)\n\n# build, solve, then save the solved state\noDesign.Analyze(\"Setup1\")\noProject.Save()\noProject.Close()",
+      "notes": "Saving under a new name with SaveAs does not copy existing results: the new project starts unsolved unless the results folder is copied too. In batch pipelines it is usually cleaner to generate a fresh project per variation than to SaveAs from a template, because the results folder of a solved project can be tens of gigabytes."
+    },
+    {
+      "name": "oDesign.SetActiveEditor",
+      "kind": "api",
+      "description": "Returns the editor object for a design, which for HFSS means the 3D Modeler and therefore every geometry call. It is a lookup, not a mode switch: the returned handle is what CreateBox, Unite, Import and the rest are called on. Layout designs return the Layout editor and circuit designs the schematic editor from the same method with a different name.",
+      "usage": "oEditor = oDesign.SetActiveEditor(\"3D Modeler\")",
+      "parameters": [
+        {"name": "\"3D Modeler\"", "description": "The HFSS, Maxwell 3D, Q3D and Icepak geometry editor. This is the name used in almost every HFSS script."},
+        {"name": "\"Layout\"", "description": "The editor of an HFSS 3D Layout design, which works on the .aedb database rather than a history tree."},
+        {"name": "\"SchematicEditor\"", "description": "The editor of a Circuit or Twin Builder design."},
+        {"name": "oEditor.GetObjectsInGroup(group)", "description": "Lists object names in \"Solids\", \"Sheets\", \"Lines\", \"Unclassified\" or \"Non Model\" - the quickest inventory of a model."},
+        {"name": "oEditor.GetMatchedObjectName(pattern)", "description": "Wildcard lookup, e.g. \"Patch*\", used to find objects created by a previous run or an import."}
+      ],
+      "example": "oDesign = oProject.SetActiveDesign(\"Patch\")\noEditor = oDesign.SetActiveEditor(\"3D Modeler\")\n\nprint(oEditor.GetObjectsInGroup(\"Solids\"))\nprint(oEditor.GetObjectsInGroup(\"Sheets\"))\nprint(oEditor.GetMatchedObjectName(\"Patch*\"))",
+      "notes": "Every geometry method lives on this editor object, while boundaries, mesh, setups and reports live on the modules from oDesign.GetModule. Mixing the two up is the most common beginner error in AEDT scripting. In PyAEDT the same handle is hfss.modeler.oeditor."
+    },
+    {
+      "name": "oDesign.GetModule",
+      "kind": "api",
+      "description": "Returns one of the design's functional modules by name. Everything that is not geometry is reached this way: boundaries and excitations, mesh operations, analysis setups, reports, the fields calculator, far-field setups, Optimetrics and solution export. The module names are fixed, case-sensitive strings that match the AEDT internals rather than the menu labels.",
+      "usage": "oModule = oDesign.GetModule(<module_name>)",
+      "parameters": [
+        {"name": "\"BoundarySetup\"", "description": "Boundaries and excitations: AssignPerfectE, AssignFiniteCond, AssignRadiation, AssignWavePort, AssignLumpedPort, GetBoundaries, GetExcitations."},
+        {"name": "\"MeshSetup\"", "description": "Mesh operations: AssignLengthOp, AssignSkinDepthOp, AssignTrueSurfOp, InitialMeshSettings."},
+        {"name": "\"AnalysisSetup\"", "description": "Solution setups and frequency sweeps: InsertSetup, EditSetup, InsertFrequencySweep, GetSetups."},
+        {"name": "\"ReportSetup\"", "description": "Plots and tables: CreateReport, ExportToFile, GetSolutionDataPerVariation, DeleteReports."},
+        {"name": "\"FieldsReporter\"", "description": "The Fields Calculator stack: EnterQty, CalcOp, AddNamedExpression, ClcEval, ExportOnGrid."},
+        {"name": "\"RadField\"", "description": "Far-field setups: InsertInfiniteSphereSetup, InsertFarFieldSphereSetup and the antenna-parameter contexts."},
+        {"name": "\"Solutions\"", "description": "Solved-data access and matrix export, notably ExportNetworkData for Touchstone files."},
+        {"name": "\"Optimetrics\"", "description": "Parametric, optimisation, sensitivity, statistical and tuning setups: InsertSetup, SolveSetup."}
+      ],
+      "example": "oBoundary = oDesign.GetModule(\"BoundarySetup\")\noMesh     = oDesign.GetModule(\"MeshSetup\")\noAnalysis = oDesign.GetModule(\"AnalysisSetup\")\noReport   = oDesign.GetModule(\"ReportSetup\")\noFields   = oDesign.GetModule(\"FieldsReporter\")\n\nprint(oBoundary.GetBoundaries())\nprint(oBoundary.GetExcitations())\nprint(oAnalysis.GetSetups())\n\noMesh.AssignLengthOp(\n    [\"NAME:Patch_seed\",\n     \"RefineInside:=\", False, \"Enabled:=\", True,\n     \"Objects:=\", [\"Patch\"],\n     \"RestrictElem:=\", False, \"NumMaxElem:=\", \"1000\",\n     \"RestrictLength:=\", True, \"MaxLength:=\", \"2mm\"])",
+      "notes": "Materials are the exception: they live on oProject.GetDefinitionManager(), not on a design module. Module handles are cheap to fetch but become stale if the active design changes, so re-fetch them after SetActiveDesign. In PyAEDT the same objects are exposed as hfss.oboundary, hfss.omeshmodule, hfss.oanalysis, hfss.ofieldsreporter and so on."
+    },
+    {
+      "name": "oDesign.Analyze / AnalyzeAll",
+      "kind": "api",
+      "description": "Starts the solver. Analyze(setup_name) solves one setup together with its sweeps; AnalyzeAll() solves every setup in the design, including Optimetrics studies. Both are blocking: the call returns when the solve finishes or raises when it fails, so a script can simply continue into post-processing afterwards.",
+      "usage": "oDesign.Analyze(<setup_name>)\noDesign.AnalyzeAll()",
+      "parameters": [
+        {"name": "<setup_name>", "description": "Name of the analysis setup, e.g. \"Setup1\". Sweeps belonging to it are solved as part of the same call."},
+        {"name": "AnalyzeAll()", "description": "Solves every setup in the active design; useful when a design has separate setups per band."},
+        {"name": "oDesign.GetNominalVariation()", "description": "Returns the nominal variation string, which reports and field plots need as their variation key."},
+        {"name": "oDesktop.AddMessage(...)", "description": "Used around the call to mark progress, because the solver's own output goes to the Message Manager and the profile, not to stdout."}
+      ],
+      "example": "oAnalysis = oDesign.GetModule(\"AnalysisSetup\")\n\nfor setup in oAnalysis.GetSetups():\n    oDesktop.AddMessage(\"\", \"\", 0, \"solving \" + setup)\n    oDesign.Analyze(setup)\n\n# or everything, including Optimetrics studies\noDesign.AnalyzeAll()\noProject.Save()",
+      "notes": "The project must be saved before solving, and the machine must hold a solver licence for the whole call. For anything long-running, build the model with a script and solve with ansysedt -ng -BatchSolve from a queue instead, so the scheduler owns the job rather than an interactive desktop session. Core counts, GPU and distributed settings come from the HPC and Analysis Options, or from -batchoptions on the command line."
+    },
+    {
+      "name": "oDesign.ChangeProperty (design variables)",
+      "kind": "api",
+      "description": "The generic property setter, and the only way to create or modify variables from the native object model. A variable is created by passing a NewProps block on the LocalVariableTab with PropType \"VariableProp\", and changed later by passing a ChangedProps block with just a new Value. The same method with a different tab name edits object attributes, command parameters, boundary properties and setup properties, which is why recorded scripts are full of it.",
+      "usage": "oDesign.ChangeProperty(\n    [\"NAME:AllTabs\",\n     [\"NAME:LocalVariableTab\",\n      [\"NAME:PropServers\", \"LocalVariables\"],\n      [\"NAME:NewProps\" | \"NAME:ChangedProps\", [...]]]])\noDesign.GetVariables()\noDesign.GetVariableValue(<name>)",
+      "parameters": [
+        {"name": "\"NAME:LocalVariableTab\"", "description": "Design-level variables, with PropServers set to \"LocalVariables\". Project variables use \"NAME:ProjectVariableTab\" with PropServers \"ProjectVariables\" on oProject.ChangeProperty."},
+        {"name": "\"NAME:NewProps\"", "description": "Block that creates variables. Each entry is [\"NAME:<var>\", \"PropType:=\", \"VariableProp\", \"UserDef:=\", True, \"Value:=\", \"<expression>\"]."},
+        {"name": "\"NAME:ChangedProps\"", "description": "Block that edits existing properties. For a variable only [\"NAME:<var>\", \"Value:=\", \"<expression>\"] is needed."},
+        {"name": "\"Value:=\"", "description": "The expression string, with units: \"38mm\", \"2.45GHz\", \"patch_w/2\". Dimensionless numbers are allowed but then carry no unit checking."},
+        {"name": "oDesign.GetVariables()", "description": "Returns the design variable names; GetVariableValue(name) returns the current expression, so a script can read back what it set."},
+        {"name": "Other tab names", "description": "\"Geometry3DAttributeTab\" for object name/material/colour, \"Geometry3DCmdTab\" for primitive dimensions, \"HfssTab\" for boundary and port properties."}
+      ],
+      "example": "# Create two design variables\noDesign.ChangeProperty(\n    [\"NAME:AllTabs\",\n     [\"NAME:LocalVariableTab\",\n      [\"NAME:PropServers\", \"LocalVariables\"],\n      [\"NAME:NewProps\",\n       [\"NAME:patch_w\", \"PropType:=\", \"VariableProp\", \"UserDef:=\", True, \"Value:=\", \"38mm\"],\n       [\"NAME:patch_l\", \"PropType:=\", \"VariableProp\", \"UserDef:=\", True, \"Value:=\", \"29mm\"]]]])\n\n# Retune one of them\noDesign.ChangeProperty(\n    [\"NAME:AllTabs\",\n     [\"NAME:LocalVariableTab\",\n      [\"NAME:PropServers\", \"LocalVariables\"],\n      [\"NAME:ChangedProps\",\n       [\"NAME:patch_l\", \"Value:=\", \"29.6mm\"]]]])\n\nprint(oDesign.GetVariables())\nprint(oDesign.GetVariableValue(\"patch_l\"))",
+      "notes": "Re-sending a NewProps block for a variable that already exists raises; branch on GetVariables() or always use ChangedProps after the first run. Project variables are written with a leading $ in their name and are shared by every design in the project, which is what makes them the right choice for stackup thicknesses. PyAEDT wraps all of this in hfss[\"patch_l\"] = \"29.6mm\"."
+    },
+    {
+      "name": "oEditor.CreateBox",
+      "kind": "api",
+      "description": "Creates a rectangular solid from a corner position and three sizes, and is the canonical example of the object model's calling convention: one array of command parameters and one array of attributes, each a flat list of alternating \"Name:=\" strings and values. It returns the name AEDT actually gave the object, which may differ from the requested one if that name was taken. Every coordinate and size may be a variable expression rather than a literal.",
+      "usage": "name = oEditor.CreateBox(\n    [\"NAME:BoxParameters\",\n     \"XPosition:=\", <x>, \"YPosition:=\", <y>, \"ZPosition:=\", <z>,\n     \"XSize:=\", <dx>, \"YSize:=\", <dy>, \"ZSize:=\", <dz>],\n    [\"NAME:Attributes\", \"Name:=\", <name>, \"MaterialValue:=\", <material>, \"SolveInside:=\", <bool>])",
+      "parameters": [
+        {"name": "XPosition / YPosition / ZPosition", "description": "Corner of the box as strings with units or as variable expressions, e.g. \"-patch_w/2\"."},
+        {"name": "XSize / YSize / ZSize", "description": "Edge lengths along each axis. Negative values are allowed and grow the box in the other direction."},
+        {"name": "\"Name:=\"", "description": "Requested object name. Use the returned value rather than the requested one when referring to the object later."},
+        {"name": "\"MaterialValue:=\"", "description": "Material name wrapped in embedded quotes, e.g. \"\\\"copper\\\"\". The quotes are part of the string and are not optional."},
+        {"name": "\"SolveInside:=\"", "description": "True meshes the interior; set False for good conductors so HFSS applies a surface impedance instead of meshing the metal."},
+        {"name": "\"Transparency:=\" / \"Color:=\"", "description": "Display attributes; Color is a string like \"(143 175 143)\". Harmless to omit."}
+      ],
+      "example": "oEditor = oDesign.SetActiveEditor(\"3D Modeler\")\n\nname = oEditor.CreateBox(\n    [\"NAME:BoxParameters\",\n     \"XPosition:=\", \"-patch_w/2\", \"YPosition:=\", \"-patch_l/2\", \"ZPosition:=\", \"0mm\",\n     \"XSize:=\", \"patch_w\", \"YSize:=\", \"patch_l\", \"ZSize:=\", \"1.575mm\"],\n    [\"NAME:Attributes\",\n     \"Name:=\", \"Sub\",\n     \"Flags:=\", \"\",\n     \"Color:=\", \"(143 175 143)\",\n     \"Transparency:=\", 0.6,\n     \"PartCoordinateSystem:=\", \"Global\",\n     \"MaterialValue:=\", \"\\\"Rogers RT/duroid 5880 (tm)\\\"\",\n     \"SolveInside:=\", True])\n\noDesktop.AddMessage(\"\", \"\", 0, \"created \" + name)",
+      "notes": "The doubled quoting of MaterialValue trips up almost everyone: the value is a string whose contents include quotation marks. Material names must already exist in the project or the library, otherwise the call fails. All of CreateCylinder, CreateRectangle, CreateSphere, CreateRegion and the rest follow the same two-array shape with a different parameter block name."
+    },
+    {
+      "name": "oEditor.CreateCylinder / oEditor.CreateRectangle",
+      "kind": "api",
+      "description": "The two other primitives that appear in almost every HFSS script. CreateCylinder builds a solid of revolution about one axis from a centre, radius and height, which is how coaxial feeds, vias, pins and wire antennas are modelled. CreateRectangle builds a planar sheet in one of the coordinate planes; a covered rectangle is the sheet a lumped or wave port, a PerfectE or an impedance boundary is assigned to.",
+      "usage": "oEditor.CreateCylinder(\n    [\"NAME:CylinderParameters\", \"XCenter:=\", <x>, \"YCenter:=\", <y>, \"ZCenter:=\", <z>,\n     \"Radius:=\", <r>, \"Height:=\", <h>, \"WhichAxis:=\", \"Z\", \"NumSides:=\", \"0\"],\n    [\"NAME:Attributes\", ...])\noEditor.CreateRectangle(\n    [\"NAME:RectangleParameters\", \"IsCovered:=\", True, \"XStart:=\", <x>, \"YStart:=\", <y>,\n     \"ZStart:=\", <z>, \"Width:=\", <w>, \"Height:=\", <h>, \"WhichAxis:=\", \"Z\"],\n    [\"NAME:Attributes\", ...])",
+      "parameters": [
+        {"name": "XCenter / YCenter / ZCenter", "description": "Centre of the cylinder's base face. The body extends from there along WhichAxis."},
+        {"name": "\"Radius:=\" / \"Height:=\"", "description": "Cylinder radius and length, as unit strings or variable expressions. A negative height grows the cylinder in the negative axis direction."},
+        {"name": "\"WhichAxis:=\"", "description": "\"X\", \"Y\" or \"Z\". For a cylinder it is the axis of revolution; for a rectangle it is the normal, so \"Z\" gives a rectangle in the XY plane."},
+        {"name": "\"NumSides:=\"", "description": "0 for a true cylinder, or 6, 8, 12 ... for a faceted prism. Faceting is sometimes used to keep the mesh small on long vias."},
+        {"name": "\"IsCovered:=\"", "description": "True gives a sheet with a face (required for ports and sheet boundaries); False gives only the outline, useful as a sweep path."},
+        {"name": "\"Width:=\" / \"Height:=\"", "description": "Rectangle extents along the two in-plane axes implied by WhichAxis, measured from XStart/YStart/ZStart."}
+      ],
+      "example": "# Coaxial feed: dielectric, inner conductor, and the port face sheet\noEditor.CreateCylinder(\n    [\"NAME:CylinderParameters\",\n     \"XCenter:=\", \"0mm\", \"YCenter:=\", \"0mm\", \"ZCenter:=\", \"-5mm\",\n     \"Radius:=\", \"1.68mm\", \"Height:=\", \"5mm\", \"WhichAxis:=\", \"Z\", \"NumSides:=\", \"0\"],\n    [\"NAME:Attributes\", \"Name:=\", \"CoaxDiel\",\n     \"MaterialValue:=\", \"\\\"Teflon (tm)\\\"\", \"SolveInside:=\", True])\n\noEditor.CreateCylinder(\n    [\"NAME:CylinderParameters\",\n     \"XCenter:=\", \"0mm\", \"YCenter:=\", \"0mm\", \"ZCenter:=\", \"-5mm\",\n     \"Radius:=\", \"0.51mm\", \"Height:=\", \"6.575mm\", \"WhichAxis:=\", \"Z\", \"NumSides:=\", \"0\"],\n    [\"NAME:Attributes\", \"Name:=\", \"CoaxPin\",\n     \"MaterialValue:=\", \"\\\"pec\\\"\", \"SolveInside:=\", False])\n\n# Feed sheet in the XY plane for a lumped port\noEditor.CreateRectangle(\n    [\"NAME:RectangleParameters\", \"IsCovered:=\", True,\n     \"XStart:=\", \"-1.68mm\", \"YStart:=\", \"-1.68mm\", \"ZStart:=\", \"-5mm\",\n     \"Width:=\", \"3.36mm\", \"Height:=\", \"3.36mm\", \"WhichAxis:=\", \"Z\"],\n    [\"NAME:Attributes\", \"Name:=\", \"PortSheet\", \"SolveInside:=\", True])",
+      "notes": "Sheets made with IsCovered False end up in the \"Lines\" group and cannot carry a port, which is a common cause of a silently missing excitation. CreateSphere, CreateTorus, CreateEllipse, CreateRegion and CreateUserDefinedPart follow the same two-array pattern. Assigning a material to a sheet is meaningless; sheets take boundaries instead."
+    },
+    {
+      "name": "oEditor.CreatePolyline",
+      "kind": "api",
+      "description": "Builds a polyline from an explicit point list plus a matching segment list, optionally giving it a cross-section so the wire becomes a solid rod or rectangular trace in one call. It is the primitive behind dipoles, helices, bond wires, microstrip routes and any swept profile. Its argument array is the most deeply nested in the modeler, which makes it the clearest case for recording the action once and parameterising the recording.",
+      "usage": "oEditor.CreatePolyline(\n    [\"NAME:PolylineParameters\", \"IsPolylineCovered:=\", <bool>, \"IsPolylineClosed:=\", <bool>,\n     [\"NAME:PolylinePoints\", [\"NAME:PLPoint\", \"X:=\", <x>, \"Y:=\", <y>, \"Z:=\", <z>], ...],\n     [\"NAME:PolylineSegments\", [\"NAME:PLSegment\", \"SegmentType:=\", \"Line\",\n      \"StartIndex:=\", 0, \"NoOfPoints:=\", 2], ...],\n     [\"NAME:PolylineXSection\", \"XSectionType:=\", \"None\", ...]],\n    [\"NAME:Attributes\", ...])",
+      "parameters": [
+        {"name": "\"NAME:PolylinePoints\"", "description": "One PLPoint sub-array per vertex, each with X, Y and Z as unit strings or variable expressions."},
+        {"name": "\"NAME:PolylineSegments\"", "description": "One PLSegment per span. StartIndex is the index of the first point of the segment and NoOfPoints how many points it consumes (2 for a line, 3 for a three-point arc or spline)."},
+        {"name": "\"SegmentType:=\"", "description": "\"Line\", \"Arc\", \"Spline\" or \"AngularArc\". AngularArc adds ArcAngle, ArcCenterX/Y/Z and ArcPlane entries to the same sub-array."},
+        {"name": "\"IsPolylineClosed:=\"", "description": "True joins the last point back to the first, which together with IsPolylineCovered True produces a closed sheet."},
+        {"name": "\"XSectionType:=\"", "description": "\"None\", \"Line\", \"Circle\", \"Rectangle\" or \"Isosceles Trapezoid\". Anything but None sweeps the profile along the path and produces a solid."},
+        {"name": "\"XSectionWidth:=\" / \"XSectionHeight:=\"", "description": "Cross-section dimensions, plus XSectionNumSegments for a faceted circular section and XSectionBendType (\"Corner\" or \"Curved\") for how corners are mitred."}
+      ],
+      "example": "# Half-wave dipole arm as a 0.5 mm diameter wire\noEditor.CreatePolyline(\n    [\"NAME:PolylineParameters\",\n     \"IsPolylineCovered:=\", True, \"IsPolylineClosed:=\", False,\n     [\"NAME:PolylinePoints\",\n      [\"NAME:PLPoint\", \"X:=\", \"0mm\", \"Y:=\", \"0mm\", \"Z:=\", \"gap/2\"],\n      [\"NAME:PLPoint\", \"X:=\", \"0mm\", \"Y:=\", \"0mm\", \"Z:=\", \"gap/2 + arm_len\"]],\n     [\"NAME:PolylineSegments\",\n      [\"NAME:PLSegment\", \"SegmentType:=\", \"Line\", \"StartIndex:=\", 0, \"NoOfPoints:=\", 2]],\n     [\"NAME:PolylineXSection\",\n      \"XSectionType:=\", \"Circle\", \"XSectionOrient:=\", \"Auto\",\n      \"XSectionWidth:=\", \"0.5mm\", \"XSectionTopWidth:=\", \"0mm\",\n      \"XSectionHeight:=\", \"0mm\", \"XSectionNumSegments:=\", \"0\",\n      \"XSectionBendType:=\", \"Corner\"]],\n    [\"NAME:Attributes\", \"Name:=\", \"ArmUpper\",\n     \"MaterialValue:=\", \"\\\"pec\\\"\", \"SolveInside:=\", False])",
+      "notes": "StartIndex and NoOfPoints must tile the point list exactly or the call fails with an unhelpful COM error; for N line segments the indices run 0, 1, ... N-1 with NoOfPoints 2 each. A circular cross-section with XSectionNumSegments 0 is a true cylinder and meshes more cleanly than a faceted one. PyAEDT's create_polyline builds all of this from a plain list of points and returns a Polyline object with an insert_segment method."
+    },
+    {
+      "name": "oEditor.Unite / oEditor.Subtract / oEditor.DuplicateAlongLine",
+      "kind": "api",
+      "description": "The booleans and the array-building duplicate. Unite merges a comma-separated selection into the first object named, Subtract removes tool bodies from blank bodies, and DuplicateAlongLine copies a selection along a vector a given number of times. All three take a Selections array plus a parameters array, and all three can destroy or keep the originals depending on a single flag.",
+      "usage": "oEditor.Unite([\"NAME:Selections\", \"Selections:=\", \"A,B,C\"],\n              [\"NAME:UniteParameters\", \"KeepOriginals:=\", False])\noEditor.Subtract([\"NAME:Selections\", \"Blank Parts:=\", \"A\", \"Tool Parts:=\", \"B\"],\n                 [\"NAME:SubtractParameters\", \"KeepOriginals:=\", False])\noEditor.DuplicateAlongLine([\"NAME:Selections\", \"Selections:=\", \"A\", \"NewPartsModelFlag:=\", \"Model\"],\n                           [\"NAME:DuplicateToAlongLineParameters\", \"CreateNewObjects:=\", True,\n                            \"XComponent:=\", <dx>, \"YComponent:=\", <dy>, \"ZComponent:=\", <dz>,\n                            \"NumClones:=\", \"4\"])",
+      "parameters": [
+        {"name": "\"Selections:=\"", "description": "A single comma-separated string of object names, not a list. For Unite the first name is the survivor."},
+        {"name": "\"Blank Parts:=\" / \"Tool Parts:=\"", "description": "Subtract's two selections: what remains and what is cut away. Note the space in the key names."},
+        {"name": "\"KeepOriginals:=\"", "description": "False consumes the tool or merged bodies; True leaves copies behind, which is what you want when one tool cuts several blanks."},
+        {"name": "\"XComponent:=\" / \"YComponent:=\" / \"ZComponent:=\"", "description": "The duplication vector, as unit strings or expressions such as \"element_pitch\"."},
+        {"name": "\"NumClones:=\"", "description": "Total number of copies including the original, as a string. 4 gives the original plus three clones."},
+        {"name": "\"NewPartsModelFlag:=\"", "description": "\"Model\" or \"NonModel\"; non-model parts are drawn but excluded from the simulation."}
+      ],
+      "example": "# Cut the coax hole through the ground plane\noEditor.Subtract(\n    [\"NAME:Selections\", \"Blank Parts:=\", \"Ground\", \"Tool Parts:=\", \"CoaxDiel\"],\n    [\"NAME:SubtractParameters\", \"KeepOriginals:=\", True])\n\n# Merge the two dipole arms into one conductor\noEditor.Unite(\n    [\"NAME:Selections\", \"Selections:=\", \"ArmUpper,ArmLower\"],\n    [\"NAME:UniteParameters\", \"KeepOriginals:=\", False])\n\n# 1 x 4 linear array of patches\noEditor.DuplicateAlongLine(\n    [\"NAME:Selections\", \"Selections:=\", \"Patch\", \"NewPartsModelFlag:=\", \"Model\"],\n    [\"NAME:DuplicateToAlongLineParameters\",\n     \"CreateNewObjects:=\", True,\n     \"XComponent:=\", \"element_pitch\", \"YComponent:=\", \"0mm\", \"ZComponent:=\", \"0mm\",\n     \"NumClones:=\", \"4\"])",
+      "notes": "Unite keeps the first object's name, colour, material and any boundaries already assigned to it, so assign boundaries after the booleans, not before. Subtract with KeepOriginals False destroys the tool body, which breaks any later call that still refers to it. Related calls with the same shape are Intersect, SplitObject, Imprint, DuplicateAroundAxis, DuplicateMirror, Move, Rotate and Scale."
+    },
+    {
+      "name": "oEditor.GetFaceIDs / oEditor.GetEdgeIDsFromObject",
+      "kind": "api",
+      "description": "Query the topology of an object so a boundary, port or mesh operation can be attached to one face or edge rather than to the whole body. GetFaceIDs returns the face identifiers of a named object and GetEdgeIDsFromObject its edges; companion calls give a face's area, centre and vertices so the right one can be picked programmatically instead of by hand. This is the native answer to \"assign PerfectE to the top face only\".",
+      "usage": "faces = oEditor.GetFaceIDs(<object_name>)\nedges = oEditor.GetEdgeIDsFromObject(<object_name>)\narea  = oEditor.GetFaceArea(<face_id>)\ncentre = oEditor.GetFaceCenter(<face_id>)",
+      "parameters": [
+        {"name": "<object_name>", "description": "Name of an existing solid or sheet. The call fails if the object was consumed by a boolean."},
+        {"name": "GetFaceIDs", "description": "Returns face IDs as strings in the IronPython engine; convert with int() before passing them into a boundary array that expects numbers."},
+        {"name": "GetFaceArea(id) / GetFaceCenter(id)", "description": "Area in the model's units and the [x, y, z] centre of a face, the usual way to identify the top, bottom or largest face."},
+        {"name": "GetEdgeIDsFromObject(name)", "description": "Edge IDs of an object; GetVertexIDsFromFace(id) drills one level further for point-based operations."},
+        {"name": "GetObjectsInGroup(group)", "description": "\"Solids\", \"Sheets\", \"Lines\", \"Unclassified\", \"Non Model\" - used to loop over everything a CAD import produced."}
+      ],
+      "example": "faces = oEditor.GetFaceIDs(\"Ground\")\nareas = sorted((float(oEditor.GetFaceArea(int(f))), int(f)) for f in faces)\nbiggest = areas[-1][1]\n\noBoundary = oDesign.GetModule(\"BoundarySetup\")\noBoundary.AssignPerfectE(\n    [\"NAME:GndPlane\", \"Faces:=\", [biggest], \"InfGroundPlane:=\", True])\n\nfor obj in oEditor.GetObjectsInGroup(\"Solids\"):\n    oDesktop.AddMessage(\"\", \"\", 0,\n        obj + \": \" + str(len(oEditor.GetFaceIDs(obj))) + \" faces\")",
+      "notes": "Face and edge IDs are not stable: any boolean, import refresh or dimension change can renumber them, so query them immediately before use and never store them in a file. This fragility is the single strongest argument for PyAEDT, whose Object3d handles expose .faces, .edges and .top_face_z and re-resolve them on demand."
+    },
+    {
+      "name": "oModule(\"BoundarySetup\").AssignPerfectE / AssignFiniteCond",
+      "kind": "api",
+      "description": "Assign the two conductor boundaries. AssignPerfectE makes a sheet or face a lossless electric wall, the right model for metal when losses do not matter and for an infinite ground plane. AssignFiniteCond applies an impedance boundary derived from a material's conductivity, optionally with a thickness and a surface-roughness model, which is what a real copper trace needs once loss or roughness matters. Both accept either whole objects or individual face IDs.",
+      "usage": "oModule = oDesign.GetModule(\"BoundarySetup\")\noModule.AssignPerfectE([\"NAME:<bname>\", \"Objects:=\", [<names>], \"InfGroundPlane:=\", <bool>])\noModule.AssignFiniteCond([\"NAME:<bname>\", \"Objects:=\", [<names>], \"UseMaterial:=\", True,\n                          \"Material:=\", \"copper\", \"UseThickness:=\", False,\n                          \"Roughness:=\", \"0um\", \"InfGroundPlane:=\", False,\n                          \"IsTwoSided:=\", False, \"IsInternal:=\", True])",
+      "parameters": [
+        {"name": "\"Objects:=\"", "description": "List of object names the boundary is applied to. Use \"Faces:=\" with a list of integer face IDs to target part of an object instead."},
+        {"name": "\"InfGroundPlane:=\"", "description": "True treats the sheet as an infinite ground plane, which matters for far-field calculation and for how the radiation boundary is interpreted."},
+        {"name": "\"UseMaterial:=\" / \"Material:=\"", "description": "Take the conductivity from a named material rather than entering it directly. Setting UseMaterial False exposes a Conductivity entry instead."},
+        {"name": "\"UseThickness:=\" / \"Thickness:=\"", "description": "Model a finite metal thickness so the boundary accounts for current on both sides of a thin conductor."},
+        {"name": "\"Roughness:=\"", "description": "Surface roughness, e.g. \"2um\", applied with the Groiss model. It is the dominant loss term on PCB copper above a few GHz."},
+        {"name": "\"IsTwoSided:=\" / \"IsInternal:=\"", "description": "Whether both faces of a sheet are electrically active and whether the boundary faces the inside of a solid; both matter for sheets buried in a dielectric."},
+        {"name": "oModule.GetBoundaries()", "description": "Returns the names of all boundaries in the design, the quick way to check a script did what it intended."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"BoundarySetup\")\n\noModule.AssignPerfectE(\n    [\"NAME:GndPlane\", \"Objects:=\", [\"Ground\"], \"InfGroundPlane:=\", True])\n\noModule.AssignFiniteCond(\n    [\"NAME:TraceCu\",\n     \"Objects:=\", [\"Trace\"],\n     \"UseMaterial:=\", True, \"Material:=\", \"copper\",\n     \"UseThickness:=\", True, \"Thickness:=\", \"35um\",\n     \"Roughness:=\", \"2um\",\n     \"InfGroundPlane:=\", False,\n     \"IsTwoSided:=\", False, \"IsInternal:=\", True])\n\nprint(oModule.GetBoundaries())",
+      "notes": "Boundary names must be unique inside a design; re-running a build script against an existing design raises unless the old boundary is deleted first with oModule.DeleteBoundaries([name]). The same module carries AssignPerfectH, AssignImpedance, AssignLayeredImp, AssignSymmetry and AssignLumpedRLC, all with the same flat name/value array shape."
+    },
+    {
+      "name": "oModule(\"BoundarySetup\").AssignWavePort / AssignLumpedPort",
+      "kind": "api",
+      "description": "Create the excitations that make an S-parameter problem solvable. AssignWavePort attaches a port to a sheet or face and solves a 2D eigenproblem on it to find the propagating modes, which is the correct choice for waveguides, coax and any port on the outer boundary of the model. AssignLumpedPort applies a simple uniform field across a sheet between two conductors and is used for internal feeds where a full modal solution is unnecessary. Both carry a Modes sub-array describing each mode, its integration line and how its impedance is defined.",
+      "usage": "oModule.AssignWavePort(\n    [\"NAME:<port>\", \"Objects:=\", [<sheet>], \"NumModes:=\", <n>,\n     \"RenormalizeAllTerminals:=\", True, \"DoDeembed:=\", False,\n     [\"NAME:Modes\", [\"NAME:Mode1\", \"ModeNum:=\", 1, \"UseIntLine:=\", True,\n      [\"NAME:IntLine\", \"Start:=\", [<x>, <y>, <z>], \"End:=\", [<x>, <y>, <z>]],\n      \"CharImp:=\", \"Zpi\"]]])\noModule.AssignLumpedPort([\"NAME:<port>\", \"Objects:=\", [<sheet>], ..., \"Impedance:=\", \"50ohm\"])",
+      "parameters": [
+        {"name": "\"Objects:=\" / \"Faces:=\"", "description": "The port sheet by name, or a face ID of a solid. A wave port must sit on the outer boundary of the solution volume unless the port is de-embedded into the model."},
+        {"name": "\"NumModes:=\"", "description": "How many modes the wave port solves for. One is enough for coax and microstrip; overmoded waveguide and multi-conductor lines need more."},
+        {"name": "\"UseIntLine:=\" and \"NAME:IntLine\"", "description": "An integration line given as Start and End coordinate lists. It fixes the sign and polarisation of the mode and is required for a meaningful Zpi or Zvi impedance."},
+        {"name": "\"CharImp:=\"", "description": "Impedance definition: \"Zpi\" (power-current), \"Zpv\" (power-voltage) or \"Zvi\". Zpi is the usual choice for microstrip and coax."},
+        {"name": "\"DoDeembed:=\" / \"DeembedDist:=\"", "description": "Shift the reference plane along the port normal by a given distance, removing a length of uniform line from the result."},
+        {"name": "\"RenormalizeAllTerminals:=\" / \"Impedance:=\"", "description": "Renormalise the S-parameters to a fixed reference impedance, typically \"50ohm\". Lumped ports take the impedance directly."},
+        {"name": "oModule.GetExcitations()", "description": "Returns the excitation names and types in the design; port names become the S-parameter indices in every report."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"BoundarySetup\")\n\noModule.AssignWavePort(\n    [\"NAME:P1\",\n     \"Objects:=\", [\"PortSheet\"],\n     \"NumModes:=\", 1,\n     \"RenormalizeAllTerminals:=\", True,\n     \"DoDeembed:=\", False,\n     [\"NAME:Modes\",\n      [\"NAME:Mode1\", \"ModeNum:=\", 1, \"UseIntLine:=\", True,\n       [\"NAME:IntLine\",\n        \"Start:=\", [\"0mm\", \"0mm\", \"-5mm\"],\n        \"End:=\", [\"1.68mm\", \"0mm\", \"-5mm\"]],\n       \"CharImp:=\", \"Zpi\"]]])\n\noModule.AssignLumpedPort(\n    [\"NAME:P2\",\n     \"Objects:=\", [\"FeedGap\"],\n     \"RenormalizeAllTerminals:=\", True,\n     \"DoDeembed:=\", False,\n     [\"NAME:Modes\",\n      [\"NAME:Mode1\", \"ModeNum:=\", 1, \"UseIntLine:=\", True,\n       [\"NAME:IntLine\",\n        \"Start:=\", [\"0mm\", \"0mm\", \"0mm\"],\n        \"End:=\", [\"0mm\", \"0mm\", \"1.575mm\"]],\n       \"CharImp:=\", \"Zpi\"]],\n     \"Impedance:=\", \"50ohm\"])\n\nprint(oModule.GetExcitations())",
+      "notes": "This is the argument array that changes shape most often between releases and between Driven Modal and Driven Terminal solution types, where modes are replaced by named terminals. Record the action once on the target version and parameterise the recording rather than writing the array from memory. A port sheet must be a covered sheet; an uncovered outline silently produces no excitation."
+    },
+    {
+      "name": "oModule(\"BoundarySetup\").AssignRadiation",
+      "kind": "api",
+      "description": "Apply an absorbing (radiation) boundary to the outer faces of the air region so outgoing waves leave the model instead of reflecting, which is what turns a closed FEM problem into an antenna problem. It is also the boundary that tells HFSS which surface to integrate for far fields, so an antenna without one produces no radiation pattern. A radiation boundary is a first-order absorbing condition and only behaves well when it sits roughly a quarter wavelength from the radiator and is broadly convex.",
+      "usage": "oModule.AssignRadiation([\"NAME:<bname>\", \"Objects:=\", [<airbox>],\n                         \"IsFssReference:=\", False, \"IsForPML:=\", False])",
+      "parameters": [
+        {"name": "\"Objects:=\" / \"Faces:=\"", "description": "The air region object, or the specific outer faces of it. Applying it to the whole box is the normal case."},
+        {"name": "\"IsFssReference:=\"", "description": "Marks the boundary as the reference plane of a frequency-selective-surface or periodic setup."},
+        {"name": "\"IsForPML:=\"", "description": "Set when the boundary is the backing of a PML group created by the PML setup wizard rather than a standalone ABC."},
+        {"name": "Air region", "description": "Created first with oEditor.CreateBox or CreateRegion, sized about a quarter wavelength beyond the radiator at the lowest frequency of interest."},
+        {"name": "Alternatives", "description": "PML layers absorb far better for a tight box, and a hybrid FE-BI region is exact at the boundary at the cost of a dense matrix; both are assigned from the same module."}
+      ],
+      "example": "# Air box a quarter wavelength beyond the antenna, then the ABC\noEditor.CreateBox(\n    [\"NAME:BoxParameters\",\n     \"XPosition:=\", \"-60mm\", \"YPosition:=\", \"-60mm\", \"ZPosition:=\", \"-30mm\",\n     \"XSize:=\", \"120mm\", \"YSize:=\", \"120mm\", \"ZSize:=\", \"90mm\"],\n    [\"NAME:Attributes\", \"Name:=\", \"AirBox\",\n     \"MaterialValue:=\", \"\\\"vacuum\\\"\", \"SolveInside:=\", True, \"Transparency:=\", 0.9])\n\noModule = oDesign.GetModule(\"BoundarySetup\")\noModule.AssignRadiation(\n    [\"NAME:Rad1\", \"Objects:=\", [\"AirBox\"],\n     \"IsFssReference:=\", False, \"IsForPML:=\", False])",
+      "notes": "Placing the boundary too close is the classic antenna-modelling error: gain and input match both drift, and the symptom is a result that keeps changing as the box grows. An infinite ground plane defined with AssignPerfectE ... InfGroundPlane True changes how the far field is computed, so the two boundaries have to be consistent. PyAEDT's create_open_region builds the region and this boundary in one call sized from a frequency."
+    },
+    {
+      "name": "oModule(\"AnalysisSetup\").InsertSetup / InsertFrequencySweep",
+      "kind": "api",
+      "description": "Define the solution. InsertSetup creates an adaptive solution setup of a given solver type with a mesh-refinement frequency, a convergence target and a pass limit; InsertFrequencySweep adds a sweep that reuses that converged mesh across a band. Together they are the minimum a design needs before Analyze will do anything. The sweep type chosen here dominates runtime: Interpolating solves a handful of points and fits a rational model, Discrete solves every point, and Fast builds a single-point reduced-order model.",
+      "usage": "oModule = oDesign.GetModule(\"AnalysisSetup\")\noModule.InsertSetup(\"HfssDriven\", [\"NAME:Setup1\", \"Frequency:=\", <f>, \"MaxDeltaS:=\", <d>,\n                                   \"MaximumPasses:=\", <n>, ...])\noModule.InsertFrequencySweep(\"Setup1\", [\"NAME:Sweep1\", \"RangeType:=\", \"LinearCount\", ...])\noModule.GetSetups()",
+      "parameters": [
+        {"name": "Setup type", "description": "First argument of InsertSetup: \"HfssDriven\" for Driven Modal/Terminal, \"HfssEigen\" for Eigenmode, \"HfssTransient\" for the time-domain solver."},
+        {"name": "\"Frequency:=\"", "description": "The single frequency at which the adaptive mesh is refined. Pick the highest frequency of interest, or the resonance, so the mesh is adequate across the band."},
+        {"name": "\"MaxDeltaS:=\" / \"MaximumPasses:=\"", "description": "Convergence criterion on the change in S-parameters between adaptive passes (0.02 is typical) and the hard pass limit that stops a non-converging run."},
+        {"name": "\"RangeType:=\"", "description": "Sweep range form: \"LinearCount\", \"LinearStep\", \"LogScale\" or \"SinglePoints\", each with its own RangeStart/RangeEnd/RangeCount or RangeStep entries."},
+        {"name": "\"Type:=\"", "description": "Sweep algorithm: \"Interpolating\", \"Discrete\" or \"Fast\". Interpolating is the default choice for wideband S-parameters."},
+        {"name": "\"SaveFields:=\" / \"SaveRadFields:=\"", "description": "Whether field data is kept at every sweep frequency. Leaving them True on a wide sweep is the usual cause of a results folder growing to hundreds of gigabytes."},
+        {"name": "oModule.GetSetups()", "description": "Names of the existing setups; EditSetup(name, array) modifies one in place."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"AnalysisSetup\")\n\noModule.InsertSetup(\"HfssDriven\",\n    [\"NAME:Setup1\",\n     \"Frequency:=\", \"2.45GHz\",\n     \"MaxDeltaS:=\", 0.02,\n     \"MaximumPasses:=\", 12,\n     \"MinimumPasses:=\", 2,\n     \"MinimumConvergedPasses:=\", 1,\n     \"PercentRefinement:=\", 30,\n     \"IsEnabled:=\", True,\n     \"BasisOrder:=\", 1])\n\noModule.InsertFrequencySweep(\"Setup1\",\n    [\"NAME:Sweep1\",\n     \"IsEnabled:=\", True,\n     \"Type:=\", \"Interpolating\",\n     \"RangeType:=\", \"LinearCount\",\n     \"RangeStart:=\", \"2GHz\", \"RangeEnd:=\", \"3GHz\", \"RangeCount:=\", 401,\n     \"SaveFields:=\", False, \"SaveRadFields:=\", False,\n     \"InterpTolerance:=\", 0.5, \"InterpMaxSolns:=\", 250])\n\nprint(oModule.GetSetups())",
+      "notes": "Reports and field plots address solutions as \"Setup1 : Sweep1\" for swept data and \"Setup1 : LastAdaptive\" for the converged adaptive solution, and getting that string wrong is the usual reason a report comes back empty. An interpolating sweep that will not converge usually means too few adaptive passes at the mesh frequency, not a sweep problem. MaxDeltaS is evaluated on all S-parameters, so adding ports makes convergence harder."
+    },
+    {
+      "name": "oModule(\"ReportSetup\").CreateReport / ExportToFile / GetSolutionDataPerVariation",
+      "kind": "api",
+      "description": "Build plots and get numbers back out. CreateReport takes seven positional arguments - report name, report type, display type, solution name, a context array, a families array of sweep and variable values, and the trace definition - and creates the plot in the design tree. ExportToFile writes an existing report's traces to CSV or TAB, while GetSolutionDataPerVariation returns the same data as an object a script can read without creating a plot at all.",
+      "usage": "oModule = oDesign.GetModule(\"ReportSetup\")\noModule.CreateReport(<report_name>, <report_type>, <display_type>, <solution>,\n                     <context_array>, <families_array>, <trace_array>)\noModule.ExportToFile(<report_name>, <file_path>)\ndata = oModule.GetSolutionDataPerVariation(<report_type>, <solution>, <context>, <families>, <expressions>)",
+      "parameters": [
+        {"name": "<report_type>", "description": "\"Modal Solution Data\", \"Terminal Solution Data\", \"Eigenmode Parameters\", \"Far Fields\", \"Fields\" or \"Antenna Parameters\" - it must match the design's solution type."},
+        {"name": "<display_type>", "description": "\"Rectangular Plot\", \"Smith Chart\", \"Polar Plot\", \"3D Polar Plot\", \"Data Table\" or \"Radiation Pattern\"."},
+        {"name": "<solution>", "description": "\"Setup1 : Sweep1\" for swept results, \"Setup1 : LastAdaptive\" for the converged adaptive solution."},
+        {"name": "<context_array>", "description": "[\"Domain:=\", \"Sweep\"] for frequency data, [\"Domain:=\", \"Time\"] for transient, or [\"Context:=\", \"<sphere_name>\"] for a far-field report."},
+        {"name": "<families_array>", "description": "Which values of each sweep and design variable to plot: [\"Freq:=\", [\"All\"], \"patch_l:=\", [\"Nominal\"]]."},
+        {"name": "<trace_array>", "description": "[\"X Component:=\", \"Freq\", \"Y Component:=\", [\"dB(S(1,1))\", \"dB(S(2,1))\"]] - the expressions use the port names as indices."},
+        {"name": "GetSolutionDataPerVariation", "description": "Returns a data object whose GetSweepValues(\"Freq\") and GetRealDataValues(expr, True) / GetImagDataValues give plain arrays, for scripts that only want numbers."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"ReportSetup\")\n\noModule.CreateReport(\n    \"S11\", \"Modal Solution Data\", \"Rectangular Plot\",\n    \"Setup1 : Sweep1\",\n    [\"Domain:=\", \"Sweep\"],\n    [\"Freq:=\", [\"All\"], \"patch_l:=\", [\"Nominal\"]],\n    [\"X Component:=\", \"Freq\", \"Y Component:=\", [\"dB(S(P1,P1))\"]])\n\noModule.ExportToFile(\"S11\", \"C:/work/s11.csv\")\n\n# Same numbers without creating a plot\ndata = oModule.GetSolutionDataPerVariation(\n    \"Modal Solution Data\", \"Setup1 : Sweep1\",\n    [\"Domain:=\", \"Sweep\"], [\"Freq:=\", [\"All\"]], [\"dB(S(P1,P1))\"])\nfreqs = data.GetSweepValues(\"Freq\")\ns11 = data.GetRealDataValues(\"dB(S(P1,P1))\", True)\nprint(min(zip(s11, freqs)))",
+      "notes": "Touchstone export is a different module: oDesign.GetModule(\"Solutions\").ExportNetworkData writes .sNp files, and its arguments are positional rather than name/value pairs, so record it once. Far-field reports need an infinite sphere from the RadField module as their context, otherwise the report type is rejected. Report names must be unique; DeleteReports([name]) clears an old one before a rebuild."
+    },
+    {
+      "name": "oModule(\"FieldsReporter\").EnterQty / CalcOp / AddNamedExpression / ExportOnGrid",
+      "kind": "api",
+      "description": "Drive the Fields Calculator, which is a stack machine: quantities and geometry are pushed onto the stack, operators consume and replace them, and the top of the stack is finally evaluated, named or exported. This is how derived quantities such as peak |E| in a dielectric, surface-current integrals, SAR-style volume integrals and field files on a Cartesian grid are produced. It is the only route to field post-processing that does not involve clicking through the calculator dialog.",
+      "usage": "oModule = oDesign.GetModule(\"FieldsReporter\")\noModule.CalcStack(\"clear\")\noModule.EnterQty(<quantity>)\noModule.EnterVol(<object>) | EnterSurf(<sheet>) | EnterLine(<polyline>)\noModule.CalcOp(<operator>)\noModule.AddNamedExpression(<name>, \"Fields\")\noModule.ClcEval(<solution>, <intrinsics>)\noModule.GetTopEntryValue(<solution>, <intrinsics>)",
+      "parameters": [
+        {"name": "EnterQty(name)", "description": "Push a field quantity: \"E\", \"H\", \"Jsurf\", \"Jvol\", \"Poynting\", \"ComplexPoynting\" or a named expression already defined."},
+        {"name": "EnterVol / EnterSurf / EnterLine", "description": "Push a geometry entity - a solid, a sheet or a polyline - as the domain for an integration or maximum."},
+        {"name": "CalcOp(op)", "description": "Apply an operator: \"Mag\", \"Real\", \"Imag\", \"Smooth\", \"Integrate\", \"Maximum\", \"Minimum\", \"Mean\", \"Abs\", \"Dot\", \"Scalar_X\"."},
+        {"name": "AddNamedExpression(name, \"Fields\")", "description": "Store the top of the stack under a name so it can be used in field plots and reports, and reused with CopyNamedExprToStack."},
+        {"name": "ClcEval(solution, intrinsics)", "description": "Evaluate the stack for one solution and intrinsic point, e.g. \"Setup1 : LastAdaptive\" with [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"]."},
+        {"name": "GetTopEntryValue(solution, intrinsics)", "description": "Return the evaluated scalar as a string array, which is how a script gets a single number out of the calculator."},
+        {"name": "ExportOnGrid / CalculatorWrite", "description": "Write the evaluated quantity to a .fld file, either sampled on a Cartesian, cylindrical or spherical grid or on the geometry itself."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"FieldsReporter\")\n\n# Define |E| as a named expression usable in plots\noModule.CalcStack(\"clear\")\noModule.EnterQty(\"E\")\noModule.CalcOp(\"Mag\")\noModule.AddNamedExpression(\"Emag\", \"Fields\")\n\n# Peak |E| inside the substrate at the design frequency\noModule.CalcStack(\"clear\")\noModule.CopyNamedExprToStack(\"Emag\")\noModule.EnterVol(\"Sub\")\noModule.CalcOp(\"Maximum\")\nintr = [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"]\noModule.ClcEval(\"Setup1 : LastAdaptive\", intr)\nprint(oModule.GetTopEntryValue(\"Setup1 : LastAdaptive\", intr))",
+      "notes": "Always start with CalcStack(\"clear\"): a leftover entry from a previous operation silently changes the result. Evaluating fields requires that the solution actually stored them - the adaptive pass always does, but a frequency sweep only does when SaveFields was True. The exact trailing arguments of ExportOnGrid differ between releases, so record one Fields Calculator export and reuse that array rather than typing it."
+    },
+    {
+      "name": "Hfss (ansys.aedt.core)",
+      "kind": "api",
+      "description": "The PyAEDT application class and the entry point of every modern AEDT automation script. Constructing it launches a new Electronics Desktop or attaches to a running one, opens or creates a project and design, and returns an object whose properties expose the modeler, boundaries, mesh, setups, variables, materials, Optimetrics and post-processor. Sibling classes Hfss3dLayout, Maxwell3d, Q3d, Icepak and Circuit follow the same constructor pattern, so a multiphysics script uses one idiom throughout.",
+      "usage": "from ansys.aedt.core import Hfss\nhfss = Hfss(project=None, design=None, solution_type=None, version=None,\n            non_graphical=False, new_desktop=False, close_on_exit=False)",
+      "parameters": [
+        {"name": "version", "description": "AEDT release to drive, as \"2025.1\" or \"2024.2\". Omit it to take the newest installed version, which makes a script's behaviour depend on the machine."},
+        {"name": "non_graphical", "description": "True runs the desktop without its interface. Required for headless servers and considerably faster for pure model-building runs."},
+        {"name": "new_desktop", "description": "True always starts a fresh AEDT process; False attaches to an existing session if one is running, which is what you want while developing interactively."},
+        {"name": "project", "description": "Path to an existing .aedt file, or a name for a new project. An .aedb path opens a layout project instead."},
+        {"name": "design", "description": "Design name to open or create inside the project. If it does not exist, PyAEDT inserts it."},
+        {"name": "solution_type", "description": "\"Modal\", \"Terminal\", \"Eigenmode\", \"Transient\", \"SBR+\" or \"Characteristic Mode\". PyAEDT accepts the short forms as well as the native strings."},
+        {"name": "close_on_exit", "description": "Whether releasing the object also shuts the desktop down. Pair it with a with-block or an explicit release_desktop call."}
+      ],
+      "example": "from ansys.aedt.core import Hfss\n\nhfss = Hfss(project=r\"C:/work/patch.aedt\",\n            design=\"Patch\",\n            solution_type=\"Modal\",\n            version=\"2025.1\",\n            non_graphical=True,\n            new_desktop=True)\n\nprint(hfss.design_name, hfss.solution_type)\nprint(hfss.modeler.object_names)\n\n# Switch to another design in the same project\nhfss.set_active_design(\"PatchArray\")\n\n# The native objects are always one attribute away\nhfss.odesign.GetModule(\"BoundarySetup\").GetBoundaries()",
+      "notes": "The package was renamed in the 0.9/1.0 generation: older scripts start with `from pyaedt import Hfss`, and the constructor keywords were `specified_version`, `projectname`, `designname` and `new_desktop_session`. Both spellings appear widely in tutorials, so check the installed version before copying code. hfss.odesktop, hfss.oproject, hfss.odesign and hfss.modeler.oeditor expose the raw object model for anything PyAEDT does not yet wrap.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "Desktop / hfss.save_project / close_project / release_desktop",
+      "kind": "api",
+      "description": "Session lifecycle. Desktop() starts or attaches to an AEDT process independently of any one application class, which is how a script drives several designs or several solvers in one session, and it works as a context manager so the process is cleaned up on the way out. save_project, close_project and release_desktop are the explicit counterparts on an application object. Getting this wrong is the most expensive mistake in batch scripting, because an orphaned ansysedt process keeps holding a licence.",
+      "usage": "from ansys.aedt.core import Desktop, Hfss\nwith Desktop(version=\"2025.1\", non_graphical=True, new_desktop=True) as d:\n    hfss = Hfss(...)\nhfss.save_project(file_name=None, overwrite=True)\nhfss.close_project(name=None, save=True)\nhfss.release_desktop(close_projects=True, close_on_exit=True)",
+      "parameters": [
+        {"name": "Desktop(version, non_graphical, new_desktop)", "description": "Same session arguments as the application classes. Inside the with-block every application constructed attaches to this desktop."},
+        {"name": "close_on_exit", "description": "Whether leaving the context or releasing the desktop terminates the AEDT process. False leaves the session up for inspection."},
+        {"name": "save_project(file_name, overwrite)", "description": "Saves in place, or to a new path when file_name is given. Call it before analyzing, because the solver writes next to the .aedt file."},
+        {"name": "close_project(name, save)", "description": "Closes a project by name, saving first unless save is False. Useful in loops that generate one project per variation."},
+        {"name": "release_desktop(close_projects, close_on_exit)", "description": "Detaches PyAEDT from the session. With close_on_exit True the desktop process exits and the licence is returned."},
+        {"name": "hfss.logger", "description": "PyAEDT's logger, which writes to the AEDT Message Manager and optionally to a file - the practical way to trace a headless run."}
+      ],
+      "example": "from ansys.aedt.core import Desktop, Hfss\n\nwith Desktop(version=\"2025.1\", non_graphical=True,\n             new_desktop=True, close_on_exit=True) as desktop:\n    for length in [\"28mm\", \"29mm\", \"30mm\"]:\n        hfss = Hfss(project=f\"C:/work/patch_{length}.aedt\",\n                    design=\"Patch\", solution_type=\"Modal\")\n        hfss[\"patch_l\"] = length\n        hfss.analyze()\n        hfss.export_touchstone(output_file=f\"C:/work/patch_{length}.s1p\")\n        hfss.save_project()\n        hfss.close_project(save=True)\n\n# Outside a with-block, release explicitly instead\n# hfss.release_desktop(close_projects=True, close_on_exit=True)",
+      "notes": "A script that raises before release_desktop leaves an ansysedt process running and a licence checked out; the with-block form is the reliable fix. Attaching to a running desktop (new_desktop=False) is convenient while developing because the model can be inspected between steps, but it means the script inherits whatever state the interactive session was in."
+    },
+    {
+      "name": "hfss.modeler.create_box",
+      "kind": "api",
+      "description": "Create a rectangular solid from an origin and three sizes and get back an Object3d handle rather than a name string. The handle carries the object's faces, edges, vertices, material, colour and solve-inside flag as live properties, so later boundary and mesh calls can refer to geometry without re-querying IDs. Numbers are interpreted in the model units while strings may be unit-bearing literals or variable expressions.",
+      "usage": "obj = hfss.modeler.create_box(origin, sizes, name=None, material=None)",
+      "parameters": [
+        {"name": "origin", "description": "[x, y, z] corner. Plain numbers use the model units; strings such as \"-patch_w/2\" are passed through as expressions."},
+        {"name": "sizes", "description": "[dx, dy, dz] edge lengths, with the same number-or-expression rule. Negative values extend in the opposite direction."},
+        {"name": "name", "description": "Requested object name. PyAEDT returns the name actually assigned on the handle's .name property."},
+        {"name": "material", "description": "Material name; it must exist in the project or the library, or be created first with hfss.materials.add_material."},
+        {"name": "obj.solve_inside", "description": "Settable property - False turns a good conductor into a surface-impedance body and removes its interior from the mesh."},
+        {"name": "obj.faces / obj.edges / obj.vertices", "description": "Live topology lists whose members expose .id, .center, .area and .bottom_edge_x style helpers used to target boundaries."}
+      ],
+      "example": "from ansys.aedt.core import Hfss\nhfss = Hfss(version=\"2025.1\", solution_type=\"Modal\", non_graphical=True)\n\nhfss[\"patch_w\"] = \"38mm\"\nhfss[\"patch_l\"] = \"29mm\"\nhfss[\"h\"] = \"1.575mm\"\n\nsub = hfss.modeler.create_box(\n    [\"-patch_w\", \"-patch_l\", \"0mm\"],\n    [\"2*patch_w\", \"2*patch_l\", \"h\"],\n    name=\"Sub\",\n    material=\"Rogers RT/duroid 5880 (tm)\")\n\nprint(sub.name, sub.material_name, len(sub.faces))\nsub.transparency = 0.7\n\ngnd = hfss.modeler.create_box([\"-patch_w\", \"-patch_l\", \"-0.035mm\"],\n                              [\"2*patch_w\", \"2*patch_l\", \"0.035mm\"],\n                              name=\"Gnd\", material=\"copper\")\ngnd.solve_inside = False",
+      "notes": "Keyword names changed in the 0.9/1.0 generation: older code uses create_box(position, dimensions_list, name=..., matname=...). Objects can be looked up later with hfss.modeler[\"Sub\"], and hfss.modeler.object_names / solid_names / sheet_names give the full inventory. The underlying native call is oEditor.CreateBox with its two name/value arrays.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modeler.modeler_3d.Modeler3D.html"
+    },
+    {
+      "name": "hfss.modeler.create_cylinder / create_sphere / create_rectangle / create_polyline",
+      "kind": "api",
+      "description": "The remaining primitives, all returning Object3d (or Polyline) handles. create_cylinder and create_sphere build the solids behind coax feeds, vias, pins and radomes; create_rectangle builds the planar sheets that carry ports and sheet boundaries; create_polyline takes a plain list of points and optionally a cross-section, turning what is a deeply nested array in the native API into one readable call.",
+      "usage": "hfss.modeler.create_cylinder(orientation, origin, radius, height, num_sides=0, name=None, material=None)\nhfss.modeler.create_sphere(origin, radius, name=None, material=None)\nhfss.modeler.create_rectangle(orientation, origin, sizes, name=None, material=None, is_covered=True)\nhfss.modeler.create_polyline(points, name=None, material=None, xsection_type=None, xsection_width=..., close_surface=False, cover_surface=False)",
+      "parameters": [
+        {"name": "orientation", "description": "For a cylinder the axis (\"X\", \"Y\", \"Z\" or hfss.AXIS.Z); for a rectangle the plane (\"XY\", \"YZ\", \"XZ\" or hfss.PLANE.XY)."},
+        {"name": "radius / height", "description": "Cylinder dimensions as numbers in model units or as expression strings. A negative height grows along the negative axis."},
+        {"name": "num_sides", "description": "0 for a true cylinder, or a facet count for a prism. Faceting keeps the mesh small on long vias at the cost of accuracy."},
+        {"name": "sizes", "description": "Rectangle extents [w, h] in the two in-plane axes of the chosen plane."},
+        {"name": "is_covered", "description": "True yields a sheet with a face, which is what a port or a PerfectE needs; False yields only the outline."},
+        {"name": "points", "description": "List of [x, y, z] points for a polyline. segment_type accepts \"Line\", \"Arc\" or \"Spline\" per span, and the returned Polyline has insert_segment for adding more."},
+        {"name": "xsection_type", "description": "\"Line\", \"Circle\", \"Rectangle\" or \"Isosceles Trapezoid\" - sweeps the profile along the path so the polyline becomes a solid wire or trace."}
+      ],
+      "example": "# Coax feed: dielectric, pin, and the port sheet at its end\ndiel = hfss.modeler.create_cylinder(\"Z\", [0, 0, -5], 1.68, 5,\n                                    name=\"CoaxDiel\", material=\"Teflon (tm)\")\npin = hfss.modeler.create_cylinder(\"Z\", [0, 0, -5], 0.51, \"5mm + h\",\n                                   name=\"CoaxPin\", material=\"pec\")\npin.solve_inside = False\n\nport_sheet = hfss.modeler.create_rectangle(\"XY\", [-1.68, -1.68, -5], [3.36, 3.36],\n                                           name=\"PortSheet\", is_covered=True)\n\n# Wire dipole arm with a circular cross-section\narm = hfss.modeler.create_polyline([[0, 0, 1], [0, 0, 31]],\n                                   name=\"ArmUpper\", material=\"pec\",\n                                   xsection_type=\"Circle\", xsection_width=\"0.5mm\")\n\nrad = hfss.modeler.create_sphere([0, 0, 0], 60, name=\"AirSphere\", material=\"vacuum\")",
+      "notes": "Sheets created with is_covered False land in the Lines group and cannot carry a port, which is the usual cause of a missing excitation. The AXIS, PLANE and AxisDir enumerations on the application object are safer than raw strings because a typo raises immediately. hfss.modeler.create_region is the quick way to make a padded air box instead of sizing one by hand.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modeler.modeler_3d.Modeler3D.html"
+    },
+    {
+      "name": "hfss.modeler.unite / subtract / duplicate_along_line",
+      "kind": "api",
+      "description": "Booleans and duplication on named objects or Object3d handles. unite merges a list into the first entry, subtract removes tool bodies from blank bodies with control over whether the tools survive, and duplicate_along_line copies a selection along a vector to build linear arrays. Because PyAEDT keeps object handles, the result of a boolean can be used immediately without re-querying names or face IDs.",
+      "usage": "hfss.modeler.unite(assignment, keep_originals=False)\nhfss.modeler.subtract(blank_list, tool_list, keep_originals=True)\nhfss.modeler.duplicate_along_line(assignment, vector, clones=2, attach=False)",
+      "parameters": [
+        {"name": "assignment", "description": "A list of object names or Object3d handles. For unite the first entry survives and keeps its name, material and boundaries."},
+        {"name": "blank_list / tool_list", "description": "What remains and what is cut away. Both accept names or handles, and a single tool can cut several blanks in one call."},
+        {"name": "keep_originals", "description": "Whether the consumed bodies are preserved. Keep the tool when it is reused for another cut; discard it to keep the model tidy."},
+        {"name": "vector", "description": "[dx, dy, dz] duplication vector; expression strings such as [\"pitch\", 0, 0] keep the array parametric."},
+        {"name": "clones", "description": "Total number of copies including the original, so 4 produces three new objects."},
+        {"name": "attach", "description": "True links the clones to the original so later dimension changes propagate to every element of the array."}
+      ],
+      "example": "# Clear the coax hole through the ground plane, keeping the dielectric\nhfss.modeler.subtract([\"Gnd\"], [\"CoaxDiel\"], keep_originals=True)\n\n# Merge the dipole arms into one conductor\nhfss.modeler.unite([\"ArmUpper\", \"ArmLower\"], keep_originals=False)\n\n# 1 x 4 array at half-wavelength spacing\nhfss[\"pitch\"] = \"61mm\"\nclones = hfss.modeler.duplicate_along_line(\"Patch\", [\"pitch\", 0, 0], clones=4)\nprint(clones)\n\nprint(hfss.modeler.solid_names)",
+      "notes": "Assign boundaries after the booleans: unite transfers only the first object's assignments, and anything attached to a consumed body is lost. duplicate_along_line returns the new object names, which is how an array's elements get individual ports in a loop. duplicate_around_axis and duplicate_and_mirror cover circular arrays and symmetric halves.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modeler.modeler_3d.Modeler3D.html"
+    },
+    {
+      "name": "hfss.modeler.import_3d_cad",
+      "kind": "api",
+      "description": "Import neutral or native CAD geometry into the 3D modeler: STEP, IGES, ACIS SAT, Parasolid and, with the right translator licence, Creo, SolidWorks, NX, Inventor and CATIA. Imported bodies arrive as ordinary modeler objects that can be renamed, assigned materials and given boundaries, but they have no parametric history, so dimensions come from the CAD tool rather than from HFSS variables. Healing repairs small gaps and sliver faces that would otherwise wreck the mesh.",
+      "usage": "hfss.modeler.import_3d_cad(input_file, healing=False, refresh_all_ids=True, import_materials=False, group_by_assembly=False)",
+      "parameters": [
+        {"name": "input_file", "description": "Full path to the CAD file. Extension decides the reader, so a mislabelled file fails rather than being sniffed."},
+        {"name": "healing", "description": "True runs geometry healing on import. It costs time on large assemblies but is usually necessary for anything exported from a mechanical CAD tool."},
+        {"name": "refresh_all_ids", "description": "Re-resolve object, face and edge identifiers after the import so subsequent queries see the new bodies."},
+        {"name": "import_materials", "description": "Bring in material assignments carried by the CAD file instead of leaving everything as the default."},
+        {"name": "group_by_assembly", "description": "Preserve the assembly structure as modeler groups, which makes a large import navigable."},
+        {"name": "hfss.modeler.object_names", "description": "Read after the import to see what arrived; solid_names and sheet_names split it by type."}
+      ],
+      "example": "hfss.modeler.import_3d_cad(r\"C:/cad/connector.step\",\n                           healing=True,\n                           refresh_all_ids=True,\n                           import_materials=False)\n\nfor name in hfss.modeler.solid_names:\n    obj = hfss.modeler[name]\n    print(name, obj.material_name, obj.volume)\n\n# Treat the shell as a perfect conductor and mesh only the dielectric\nhfss.modeler[\"Shell\"].material_name = \"copper\"\nhfss.modeler[\"Shell\"].solve_inside = False\nhfss.assign_finite_conductivity([\"Shell\"], name=\"ShellCu\")",
+      "notes": "Imported CAD is the main source of meshing failures: tiny faces, near-tangent surfaces and hidden slivers all force local refinement. Simplify in the CAD tool or use Modeler > Analyze Geometry before blaming the solver. Detail removal and the non-model flag are the usual ways to strip screws and fillets that do not affect the fields.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modeler.modeler_3d.Modeler3D.html"
+    },
+    {
+      "name": "hfss[\"var\"] / hfss.variable_manager",
+      "kind": "api",
+      "description": "PyAEDT exposes design and project variables through item assignment on the application object: writing hfss[\"patch_l\"] = \"29mm\" creates or updates a design variable, and reading it back returns the current expression. variable_manager gives the structured view - every variable as an object with its expression, evaluated value, units and whether it is independent or derived. Any modeler, boundary or setup argument accepts a variable name, which is what makes a model parametric and therefore sweepable and optimisable.",
+      "usage": "hfss[\"patch_l\"] = \"29mm\"          # design (local) variable\nhfss[\"$stackup_h\"] = \"1.575mm\"    # project variable, shared by all designs\nvalue = hfss[\"patch_l\"]\nhfss.variable_manager[\"patch_l\"].value\nhfss.variable_manager.set_variable(\"patch_w\", \"38mm\", description=\"patch width\")",
+      "parameters": [
+        {"name": "Design variable", "description": "A plain name such as \"patch_l\". It belongs to one design and is what parametric sweeps and optimisation act on."},
+        {"name": "Project variable", "description": "A name beginning with $, such as \"$stackup_h\". Shared by every design in the project, which is the right home for stackup and board-level dimensions."},
+        {"name": "Expression string", "description": "Values carry units (\"29mm\", \"2.45GHz\") and may reference other variables (\"patch_l/2 + feed_off\"), giving derived variables."},
+        {"name": ".value / .expression", "description": "The evaluated number and the raw expression string of a Variable object; .units gives the unit of the evaluated result."},
+        {"name": "independent_variables / dependent_variables", "description": "Dictionaries splitting variables that hold a literal from those computed from others - useful before handing a list to a parametric sweep."},
+        {"name": "set_variable(name, expression, ...)", "description": "Explicit form that also accepts a description, a read-only flag and whether the variable is hidden in the GUI."}
+      ],
+      "example": "hfss[\"$stackup_h\"] = \"1.575mm\"\nhfss[\"patch_w\"] = \"38mm\"\nhfss[\"patch_l\"] = \"29mm\"\nhfss[\"feed_off\"] = \"patch_l/4\"        # derived from another variable\n\nsub = hfss.modeler.create_box([\"-patch_w\", \"-patch_l\", \"0mm\"],\n                              [\"2*patch_w\", \"2*patch_l\", \"$stackup_h\"],\n                              name=\"Sub\", material=\"Rogers RT/duroid 5880 (tm)\")\n\nfor name, var in hfss.variable_manager.independent_variables.items():\n    print(name, var.expression, var.value, var.units)\n\nhfss[\"patch_l\"] = \"29.6mm\"            # retune; geometry follows automatically",
+      "notes": "Every dimension a sweep or optimiser will ever touch must be a variable before the geometry is built - converting a literal to a variable later means rebuilding the primitive. Units are part of the expression, so a bare number is treated as model units and a mismatch is silent. The native equivalent is the LocalVariableTab / ProjectVariableTab form of oDesign.ChangeProperty."
+    },
+    {
+      "name": "hfss.materials.add_material",
+      "kind": "api",
+      "description": "Create a project material and set its electromagnetic properties as ordinary Python attributes. Anything not in the shipped library - a specific laminate, a lossy plastic, a ferrite, an anisotropic composite - is defined this way before it can be handed to create_box or a finite-conductivity boundary. Materials created here live in the project's definition manager and travel with the .aedt file.",
+      "usage": "mat = hfss.materials.add_material(<name>)\nmat.permittivity = <er>\nmat.dielectric_loss_tangent = <tand>\nmat.conductivity = <sigma>\nmat.permeability = <mur>",
+      "parameters": [
+        {"name": "name", "description": "Material name used later in create_box(material=...) or a finite-conductivity boundary. Must be unique within the project."},
+        {"name": "permittivity / dielectric_loss_tangent", "description": "Relative permittivity and loss tangent - the two numbers that define a low-loss dielectric such as a PCB laminate."},
+        {"name": "conductivity", "description": "Bulk conductivity in S/m, e.g. 5.8e7 for copper. Used by finite-conductivity boundaries and by solve-inside conductors."},
+        {"name": "permeability / magnetic_loss_tangent", "description": "Relative permeability and magnetic loss, needed for ferrites, absorbers and magnetic composites."},
+        {"name": "hfss.materials.duplicate_material(src, new)", "description": "Copy a library material and tweak it, which is safer than editing a shared library entry."},
+        {"name": "hfss.materials.material_keys", "description": "Dictionary of the materials defined in the project, the way to check whether a name already exists before adding it."}
+      ],
+      "example": "laminate = hfss.materials.add_material(\"fr4_custom\")\nlaminate.permittivity = 4.4\nlaminate.dielectric_loss_tangent = 0.02\n\nrough_cu = hfss.materials.duplicate_material(\"copper\", \"copper_rough\")\nrough_cu.conductivity = 4.7e7\n\nsub = hfss.modeler.create_box([-20, -20, 0], [40, 40, 1.6],\n                              name=\"Sub\", material=\"fr4_custom\")\nprint(\"fr4_custom\" in hfss.materials.material_keys)",
+      "notes": "Properties can also be set to expressions of frequency for dispersive behaviour, and add_material_sweep builds a material whose properties follow a variable. For laminates that matter above a few GHz a constant permittivity is optimistic: a Djordjevic-Sarkar or Debye model, configured in the material editor, keeps the loss causal. The native equivalent is oProject.GetDefinitionManager().AddMaterial."
+    },
+    {
+      "name": "hfss.assign_perfect_e / hfss.assign_finite_conductivity",
+      "kind": "api",
+      "description": "Assign the two conductor boundaries from PyAEDT and get back a BoundaryObject whose properties can still be edited. assign_perfect_e makes sheets, faces or object surfaces lossless electric walls and can mark one as an infinite ground plane; assign_finite_conductivity applies a realistic surface impedance from a material, optionally with thickness and roughness. Both accept object names, Object3d handles or face IDs, so a boundary can be targeted at exactly one face without the ID bookkeeping the native API demands.",
+      "usage": "bound = hfss.assign_perfect_e(assignment, name=None, is_infinite_ground=False)\nbound = hfss.assign_finite_conductivity(assignment, material=..., use_thickness=False,\n                                        thickness=..., roughness=..., is_two_side=False,\n                                        is_infinite_ground=False, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Sheet or object names, Object3d handles, or a list of face IDs from obj.faces. A list mixes freely."},
+        {"name": "name", "description": "Boundary name, which is what appears in the project tree and in GetBoundaries. Must be unique in the design."},
+        {"name": "is_infinite_ground", "description": "Treats the surface as an infinite ground plane, which changes how the far field is computed for an antenna sitting on it."},
+        {"name": "material", "description": "Material whose conductivity drives the impedance boundary, typically \"copper\". Omitting it falls back to an explicit conductivity."},
+        {"name": "use_thickness / thickness", "description": "Model a finite metal thickness so current on both sides of a thin conductor is accounted for."},
+        {"name": "roughness", "description": "Surface roughness such as \"2um\". On PCB copper above a few GHz this dominates conductor loss and is the difference between a matched and a mismatched correlation to measurement."},
+        {"name": "hfss.boundaries", "description": "List of BoundaryObject instances currently defined; each has .name, .type, .props and a delete() method."}
+      ],
+      "example": "gnd = hfss.modeler[\"Gnd\"]\nhfss.assign_perfect_e([gnd.name], name=\"GndPlane\", is_infinite_ground=True)\n\nhfss.assign_finite_conductivity([\"Trace\"],\n                                material=\"copper\",\n                                use_thickness=True, thickness=\"35um\",\n                                roughness=\"2um\",\n                                name=\"TraceCu\")\n\n# Target a single face rather than a whole body\ntop_face = max(hfss.modeler[\"Patch\"].faces, key=lambda f: f.area)\nhfss.assign_perfect_e([top_face.id], name=\"PatchTop\")\n\nfor b in hfss.boundaries:\n    print(b.name, b.type)",
+      "notes": "Version caveat: these names belong to the boundary API as it stands in the ansys.aedt.core generation. Releases before the rename exposed assign_perfecte_to_sheets and a coating method instead, so a script that raises AttributeError is usually running against an older pyaedt - check the installed Hfss class rather than guessing. assign_perfect_h, assign_impedance and the layered-impedance boundary follow the same pattern.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.assign_radiation_boundary_to_objects / hfss.create_open_region",
+      "kind": "api",
+      "description": "Open the model up so waves can leave. assign_radiation_boundary_to_objects puts an absorbing boundary on an air region you have already built, while create_open_region does the whole job in one call: it sizes an air region from a frequency, creates it and applies a radiation, PML or FE-BI boundary. For antenna work create_open_region is the fastest correct default, because it takes care of the quarter-wavelength spacing that a hand-built box so often gets wrong.",
+      "usage": "hfss.assign_radiation_boundary_to_objects(assignment, name=None)\nhfss.create_open_region(frequency=\"1GHz\", boundary=\"Radiation\",\n                        apply_infinite_ground=False, gp_axis=\"-z\")",
+      "parameters": [
+        {"name": "assignment", "description": "Air-region object names or handles. assign_radiation_boundary_to_faces does the same for individual faces."},
+        {"name": "frequency", "description": "Frequency create_open_region sizes the region from - use the lowest frequency of interest, since the padding is a fraction of that wavelength."},
+        {"name": "boundary", "description": "\"Radiation\" for a first-order ABC, \"PML\" for perfectly matched layers, or the FE-BI hybrid region where an exact boundary is worth the denser matrix."},
+        {"name": "apply_infinite_ground / gp_axis", "description": "Close one side of the open region with an infinite ground plane on the named axis, for antennas mounted on a large conducting surface."},
+        {"name": "hfss.modeler.create_region(pad_value)", "description": "Builds a padded air box by itself when the region is wanted without a boundary, or with per-face padding percentages."}
+      ],
+      "example": "# One call: air region plus absorbing boundary, sized for 2.4 GHz\nhfss.create_open_region(frequency=\"2.4GHz\", boundary=\"Radiation\")\n\n# Or build the region explicitly and add the boundary\nregion = hfss.modeler.create_region([20, 20, 20, 20, 20, 20])\nhfss.assign_radiation_boundary_to_objects(region.name, name=\"Rad1\")\n\n# Ground-backed antenna\nhfss.create_open_region(frequency=\"2.4GHz\", boundary=\"Radiation\",\n                        apply_infinite_ground=True, gp_axis=\"-z\")",
+      "notes": "A radiation boundary is first order: it only absorbs well at near-normal incidence and about a quarter wavelength from the radiator. If gain or input match keeps changing as the box grows, the boundary is too close - move to PML or FE-BI rather than growing the box indefinitely. Far-field results require this boundary; without it there is no surface to integrate and the antenna reports nothing.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.wave_port / hfss.lumped_port",
+      "kind": "api",
+      "description": "Create excitations from PyAEDT. Both take an existing sheet, or a pair of objects from which PyAEDT builds the port sheet itself between their closest faces, and both return a port object whose name becomes the S-parameter index. wave_port solves a 2D modal problem on the sheet and is correct for coax, waveguide and any port on the model boundary; lumped_port imposes a uniform field across an internal gap and is the pragmatic choice for feeds inside the model.",
+      "usage": "port = hfss.wave_port(assignment, reference=None, create_port_sheet=False,\n                     integration_line=None, impedance=50, num_modes=1,\n                     name=None, renormalize=True, deembed=0)\nport = hfss.lumped_port(assignment, reference=None, create_port_sheet=False,\n                        integration_line=None, impedance=50, name=None, renormalize=True)",
+      "parameters": [
+        {"name": "assignment", "description": "The port sheet by name or handle, a face ID, or - with create_port_sheet True - the signal conductor whose face the sheet is built on."},
+        {"name": "reference", "description": "The return conductor, used when PyAEDT creates the sheet itself and to define terminals in a Terminal solution type."},
+        {"name": "create_port_sheet", "description": "True lets PyAEDT construct the sheet between the two named objects instead of requiring one to exist."},
+        {"name": "integration_line", "description": "Direction of the impedance line, given as hfss.AxisDir.XPos / ZNeg and similar, or as an explicit pair of points. It fixes the mode's sign and its Zpi impedance."},
+        {"name": "impedance", "description": "Reference impedance in ohms for renormalisation, normally 50."},
+        {"name": "num_modes", "description": "Modes solved by a wave port. One for coax and microstrip; overmoded waveguide and multi-conductor lines need more."},
+        {"name": "deembed", "description": "Distance the reference plane is shifted along the port normal, removing a length of uniform feed line from the S-parameters."}
+      ],
+      "example": "# Wave port on the end face of the coax\nport1 = hfss.wave_port(assignment=\"PortSheet\",\n                       integration_line=hfss.AxisDir.XPos,\n                       impedance=50, num_modes=1, name=\"P1\")\n\n# Lumped port built automatically between trace and ground\nport2 = hfss.lumped_port(assignment=\"Trace\", reference=\"Gnd\",\n                         create_port_sheet=True,\n                         integration_line=hfss.AxisDir.ZNeg,\n                         impedance=50, name=\"P2\")\n\nprint(hfss.excitation_names)\nprint(port1.name, port1.props[\"NumModes\"])",
+      "notes": "Without an integration line a wave port still solves, but its Zpi impedance and the sign of the mode are arbitrary, which shows up as an S-parameter that is right in magnitude and wrong in phase. Older PyAEDT exposed create_wave_port_between_objects and create_lumped_port_between_objects; the shorter names arrived with the ansys.aedt.core rename. In Terminal solution types the reference conductor determines the terminal names used in every report.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.mesh.assign_length_mesh / hfss.mesh.assign_skin_depth",
+      "kind": "api",
+      "description": "Seed the initial mesh where the adaptive refinement would otherwise start too coarse. assign_length_mesh caps element size, and optionally element count, on named objects or faces - the tool for thin gaps, small features and curved surfaces. assign_skin_depth builds graded layers into a conductor so that current crowding into the skin depth is resolved, which matters whenever loss, not just matching, is the answer being computed.",
+      "usage": "op = hfss.mesh.assign_length_mesh(assignment, inside_selection=True,\n                                  maximum_length=1, maximum_elements=1000, name=None)\nop = hfss.mesh.assign_skin_depth(assignment, skin_depth, maximum_elements=None,\n                                 layers_number=\"2\", name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Object names, handles or face IDs the operation applies to."},
+        {"name": "inside_selection", "description": "True refines the volume inside the selection; False refines only its surface, which is usually enough and far cheaper."},
+        {"name": "maximum_length", "description": "Largest allowed element edge, as a number in model units or a unit string. Set it from the feature size, not from the wavelength."},
+        {"name": "maximum_elements", "description": "Hard cap on elements generated by this operation, so a mistaken length does not explode the mesh."},
+        {"name": "skin_depth", "description": "The skin depth at the frequency of interest, e.g. \"1.3um\" for copper at 2.45 GHz. Layers are graded from it."},
+        {"name": "layers_number", "description": "How many layers are stacked into the conductor; two or three is normal, more only for tightly coupled lossy structures."},
+        {"name": "hfss.mesh.meshoperations", "description": "List of the operations defined, each with .name, .props and delete(), so a script can audit or replace them."}
+      ],
+      "example": "hfss.mesh.assign_length_mesh([\"FeedGap\"],\n                             inside_selection=True,\n                             maximum_length=\"0.2mm\",\n                             maximum_elements=20000,\n                             name=\"GapSeed\")\n\nhfss.mesh.assign_skin_depth([\"Trace\"],\n                            skin_depth=\"1.3um\",\n                            layers_number=\"3\",\n                            name=\"TraceSkin\")\n\nfor op in hfss.mesh.meshoperations:\n    print(op.name, op.type)",
+      "notes": "Mesh operations only seed the initial mesh; adaptive refinement then drives convergence, so over-seeding wastes memory without improving the answer. A skin-depth operation is pointless on a body whose solve_inside is False, because there is no interior mesh to grade. assign_initial_mesh_from_slider sets the global initial-mesh quality when a whole model needs to start finer."
+    },
+    {
+      "name": "hfss.create_setup / create_linear_count_sweep / create_linear_step_sweep / create_single_point_sweep",
+      "kind": "api",
+      "description": "Define the solution from PyAEDT. create_setup returns a Setup object whose props dictionary mirrors the native InsertSetup array exactly, so anything available in the dialog can be set and pushed back with update(). The three sweep helpers then add a frequency sweep to that setup by count, by step size, or at a single frequency, wrapping the RangeType/RangeStart/RangeEnd bookkeeping of the object model.",
+      "usage": "setup = hfss.create_setup(name=\"Setup1\")\nsetup.props[\"Frequency\"] = \"2.45GHz\"\nsetup.update()\nhfss.create_linear_count_sweep(setup, units, start_frequency, stop_frequency,\n                               num_of_freq_points, name=None, sweep_type=\"Interpolating\")\nhfss.create_linear_step_sweep(setup, unit, start_frequency, stop_frequency, step_size, ...)\nhfss.create_single_point_sweep(setup, unit, freq, save_fields=True, ...)",
+      "parameters": [
+        {"name": "setup.props", "description": "Dictionary of the native setup properties: \"Frequency\", \"MaxDeltaS\", \"MaximumPasses\", \"MinimumConvergedPasses\", \"BasisOrder\". Call update() to push changes to AEDT."},
+        {"name": "start_frequency / stop_frequency", "description": "Band limits as plain numbers interpreted in the units argument, e.g. 2 and 3 with units=\"GHz\"."},
+        {"name": "num_of_freq_points / step_size", "description": "Sweep resolution: a point count for the linear-count form, or an increment such as 0.01 for the linear-step form."},
+        {"name": "sweep_type", "description": "\"Interpolating\" fits a rational model from a few solved points and is the default choice; \"Discrete\" solves every point; \"Fast\" builds a single-point reduced-order model."},
+        {"name": "save_fields / save_rad_fields", "description": "Whether field data is retained at swept frequencies. Leaving these on across a wide sweep is the usual cause of a results folder in the hundreds of gigabytes."},
+        {"name": "create_single_point_sweep", "description": "Solves one frequency and, with save_single_field True, keeps its fields - the cheap way to get a field plot at a design frequency without a full sweep."}
+      ],
+      "example": "setup = hfss.create_setup(name=\"Setup1\")\nsetup.props[\"Frequency\"] = \"2.45GHz\"\nsetup.props[\"MaximumPasses\"] = 12\nsetup.props[\"MaxDeltaS\"] = 0.02\nsetup.update()\n\nhfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                               start_frequency=2, stop_frequency=3,\n                               num_of_freq_points=401,\n                               name=\"Sweep1\", sweep_type=\"Interpolating\",\n                               save_fields=False)\n\nhfss.create_single_point_sweep(setup=\"Setup1\", unit=\"GHz\", freq=2.45,\n                               name=\"AtResonance\", save_single_field=True)\n\nprint([s.name for s in hfss.setups])",
+      "notes": "Keyword names moved with the ansys.aedt.core rename: older scripts pass setupname, unit, freqstart and freqstop. Reports address the results as \"Setup1 : Sweep1\", or \"Setup1 : LastAdaptive\" for the converged adaptive solution, and getting that string wrong is the usual reason a report is empty. An interpolating sweep that will not converge almost always means the adaptive solution at the mesh frequency is not converged either.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.analyze / hfss.analyze_setup",
+      "kind": "api",
+      "description": "Run the solver. analyze() with no arguments solves every setup in the design, while analyze_setup(name) solves one - which is also how a named Optimetrics study is launched. Both accept the HPC arguments that would otherwise come from the Analysis Options dialog, so a script can ask for a specific number of cores, parallel tasks and GPUs without touching the saved preferences.",
+      "usage": "hfss.analyze(setup=None, cores=4, tasks=1, gpus=0, use_auto_settings=True)\nhfss.analyze_setup(name, cores=4, tasks=1, gpus=0)",
+      "parameters": [
+        {"name": "setup / name", "description": "Setup or sweep to solve. Omitting it in analyze() solves everything in the design, including parametric studies."},
+        {"name": "cores", "description": "Cores given to the solver. Beyond the base licence this consumes HPC tasks, so the number has to match what the licence pool allows."},
+        {"name": "tasks", "description": "Parallel tasks for distributed solving - frequency points, domains or parametric variations solved side by side. Needs a distributed HPC licence to be worth more than 1."},
+        {"name": "gpus", "description": "GPUs to use where the solver supports acceleration, notably the transient and SBR+ solvers."},
+        {"name": "use_auto_settings", "description": "Let AEDT choose how to spread cores over tasks and domains rather than pinning the split by hand."},
+        {"name": "hfss.save_project()", "description": "Call before analyzing: the solver writes its mesh and field data into the results folder next to the saved .aedt file."}
+      ],
+      "example": "hfss.save_project()\n\nhfss.analyze_setup(\"Setup1\", cores=8, tasks=1)\n\n# Everything, including sweeps and Optimetrics studies\nhfss.analyze(cores=8, tasks=2, use_auto_settings=True)\n\n# Convergence data for the run that just finished\nsetup = hfss.get_setup(\"Setup1\")\nprint(setup.is_solved)",
+      "notes": "The call blocks for the whole solve, so a PyAEDT script that solves a large model ties up the interpreter for hours; for production runs build and post-process with PyAEDT but hand the solve to ansysedt -ng -BatchSolve under a scheduler. Older releases named the arguments num_cores, num_tasks and num_gpu. Asking for more cores than the HPC licence allows makes the solve fail at start-up rather than fall back.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.post.create_report / hfss.post.get_solution_data / hfss.post.export_report_to_csv",
+      "kind": "api",
+      "description": "The post-processing trio. create_report builds a plot in the design tree from an expression list; get_solution_data returns the same numbers as a SolutionData object without creating any plot, which is what a script that computes bandwidth or finds a resonance actually wants; export_report_to_csv writes an existing report's traces to disk. All three understand the report categories, so the same idiom covers S-parameters, far fields and antenna parameters.",
+      "usage": "rep = hfss.post.create_report(expressions, setup_sweep_name=None, domain=\"Sweep\",\n                              primary_sweep_variable=None, report_category=None,\n                              plot_type=\"Rectangular Plot\", context=None, plot_name=None)\ndata = hfss.post.get_solution_data(expressions, setup_sweep_name=None, domain=\"Sweep\",\n                                   variations=None, report_category=None, context=None)\nhfss.post.export_report_to_csv(project_dir, plot_name)",
+      "parameters": [
+        {"name": "expressions", "description": "Trace expressions such as \"dB(S(P1,P1))\", \"re(Z(P1,P1))\", \"GainTotal\" - the port names come from the excitations."},
+        {"name": "setup_sweep_name", "description": "\"Setup1 : Sweep1\" for swept data or \"Setup1 : LastAdaptive\" for the converged adaptive solution. Defaults to the design's nominal sweep."},
+        {"name": "report_category", "description": "\"Modal Solution Data\", \"Terminal Solution Data\", \"Far Fields\", \"Antenna Parameters\" or \"Fields\", matching the design's solution type."},
+        {"name": "context", "description": "Extra scope for the report - the name of an infinite sphere for a far-field plot, or a polyline for a field-along-line plot."},
+        {"name": "variations", "description": "Dictionary pinning design variables and sweep values, e.g. {\"patch_l\": \"Nominal\", \"Freq\": [\"All\"]}, used to slice a parametric solution."},
+        {"name": "SolutionData object", "description": "Exposes primary_sweep_values, data_real(), data_magnitude(), data_db20() and export_data_to_csv() - plain Python lists for further analysis."},
+        {"name": "plot_type", "description": "\"Rectangular Plot\", \"Smith Chart\", \"Polar Plot\", \"3D Polar Plot\" or \"Data Table\"."}
+      ],
+      "example": "hfss.post.create_report(\"dB(S(P1,P1))\", plot_name=\"S11\")\n\ndata = hfss.post.get_solution_data(expressions=\"dB(S(P1,P1))\",\n                                   setup_sweep_name=\"Setup1 : Sweep1\")\nfreqs = data.primary_sweep_values\ns11 = data.data_db20()\n\nf_res = freqs[s11.index(min(s11))]\nband = [f for f, v in zip(freqs, s11) if v <= -10]\nprint(f\"resonance {f_res} GHz, -10 dB band {band[0]} to {band[-1]} GHz\")\n\nhfss.post.export_report_to_csv(r\"C:/work/reports\", \"S11\")",
+      "notes": "get_solution_data is the right tool inside an automation loop: it needs no plot, works in non-graphical mode and returns ordinary lists. Far-field expressions need report_category=\"Far Fields\" and the context set to an infinite sphere name, otherwise the request is rejected rather than returning empty. data.export_data_to_csv writes the same numbers without going through a report object."
+    },
+    {
+      "name": "hfss.post.create_fieldplot_surface / hfss.post.create_fieldplot_volume",
+      "kind": "api",
+      "description": "Create field overlays on geometry - surface current on a patch, |E| through a substrate, near field in an air region - and get back a plot object that can be styled, exported as an image or rendered offscreen. The quantity is any field name or a named expression built in the Fields Calculator, and the intrinsics pin the frequency and phase at which the field is evaluated. These plots are the visual counterpart to the numbers get_solution_data returns.",
+      "usage": "plot = hfss.post.create_fieldplot_surface(assignment, quantity, setup=None,\n                                          intrinsics=None, name=None)\nplot = hfss.post.create_fieldplot_volume(assignment, quantity, setup=None,\n                                         intrinsics=None, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Object or sheet names, or face IDs, the plot is drawn on. The volume form takes solids and fills their interior."},
+        {"name": "quantity", "description": "Field quantity: \"Mag_E\", \"Mag_H\", \"Mag_Jsurf\", \"ComplexMag_E\", or a named expression previously defined in the Fields Calculator."},
+        {"name": "setup", "description": "Solution the field comes from, normally \"Setup1 : LastAdaptive\". A sweep frequency only works if that sweep saved fields."},
+        {"name": "intrinsics", "description": "Dictionary pinning the evaluation point, e.g. {\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"}. Sweeping phase is how an animation is built."},
+        {"name": "name", "description": "Plot name in the Field Overlays tree, used later to update, export or delete it."},
+        {"name": "plot.export_image(...)", "description": "Writes a picture of the plot; hfss.post.plot_field renders offscreen with PyVista, which works in non-graphical runs."}
+      ],
+      "example": "hfss.post.create_fieldplot_surface(\n    assignment=[\"Patch\"],\n    quantity=\"Mag_Jsurf\",\n    setup=\"Setup1 : LastAdaptive\",\n    intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"},\n    name=\"PatchCurrent\")\n\nvol = hfss.post.create_fieldplot_volume(\n    assignment=[\"Sub\"],\n    quantity=\"Mag_E\",\n    setup=\"Setup1 : LastAdaptive\",\n    intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"},\n    name=\"SubstrateE\")\n\nvol.export_image(r\"C:/work/reports/substrate_e.png\")",
+      "notes": "A plot that comes back empty almost always means the solution has no stored fields at that frequency: the adaptive pass always keeps them, a sweep only does when save_fields was True. Older releases spelled the arguments objlist, quantityName, setup_name and intrinsincDict, and rendered with plot_field_from_fieldplot. Named expressions from the Fields Calculator can be used as the quantity, which is how derived plots such as normalised |E| are made."
+    },
+    {
+      "name": "hfss.insert_infinite_sphere / hfss.export_touchstone",
+      "kind": "api",
+      "description": "The two result-generating calls that close an antenna or network run. insert_infinite_sphere defines the far-field sphere over which patterns, gain, directivity and antenna parameters are computed - without one, no far-field report can be created. export_touchstone writes the solved S-parameter matrix to a .sNp file, which is how the result leaves HFSS for a circuit simulator, a correlation script or a datasheet.",
+      "usage": "sphere = hfss.insert_infinite_sphere(definition=\"Theta-Phi\",\n                                    x_start=0, x_stop=180, x_step=10,\n                                    y_start=-180, y_stop=180, y_step=10,\n                                    units=\"deg\", name=\"3D\")\nhfss.export_touchstone(setup=None, sweep=None, output_file=None, variations=None)",
+      "parameters": [
+        {"name": "definition", "description": "Angular parameterisation of the sphere, normally \"Theta-Phi\". The x_ arguments then sweep theta and the y_ arguments phi."},
+        {"name": "x_start / x_stop / x_step", "description": "Theta range and resolution in degrees. 0 to 180 in 10 degree steps is a reasonable 3D pattern; 1 degree steps for a principal-plane cut."},
+        {"name": "y_start / y_stop / y_step", "description": "Phi range and resolution. Restricting phi to 0 and 90 gives just the two principal planes at a fraction of the cost."},
+        {"name": "name", "description": "Sphere name, which is what a far-field report passes as its context."},
+        {"name": "setup / sweep", "description": "Which solution to export from, e.g. \"Setup1\" and \"Sweep1\". Omitted, the nominal setup and its sweep are used."},
+        {"name": "output_file", "description": "Destination path. The extension follows the port count - .s1p, .s2p, .s4p - and AEDT corrects it if it does not match."},
+        {"name": "variations", "description": "Which parametric variations to export; a swept design otherwise exports only the nominal one."}
+      ],
+      "example": "hfss.insert_infinite_sphere(definition=\"Theta-Phi\",\n                            x_start=0, x_stop=180, x_step=2,\n                            y_start=-180, y_stop=180, y_step=2,\n                            units=\"deg\", name=\"3D\")\n\npattern = hfss.post.get_solution_data(expressions=\"GainTotal\",\n                                      setup_sweep_name=\"Setup1 : LastAdaptive\",\n                                      report_category=\"Far Fields\",\n                                      context=\"3D\",\n                                      variations={\"Freq\": [\"2.45GHz\"], \"Phi\": [\"0deg\"]})\nprint(max(pattern.data_db20()))\n\nhfss.export_touchstone(setup=\"Setup1\", sweep=\"Sweep1\",\n                       output_file=r\"C:/work/patch.s1p\")",
+      "notes": "A far-field sphere is only meaningful when a radiation, PML or FE-BI boundary exists; on a closed model the report returns nothing. Fine angular steps multiply post-processing time and file size, so use a coarse 3D sphere plus separate fine cuts. The native equivalents are oModule(\"RadField\").InsertInfiniteSphereSetup and oModule(\"Solutions\").ExportNetworkData, the latter taking positional rather than name/value arguments.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.parametrics.add / hfss.optimizations.add",
+      "kind": "api",
+      "description": "Wrap the solver in a study. parametrics.add creates an Optimetrics parametric sweep over a design variable, to which output calculations are attached with add_calculation; optimizations.add creates an optimisation, sensitivity or statistical study driven by a cost function built from a report expression. Both return setup objects whose props can be edited, and both are then solved like any other setup by name.",
+      "usage": "param = hfss.parametrics.add(variable, start_point, end_point=None, step=None,\n                             variation_type=\"LinearStep\")\nparam.add_calculation(calculation=\"dB(S(1,1))\", ranges={\"Freq\": \"2.45GHz\"})\nopt = hfss.optimizations.add(calculation, ranges=None, optimization_type=\"Optimization\")\nhfss.analyze_setup(param.name)",
+      "parameters": [
+        {"name": "variable", "description": "Design variable to sweep. It must already exist, which is why the geometry has to be built parametrically from the start."},
+        {"name": "start_point / end_point / step", "description": "Sweep definition as expression strings with units, e.g. \"27mm\", \"31mm\", \"0.5mm\"."},
+        {"name": "variation_type", "description": "\"LinearStep\", \"LinearCount\", \"LogScale\" or \"SingleValue\" - the same range forms as a frequency sweep."},
+        {"name": "add_calculation(calculation, ranges)", "description": "Attaches an output expression evaluated at the given sweep point, e.g. dB(S(1,1)) at 2.45 GHz, so the study table carries a result per variation."},
+        {"name": "calculation / ranges", "description": "For an optimisation, the cost expression and where it is evaluated. Goals and conditions then live in opt.props[\"Goals\"]."},
+        {"name": "optimization_type", "description": "\"Optimization\", \"Sensitivity\" or \"Statistical\". Optimisers available include Quasi Newton, Pattern Search, Sequential Non-linear Programming and Genetic Algorithm."},
+        {"name": "hfss.parametrics / hfss.optimizations", "description": "Collections of the studies defined in the design, each entry carrying .name, .props and delete()."}
+      ],
+      "example": "hfss[\"patch_l\"] = \"29mm\"\n\nparam = hfss.parametrics.add(\"patch_l\",\n                             start_point=\"27mm\", end_point=\"31mm\",\n                             step=\"0.5mm\", variation_type=\"LinearStep\")\nparam.add_calculation(calculation=\"dB(S(P1,P1))\", ranges={\"Freq\": \"2.45GHz\"})\nhfss.analyze_setup(param.name)\n\ndata = hfss.post.get_solution_data(expressions=\"dB(S(P1,P1))\",\n                                   setup_sweep_name=\"Setup1 : Sweep1\",\n                                   variations={\"patch_l\": [\"All\"], \"Freq\": [\"2.45GHz\"]})\n\nopt = hfss.optimizations.add(calculation=\"dB(S(P1,P1))\",\n                             ranges={\"Freq\": \"2.45GHz\"},\n                             optimization_type=\"Optimization\")",
+      "notes": "A parametric sweep solves the full model once per variation, so the results folder grows linearly with the point count - disable field saving unless a variation's fields are genuinely needed. Optimisation on an electromagnetic cost function is expensive; a coarse parametric sweep first, then a local optimisation from the best point, converges far faster than optimising from a guess. Larger design-space studies are usually better driven from optiSLang or Workbench DesignXplorer."
+    },
+    {
+      "name": "ansysedt -RunScriptAndExit / -RunScript",
+      "kind": "command",
+      "description": "Run a scripting file from the command line. -RunScriptAndExit executes the script and closes the desktop afterwards, which is the standard headless entry point for model generation, batch post-processing and regression runs; -RunScript executes it and leaves the session open so the result can be inspected. Combined with -ng the whole thing runs without a graphical interface, which is what a build server or a scheduler needs.",
+      "usage": "ansysedt [-ng] -RunScriptAndExit <script.py|script.vbs>\nansysedt -RunScript <script.py>",
+      "parameters": [
+        {"name": "-RunScriptAndExit", "description": "Execute the script and quit, returning the licence. The right choice for unattended runs."},
+        {"name": "-RunScript", "description": "Execute the script and keep the session open, for debugging a script against a visible model."},
+        {"name": "-ng", "description": "No graphics. Faster and required on headless servers; the script must then avoid anything that opens a dialog."},
+        {"name": "<script>", "description": "A .py file run by the embedded IronPython engine or a .vbs file run by the VBScript engine. It must begin with ScriptEnv.Initialize to bind oDesktop."},
+        {"name": "-features=beta", "description": "Enable beta features for the session, needed when a recorded script touches options that are still pre-release."},
+        {"name": "-waitforlicense", "description": "Queue instead of failing when no licence is free, which keeps a scheduler job from dying on a busy pool."}
+      ],
+      "example": "# Windows\n\"C:\\Program Files\\AnsysEM\\v251\\Win64\\ansysedt.exe\" -ng -RunScriptAndExit C:\\work\\build_antenna.py\n\n# Linux: always go through the wrapper script, not the raw executable\n/opt/ansys_inc/v251/AnsysEM/ansysedt -ng -RunScriptAndExit /work/build_antenna.py\n\n# Keep the session open to inspect the result\nansysedt -RunScript C:\\work\\build_antenna.py",
+      "notes": "This route runs the script in AEDT's own embedded interpreter, so it sees oDesktop directly but is limited to the bundled IronPython and cannot import arbitrary CPython packages. A PyAEDT script is the opposite: run it as an ordinary CPython program, and it starts or attaches to AEDT itself, which is why numpy, pandas and matplotlib are available there. On Linux the ansysedt wrapper in v251/AnsysEM sets up the environment; calling the binary directly usually fails."
+    },
+    {
+      "name": "ansysedt -ScriptArgs",
+      "kind": "command",
+      "description": "Pass arguments into a script run from the command line, so one script can serve many parameter sets instead of being edited per run. The whole argument list is given as a single quoted string, which the script splits itself, and it is read inside the script from the ScriptArgument property that AEDT sets up alongside oDesktop. This is what makes a recorded script usable from a scheduler loop.",
+      "usage": "ansysedt [-ng] -RunScriptAndExit <script.py> -ScriptArgs \"<arg1,arg2,...>\"",
+      "parameters": [
+        {"name": "-ScriptArgs \"...\"", "description": "One quoted string handed to the script. Pack several values in with a delimiter of your choice, since only one argument string is passed."},
+        {"name": "ScriptArgument", "description": "The name under which the string is available inside an IronPython script once ScriptEnv.Initialize has run."},
+        {"name": "Quoting", "description": "Quote the whole string at the shell level; on Windows avoid unescaped double quotes inside it, and prefer commas or semicolons as separators."},
+        {"name": "sys.argv", "description": "The CPython alternative: a PyAEDT script launched as an ordinary Python program takes its arguments through argparse or sys.argv instead."}
+      ],
+      "example": "# Launch:\n#   ansysedt -ng -RunScriptAndExit C:\\work\\sweep.py -ScriptArgs \"2.45GHz,50,Setup1\"\n\nimport ScriptEnv\nScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\")\n\nfreq, imped, setup = ScriptArgument.split(\",\")\noDesktop.AddMessage(\"\", \"\", 0, \"building at \" + freq + \" into \" + imped + \" ohm\")\n\noProject = oDesktop.NewProject()\noProject.InsertDesign(\"HFSS\", \"Auto\", \"DrivenModal\", \"\")\noDesign = oProject.SetActiveDesign(\"Auto\")\noDesign.ChangeProperty(\n    [\"NAME:AllTabs\",\n     [\"NAME:LocalVariableTab\",\n      [\"NAME:PropServers\", \"LocalVariables\"],\n      [\"NAME:NewProps\",\n       [\"NAME:f0\", \"PropType:=\", \"VariableProp\", \"UserDef:=\", True, \"Value:=\", freq]]]])\noProject.SaveAs(\"C:/work/auto_\" + freq + \".aedt\", True)",
+      "notes": "Only one -ScriptArgs string is delivered, so anything structured has to be encoded into it - a comma-separated list, or a path to a JSON file the script then reads. For a PyAEDT workflow this switch is unnecessary: run the script with python and use argparse, which is easier to test outside AEDT entirely."
+    },
+    {
+      "name": "ansysedt -ng -BatchSolve",
+      "kind": "command",
+      "description": "Solve a project headless from the command line, which is how production runs and scheduler jobs are done. With no qualifier it solves every design and setup in the project; a Design:Variation:Setup qualifier restricts it to one. -batchoptions overrides registry-backed solve options such as core counts and distributed behaviour for that run only, and -Distributed with -machinelist spreads the job across machines.",
+      "usage": "ansysedt -ng [-monitor] -BatchSolve [\"<Design>:<Variation>:<Setup>\"] <project.aedt>\nansysedt -ng -BatchSolve -Distributed -machinelist list=\"host1:4,host2:4\" -auto <project.aedt>\nansysedt -ng -BatchSolve -batchoptions \"'HFSS/NumCoresPerDistributedTask'=4\" <project.aedt>",
+      "parameters": [
+        {"name": "-BatchSolve", "description": "Solve and exit. Without a qualifier every design and setup in the project is solved, including Optimetrics studies."},
+        {"name": "\"<Design>:<Variation>:<Setup>\"", "description": "Restrict the solve, e.g. \"HFSSDesign1:Nominal:Setup1\". Use it in queue scripts so each scheduler job owns exactly one setup."},
+        {"name": "-batchoptions", "description": "Quoted 'path/Key'=value pairs overriding solve options for this run, or the name of an options file. Nothing in the saved preferences is changed."},
+        {"name": "-Distributed / -machinelist", "description": "Spread the solve over several machines, listed as host:cores pairs or as a total task count; -auto lets AEDT pick the distribution strategy."},
+        {"name": "-monitor", "description": "Write solver progress to the console so a scheduler log shows adaptive passes and sweep points instead of going silent."},
+        {"name": "-waitforlicense", "description": "Wait for a licence rather than failing immediately, which keeps queued jobs alive on a contended pool."}
+      ],
+      "example": "#!/bin/bash\n#SBATCH --job-name=hfss_patch\n#SBATCH --nodes=2\n#SBATCH --ntasks-per-node=8\n\nANSYSEM=/opt/ansys_inc/v251/AnsysEM\n\n$ANSYSEM/ansysedt -ng -monitor -waitforlicense \\\n  -distributed -machinelist num=$SLURM_NTASKS -auto \\\n  -batchoptions \"'HFSS/NumCoresPerDistributedTask'=8\" \\\n  -BatchSolve \"HFSSDesign1:Nominal:Setup1\" $PWD/patch.aedt\n\n# Post-process afterwards with a PyAEDT script that only reads results\npython extract_s11.py $PWD/patch.aedt",
+      "notes": "The usual production split is: build the model with PyAEDT, solve with -ng -BatchSolve under the scheduler, then post-process with a second PyAEDT script that opens the solved project read-only. Solving through an interactive PyAEDT analyze() call instead ties the licence and the interpreter to the job for its whole duration. Option keys passed to -batchoptions are the registry paths shown in the HPC and Analysis Options dialog, so record the settings in the GUI first."
+    },
+    {
+      "name": "Tools > Record Script To File / Tools > Run Script",
+      "kind": "tool",
+      "description": "The discovery mechanism for the entire object model, and the reason AEDT scripting is practical at all. Record Script To File starts capturing; every GUI action afterwards is written out as the exact scripting call with its full argument array, including the property names a dialog sets behind the scenes. Run Script replays a .py or .vbs file. Because the argument arrays are long, deeply nested and version-sensitive, recording an action and then parameterising the recording is far more reliable than writing calls from memory.",
+      "usage": "Tools > Record Script To File...   (choose a .py or .vbs destination)\n<perform the action in the GUI>\nTools > Stop Script Recording\nTools > Run Script...              (or the Scripts ribbon / Automation tab)",
+      "parameters": [
+        {"name": "Record Script To File", "description": "Starts recording to a chosen file. Everything from a dialog OK to a mouse-driven geometry edit is captured as a scripting call."},
+        {"name": "Stop Script Recording", "description": "Ends the capture and closes the file. Recording adds overhead, so stop it before doing anything large."},
+        {"name": "Run Script", "description": "Executes a script file in the embedded interpreter against the current session, the GUI equivalent of -RunScript."},
+        {"name": "Script language", "description": "Whether recording produces Python or VBScript is set in Tools > Options > General Options; Python is the sensible default for new work."},
+        {"name": "Scripts / Automation ribbon", "description": "Where saved scripts, PyAEDT toolkits and custom menu entries are launched from once a script is worth keeping."}
+      ],
+      "example": "# Workflow\n# 1. Tools > Record Script To File...  ->  assign_port.py\n# 2. Assign a wave port with an integration line in the GUI\n# 3. Tools > Stop Script Recording\n# 4. Edit the recording: replace literals with variables, wrap it in a function\n# 5. Tools > Run Script, or call the same array from PyAEDT\n\n# The recorded call, parameterised and replayed through PyAEDT:\noModule = hfss.odesign.GetModule(\"BoundarySetup\")\noModule.AssignWavePort(\n    [\"NAME:\" + port_name,\n     \"Objects:=\", [sheet_name],\n     \"NumModes:=\", 1,\n     \"RenormalizeAllTerminals:=\", True,\n     \"DoDeembed:=\", False,\n     [\"NAME:Modes\",\n      [\"NAME:Mode1\", \"ModeNum:=\", 1, \"UseIntLine:=\", True,\n       [\"NAME:IntLine\", \"Start:=\", line_start, \"End:=\", line_end],\n       \"CharImp:=\", \"Zpi\"]]])",
+      "notes": "Recording captures only what the GUI actually does, so an action that produces no call - selecting an object, changing the view - records nothing, and a recorded script always refers to objects by the names they had at record time. It is the only dependable source for the argument arrays of dialogs PyAEDT does not yet wrap, and the recommended first step whenever a call raises an unhelpful COM error."
+    }
+  ]
+}

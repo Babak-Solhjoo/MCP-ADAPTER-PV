@@ -1,0 +1,588 @@
+{
+  "category": "Results, Reports, Far Fields & Field Post-Processing",
+  "description": "Getting answers out of a solved HFSS design: report types and the network, antenna and time-domain quantities they plot, far-field and near-field setups, 3D field overlays, the Fields Calculator, and the export paths to Touchstone, SPICE, CSV and field data files.",
+  "tools": [
+    {
+      "name": "Create Report (Rectangular Plot)",
+      "kind": "tool",
+      "description": "The standard 2D X-Y plot of a solution quantity against frequency or any swept variable. It is the report type used for return loss, insertion loss, gain versus frequency and almost every other trace, and it accepts arbitrary expressions built from the solution quantities. Families of curves appear automatically when a parametric sweep has been run.",
+      "usage": "HFSS menu > Results > Create Modal Solution Data Report > Rectangular Plot\nScript: oModule = oDesign.GetModule(\"ReportSetup\"); oModule.CreateReport(\"S Parameter Plot 1\", \"Modal Solution Data\", \"Rectangular Plot\", \"Setup1 : Sweep1\", [], [\"Freq:=\", [\"All\"]], [\"X Component:=\", \"Freq\", \"Y Component:=\", [\"dB(S(1,1))\"]])\nPyAEDT: hfss.post.create_report(expressions, setup_sweep_name=None, domain=\"Sweep\", primary_sweep_variable=\"Freq\", families_dict=None, plot_type=\"Rectangular Plot\")",
+      "parameters": [
+        {"name": "expressions", "description": "One or more report expressions, e.g. \"dB(S(1,1))\", \"re(Z(1,1))\", \"GainTotal\"."},
+        {"name": "setup_sweep_name", "description": "Which solved setup and sweep supplies the data, in the form \"Setup1 : Sweep1\"."},
+        {"name": "primary_sweep_variable", "description": "What goes on the X axis - Freq for a frequency sweep, or a design variable, Theta, Phi or Time."},
+        {"name": "families_dict", "description": "Which values of the other swept variables to include; {\"patch_l\": [\"All\"]} plots one curve per variation."},
+        {"name": "report_category", "description": "Modal Solution Data, Terminal Solution Data, Far Fields, Near Fields, Fields, Eigenmode Parameters or Emission Test."},
+        {"name": "context", "description": "For far-field reports, the infinite-sphere setup name; for field reports, the geometry the data is sampled on."}
+      ],
+      "example": "hfss.post.create_report(expressions=[\"dB(S(1,1))\", \"dB(S(2,1))\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        primary_sweep_variable=\"Freq\",\n                        plot_name=\"SParams\")\n\n# Family of curves from a parametric sweep\nhfss.post.create_report(expressions=\"dB(S(1,1))\",\n                        families_dict={\"patch_l\": [\"All\"], \"Freq\": [\"All\"]},\n                        plot_name=\"LengthSweep\")",
+      "notes": "The expression must match the solution type: S(1,1) in a modal design, S(P1_T1,P1_T1) in a terminal design. If a report comes up empty, the usual cause is naming a setup and sweep that has not been solved."
+    },
+    {
+      "name": "Smith Chart",
+      "kind": "tool",
+      "description": "Plot a complex reflection coefficient on a Smith chart, showing impedance or admittance directly against frequency. It is the natural view for matching work because the path of S11 across the band shows immediately what kind of matching element is needed and where the resonance sits.",
+      "usage": "HFSS menu > Results > Create Modal Solution Data Report > Smith Chart\nScript: oModule.CreateReport(\"Smith 1\", \"Modal Solution Data\", \"Smith Chart\", \"Setup1 : Sweep1\", [], [\"Freq:=\", [\"All\"]], [\"Y Component:=\", [\"S(1,1)\"]])\nPyAEDT: hfss.post.create_report(expressions=\"S(1,1)\", plot_type=\"Smith Chart\")",
+      "parameters": [
+        {"name": "expressions", "description": "A complex reflection quantity such as S(1,1) - not a dB magnitude, which has no phase."},
+        {"name": "plot_type", "description": "\"Smith Chart\" for impedance, with an admittance overlay available in the plot properties."},
+        {"name": "Normalisation", "description": "The chart is normalised to the port reference impedance, so renormalising the port changes the plot."},
+        {"name": "Markers", "description": "Frequency markers on the trace are how the impedance at a specific frequency is read off."}
+      ],
+      "example": "hfss.post.create_report(expressions=\"S(1,1)\",\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_type=\"Smith Chart\", plot_name=\"InputMatch\")\n\ndata = hfss.post.get_solution_data(expressions=\"S(1,1)\")\nprint(data.data_real()[:3], data.data_imag()[:3])",
+      "notes": "Plot the linear complex S-parameter, not dB(S(1,1)): a dB expression has no phase and the chart degenerates to a line. Renormalising a wave port to 50 ohm before plotting is what makes the chart comparable with a network analyser trace."
+    },
+    {
+      "name": "Polar Plot",
+      "kind": "tool",
+      "description": "Plot a quantity against angle on polar axes, most often a far-field cut at a fixed phi or theta. It is the conventional presentation of an antenna pattern in a report, with gain in dB on the radial axis and angle around the circumference.",
+      "usage": "HFSS menu > Results > Create Far Fields Report > Radiation Pattern (polar)\nScript: oModule.CreateReport(\"Pattern\", \"Far Fields\", \"Radiation Pattern\", \"Setup1 : LastAdaptive\", [\"Context:=\", \"3D\"], [\"Theta:=\", [\"All\"], \"Phi:=\", [\"0deg\", \"90deg\"]], [\"Ang Component:=\", \"Theta\", \"Mag Component:=\", [\"dB(GainTotal)\"]])\nPyAEDT: hfss.post.create_report(expressions=\"db(GainTotal)\", report_category=\"Far Fields\", context=\"3D\", primary_sweep_variable=\"Theta\", plot_type=\"Radiation Pattern\")",
+      "parameters": [
+        {"name": "primary_sweep_variable", "description": "Theta or Phi - which angle runs around the plot."},
+        {"name": "families_dict", "description": "Fix the other angle to one or more cut planes, e.g. {\"Phi\": [\"0deg\", \"90deg\"]} for the principal planes."},
+        {"name": "context", "description": "The infinite-sphere setup name that defines the angular grid."},
+        {"name": "expressions", "description": "dB(GainTotal), dB(RealizedGainTotal), dB(DirTotal), or a specific polarisation such as dB(GainLHCP)."},
+        {"name": "plot_type", "description": "\"Radiation Pattern\" for polar, \"Rectangular Plot\" for the same cut on linear axes."}
+      ],
+      "example": "hfss.insert_infinite_sphere(x_start=-180, x_stop=180, x_step=1,\n                            y_start=0, y_stop=90, y_step=1, name=\"Cuts\")\nhfss.analyze()\nhfss.post.create_report(expressions=\"db(GainTotal)\",\n                        setup_sweep_name=\"Setup1 : LastAdaptive\",\n                        report_category=\"Far Fields\", context=\"Cuts\",\n                        primary_sweep_variable=\"Theta\",\n                        families_dict={\"Phi\": [\"0deg\", \"90deg\"], \"Freq\": [\"2.45GHz\"]},\n                        plot_type=\"Radiation Pattern\", plot_name=\"PrincipalCuts\")",
+      "notes": "The angular resolution of the plot comes from the infinite-sphere setup, not from the report: a 10 degree step gives a coarse, misleading pattern. Fix the frequency in families_dict or the plot averages nothing useful across the sweep."
+    },
+    {
+      "name": "Data Table report",
+      "kind": "tool",
+      "description": "Present solution quantities as a table of numbers rather than a curve. It is the report type to use when the value at specific points is what matters - resonant frequency, gain at boresight, S-parameters at a handful of frequencies - and it exports cleanly to CSV for a specification compliance sheet.",
+      "usage": "HFSS menu > Results > Create Modal Solution Data Report > Data Table\nScript: oModule.CreateReport(\"Table1\", \"Modal Solution Data\", \"Data Table\", \"Setup1 : Sweep1\", [], [\"Freq:=\", [\"2.4GHz\", \"2.45GHz\", \"2.5GHz\"]], [\"X Component:=\", \"Freq\", \"Y Component:=\", [\"dB(S(1,1))\", \"VSWR(1)\"]])\nPyAEDT: hfss.post.create_report(expressions=[...], plot_type=\"Data Table\")",
+      "parameters": [
+        {"name": "expressions", "description": "The columns of the table; several quantities can share one table."},
+        {"name": "families_dict", "description": "Which sweep points appear as rows - list specific frequencies rather than All to keep the table readable."},
+        {"name": "plot_type", "description": "\"Data Table\"."},
+        {"name": "Export", "description": "A data table exports to .csv or .tab with Export to File, or hfss.post.export_report_to_csv."}
+      ],
+      "example": "hfss.post.create_report(expressions=[\"dB(S(1,1))\", \"VSWR(1)\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        families_dict={\"Freq\": [\"2.4GHz\", \"2.45GHz\", \"2.5GHz\"]},\n                        plot_type=\"Data Table\", plot_name=\"SpecTable\")\nhfss.post.export_report_to_csv(project_dir=r\"C:\\work\", plot_name=\"SpecTable\")",
+      "notes": "For scripted work, hfss.post.get_solution_data returns the same numbers as Python lists without creating a report at all, which is usually more convenient in a build pipeline."
+    },
+    {
+      "name": "3D Polar Plot (far field)",
+      "kind": "tool",
+      "description": "Render the radiation pattern as a three-dimensional surface whose radius is the gain in each direction, coloured by level. It is the quickest way to see the whole pattern at once - main beam direction, back lobes, nulls and asymmetry - and is the standard illustration in an antenna report.",
+      "usage": "HFSS menu > Results > Create Far Fields Report > 3D Polar Plot\nScript: oModule.CreateReport(\"3D Pattern\", \"Far Fields\", \"3D Polar Plot\", \"Setup1 : LastAdaptive\", [\"Context:=\", \"3D\"], [\"Theta:=\", [\"All\"], \"Phi:=\", [\"All\"], \"Freq:=\", [\"2.45GHz\"]], [\"Phi Component:=\", \"Phi\", \"Theta Component:=\", \"Theta\", \"Mag Component:=\", [\"dB(GainTotal)\"]])\nPyAEDT: hfss.post.create_report(expressions=\"db(GainTotal)\", report_category=\"Far Fields\", context=\"3D\", plot_type=\"3D Polar Plot\")",
+      "parameters": [
+        {"name": "context", "description": "Infinite-sphere setup covering the full sphere - theta 0 to 180 and phi -180 to 180 - or the surface has holes."},
+        {"name": "expressions", "description": "dB(GainTotal), dB(RealizedGainTotal), dB(DirTotal) or a polarisation component."},
+        {"name": "Freq", "description": "A single frequency must be selected; a 3D pattern cannot show a sweep."},
+        {"name": "Angular step", "description": "The sphere setup's theta and phi steps determine how smooth the surface is; 2 degrees is a reasonable compromise."},
+        {"name": "Overlay geometry", "description": "The plot can be shown with the model so the beam direction is visible relative to the structure."}
+      ],
+      "example": "hfss.insert_infinite_sphere(x_start=-180, x_stop=180, x_step=2,\n                            y_start=0, y_stop=180, y_step=2, name=\"3D\")\nhfss.analyze()\nhfss.post.create_report(expressions=\"db(GainTotal)\",\n                        setup_sweep_name=\"Setup1 : LastAdaptive\",\n                        report_category=\"Far Fields\", context=\"3D\",\n                        families_dict={\"Freq\": [\"2.45GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"All\"]},\n                        plot_type=\"3D Polar Plot\", plot_name=\"Pattern3D\")",
+      "notes": "Set the radial scale limits explicitly in the plot properties: an automatic scale dominated by a deep null makes every pattern look the same. A full sphere needs theta 0-180 and phi -180-180 in the sphere setup."
+    },
+    {
+      "name": "Rectangular Stacked Plot",
+      "kind": "tool",
+      "description": "Plot several quantities in vertically stacked panes that share one X axis, so traces with very different ranges stay readable. It is ideal for showing return loss, insertion loss and group delay together, or magnitude and phase of the same parameter, without one trace flattening the others.",
+      "usage": "HFSS menu > Results > Create Modal Solution Data Report > Rectangular Stacked Plot\nScript: oModule.CreateReport(name, \"Modal Solution Data\", \"Rectangular Stacked Plot\", \"Setup1 : Sweep1\", [], [\"Freq:=\", [\"All\"]], [\"X Component:=\", \"Freq\", \"Y Component:=\", [expr1, expr2]])\nPyAEDT: hfss.post.create_report(expressions=[...], plot_type=\"Rectangular Stacked Plot\")",
+      "parameters": [
+        {"name": "expressions", "description": "One list of quantities; each gets its own stacked pane with its own Y scale."},
+        {"name": "primary_sweep_variable", "description": "The shared X axis, normally Freq."},
+        {"name": "Pane assignment", "description": "Traces are assigned to panes in the plot properties, so several can share one pane if desired."}
+      ],
+      "example": "hfss.post.create_report(\n    expressions=[\"dB(S(1,1))\", \"dB(S(2,1))\", \"GroupDelay(2,1)\"],\n    setup_sweep_name=\"Setup1 : Sweep1\",\n    primary_sweep_variable=\"Freq\",\n    plot_type=\"Rectangular Stacked Plot\",\n    plot_name=\"FilterSummary\")",
+      "notes": "A stacked plot is easier to read than a second Y axis when the quantities have unrelated units. For a genuinely two-scale comparison, a rectangular plot with a secondary Y axis is still available in the plot properties."
+    },
+    {
+      "name": "Contour and 3D Rectangular Plot",
+      "kind": "tool",
+      "description": "Display a quantity that depends on two swept variables as a contour map or as a 3D surface. These are the report types for scan performance versus theta and phi, gain versus two geometry parameters, or S-parameters across a two-variable design space, where a family of curves would be unreadable.",
+      "usage": "HFSS menu > Results > Create ... Report > Rectangular Contour Plot | 3D Rectangular Plot\nScript: oModule.CreateReport(name, category, \"Rectangular Contour Plot\" | \"3D Rectangular Plot\", solution, context, families, report_data)\nPyAEDT: hfss.post.create_report(expressions=..., plot_type=\"Rectangular Contour Plot\", secondary_sweep_variable=...)",
+      "parameters": [
+        {"name": "primary_sweep_variable", "description": "The X axis variable."},
+        {"name": "secondary_sweep_variable", "description": "The second swept variable, which becomes the Y axis of the contour or surface."},
+        {"name": "expressions", "description": "The single quantity mapped to colour (contour) or height (3D rectangular)."},
+        {"name": "Data requirement", "description": "Both variables must actually have been swept - a parametric study for geometry variables, or a two-angle infinite sphere for theta and phi."}
+      ],
+      "example": "# Gain contour over the angular grid at one frequency\nhfss.post.create_report(expressions=\"db(GainTotal)\",\n                        report_category=\"Far Fields\", context=\"3D\",\n                        primary_sweep_variable=\"Theta\",\n                        secondary_sweep_variable=\"Phi\",\n                        families_dict={\"Freq\": [\"2.45GHz\"]},\n                        plot_type=\"Rectangular Contour Plot\",\n                        plot_name=\"GainContour\")",
+      "notes": "Contour plots are the clearest way to present a two-parameter design study, but they need the full cross product of variations solved, which is expensive. Check the variation count before launching the sweep."
+    },
+    {
+      "name": "S-parameter expressions",
+      "kind": "tool",
+      "description": "The core network quantities of a driven solution: S(m,n) is the complex scattering parameter from port n to port m, and the usual plotted forms are dB(S(m,n)), mag(S(m,n)), ang_deg(S(m,n)) and re/im. In a terminal design the indices are terminal names rather than mode numbers, and differential pairs add mixed-mode forms.",
+      "usage": "Report expression field, or the Y Component of a CreateReport call:\n  dB(S(1,1))      return loss in dB\n  mag(S(2,1))     linear transmission magnitude\n  ang_deg(S(2,1)) transmission phase in degrees\n  cang_deg(S(2,1)) continuous (unwrapped) phase\n  dB(S(P1_T1,P1_T1))  terminal form\n  dB(Sdd(1,1))    differential mode, terminal designs with a declared pair",
+      "parameters": [
+        {"name": "dB()", "description": "20*log10 of the magnitude - the standard presentation for S-parameters."},
+        {"name": "mag() / abs()", "description": "Linear magnitude."},
+        {"name": "ang_deg() / ang_rad()", "description": "Phase, wrapped to +/-180 degrees."},
+        {"name": "cang_deg()", "description": "Continuous phase with the wraps removed, needed before differentiating for group delay."},
+        {"name": "re() / im()", "description": "Real and imaginary parts, for Smith-chart and circuit work."},
+        {"name": "Mixed mode", "description": "Sdd, Scc, Sdc, Scd in terminal designs once terminals are grouped into a differential pair."}
+      ],
+      "example": "hfss.post.create_report(expressions=[\"dB(S(1,1))\", \"dB(S(2,1))\", \"cang_deg(S(2,1))\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\")\n\ndata = hfss.post.get_solution_data(expressions=\"dB(S(1,1))\")\nfreqs = data.primary_sweep_values\nvals = data.data_real()\nprint(\"min return loss\", min(vals), \"at\", freqs[vals.index(min(vals))])",
+      "notes": "Renormalisation matters: a wave port left at its modal impedance gives S-parameters referenced to that impedance, not to 50 ohm. Set renormalize on the port, or the trace will not match a measurement."
+    },
+    {
+      "name": "Y-parameter and Z-parameter expressions",
+      "kind": "tool",
+      "description": "Admittance and impedance matrix elements derived from the same solution as the S-parameters. Z(1,1) is the natural quantity for antenna input impedance and for matching-network design, while Y-parameters are convenient for shunt-dominated structures and for extracting equivalent circuit elements.",
+      "usage": "Report expression field:\n  re(Z(1,1))   im(Z(1,1))   mag(Z(1,1))\n  re(Y(1,1))   im(Y(1,1))\n  Z(P1_T1,P1_T1)  terminal form",
+      "parameters": [
+        {"name": "re(Z(m,n)) / im(Z(m,n))", "description": "Resistance and reactance; plotting both against frequency is how a resonance and its matching are read."},
+        {"name": "Y parameters", "description": "Admittance form, the matrix inverse of Z."},
+        {"name": "Reference impedance", "description": "Z and Y are absolute, not normalised, so they do not depend on the port renormalisation the way S does."},
+        {"name": "Terminal designs", "description": "Indices are terminal names, giving a per-conductor impedance matrix."}
+      ],
+      "example": "hfss.post.create_report(expressions=[\"re(Z(1,1))\", \"im(Z(1,1))\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_name=\"InputImpedance\")\n\n# Resonance is where the reactance crosses zero\nd = hfss.post.get_solution_data(expressions=\"im(Z(1,1))\")\nprint(list(zip(d.primary_sweep_values, d.data_real()))[:5])",
+      "notes": "For an antenna, the frequency at which im(Z(1,1)) crosses zero is the resonance, which is generally not the same as the frequency of minimum return loss. Both numbers are useful and they answer different questions."
+    },
+    {
+      "name": "VSWR",
+      "kind": "tool",
+      "description": "Voltage standing wave ratio at a port, derived from the magnitude of the reflection coefficient. Many antenna and RF specifications are written as a VSWR limit rather than a return loss, so plotting it directly saves a conversion and makes the compliance bandwidth obvious.",
+      "usage": "Report expression field: VSWR(1)   (or VSWR(P1_T1) in a terminal design)\nEquivalent: (1+mag(S(1,1)))/(1-mag(S(1,1)))",
+      "parameters": [
+        {"name": "VSWR(n)", "description": "Standing wave ratio at port n."},
+        {"name": "Relation to return loss", "description": "VSWR 2:1 corresponds to about -9.54 dB return loss; 1.5:1 to about -14 dB."},
+        {"name": "Reference impedance", "description": "Like S-parameters, VSWR depends on the port renormalisation impedance."},
+        {"name": "Bandwidth marker", "description": "Trace Characteristics > Bandwidth measures the span over which VSWR stays below a limit."}
+      ],
+      "example": "hfss.post.create_report(expressions=\"VSWR(1)\",\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_name=\"VSWR\")\n\nd = hfss.post.get_solution_data(expressions=\"VSWR(1)\")\nf = d.primary_sweep_values\nv = d.data_real()\nband = [fi for fi, vi in zip(f, v) if vi <= 2.0]\nprint(\"VSWR<=2 from\", min(band), \"to\", max(band))",
+      "notes": "VSWR goes to infinity at total reflection, so an automatic Y scale on a badly matched antenna is useless - fix the axis maximum at 5 or 10. A perfect match is VSWR 1."
+    },
+    {
+      "name": "Group Delay",
+      "kind": "tool",
+      "description": "The negative derivative of transmission phase with respect to angular frequency, expressing how long a signal envelope is delayed through the device. Flat group delay across the band is a requirement for filters and channels carrying wideband modulation, and ripple in it shows up as distortion.",
+      "usage": "Report expression field: GroupDelay(2,1)\nEquivalent manual form: -d(cang_rad(S(2,1)))/d(Freq)/(2*pi)",
+      "parameters": [
+        {"name": "GroupDelay(m,n)", "description": "Built-in group delay of the transmission path from port n to port m."},
+        {"name": "Frequency resolution", "description": "Group delay is a derivative, so it needs a dense frequency grid; a coarse sweep produces a noisy, meaningless trace."},
+        {"name": "Phase continuity", "description": "The derivative must be taken on continuous (unwrapped) phase, which is why cang_rad rather than ang_rad appears in the manual form."},
+        {"name": "Units", "description": "Seconds; plots are usually scaled to nanoseconds or picoseconds."}
+      ],
+      "example": "hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\", start_frequency=9,\n                               stop_frequency=11, num_of_freq_points=2001,\n                               sweep_type=\"Interpolating\")\nhfss.analyze()\nhfss.post.create_report(expressions=\"GroupDelay(2,1)\",\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_name=\"GroupDelay\")",
+      "notes": "Noisy group delay almost always means too few frequency points, not a real device problem. Interpolating sweeps give a dense output grid cheaply, which is exactly what this quantity needs."
+    },
+    {
+      "name": "Port Zo and Gamma",
+      "kind": "tool",
+      "description": "The characteristic impedance and complex propagation constant computed by the wave-port 2D eigenvalue solve. Zo tells you what impedance the port actually presents, which is how a transmission-line design is verified, and Gamma gives the attenuation and phase constant of the line, from which effective permittivity and loss per unit length follow.",
+      "usage": "Report expression field:\n  re(Zo(1))   im(Zo(1))     port characteristic impedance\n  re(Gamma(1))  im(Gamma(1)) attenuation (Np/m) and phase constant (rad/m)\nReport category: Modal Solution Data, or the Port Zo / Gamma quantity groups",
+      "parameters": [
+        {"name": "Zo(n)", "description": "Characteristic impedance of the mode at port n, computed from the port solution using the Zpi, Zpv or Zvi definition."},
+        {"name": "Gamma(n)", "description": "Complex propagation constant; the real part is attenuation in nepers per metre, the imaginary part is the phase constant."},
+        {"name": "Impedance definition", "description": "Zpi (power-current), Zpv (power-voltage) and Zvi (voltage-current) differ for non-TEM lines; the integration line choice selects it."},
+        {"name": "Effective permittivity", "description": "Derived from the phase constant: eps_eff = (beta*c/omega)^2."}
+      ],
+      "example": "hfss.post.create_report(expressions=[\"re(Zo(1))\", \"im(Zo(1))\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_name=\"PortImpedance\")\n\n# Sanity check: does the designed 50 ohm line really come out at 50 ohm?\nd = hfss.post.get_solution_data(expressions=\"re(Zo(1))\")\nprint(\"Zo at band centre:\", d.data_real()[len(d.data_real())//2])",
+      "notes": "A Zo far from the design value points at a port that is too small to contain the mode, a wrong integration line, or a substrate permittivity that does not match the real material. Checking Zo is the first thing to do when S-parameters look wrong."
+    },
+    {
+      "name": "Active S-parameters",
+      "kind": "tool",
+      "description": "The reflection seen at one element of an array when all elements are excited together with their array amplitudes and phases, rather than one at a time. It is the quantity that actually determines array match and scan blindness, and it can be very different from the passive S11 of an isolated element.",
+      "usage": "HFSS menu > Results > Create Modal Solution Data Report, then choose the Active S Parameter quantity group\nExcitation weights are set in HFSS menu > Fields > Edit Sources... (magnitude and phase per port)\nExpression form: ActiveS(1) / dB(ActiveS(1))",
+      "parameters": [
+        {"name": "Edit Sources", "description": "Per-port magnitude and phase used to combine the solved single-port results; changing them re-computes active quantities without re-solving."},
+        {"name": "ActiveS(n)", "description": "Active reflection coefficient at port n under the current source weighting."},
+        {"name": "Scan angle", "description": "Phase progression across the array corresponds to a scan angle; sweeping it reveals scan blindness."},
+        {"name": "Passive vs active", "description": "Passive S11 is measured with all other ports terminated; active S11 includes the coupled contributions from the driven neighbours."}
+      ],
+      "example": "# Set per-element excitation phases for a scanned beam, then plot active S\nhfss.edit_sources({\"P1\": (\"1W\", \"0deg\"), \"P2\": (\"1W\", \"-90deg\"),\n                   \"P3\": (\"1W\", \"-180deg\"), \"P4\": (\"1W\", \"-270deg\")})\nhfss.post.create_report(expressions=\"dB(ActiveS(1))\",\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_name=\"ActiveMatch\")",
+      "notes": "Source weights are post-processing only, so a whole scan study can be run from one solved set of single-port excitations. Active S11 rising sharply at a particular scan angle is the signature of scan blindness."
+    },
+    {
+      "name": "TDR (Time Domain Reflectometry)",
+      "kind": "tool",
+      "description": "Transform frequency-domain S-parameters into a time-domain reflection trace, showing impedance discontinuities as a function of distance along the structure. It is the standard signal-integrity view of a connector, via or trace: each bump in the trace locates a physical discontinuity.",
+      "usage": "HFSS menu > Results > Create Modal/Terminal Solution Data Report > Rectangular Plot, then select the TDR quantity category and set the domain to Time\nPyAEDT: hfss.post.create_report(expressions=\"TDRZ(1)\", domain=\"Time\", ...)",
+      "parameters": [
+        {"name": "Rise time", "description": "The excitation rise time used for the transform; a faster edge resolves finer discontinuities but is less like the real system."},
+        {"name": "Step vs impulse", "description": "TDR normally uses a step response, giving impedance directly; impulse response shows reflections as spikes."},
+        {"name": "Frequency range", "description": "Time resolution comes from the bandwidth of the sweep, and the unambiguous time span from the frequency step - both matter."},
+        {"name": "DC point", "description": "A TDR transform needs behaviour down towards DC; HFSS extrapolates, and a sweep that starts high gives a poor transform."}
+      ],
+      "example": "hfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                               start_frequency=0.01, stop_frequency=40,\n                               num_of_freq_points=4001,\n                               sweep_type=\"Interpolating\")\nhfss.analyze()\nhfss.post.create_report(expressions=\"TDRZ(1)\", domain=\"Time\",\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_name=\"TDR\")",
+      "notes": "Start the sweep as close to DC as the model allows and use a wide bandwidth: a transform from a 10-20 GHz sweep produces ringing rather than impedance. A native Transient solution gives the same information directly if the frequency-domain route proves awkward."
+    },
+    {
+      "name": "Eigenmode results (frequency and Q)",
+      "kind": "tool",
+      "description": "Report the resonant frequencies and unloaded quality factors produced by an Eigenmode solve. The Eigenmode Parameters report category exposes the mode frequencies and Q, and the associated field solution for each mode can be plotted to identify which physical resonance it is.",
+      "usage": "HFSS menu > Results > Create Eigenmode Parameters Report > Rectangular Plot / Data Table\nExpressions: Mode(1), Mode(2), ... for frequency; Q(1), Q(2), ... for quality factor\nPyAEDT: hfss.post.get_solution_data(expressions=\"Mode(1)\", report_category=\"Eigenmode Parameters\")",
+      "parameters": [
+        {"name": "Mode(n)", "description": "Complex eigenfrequency of mode n; the real part is the resonant frequency."},
+        {"name": "Q(n)", "description": "Unloaded quality factor of mode n, which requires loss in the model to be meaningful."},
+        {"name": "Field plot per mode", "description": "Each mode has its own field solution, selectable in the field plot dialog, which is how a wanted mode is told apart from a spurious one."},
+        {"name": "Parametric use", "description": "Sweeping a dimension and plotting Mode(1) against it is the standard cavity tuning study."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Eigenmode\", version=\"2025.1\", non_graphical=True)\n# ... cavity geometry, lossy walls ...\nhfss.analyze()\nfor n in (1, 2, 3, 4):\n    d = hfss.post.get_solution_data(expressions=f\"Mode({n})\",\n                                    report_category=\"Eigenmode Parameters\")\n    print(n, d.data_real())",
+      "notes": "A lossless model returns an effectively infinite Q, so add finite conductivity or a lossy dielectric before reading Q. Plot the mode fields to confirm which physical resonance each eigenvalue corresponds to - the ordering is by frequency, not by physical significance."
+    },
+    {
+      "name": "Insert Infinite Sphere setup",
+      "kind": "tool",
+      "description": "Define the angular grid on which far-field quantities are computed: theta and phi ranges and steps, and optionally a coordinate system and polarisation reference. Every far-field report, antenna parameter table and 3D pattern needs one, and its resolution directly determines how accurate the derived quantities are.",
+      "usage": "HFSS menu > Radiation > Insert Far Field Setup > Infinite Sphere...\nScript: oModule = oDesign.GetModule(\"RadField\"); oModule.InsertInfiniteSphereSetup([\"NAME:3D\", \"UseCustomRadiationSurface:=\", False, \"ThetaStart:=\", \"0deg\", \"ThetaStop:=\", \"180deg\", \"ThetaStep:=\", \"2deg\", \"PhiStart:=\", \"-180deg\", \"PhiStop:=\", \"180deg\", \"PhiStep:=\", \"2deg\", \"UseLocalCS:=\", False])\nPyAEDT: hfss.insert_infinite_sphere(x_start, x_stop, x_step, y_start, y_stop, y_step, units=\"deg\", name=...)",
+      "parameters": [
+        {"name": "Theta range and step", "description": "Elevation angle grid; 0 to 180 covers the full sphere."},
+        {"name": "Phi range and step", "description": "Azimuth grid; -180 to 180 covers the full sphere."},
+        {"name": "Step size", "description": "Angular resolution. Coarse steps miss narrow beams and corrupt integrated quantities such as directivity and efficiency."},
+        {"name": "UseLocalCS / coordinate system", "description": "Reference the pattern to a relative coordinate system, which is how a tilted element's pattern is expressed in its own frame."},
+        {"name": "Polarization", "description": "Linear, circular (LHCP/RHCP) or Ludwig-3 definitions for the reported field components."},
+        {"name": "UseCustomRadiationSurface", "description": "Compute the far field from a specified surface rather than the default radiation boundary."}
+      ],
+      "example": "hfss.insert_infinite_sphere(x_start=-180, x_stop=180, x_step=2,\n                            y_start=0, y_stop=180, y_step=2,\n                            units=\"deg\", name=\"3D\")\nhfss.insert_infinite_sphere(x_start=0, x_stop=0, x_step=1,\n                            y_start=-180, y_stop=180, y_step=0.5,\n                            units=\"deg\", name=\"AzCut\")\nhfss.analyze()",
+      "notes": "Define one coarse full sphere for 3D plots and integrated quantities and a separate fine cut for principal-plane patterns; a fine full sphere wastes post-processing time. The far field is computed from the stored radiated-field data, so SaveRadFieldsOnly must have been enabled."
+    },
+    {
+      "name": "Far Field radiation pattern report",
+      "kind": "tool",
+      "description": "Plot far-field quantities against angle on polar or rectangular axes, using an infinite-sphere setup as the context. It is the antenna engineer's main output: principal-plane cuts of gain, comparisons across frequency, and polarisation component overlays all come from this report type.",
+      "usage": "HFSS menu > Results > Create Far Fields Report > Radiation Pattern | Rectangular Plot\nPyAEDT: hfss.post.create_report(expressions=\"db(GainTotal)\", report_category=\"Far Fields\", context=\"<sphere name>\", primary_sweep_variable=\"Theta\", families_dict={\"Phi\": [\"0deg\",\"90deg\"], \"Freq\": [\"2.45GHz\"]}, plot_type=\"Radiation Pattern\")",
+      "parameters": [
+        {"name": "context", "description": "Name of the infinite-sphere setup providing the angular data."},
+        {"name": "primary_sweep_variable", "description": "Theta or Phi on the angular axis."},
+        {"name": "families_dict", "description": "Fix the other angle and the frequency to define the cut."},
+        {"name": "expressions", "description": "dB(GainTotal), dB(RealizedGainTotal), dB(GainTheta), dB(GainPhi), dB(GainLHCP), dB(GainRHCP), dB(DirTotal)."},
+        {"name": "Relative / normalised", "description": "Plot properties can normalise the pattern to its peak, which is how beamwidth is usually presented."}
+      ],
+      "example": "hfss.post.create_report(\n    expressions=[\"db(GainTotal)\", \"db(GainTheta)\", \"db(GainPhi)\"],\n    setup_sweep_name=\"Setup1 : LastAdaptive\",\n    report_category=\"Far Fields\", context=\"Cuts\",\n    primary_sweep_variable=\"Theta\",\n    families_dict={\"Phi\": [\"0deg\"], \"Freq\": [\"2.45GHz\"]},\n    plot_type=\"Radiation Pattern\", plot_name=\"EPlane\")",
+      "notes": "GainTotal includes mismatch only in the Realized variants: use RealizedGain when the specification is about the antenna as connected, and Gain when it is about the radiator itself. Always state which frequency the cut is at - a pattern with the frequency left as All is meaningless."
+    },
+    {
+      "name": "Antenna Parameters table",
+      "kind": "tool",
+      "description": "A summary table of integrated far-field quantities for a chosen infinite sphere and frequency: peak directivity, peak gain, peak realized gain, radiated power, accepted power, incident power, radiation efficiency and front-to-back ratio. It is the quickest single view of whether an antenna is doing what it should.",
+      "usage": "HFSS menu > Results > Create Far Fields Report > Antenna Parameters (Data Table)\nPyAEDT: hfss.post.create_report(expressions=[\"PeakDirectivity\", \"PeakGain\", \"RadiationEfficiency\"], report_category=\"Antenna Parameters\", context=\"3D\", plot_type=\"Data Table\")",
+      "parameters": [
+        {"name": "PeakDirectivity / PeakGain / PeakRealizedGain", "description": "Maximum values over the sphere, in linear or dB form."},
+        {"name": "RadiatedPower / AcceptedPower / IncidentPower", "description": "Power budget: incident at the port, accepted after mismatch, and radiated after losses."},
+        {"name": "RadiationEfficiency", "description": "Radiated divided by accepted power - the measure of conductor and dielectric loss."},
+        {"name": "FrontToBack", "description": "Ratio of forward to rearward radiation, for directional antennas."},
+        {"name": "context", "description": "The infinite sphere over which the integrals are taken; it must cover the full sphere for the integrated values to be correct."}
+      ],
+      "example": "hfss.insert_infinite_sphere(x_start=-180, x_stop=180, x_step=2,\n                            y_start=0, y_stop=180, y_step=2, name=\"3D\")\nhfss.analyze()\nd = hfss.post.get_solution_data(\n    expressions=[\"PeakGain\", \"RadiationEfficiency\"],\n    report_category=\"Antenna Parameters\", context=\"3D\")\nprint(d.data_real(\"PeakGain\"), d.data_real(\"RadiationEfficiency\"))",
+      "notes": "Every integrated quantity here is only as good as the angular sampling: a 10 degree grid systematically misestimates radiated power and therefore efficiency. Use a full sphere with a 2 degree step or finer for these numbers."
+    },
+    {
+      "name": "Gain, Directivity and Realized Gain",
+      "kind": "tool",
+      "description": "The three closely related far-field level quantities. Directivity describes only the pattern shape, Gain adds the antenna's own conduction and dielectric losses, and Realized Gain additionally includes the impedance mismatch at the port. Knowing which one a specification refers to is essential because they can differ by several dB.",
+      "usage": "Report expressions:\n  DirTotal / dB(DirTotal)                    directivity\n  GainTotal / dB(GainTotal)                  gain (includes antenna losses)\n  RealizedGainTotal / dB(RealizedGainTotal)  gain including mismatch loss\nComponent forms: GainTheta, GainPhi, GainLHCP, GainRHCP, and the Ludwig-3 co/cross-polar variants",
+      "parameters": [
+        {"name": "DirTotal", "description": "Directivity, pattern shape only. Independent of loss and mismatch."},
+        {"name": "GainTotal", "description": "Directivity times radiation efficiency."},
+        {"name": "RealizedGainTotal", "description": "Gain times (1 - |S11|^2); what a system link budget actually sees."},
+        {"name": "Component forms", "description": "Theta/Phi for linear polarisation, LHCP/RHCP for circular, co/cross-polar for Ludwig-3."},
+        {"name": "dB vs dBi", "description": "HFSS reports these in dB relative to an isotropic radiator, so dB(GainTotal) is dBi."}
+      ],
+      "example": "hfss.post.create_report(\n    expressions=[\"db(DirTotal)\", \"db(GainTotal)\", \"db(RealizedGainTotal)\"],\n    report_category=\"Far Fields\", context=\"3D\",\n    primary_sweep_variable=\"Theta\",\n    families_dict={\"Phi\": [\"0deg\"], \"Freq\": [\"2.45GHz\"]},\n    plot_type=\"Radiation Pattern\", plot_name=\"GainComparison\")",
+      "notes": "A large gap between Gain and Realized Gain means a mismatch problem, not a radiation problem; a gap between Directivity and Gain means loss in the conductors or dielectric. Plotting all three on one cut diagnoses which of the two is limiting performance."
+    },
+    {
+      "name": "Axial Ratio and polarisation quantities",
+      "kind": "tool",
+      "description": "Measures of polarisation purity for circularly and elliptically polarised antennas. Axial ratio is the ratio of the major to minor axis of the polarisation ellipse, and the LHCP and RHCP gain components quantify how much power lands in the wanted and unwanted senses. Both are angle- and frequency-dependent, so the useful beamwidth is often set by axial ratio rather than by gain.",
+      "usage": "Report expressions in the Far Fields category:\n  AxialRatioValue / dB(AxialRatioValue)\n  dB(GainLHCP)   dB(GainRHCP)\n  Also available: Ludwig-3 co-polar and cross-polar components",
+      "parameters": [
+        {"name": "AxialRatioValue", "description": "Ratio of the polarisation ellipse axes; 1 (0 dB) is perfect circular polarisation, infinity is linear."},
+        {"name": "GainLHCP / GainRHCP", "description": "Left- and right-hand circular gain components; the difference between them is the polarisation purity."},
+        {"name": "Polarization setting", "description": "The infinite-sphere setup declares which polarisation basis the components are reported in."},
+        {"name": "Axial-ratio beamwidth", "description": "The angular span over which axial ratio stays below 3 dB - usually much narrower than the gain beamwidth."}
+      ],
+      "example": "hfss.post.create_report(expressions=\"dB(AxialRatioValue)\",\n                        report_category=\"Far Fields\", context=\"3D\",\n                        primary_sweep_variable=\"Theta\",\n                        families_dict={\"Phi\": [\"0deg\"], \"Freq\": [\"1.575GHz\"]},\n                        plot_type=\"Radiation Pattern\", plot_name=\"AxialRatio\")\n\nhfss.post.create_report(expressions=[\"dB(GainRHCP)\", \"dB(GainLHCP)\"],\n                        report_category=\"Far Fields\", context=\"3D\",\n                        primary_sweep_variable=\"Theta\",\n                        families_dict={\"Phi\": [\"0deg\"], \"Freq\": [\"1.575GHz\"]})",
+      "notes": "Axial ratio is extremely sensitive to feed phase and amplitude balance, so it is usually the first thing to degrade when a circularly polarised design is detuned. Specify both the frequency and the angular range when quoting it - a boresight figure hides the beamwidth problem."
+    },
+    {
+      "name": "Radiation Efficiency and power budget",
+      "kind": "tool",
+      "description": "The fraction of accepted power that is actually radiated, together with the underlying power quantities: incident power at the port, accepted power after mismatch, and radiated power after conductor and dielectric loss. Together they tell you exactly where the missing decibels went.",
+      "usage": "Antenna Parameters report quantities:\n  RadiationEfficiency, RadiatedPower, AcceptedPower, IncidentPower\nRelationships: AcceptedPower = IncidentPower * (1 - |S11|^2); RadiationEfficiency = RadiatedPower / AcceptedPower",
+      "parameters": [
+        {"name": "RadiationEfficiency", "description": "Radiated over accepted power, capturing ohmic and dielectric loss only."},
+        {"name": "Total efficiency", "description": "Radiated over incident power, which also includes the mismatch loss; equals radiation efficiency times (1-|S11|^2)."},
+        {"name": "Loss sources", "description": "Finite conductivity boundaries, lossy dielectrics and any impedance or absorbing boundary inside the model."},
+        {"name": "Angular sampling", "description": "Radiated power is an integral over the sphere, so it depends on the infinite-sphere resolution."}
+      ],
+      "example": "d = hfss.post.get_solution_data(\n    expressions=[\"RadiationEfficiency\", \"RadiatedPower\", \"AcceptedPower\"],\n    report_category=\"Antenna Parameters\", context=\"3D\")\neta = d.data_real(\"RadiationEfficiency\")[0]\nprint(f\"radiation efficiency {eta*100:.1f} %\")\n\n# Compare with the loss actually deposited in the conductors\nhfss.post.create_fieldplot_surface(assignment=[\"Patch\"], quantity=\"Surface_Loss_Density\")",
+      "notes": "A radiation efficiency above 1 is a warning sign, not good news: it means the radiated-power integral is wrong, usually because the sphere resolution is too coarse or the radiation boundary is too close. Plot surface and volume loss density to see where the missing power is being absorbed."
+    },
+    {
+      "name": "Antenna Array Setup (post-processing array)",
+      "kind": "tool",
+      "description": "Apply array theory to a solved single-element pattern, combining it with a specified lattice, amplitude taper and phase progression to produce the array pattern without solving the array. It is an instant way to explore element spacing, taper and scan angle, at the cost of ignoring mutual coupling and edge effects.",
+      "usage": "HFSS menu > Radiation > Antenna Array Setup...\nChoose Regular Array (rows, columns, spacing, scan angle) or Custom Array (explicit per-element position, amplitude and phase from a file)\nThe array factor is then applied to every far-field report using that infinite sphere.",
+      "parameters": [
+        {"name": "Regular array", "description": "Rows, columns, lattice spacing and the scan angle, from which the phase progression is computed."},
+        {"name": "Custom array", "description": "A file listing each element's position, amplitude and phase, allowing thinned, conformal and tapered arrays."},
+        {"name": "Amplitude taper", "description": "Per-element weights implementing uniform, cosine, Taylor or Chebyshev tapers to control sidelobes."},
+        {"name": "Scan angle", "description": "Theta and phi of the intended beam direction; the phase progression follows from the spacing."},
+        {"name": "Limitation", "description": "Pattern multiplication assumes every element has the identical isolated pattern - no mutual coupling and no edge effects."}
+      ],
+      "example": "# Solve one element with a full-sphere far field, then apply array theory:\n# HFSS > Radiation > Antenna Array Setup > Regular Array\n#   8 x 8, spacing 0.5*lambda, scan theta 30 deg\nhfss.post.create_report(expressions=\"db(GainTotal)\",\n                        report_category=\"Far Fields\", context=\"3D\",\n                        primary_sweep_variable=\"Theta\",\n                        families_dict={\"Phi\": [\"0deg\"], \"Freq\": [\"2.45GHz\"]},\n                        plot_type=\"Radiation Pattern\", plot_name=\"ArrayPattern\")",
+      "notes": "Pattern multiplication is optimistic: real arrays have element-to-element coupling and different edge-element environments, which raise sidelobes and cause scan blindness this method cannot predict. Use a Component Array or a unit cell with Floquet ports when those effects matter."
+    },
+    {
+      "name": "Insert Near Field Setup",
+      "kind": "tool",
+      "description": "Define a line, sphere, rectangle or box on which the near field is sampled, so field values can be reported against position rather than plotted as an overlay. It is used for probe-coupling studies, EMC field-strength checks at a defined distance, and to export equivalent-source data for use in another design.",
+      "usage": "HFSS menu > Radiation > Insert Near Field Setup > Line | Sphere | Rectangle | Box\nScript: oModule = oDesign.GetModule(\"RadField\"); oModule.InsertNearFieldLineSetup([...]) / InsertNearFieldSphereSetup([...]) / InsertNearFieldRectangleSetup([...])\nReports then use the Near Fields report category with that setup as context.",
+      "parameters": [
+        {"name": "Line", "description": "Start and end points plus a sample count - the natural sampling for a field-versus-distance plot."},
+        {"name": "Sphere", "description": "Radius plus theta and phi grids, for near-field spherical scanning."},
+        {"name": "Rectangle / Box", "description": "A planar or volumetric grid, used for equivalent-source extraction and EMC scan planes."},
+        {"name": "Sample spacing", "description": "Must resolve the field variation, typically a tenth of a wavelength or finer."},
+        {"name": "Use as a source", "description": "A near-field setup in one design can drive an Incident Wave > Near Field Wave excitation in another."}
+      ],
+      "example": "oModule = hfss.odesign.GetModule(\"RadField\")\noModule.InsertNearFieldLineSetup(\n    [\"NAME:ProbeLine\", \"Points:=\", 201,\n     \"Line:=\", \"ProbePolyline\"])\nhfss.analyze()\nhfss.post.create_report(expressions=\"NearEX\", report_category=\"Near Fields\",\n                        context=\"ProbeLine\", primary_sweep_variable=\"Distance\")",
+      "notes": "Near-field reports need the full field solution saved, not just radiated fields, so SaveFields must be on for the solution being reported. Confirm the exact argument array for your release by recording the dialog with Tools > Record Script To File."
+    },
+    {
+      "name": "Plot Fields (field overlays)",
+      "kind": "tool",
+      "description": "Draw a solved field quantity as a coloured overlay on a selected object, face, line or cut plane. It is the primary diagnostic in HFSS: current distribution on a patch, E-field in a gap, the mode pattern in a waveguide and the hot spot in a filter are all seen this way, and most modelling mistakes become obvious the moment the field is plotted.",
+      "usage": "1. Select the object, face, line or cut plane\n2. HFSS menu > Fields > Plot Fields > E | H | J | Other...\nScript: oModule = oDesign.GetModule(\"FieldsReporter\"); with CreateFieldPlot on the selected geometry\nPyAEDT: hfss.post.create_fieldplot_surface(assignment, quantity, setup=None, intrinsics=None)  /  create_fieldplot_volume / create_fieldplot_cutplane / create_fieldplot_line",
+      "parameters": [
+        {"name": "assignment", "description": "Objects, faces, a cut plane or a polyline the field is drawn on."},
+        {"name": "quantity", "description": "Mag_E, ComplexMag_E, Vector_E, Mag_H, Mag_J, Vector_J, Surface_Loss_Density and many more."},
+        {"name": "intrinsics", "description": "The frequency and phase at which the field is evaluated, e.g. {\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"}."},
+        {"name": "setup", "description": "Which solved setup and solution the field comes from; fields must have been saved for that point."},
+        {"name": "Scale and folding", "description": "Plot properties set the colour scale, log or linear mapping and the number of levels - the default autoscale is often dominated by a singularity."}
+      ],
+      "example": "hfss.post.create_fieldplot_surface(assignment=[\"Patch\"], quantity=\"Mag_J\",\n                                   intrinsics={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"},\n                                   plot_name=\"SurfaceCurrent\")\n\ncut = hfss.modeler.create_rectangle(\"XZ\", [-30, 0, -5], [60, 20], name=\"CutPlane\")\nhfss.post.create_fieldplot_surface(assignment=[\"CutPlane\"], quantity=\"Mag_E\",\n                                   intrinsics={\"Freq\": \"2.45GHz\"},\n                                   plot_name=\"EFieldCut\")",
+      "notes": "Field plots require saved fields, so pair an interpolating sweep with a single-point sweep that has save_single_field on. Edge and corner singularities dominate an automatic colour scale; set the maximum manually to see the field you care about."
+    },
+    {
+      "name": "Field quantities (Mag_E, ComplexMag_E, Vector_E)",
+      "kind": "tool",
+      "description": "The catalogue of plottable field quantities. Mag_ gives the instantaneous magnitude at the chosen phase, ComplexMag_ gives the phasor magnitude independent of phase, and Vector_ draws arrows showing direction. Choosing the right one is what separates a diagnostic plot from a pretty but uninformative picture.",
+      "usage": "Selected in the Plot Fields dialog or passed as the quantity argument:\n  Mag_E, ComplexMag_E, Vector_E, ScalarZ_E (component)\n  Mag_H, ComplexMag_H, Vector_H\n  Mag_J, Vector_J, Mag_Jsurf, Vector_Jsurf\n  Mag_Jvol, Volume_Loss_Density, Surface_Loss_Density\n  Mag_Poynting, Vector_RealPoynting\n  Local_SAR, Average_SAR",
+      "parameters": [
+        {"name": "Mag_ vs ComplexMag_", "description": "Mag_ is the instantaneous value at the plotted phase and animates; ComplexMag_ is the phasor amplitude and does not depend on phase."},
+        {"name": "Vector_", "description": "Arrow plot showing direction as well as magnitude - essential for identifying a waveguide mode."},
+        {"name": "Component forms", "description": "ScalarX_E, ScalarY_E, ScalarZ_E and their H equivalents plot a single Cartesian component."},
+        {"name": "Surface vs volume current", "description": "Jsurf is the surface current on a conductor boundary; Jvol is current density inside a solved-inside body."},
+        {"name": "Phase", "description": "The intrinsic phase at which Mag_ and Vector_ quantities are evaluated; stepping it animates the field."}
+      ],
+      "example": "# Identify the waveguide mode with a vector plot\nhfss.post.create_fieldplot_cutplane(assignment=[\"Global:XY\"], quantity=\"Vector_E\",\n                                    intrinsics={\"Freq\": \"10GHz\", \"Phase\": \"0deg\"},\n                                    plot_name=\"ModePattern\")\n\n# Phase-independent field strength for a hot-spot check\nhfss.post.create_fieldplot_volume(assignment=[\"Substrate\"], quantity=\"ComplexMag_E\",\n                                  intrinsics={\"Freq\": \"10GHz\"},\n                                  plot_name=\"EFieldPeak\")",
+      "notes": "Use ComplexMag_ when looking for peak field strength (breakdown, hot spots) and Mag_ with an animated phase when looking at wave propagation. A Vector_E plot on a cut plane is the fastest way to confirm that a waveguide is carrying the mode you intended."
+    },
+    {
+      "name": "Poynting vector and power flow",
+      "kind": "tool",
+      "description": "Plot the instantaneous or time-averaged Poynting vector to see where energy actually flows through the structure. It settles questions that magnitude plots cannot: which way power travels in a coupled line, whether a slot is radiating or storing energy, and where a leak in a shield is.",
+      "usage": "Plot Fields > Other > Mag_Poynting | Vector_RealPoynting | Vector_ComplexPoynting\nPyAEDT: hfss.post.create_fieldplot_surface(assignment, quantity=\"Vector_RealPoynting\", intrinsics=...)",
+      "parameters": [
+        {"name": "Vector_RealPoynting", "description": "Time-averaged real power flow - the quantity that shows net energy transport."},
+        {"name": "Vector_ComplexPoynting", "description": "Includes the reactive (imaginary) part, which circulates rather than transports."},
+        {"name": "Mag_Poynting", "description": "Scalar magnitude of the power flow density."},
+        {"name": "Integration", "description": "The Fields Calculator can integrate the normal Poynting component over a surface to get the power crossing it in watts."}
+      ],
+      "example": "hfss.post.create_fieldplot_surface(assignment=[\"CutPlane\"],\n                                   quantity=\"Vector_RealPoynting\",\n                                   intrinsics={\"Freq\": \"10GHz\"},\n                                   plot_name=\"PowerFlow\")\n\n# Integrate power through an aperture in the Fields Calculator:\n# Quantity > Poynting, Geometry > Surface > Aperture, Normal, then Integrate",
+      "notes": "Real Poynting is what leaves the structure; imaginary Poynting is stored energy sloshing back and forth and does not represent transport. Integrating real Poynting over a closed surface should match the radiated power from the antenna parameters table."
+    },
+    {
+      "name": "SAR (Local and Averaged)",
+      "kind": "tool",
+      "description": "Specific Absorption Rate - the power absorbed per unit mass of tissue - plotted either point by point (Local SAR) or averaged over a 1 g or 10 g mass as regulatory limits require. It is the quantity that decides compliance for handsets, wearables and any transmitter operating near the body.",
+      "usage": "1. Assign tissue materials with the correct mass density and conductivity\n2. HFSS menu > Fields > Plot Fields > Other > Local_SAR | Average_SAR\nAveraging mass and algorithm are set in the SAR settings (HFSS > Fields > SAR Setup or the plot dialog, depending on release)",
+      "parameters": [
+        {"name": "Local_SAR", "description": "Point-wise SAR in W/kg, computed from conductivity, E-field and mass density."},
+        {"name": "Average_SAR", "description": "SAR averaged over a specified tissue mass - 1 g (FCC) or 10 g (ICNIRP) are the regulatory values."},
+        {"name": "Mass density", "description": "The tissue material must carry a correct mass density; SAR is meaningless if it is left at a default."},
+        {"name": "Input power normalisation", "description": "SAR scales with input power, so Edit Sources must be set to the real transmit power before reading absolute values."},
+        {"name": "Mesh requirement", "description": "Averaged SAR needs a mesh fine enough to resolve the averaging volume; a coarse mesh under-reports the peak."}
+      ],
+      "example": "hfss.edit_sources({\"P1\": (\"0.25W\", \"0deg\")})   # real transmit power\nhfss.post.create_fieldplot_volume(assignment=[\"Phantom\"], quantity=\"Average_SAR\",\n                                  intrinsics={\"Freq\": \"1.9GHz\"},\n                                  plot_name=\"SAR10g\")\n# Peak value via the Fields Calculator: Quantity > Average_SAR, Volume > Phantom, Maximum",
+      "notes": "Two things invalidate a SAR result more often than anything else: a tissue material without a proper mass density, and forgetting to normalise the excitation to the actual transmit power. Regulatory submissions also require a specific averaging algorithm, so check which one your release implements."
+    },
+    {
+      "name": "Loss density (volume and surface)",
+      "kind": "tool",
+      "description": "Plot where power is being dissipated: Volume_Loss_Density inside lossy dielectrics and solved-inside conductors, Surface_Loss_Density on finite-conductivity and impedance boundaries. It converts a disappointing efficiency number into a picture showing exactly which part of the structure is absorbing the power.",
+      "usage": "HFSS menu > Fields > Plot Fields > Other > Volume_Loss_Density | Surface_Loss_Density\nPyAEDT: hfss.post.create_fieldplot_volume(assignment, quantity=\"Volume_Loss_Density\") / create_fieldplot_surface(assignment, quantity=\"Surface_Loss_Density\")",
+      "parameters": [
+        {"name": "Volume_Loss_Density", "description": "Power dissipated per unit volume, in W/m^3, inside lossy dielectrics and conductors with Solve Inside on."},
+        {"name": "Surface_Loss_Density", "description": "Power per unit area on finite-conductivity, impedance and layered-impedance boundaries."},
+        {"name": "Integration", "description": "The Fields Calculator integrates either quantity over its domain to give the total loss in watts, which can be reconciled with the power budget."},
+        {"name": "Prerequisite", "description": "Loss only appears where loss exists: Calculate Lossy Dielectrics must be on and conductors must be finite-conductivity rather than Perfect E."}
+      ],
+      "example": "hfss.post.create_fieldplot_surface(assignment=[\"Trace\", \"Gnd\"],\n                                   quantity=\"Surface_Loss_Density\",\n                                   intrinsics={\"Freq\": \"10GHz\"},\n                                   plot_name=\"ConductorLoss\")\nhfss.post.create_fieldplot_volume(assignment=[\"Substrate\"],\n                                  quantity=\"Volume_Loss_Density\",\n                                  intrinsics={\"Freq\": \"10GHz\"},\n                                  plot_name=\"DielectricLoss\")",
+      "notes": "A model built entirely from Perfect E boundaries shows no conductor loss at all, which is usually why an efficiency comes out at 100%. Integrating both loss densities and comparing the total with accepted minus radiated power is a good self-consistency check."
+    },
+    {
+      "name": "Plot Mesh",
+      "kind": "tool",
+      "description": "Display the finite-element mesh on selected objects or faces, optionally from a specific adaptive pass. It is the diagnostic that shows whether refinement actually reached the critical gap, whether a mesh operation was applied where intended, and where the element count is being spent.",
+      "usage": "1. Select objects or faces\n2. HFSS menu > Fields > Plot Mesh...\nMesh Statistics: HFSS > Results > Solution Data > Mesh Statistics tab\nPyAEDT: hfss.post.plot_mesh(...) / hfss.export_mesh_stats(setup, output_file=...)",
+      "parameters": [
+        {"name": "Selection", "description": "Objects or faces whose mesh to display; the whole model at once is usually unreadable."},
+        {"name": "Adaptive pass", "description": "Any completed pass can be shown, which reveals how refinement progressed."},
+        {"name": "Mesh statistics", "description": "Per-object element counts and edge lengths, exportable to a text file."},
+        {"name": "Display options", "description": "Wireframe versus shaded, and whether interior elements are shown."}
+      ],
+      "example": "hfss.analyze()\nhfss.export_mesh_stats(setup=\"Setup1\", output_file=r\"C:\\work\\mesh.txt\")\n# Visual check of the critical region\n# HFSS > Fields > Plot Mesh on the coupling gap objects",
+      "notes": "If a resonance is at the wrong frequency, look at the mesh in the region that controls it before changing anything else - a coupling gap spanned by two elements cannot give the right answer no matter how many adaptive passes run."
+    },
+    {
+      "name": "Fields Calculator",
+      "kind": "tool",
+      "description": "A stack-based calculator that operates on the solved field data: load a quantity, apply vector and scalar operations, restrict it to a geometry, and integrate, differentiate or evaluate it. It is how any quantity HFSS does not report directly gets computed - stored energy, power through an aperture, voltage along a path, average field in a volume.",
+      "usage": "HFSS menu > Fields > Calculator...\nStack workflow: Quantity (E, H, J, ...) -> Vector/Scalar operations -> Geometry (Line, Surface, Volume) -> Integrate / Value / Maximum -> Eval\nScript: oModule = oDesign.GetModule(\"FieldsReporter\"); oModule.EnterQty(\"E\"); oModule.CalcOp(\"Mag\"); oModule.EnterVol(\"Substrate\"); oModule.CalcOp(\"Integrate\"); oModule.ClcEval(setup, variation, intrinsics)",
+      "parameters": [
+        {"name": "EnterQty", "description": "Push a field quantity onto the stack: E, H, J, Jsurf, Poynting and the derived quantities."},
+        {"name": "CalcOp", "description": "Apply an operation: Mag, Real, Imag, Smooth, Dot, Cross, Scalar?, Integrate, Maximum, Minimum, Mean, Normal, Tangent."},
+        {"name": "EnterLine / EnterSurf / EnterVol", "description": "Restrict the stack quantity to a polyline, a surface or a volume in the model."},
+        {"name": "ClcEval", "description": "Evaluate the stack for a given setup, variation and intrinsic (frequency, phase) and return the number."},
+        {"name": "AddNamedExpression", "description": "Store the stack as a named expression reusable in reports and field plots."},
+        {"name": "ExportOnGrid", "description": "Sample the stack quantity on a regular grid and write it to a file."}
+      ],
+      "example": "fc = hfss.odesign.GetModule(\"FieldsReporter\")\nfc.CalcStack(\"clear\")\nfc.EnterQty(\"E\")\nfc.CalcOp(\"Mag\")\nfc.EnterVol(\"Substrate\")\nfc.CalcOp(\"Integrate\")\nfc.ClcEval(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])\nprint(fc.GetTopEntryValue(\"Setup1 : LastAdaptive\",\n                          [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"]))",
+      "notes": "The calculator is a stack machine, so operation order matters and CalcStack(\"clear\") before each computation avoids inheriting leftovers. Recording the GUI calculator with Tools > Record Script To File is the reliable way to get the exact operation names for a complex expression."
+    },
+    {
+      "name": "Named Expressions",
+      "kind": "tool",
+      "description": "Save a Fields Calculator stack under a name so it becomes available as a plottable and reportable quantity alongside the built-in ones. It is how a project-specific figure of merit - a normalised field, a custom loss integral, a derived current - becomes a first-class result that can be swept and plotted like any other.",
+      "usage": "In the Fields Calculator: build the stack, then Add... to create a named expression\nScript: oModule.AddNamedExpression(\"<Name>\", \"Fields\")\nThe expression then appears in the field-plot quantity list and in report expression lists.",
+      "parameters": [
+        {"name": "Name", "description": "Identifier the expression appears under in plot and report dialogs."},
+        {"name": "Category", "description": "\"Fields\" for field quantities; other categories exist for report-level expressions."},
+        {"name": "Reusability", "description": "Named expressions are stored in the design and survive re-solves, so a sweep can plot them across variations."},
+        {"name": "Copy to another design", "description": "Expressions can be exported and imported, which is how a house standard set of figures of merit is shared."}
+      ],
+      "example": "fc = hfss.odesign.GetModule(\"FieldsReporter\")\nfc.CalcStack(\"clear\")\nfc.EnterQty(\"E\")\nfc.CalcOp(\"Mag\")\nfc.EnterScalar(1000)\nfc.CalcOp(\"/\")\nfc.AddNamedExpression(\"E_kV_per_m\", \"Fields\")\n\nhfss.post.create_fieldplot_volume(assignment=[\"Substrate\"], quantity=\"E_kV_per_m\",\n                                  intrinsics={\"Freq\": \"2.45GHz\"})",
+      "notes": "Named expressions referencing geometry by name break when the object is renamed or deleted, and the failure shows up as an empty plot rather than an error. Keep the definitions simple and rebuild them when the model is restructured."
+    },
+    {
+      "name": "Export field data on a grid",
+      "kind": "tool",
+      "description": "Sample a field quantity on a regular Cartesian, cylindrical or spherical grid and write the values to a text file for use outside HFSS. It is the bridge to external post-processing in MATLAB or Python, to co-simulation with other tools, and to archiving field data independently of the project.",
+      "usage": "In the Fields Calculator: build the stack, then Export... > On Grid\nScript: oModule.ExportOnGrid(\"<path>.fld\", [grid start], [grid stop], [grid spacing], \"Setup1 : LastAdaptive\", [\"Freq:=\", ...], True, \"Cartesian\", [origin], False)\nAlso: HFSS > Fields > Export Field Data, and hfss.post.export_field_file_on_grid(...) in PyAEDT",
+      "parameters": [
+        {"name": "Grid start / stop / spacing", "description": "The sampling box and step in each direction; the total point count is the product and grows very fast."},
+        {"name": "Grid type", "description": "Cartesian, cylindrical or spherical, with an origin."},
+        {"name": "Solution and intrinsics", "description": "Which setup, variation, frequency and phase the field is sampled at."},
+        {"name": "Output file", "description": "A .fld text file with coordinates and values, readable by any external tool."},
+        {"name": "Alternative", "description": "ExportToFile on the calculator stack writes values on model geometry rather than on a grid."}
+      ],
+      "example": "hfss.post.export_field_file_on_grid(\n    quantity=\"Mag_E\",\n    solution=\"Setup1 : LastAdaptive\",\n    variations={\"Freq\": \"2.45GHz\", \"Phase\": \"0deg\"},\n    file_name=r\"C:\\work\\efield_grid.fld\",\n    grid_type=\"Cartesian\",\n    grid_start=[-25, -25, 0], grid_stop=[25, 25, 10],\n    grid_step=[1, 1, 1])",
+      "notes": "Grid point counts multiply: a 1 mm grid over a 50 x 50 x 10 mm box is half a million points and a very large file. Sample only the region and resolution you actually need, and remember the field must have been saved at that frequency."
+    },
+    {
+      "name": "Animate fields",
+      "kind": "tool",
+      "description": "Step a field plot through phase, frequency or time and play it as an animation. Phase animation is the standard way to see a wave propagate, identify standing waves and understand how energy circulates in a resonator - things a single static plot simply cannot show.",
+      "usage": "1. Create a field plot with a Mag_ or Vector_ quantity\n2. Right-click the plot in the project tree > Animate...\n3. Choose the swept variable (Phase, Freq, Time or a design variable), the number of steps and the range\nExport: the animation dialog can write a GIF or AVI",
+      "parameters": [
+        {"name": "Swept variable", "description": "Phase for propagation, Freq across a discrete sweep, Time in a transient design, or any design variable across a parametric sweep."},
+        {"name": "Steps", "description": "Number of frames; 36 steps of 10 degrees is a smooth full phase cycle."},
+        {"name": "Data requirement", "description": "Frequency and variable animation need the field saved at each point, which means a discrete sweep or a parametric study with fields saved."},
+        {"name": "Export format", "description": "Animated GIF or AVI for inclusion in a report."},
+        {"name": "Quantity choice", "description": "Only Mag_ and Vector_ quantities animate meaningfully; ComplexMag_ is phase-independent and stays still."}
+      ],
+      "example": "hfss.post.create_fieldplot_cutplane(assignment=[\"Global:XZ\"], quantity=\"Mag_E\",\n                                    intrinsics={\"Freq\": \"10GHz\", \"Phase\": \"0deg\"},\n                                    plot_name=\"Propagation\")\n# Then right-click the plot > Animate > Phase, 0 to 350 deg in 36 steps\n# and export as an animated GIF for the report",
+      "notes": "Animating a ComplexMag_ plot produces a still image, which catches people out; use Mag_ or Vector_. Frequency animation needs a discrete sweep with fields saved at every point, which is expensive in disk."
+    },
+    {
+      "name": "Output Variables",
+      "kind": "tool",
+      "description": "Named post-processing expressions built from solution quantities, evaluated after the solve without re-running it. They keep long expressions out of report definitions, give Optimetrics goals a readable name, and can be changed freely because editing one does not invalidate the solution.",
+      "usage": "HFSS menu > Results > Output Variables...\nDefine Name and Expression, choosing the solution and quantity category\nScript: oModule = oDesign.GetModule(\"OutputVariable\"); oModule.CreateOutputVariable(\"<name>\", \"<expression>\", \"Setup1 : Sweep1\", \"Modal Solution Data\", [])",
+      "parameters": [
+        {"name": "Name", "description": "Identifier usable anywhere a report expression is accepted, including Optimetrics goals."},
+        {"name": "Expression", "description": "Any valid report expression, e.g. dB(S(2,1))-dB(S(3,1)) or a combination of far-field quantities."},
+        {"name": "Solution and category", "description": "Which solved setup and which quantity category the expression is evaluated against."},
+        {"name": "Post-processing only", "description": "Changing an output variable does not invalidate the solution, unlike changing a design variable."}
+      ],
+      "example": "oModule = hfss.odesign.GetModule(\"OutputVariable\")\noModule.CreateOutputVariable(\"Isolation\", \"dB(S(2,1))\",\n                             \"Setup1 : Sweep1\", \"Modal Solution Data\", [])\noModule.CreateOutputVariable(\"Imbalance\", \"dB(S(2,1))-dB(S(3,1))\",\n                             \"Setup1 : Sweep1\", \"Modal Solution Data\", [])\n\nhfss.post.create_report(expressions=[\"Isolation\", \"Imbalance\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\")",
+      "notes": "Optimetrics goals defined on output variables are far easier to read and maintain than goals carrying a long inline expression. Because they are post-processing only, an output variable can be redefined and every report using it updates instantly."
+    },
+    {
+      "name": "Modify Report (trace and plot properties)",
+      "kind": "tool",
+      "description": "Edit an existing report: add or remove traces, change the expression or the sweep families, set axis scales and limits, control legends, line styles and markers, and switch the plot type. Most of the difference between a raw trace and a presentable figure is made here rather than at creation time.",
+      "usage": "Right-click a report > Modify Report... | Trace... | Trace Characteristics... | Properties\nScript: oModule.AddTraces / oModule.DeleteTraces / oModule.ChangeProperty on the report object\nPyAEDT: report objects returned by create_report expose trace and axis properties",
+      "parameters": [
+        {"name": "Add / Delete Traces", "description": "Add another expression or another sweep family to an existing plot rather than creating a new one."},
+        {"name": "Axis properties", "description": "Linear or log scaling, manual limits, tick spacing and axis titles."},
+        {"name": "Trace properties", "description": "Line colour, width, style and marker symbol per trace."},
+        {"name": "Legend", "description": "Position, contents and whether variation values are shown - essential when plotting a parametric family."},
+        {"name": "Secondary Y axis", "description": "Put a trace with a different unit on its own axis rather than flattening the primary one."}
+      ],
+      "example": "report = hfss.post.create_report(expressions=\"dB(S(1,1))\",\n                                 setup_sweep_name=\"Setup1 : Sweep1\",\n                                 plot_name=\"Match\")\nreport.add_trace_to_report(traces=[\"dB(S(2,1))\"])\n# Axis limits and styling are then set from the report properties dialog\n# or through oModule.ChangeProperty on the plot",
+      "notes": "Autoscaled Y axes make different variations look identical; fixing the limits is usually the single biggest improvement to a report figure. Report definitions are stored in the design, so a well-set-up plot survives a re-solve and updates automatically."
+    },
+    {
+      "name": "Export Touchstone / network data",
+      "kind": "tool",
+      "description": "Write the solved S-, Y- or Z-parameters to a Touchstone .sNp file or another network-data format, for use in a circuit simulator, a measurement comparison or an archive. It is the most common hand-off from HFSS to the rest of a design flow.",
+      "usage": "HFSS menu > Results > Solution Data... > Matrix Data tab > Export Matrix Data\nScript: oModule = oDesign.GetModule(\"Solutions\"); oModule.ExportNetworkData(...)\nPyAEDT: hfss.export_touchstone(setup=None, sweep=None, output_file=..., variations=None)",
+      "parameters": [
+        {"name": "output_file", "description": "Destination path; the extension encodes the port count, e.g. .s2p, .s4p."},
+        {"name": "setup / sweep", "description": "Which solved setup and sweep to export."},
+        {"name": "Renormalisation", "description": "Export is referenced to the port impedances in effect, so renormalise to 50 ohm first if that is what the downstream tool expects."},
+        {"name": "Format", "description": "Touchstone magnitude/angle, dB/angle or real/imaginary; also Y and Z matrix forms."},
+        {"name": "variations", "description": "Export one specific parametric variation, or loop over them to produce a file per variation."}
+      ],
+      "example": "hfss.export_touchstone(setup=\"Setup1\", sweep=\"Sweep1\",\n                       output_file=r\"C:\\work\\filter.s2p\")\n\n# One file per parametric variation\nfor v in hfss.available_variations.get_variation_strings():\n    hfss.export_touchstone(setup=\"Setup1\", sweep=\"Sweep1\",\n                           output_file=rf\"C:\\work\\filter_{v}.s2p\",\n                           variations=v)",
+      "notes": "Check the reference impedance line in the exported file header: a Touchstone referenced to a modal port impedance rather than 50 ohm will not line up with a measurement. Terminal designs export per-conductor parameters, which is usually what a circuit simulator wants."
+    },
+    {
+      "name": "Broadband SPICE / equivalent circuit export",
+      "kind": "tool",
+      "description": "Turn solved S-parameters into a causal, passive, broadband equivalent circuit or SPICE subcircuit suitable for time-domain simulation. It is what lets a full-wave model of a connector or package be dropped into a transient signal-integrity simulation without losing accuracy.",
+      "usage": "From a Circuit design: import the Touchstone data and use the Nexxim state-space / broadband SPICE model generator\nAEDT also offers Export Equivalent Circuit / Full-Wave SPICE from the solution data, depending on release and licence\nTypical route: hfss.export_touchstone(...) then fit the model in Circuit or in Ansys' SPICE model generator",
+      "parameters": [
+        {"name": "Fitting order", "description": "Number of poles in the rational fit; higher order follows the data more closely but risks non-physical behaviour."},
+        {"name": "Passivity and causality enforcement", "description": "Essential for a stable transient simulation - an unenforced fit can make a time-domain solver blow up."},
+        {"name": "Frequency range and DC point", "description": "The fit needs data down towards DC for a meaningful transient response; extrapolation quality matters."},
+        {"name": "Output format", "description": "SPICE subcircuit (.sp / .cir), HSPICE, Spectre or a state-space model, depending on the target simulator."}
+      ],
+      "example": "# 1. Export the frequency-domain data from HFSS\nhfss.export_touchstone(setup=\"Setup1\", sweep=\"Sweep1\",\n                       output_file=r\"C:\\work\\connector.s4p\")\n\n# 2. In a Circuit (Nexxim) design, import it and generate the broadband model\nfrom ansys.aedt.core import Circuit\ncir = Circuit(project=hfss.project_name, design=\"SPICEFit\", version=\"2025.1\")\ncir.modeler.schematic.create_touchstone_component(r\"C:\\work\\connector.s4p\")",
+      "notes": "Always check passivity and causality of the fitted model before using it in transient analysis; a non-passive macromodel generates energy and diverges. A sweep that starts well above DC is the usual cause of a poor fit."
+    },
+    {
+      "name": "Export report to CSV",
+      "kind": "tool",
+      "description": "Write the data behind a report to a delimited text file for external plotting, archiving or specification checking. It is the simplest way to get HFSS numbers into a spreadsheet, a plotting script or a test report.",
+      "usage": "Right-click a report > Export Data / Export to File...  (.csv, .tab, .dat)\nScript: oModule = oDesign.GetModule(\"ReportSetup\"); oModule.ExportToFile(\"<report name>\", \"<path>.csv\", False)\nPyAEDT: hfss.post.export_report_to_csv(project_dir, plot_name)  /  export_report_to_file(...)",
+      "parameters": [
+        {"name": "Report name", "description": "The existing report whose data is written out."},
+        {"name": "Output path", "description": "Destination file; the extension selects comma-separated, tab-separated or plain data."},
+        {"name": "All variations", "description": "Whether to export every parametric variation or only the active one."},
+        {"name": "Alternative", "description": "hfss.post.get_solution_data returns the same numbers directly as Python lists, with no file involved."}
+      ],
+      "example": "hfss.post.create_report(expressions=[\"dB(S(1,1))\", \"dB(S(2,1))\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_name=\"SParams\")\nhfss.post.export_report_to_csv(project_dir=r\"C:\\work\", plot_name=\"SParams\")\n\n# Or skip the report entirely\nd = hfss.post.get_solution_data(expressions=\"dB(S(1,1))\")\nrows = list(zip(d.primary_sweep_values, d.data_real()))",
+      "notes": "In a scripted pipeline, get_solution_data is usually better than creating a report and exporting it: fewer moving parts and no file to clean up. Export the report when a human needs the file."
+    },
+    {
+      "name": "Markers and Trace Characteristics",
+      "kind": "tool",
+      "description": "Annotate a report with markers at specific points and with computed characteristics such as maximum, minimum, delta, bandwidth, ripple, rise time and beamwidth. They turn a trace into a measurement, and the values appear in the plot legend so the figure carries its own numbers.",
+      "usage": "Right-click a report > Marker > Add Marker | Add Delta Marker\nRight-click a report > Trace Characteristics > Add... > Max / Min / Delta / XAtYMax / BandwidthAtCutoff / Ripple / Rise time / Beamwidth\nCharacteristics can be restricted to a range of the X axis.",
+      "parameters": [
+        {"name": "Max / Min", "description": "Peak and trough of the trace, with the X value at which each occurs."},
+        {"name": "Delta marker", "description": "Difference between two markers in both X and Y - the fastest way to read a bandwidth off a plot."},
+        {"name": "Bandwidth characteristics", "description": "Span over which the trace stays beyond a cutoff, e.g. return loss below -10 dB or VSWR below 2."},
+        {"name": "Beamwidth", "description": "Angular width of a pattern at a given level below the peak, for far-field reports."},
+        {"name": "Range restriction", "description": "Limit the characteristic to a portion of the X axis so a sidelobe does not become the reported maximum."}
+      ],
+      "example": "# Add the measurement to the plot in the GUI, or compute it directly:\nd = hfss.post.get_solution_data(expressions=\"dB(S(1,1))\")\nf, v = d.primary_sweep_values, d.data_real()\nfmin = f[v.index(min(v))]\nband = [fi for fi, vi in zip(f, v) if vi <= -10]\nprint(f\"resonance {fmin} GHz, -10 dB band {min(band)} to {max(band)} GHz\")",
+      "notes": "Trace characteristics are evaluated on the plotted data, so a coarse sweep gives a coarse bandwidth. Restrict the range when a plot contains several resonances, or the characteristic will latch onto the wrong one."
+    },
+    {
+      "name": "Report templates",
+      "kind": "tool",
+      "description": "Save a report definition - expressions, families, axes, styling and trace characteristics - as a template and apply it to other designs or projects. It is how an office standard set of plots gets produced identically for every design without rebuilding them each time.",
+      "usage": "Right-click a report > Save As Template...  (.rpt file)\nRight-click Results > Create Report From Template... to apply one\nScript: oModule.ApplyTemplate / the report setup module's template calls, depending on release",
+      "parameters": [
+        {"name": "Template file", "description": "An .rpt file holding the full report definition including styling."},
+        {"name": "Expression portability", "description": "A template referencing S(1,1) applies anywhere; one referencing named objects or output variables needs those to exist in the target design."},
+        {"name": "Library location", "description": "Templates stored in the personal or shared library appear directly in the Create Report From Template list."},
+        {"name": "Batch application", "description": "A script can apply the same template to every design in a project after solving."}
+      ],
+      "example": "# Save from the GUI, then apply from a script to a freshly solved design:\n# Right-click report > Save As Template > C:/lib/standard_sparams.rpt\n# Right-click Results > Create Report From Template > standard_sparams\n\n# Scripted alternative: just recreate the report each time\nhfss.post.create_report(expressions=[\"dB(S(1,1))\", \"dB(S(2,1))\", \"VSWR(1)\"],\n                        setup_sweep_name=\"Setup1 : Sweep1\",\n                        plot_type=\"Rectangular Stacked Plot\",\n                        plot_name=\"Standard\")",
+      "notes": "In a fully scripted flow it is usually simpler and more robust to recreate reports with create_report than to manage template files, because the script is self-contained. Templates earn their keep in mixed GUI and script workflows."
+    }
+  ]
+}

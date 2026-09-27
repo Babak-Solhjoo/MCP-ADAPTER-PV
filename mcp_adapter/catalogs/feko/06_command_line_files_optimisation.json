@@ -1,0 +1,248 @@
+{
+  "category": "Command line, files, OPTFEKO, licensing and companions",
+  "description": "How Feko is driven from outside: the runfeko/prefeko/optfeko commands, cadfeko_batch and the --non-interactive script runners, environment variables and cluster settings, the file formats that flow between the components, OPTFEKO optimisation methods and goals, licensing, and the companion products (WinProp, HyperStudy, newFASANT) that Feko users reach for. Command syntax was verified on an installed release.",
+  "tools": [
+    {
+      "name": "runfeko",
+      "kind": "command",
+      "description": "The solver launcher: runs cadfeko_batch and/or PREFEKO if the .cfm/.fek are missing or older, then the Feko solver on a .cfx, .pre, .fek or .nfp file; writes .out, .bof and the requested export files; handles parallel, remote and GPU execution. It prints the banner 'Altair Feko - RUNFEKO Version ...' on every call; without arguments it prints the usage (exit code 2). Returns a non-zero exit code on solver errors, which scripts should check together with ERROR lines in the .out file.",
+      "usage": "runfeko FILENAME [OPTIONS]  -- options: -np x | -np all, --machines-file m, --priority x (0 idle .. 4 high), --use-gpu [NUM_GPUS][:GPU_1[,GPU_N]], --pause, --remote-host h, --remote-use-mpi, --remote-use-ps, --execute-prefeko / --no-execute-prefeko, --execute-cadfeko_batch / --no-execute-cadfeko_batch, --use-job-scheduler, --mpi-options ..., --parallel-authenticate <default|localonly|sspi|registry>, --prefeko-options ..., --feko-options ..., -d, --version",
+      "parameters": [
+        {"name": "-np x", "description": "Number of parallel MPI processes (-np all = every process in the machines file)."},
+        {"name": "--use-gpu", "description": "GPU acceleration; --use-gpu 0 disables GPU detection (suppresses NOTE 35179), --use-gpu 2:0,2 uses devices 0 and 2."},
+        {"name": "--feko-options", "description": "Passes the following options to the solver: --check-only, --estimate-resource-requirements-only, -e ENV=value, --data-export-format n, --mtl-circuit-export."}
+      ],
+      "example": "runfeko horn.cfx -np 8\nrunfeko dipole.pre\nrunfeko big.cfx --feko-options --estimate-resource-requirements-only",
+      "notes": "--version or --help must not be the first argument (it is taken as the file name and fails with ERROR 20006); the banner already shows the version. Run from the model's folder so relative export paths resolve; the console output is also written to the .out file.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/run_sequential_feko_c.htm"
+    },
+    {
+      "name": "prefeko",
+      "kind": "command",
+      "description": "Pre-processor only: expands a .pre file (variables, loops, includes, geometry cards) into the .fek solver input without solving; useful to validate card syntax, override variables from the command line and inspect the generated mesh size quickly.",
+      "usage": "prefeko FILENAME [OPTIONS]  -- options: -#var=value, --print-variables, --print-variables-to-out, --ignore-errors, --num-threads N, --fek-format x, --version",
+      "parameters": [
+        {"name": "-#var=value", "description": "Set a PREFEKO variable; a definition inside the .pre overrides it unless guarded with !!if not defined(#var)."},
+        {"name": "--ignore-errors", "description": "Continue after card errors to see all geometry errors at once."}
+      ],
+      "example": "prefeko array.pre -#nx=8 -#ny=8 --print-variables\nrunfeko array.fek",
+      "notes": "Errors in card syntax are reported with line numbers. prefeko without arguments prints the usage; --help as the first argument is treated as a file name (ERROR 30007).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/running_prefeko_feko_r.htm"
+    },
+    {
+      "name": "optfeko",
+      "kind": "command",
+      "description": "Runs the optimisation defined in the model's .opt/.pfg files: repeatedly modifies variables, calls PREFEKO/solver, evaluates goals and stops at convergence or the maximum number of solver runs; writes an optimisation log with every iteration and the best parameter set, and a model with the _optimum suffix.",
+      "usage": "optfeko model [--version] [-r] [--restart x] [-np x] [--machines-file m] [--eval-aim-only x] [--runfeko-options ...]",
+      "parameters": [
+        {"name": "--restart x", "description": "Resume an interrupted optimisation from iteration x (interim .fek/.bof/.cfx files must still exist)."},
+        {"name": "-r", "description": "Delete interim model files after each analysis (the optimum is kept)."},
+        {"name": "--runfeko-options", "description": "Options passed to runfeko for every solver call, e.g. --runfeko-options -np 4 or --remote-host host."}
+      ],
+      "example": "optfeko patch --runfeko-options -np 4",
+      "notes": "-np x and --machines-file for optfeko itself farm out independent optimisation steps (PSO/GA/GRSM); each iteration is a full solve.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/optimisation/command_line_options_feko_r.htm"
+    },
+    {
+      "name": "AMRFEKO (adaptive mesh refinement)",
+      "kind": "command",
+      "description": "Utility that repeatedly solves a model, computes error estimates and refines the mesh until the estimates are sufficiently reduced, saving the last refined model under a new name; the current implementation is based on FEM error estimates. Launched from CADFEKO (Solve/Run) or the API.",
+      "usage": "CADFEKO: Solve/Run > AMRFEKO; API (new format): application.Launcher:RunAMRFEKO() | RunAMRFEKOAndContinue(); adaptive rules: project.MeshRefinementRules:AddErrorEstimateRefinement()",
+      "parameters": [],
+      "example": "-- CADFEKO Lua (new-format API): results = application.Launcher:RunAMRFEKO(); print(results.Succeeded)",
+      "notes": "Use the FEM solution method; an error estimation request and a saved model with .bof/.fek are prerequisites. There is no adaptfeko executable; adaptive frequency sampling is part of runfeko.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/amrfeko_intro_feko_c.htm"
+    },
+    {
+      "name": "cadfeko_batch",
+      "kind": "command",
+      "description": "Batch processor for CADFEKO models without the GUI: opens a .cfx, optionally changes model variables and forces re-meshing, and regenerates the .cfm mesh and the .pre file that runfeko needs; runfeko calls it automatically when the .cfx is newer than its mesh. It does not run Lua scripts.",
+      "usage": "cadfeko_batch FILENAME [OPTIONS]  -- options: -h/--help, --version, --run-from-gui, --file-info[=xml], -#VAR=VALUE, --cable-seed SEEDVALUE, --force-mesh",
+      "parameters": [
+        {"name": "-#VAR=VALUE", "description": "Set a model variable before meshing (the simplest way to sweep a parameter from a shell script)."},
+        {"name": "--force-mesh", "description": "Re-mesh even if the mesh is current; --cable-seed fixes the random seed for cable cross-section arrangement."}
+      ],
+      "example": "cadfeko_batch patch.cfx -#len=0.032 --force-mesh\nrunfeko patch.cfx --no-execute-cadfeko_batch",
+      "notes": "cadfeko_batch --version returns exit code 0 and prints the version. For scripted model building use cadfeko --non-interactive --run-script instead.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/command_line_options_feko_r-cadfeko.htm"
+    },
+    {
+      "name": "cadfeko --non-interactive --run-script",
+      "kind": "command",
+      "description": "Runs a CADFEKO Lua script without user interaction: build or modify a model, mesh, save, optionally launch the solver with project.Launcher:RunFEKO(). Combined with runfeko and the POSTFEKO script runner it gives a fully scripted pipeline for parameter studies, automated regression models and integration with external optimisers; the working directory is set to the script's folder before execution.",
+      "usage": "cadfeko [FILENAME] --non-interactive --run-script build.lua [--configure-script \"CONFIGSTRING\"]; other options: -h/--help, --version, --file-info[=xml]",
+      "parameters": [
+        {"name": "FILENAME", "description": "Optional .cfx (or .lua) to load first; a new empty model is created if it does not exist."},
+        {"name": "--configure-script", "description": "Lua string executed before the script (only with --non-interactive), e.g. to pass parameters."}
+      ],
+      "example": "cadfeko --non-interactive --run-script build_dipole.lua --configure-script \"len = 0.47\"",
+      "notes": "The script must save the project itself (app:SaveAs). Scripts can also be started from the script editor or the application macro library inside the GUI.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/scripting/script_command_line_options_feko_r.htm"
+    },
+    {
+      "name": "postfeko --non-interactive --run-script",
+      "kind": "command",
+      "description": "Runs a POSTFEKO Lua script without user interaction to extract data, generate images/animations and reports from solved models or sessions.",
+      "usage": "postfeko [FILENAME] --non-interactive --run-script extract.lua [--configure-script \"CONFIGSTRING\"]",
+      "parameters": [],
+      "example": "postfeko --non-interactive --run-script export_pattern.lua",
+      "notes": "Image export needs a renderer; on servers without a display check the release's headless rendering support. A .pfs session or .fek can be given as FILENAME.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/scripting/script_command_line_options_feko_r.htm"
+    },
+    {
+      "name": "GUI launchers (cadfeko, editfeko, postfeko) and command-line file arguments",
+      "kind": "command",
+      "description": "Each GUI accepts a model/session file as argument for opening directly; useful from scripts that want to hand a model to the user for inspection after automated steps. cadfeko --file-info prints the CADFEKO versions that created and modified a .cfx.",
+      "usage": "cadfeko model.cfx; editfeko model.pre; postfeko model.fek | session.pfs; cadfeko model.cfx --non-interactive --file-info=xml",
+      "parameters": [],
+      "example": "postfeko horn.fek",
+      "notes": "The Launcher utility (Altair Feko start menu) gives quick access to all components, WinProp, WRAP, documentation and the license utility; initfeko sets up a terminal environment.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/command_line_options_feko_r-cadfeko.htm"
+    },
+    {
+      "name": "Environment variables and initfeko (FEKO_HOME, FEKO_USER_HOME, FEKO_SHARED_HOME, FEKO_MACHFILE, FEKO_WHICH_MPI)",
+      "kind": "reference",
+      "description": "FEKO_HOME points to the installation (bin folder with runfeko, cadfeko, cadfeko_batch, postfeko, editfeko, prefeko, optfeko; also available as a Lua global in scripts); FEKO_USER_HOME holds user settings, machines.feko and the user application macro library; FEKO_SHARED_HOME holds the installed macro library; FEKO_MACHFILE names an alternative machines file; FEKO_WHICH_MPI selects the MPI implementation. initfeko.bat / initfeko (options -v, -d, -t, -terminal) configures a terminal so the components run without full paths.",
+      "usage": "call \"C:\\Program Files\\Altair\\2026.1\\feko\\bin\\initfeko.bat\"   (Windows)\nsource /opt/altair/2026.1/feko/bin/initfeko  (Linux)",
+      "parameters": [],
+      "example": "runfeko   -- after initfeko: prints the RUNFEKO banner and usage, confirming the environment",
+      "notes": "Typical Windows install path: C:\\Program Files\\Altair\\<version>\\feko\\bin; the license server is configured through the Altair license utility (ALTAIR_LICENSE_PATH style settings are managed there).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/initfeko_intro_feko_c.htm"
+    },
+    {
+      "name": "Parallel, cluster, remote and GPU execution options",
+      "kind": "reference",
+      "description": "The solver parallelises with MPI: -np on one machine, a machines file (host:processes per line, default FEKO_USER_HOME/machines.feko) for clusters, job-scheduler integration (PBS Professional, HPC Pack, Torque, OpenPBS, LSF, NQS, SLURM, Grid Engine) with --use-job-scheduler, remote launching with automatic file transfer (--remote-host via SSH/RSH, --remote-use-mpi between Windows hosts, --remote-use-ps via PowerShell) and CUDA GPU acceleration for MoM/MLFMM with --use-gpu. Memory per process and the estimated total are printed early in the .out file.",
+      "usage": "runfeko model.cfx -np 32 --machines-file hosts.txt; runfeko model.cfx --remote-host cluster01 -np 16; CADFEKO: Solve/Run > Run/Launch dialog launcher (Component launch options: Parallel, Remote, GPU, priority)",
+      "parameters": [
+        {"name": "machines file", "description": "Lines 'host1:4' and 'host2:8'; with -np 6 Feko uses 4 processes on host1 and 2 on host2."},
+        {"name": "--parallel-authenticate", "description": "default, localonly, sspi (Windows Active Directory) or registry (encrypted credentials)."}
+      ],
+      "example": "hosts.txt:\nnode01:16\nnode02:16\n\nrunfeko antenna.cfx -np 32 --machines-file hosts.txt",
+      "notes": "Out-of-core solution is used automatically when the matrix exceeds RAM (slower); on Linux the /dev/shm size can limit shared-memory MPI runs ('Bus error').",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/run_parallel_feko_c.htm"
+    },
+    {
+      "name": "File formats: .cfx / .cfm / .pre / .fek",
+      "kind": "format",
+      "description": "Model inputs: .cfx is the CADFEKO model (geometry, media, settings, requests; compression level selectable), .cfm its mesh, .pre the EDITFEKO card file (CADFEKO writes one on every save) and .fek the pre-processed solver input that both routes produce. Copy .cfx and .cfm together; .fek is enough for POSTFEKO with the .bof.",
+      "usage": "runfeko reads .cfx (+.cfm) or .pre or .fek; cadfeko_batch regenerates .cfm/.pre from .cfx",
+      "parameters": [],
+      "example": "horn.cfx + horn.cfm -> runfeko -> horn.pre, horn.fek, horn.out, horn.bof",
+      "notes": "The .cfx is not editable outside CADFEKO; scripts modify it via the Lua API or cadfeko_batch -#VAR=VALUE. A protected model (password) hides geometry and limits requests.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/files_cadfeko_feko_r-cadfeko.htm"
+    },
+    {
+      "name": "File formats: .out and .bof",
+      "kind": "format",
+      "description": "The .out text file is the human-readable report of a run (geometry data, excitations, currents, losses, near/far fields, S-parameters, computation time and peak memory, warnings/errors/notes); the .bof binary output holds every requested result for POSTFEKO. Keep both; the .out is the first place to look when results look wrong.",
+      "usage": "Open .out in any editor; POSTFEKO opens .fek and reads .bof automatically.",
+      "parameters": [],
+      "example": "findstr /n \"WARNING ERROR\" horn.out",
+      "notes": "Large field requests bloat the .out unless their .out output is disabled (DA card / request export settings) while keeping the .bof/export files.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/output_file/output_file_intro_feko_c.htm"
+    },
+    {
+      "name": "File formats: .ffe, .efe, .hfe, .os/.ol, .tr (result exports)",
+      "kind": "format",
+      "description": "Text exports with a documented header (version, request name, frequency, number of samples, column list) followed by rows: .ffe far field (theta, phi, Re/Im E_theta, E_phi, directivity/gain columns), .efe/.hfe near E/H field (coordinates + complex components), .os/.ol currents and charges on triangles/segments, .tr transmission/reflection coefficients of a periodic structure. Consumed by Feko sources (.ffe/.efe/.hfe as equivalent sources, .tr as characterised surfaces) and by external tools.",
+      "usage": "Enabled per request (export settings / DA card) or exported from POSTFEKO (ExportData).",
+      "parameters": [],
+      "example": "Python: skip header lines starting with '#' or '**' and parse the numeric columns with numpy.loadtxt",
+      "notes": "Multi-frequency exports repeat the header block per frequency; --data-export-format 1|2 selects the legacy or current column layout.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/editfeko_cards/control/card_da_feko_r.htm"
+    },
+    {
+      "name": "File formats: Touchstone (.sNp), .opt/.pfg, .pfs, .lua, .ngf, .sph, .epl, .mdp",
+      "kind": "format",
+      "description": ".sNp Touchstone (v1.0) S-parameter exports/imports; .opt and .pfg OPTFEKO definition and bookkeeping; .pfs POSTFEKO session; .lua scripts for CADFEKO/POSTFEKO; .ngf stored numerical Green's function for antenna placement reuse; .sph TICRA spherical wave expansion; .epl element power losses (with .nas/.map) for thermal analysis; .mdp/.mcc/.mdm multiport data package for the multiport processor; plus solver intermediates (.mat matrix, .lud LU factors, .str currents, .rhs, .sha PO shadowing, .cgm residuum) reusable through the data-storage settings.",
+      "usage": "See the corresponding entries; intermediates are controlled by SolverSettings.GeneralSettings.OutputFileSettings (PS card).",
+      "parameters": [],
+      "example": "-- reuse LU factors when only sources/loads change:\ns = project.SolutionSettings.SolverSettings.GeneralSettings.OutputFileSettings\ns.LUDecomposedMatrix = cf.Enums.OutputFileSettingsEnum.ReadFromFileIfAvailable",
+      "notes": "Intermediate files can be very large; delete them after parametric studies.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/outputfilesolversettings.htm"
+    },
+    {
+      "name": "OPTFEKO methods: Simplex (Nelder-Mead), PSO, GA, Grid search, ARSM, GRSM, Automatic",
+      "kind": "reference",
+      "description": "Simplex: local hill-climbing optimiser for a few continuous variables from a good start (fast, locally accurate). Particle swarm (PSO) and genetic algorithm (GA): population-based global searches for many variables at the cost of many solver runs (support farming). Grid search: exhaustive on a predefined grid (few variables). Adaptive response surface method (ARSM, medium variables, fast) and Global response surface method (GRSM, many variables, good local/global balance, farming). Automatic lets the optimiser choose. All support constraints on variables, masks and multiple weighted goals; convergence accuracy High/Normal/Low and a maximum number of solver runs are stopping criteria.",
+      "usage": "Chosen in CADFEKO's optimisation search dialog (Request > Optimisation > Add Search) or cf.Enums.OptimisationMethodTypeEnum; solved with optfeko.",
+      "parameters": [
+        {"name": "max. number of solver runs / convergence accuracy", "description": "Stop criteria per method; random-number seed can be fixed for PSO/GA reproducibility."}
+      ],
+      "example": "Patch antenna matching: Simplex over length and feed offset, goal reflection coefficient < -20 dB at 2.45 GHz",
+      "notes": "Only one search is active at a time (Activate); cheaper alternative for large studies: parametric sweep via Lua loops or cadfeko_batch plus an external optimiser (Python/HyperStudy). Continuous frequency ranges are not allowed in optimisation.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/optimisation/method_stopping_criteria_feko_c.htm"
+    },
+    {
+      "name": "OPTFEKO goals: impedance, S-parameter, far field, near field, power, SAR, receiving antenna, transmission/reflection",
+      "kind": "reference",
+      "description": "Goal types map to request quantities: impedance goals (input impedance/admittance, reflection coefficient, return loss, VSWR, current, transmission coefficient), S-parameter goals (coupling, reflection, return loss, transmission, VSWR), far-field goals (gain, directivity, realised gain, RCS, radiated field, radiated power), near-field, power, SAR, receiving-antenna and transmission/reflection goals; each with operators Minimise, Maximise, Equal, GreaterThan, LessThan, Between, a single target value or a mask, processing steps and a weight; a global goal combines them.",
+      "usage": "Request > Optimisation > Add Goal Function; Lua: search.Goals:AddImpedanceGoal(props) etc. with cf.Enums.OptimisationGoalOperatorEnum and the *FocusTypeEnum enums.",
+      "parameters": [],
+      "example": "Goal 1: gain at theta=0 Maximise (weight 1); Goal 2: reflection coefficient LessThan -15 dB over 2.4-2.5 GHz (weight 2)",
+      "notes": "Goals are evaluated from the requests of the configuration; the requests must exist and are identified by their labels (custom labels in .pre files can be entered in the goal's focus source label).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/optimisation/goal_define_feko_t.htm"
+    },
+    {
+      "name": "Parametric sweeps without OPTFEKO (Lua loops, cadfeko_batch)",
+      "kind": "reference",
+      "description": "A CADFEKO Lua loop that sets a variable, re-meshes, saves under a new name and runs the solver, followed by a POSTFEKO script that gathers the results, is the simplest way to do design-of-experiments or antenna placement grids; each model is independent so runs can be distributed. Without Lua, cadfeko_batch -#VAR=VALUE plus runfeko does the same from a shell script.",
+      "usage": "for i, v in ipairs(values) do project.Variables:Item(\"len\").Expression = tostring(v); project.Mesher:Mesh(); app:SaveAs(name_i); project.Launcher:RunFEKO() end",
+      "parameters": [],
+      "example": "for i, L in ipairs({0.44, 0.46, 0.48}) do\n  project.Variables:Item(\"len\").Expression = tostring(L)\n  project.Mesher:Mesh()\n  app:SaveAs(string.format([[D:/work/dip_%d.cfx]], i))\n  project.Launcher:RunFEKO()\nend",
+      "notes": "Give each run its own file name so .out/.bof files do not overwrite each other; shell alternative: for L in 0.44 0.46 0.48; do cadfeko_batch dip.cfx -#len=$L; runfeko dip.cfx; done (rename outputs between runs).",
+      "docs": "https://help.altair.com/feko/topics/feko/example_guide/user_interface_tools/application_automation_cf_intro_feko_t.htm"
+    },
+    {
+      "name": "Licensing (Altair Units, parallel licences, Student Edition)",
+      "kind": "reference",
+      "description": "Commercial Feko draws Altair Units from a license server with the number of units depending on the components and the parallel processes used (a sequential licence covers parallel processes on one multi-core CPU; multi-CPU/cluster runs need a parallel licence); the free Student Edition limits model size and some features. License problems show as errors at the start of the .out file or console.",
+      "usage": "Check the license utility from the Feko Launcher; the .out lists the license features drawn.",
+      "parameters": [],
+      "example": "ERROR: could not obtain license -> check the Altair license configuration / server reachability",
+      "notes": "Parallel runs beyond the licensed units queue or fail; test with -np 1 first. Exact unit counts are published by Altair per release and are not in the help.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/run_parallel_feko_c.htm"
+    },
+    {
+      "name": "WinProp (ProMan, WallMan, TuMan, AMan) wave propagation",
+      "kind": "tool",
+      "description": "Altair's propagation and radio-network planning suite installed with Feko: WallMan builds indoor/urban vector and topography databases, TuMan tunnel scenarios, AMan antenna patterns (imports/exports .msi/.pln, 2x2D to 3D conversion, MASC multiple-antenna configurations with masts), ProMan runs empirical, ray-optical (standard ray tracing, dominant path) and combined propagation models for coverage, delay spread, LOS and network planning (2G-5G, WLAN, WiMAX, broadcasting, MIMO). A C API and the WinPropCLI command line (MPI capable) automate it.",
+      "usage": "Separate executables (ProMan.exe, AMan.exe, WallMan, TuMan, CompoMan.exe) in the Feko bin folder; exchange antenna patterns via .ffe/.msi/.apb files; mpiexec -n N WinPropCLI.impi -F project.net -A --multi-threading T",
+      "parameters": [],
+      "example": "Feko: export installed-antenna pattern (.ffe) -> AMan -> ProMan coverage map of a city block",
+      "notes": "For inside-vehicle or short-range coupling stay in Feko; WinProp is for environment-scale propagation (see the WinProp category for models, results and formats).",
+      "docs": "https://help.altair.com/winprop/topics/winprop/user_guide/introduction/intro_winprop_c.htm"
+    },
+    {
+      "name": "HyperStudy, Optenni Lab and external optimisers",
+      "kind": "tool",
+      "description": "Altair HyperStudy (DOE, response surfaces, multi-objective optimisation) drives Feko models through their variables and reads POSTFEKO exports (Example Guide I.3 optimises a bandpass filter this way); Optenni Lab generates matching circuits from Feko impedance data; any Python/MATLAB optimiser can do the same by editing variables through Lua or cadfeko_batch, running runfeko and parsing .out/exports.",
+      "usage": "HyperStudy > Feko model connector; or custom scripts around cadfeko --non-interactive --run-script / cadfeko_batch / runfeko / postfeko --non-interactive --run-script.",
+      "parameters": [],
+      "example": "Python: subprocess.run([\"cadfeko_batch\", \"model.cfx\", \"-#len=0.47\"]); subprocess.run([\"runfeko\", \"model.cfx\", \"-np\", \"8\"]); subprocess.run([\"postfeko\", \"--non-interactive\", \"--run-script\", \"extract.lua\"])",
+      "notes": "Keep the model's requests minimal for optimisation loops; Feko ships no Python API, so exchange data through files.",
+      "docs": "https://help.altair.com/feko/topics/feko/example_guide/user_interface_tools/hyperstudy_intro_feko_t.htm"
+    },
+    {
+      "name": "newFASANT, WRAP and Feko-adjacent Altair solvers",
+      "kind": "tool",
+      "description": "Altair newFASANT adds high-frequency asymptotic and specialised solvers (large RCS, radomes, periodic structures, GTD/PO variants) that complement Feko for extremely large or specialised problems; WRAP (installed as an add-on to Feko on Windows) covers propagation over large areas, antenna collocation and spectrum management with database-driven station and equipment models; Altair Flux covers low-frequency electromagnetics (motors, transformers) where Feko's high-frequency methods are inappropriate.",
+      "usage": "Choose Feko for high-frequency full-wave/hybrid work; WinProp/WRAP for propagation and spectrum management; Flux for low-frequency magnetics.",
+      "parameters": [],
+      "example": "Motor magnetics -> Flux; ship-mounted HF antenna -> Feko MoM/MLFMM; 100-wavelength radome -> Feko RL-GO or newFASANT; nationwide interference study -> WRAP",
+      "notes": "All are licensed with Altair Units; WRAP release notes ship together with the Feko release notes.",
+      "docs": "https://help.altair.com/feko/topics/feko/release_notes/2025_1/release_notes_intro_feko_winprop_r.htm"
+    },
+    {
+      "name": "Verification and validation practice",
+      "kind": "reference",
+      "description": "Recommended checks for a trustworthy Feko result: compare a dipole/patch against analytic values, run the model at two mesh densities, verify that radiated power + losses equal source power (SUMMARY OF LOSSES in the .out), examine currents for asymmetry, and for hybrid setups compare against MoM on a reduced model.",
+      "usage": "Do these before reporting gain, RCS or coupling numbers.",
+      "parameters": [],
+      "example": "Half-wave dipole at 300 MHz: Zin about 73 + j42 ohm (0.5 lambda) or ~70 ohm resistive at 0.47 lambda, D about 2.15 dBi",
+      "notes": "The Example Guide states expected values for every shipped example.",
+      "docs": "https://help.altair.com/feko/topics/feko/example_guide/summary_feko_r.htm"
+    }
+  ]
+}

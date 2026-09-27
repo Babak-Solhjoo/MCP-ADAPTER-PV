@@ -1,0 +1,433 @@
+{
+  "category": "PyAEDT: Analysis Setups, Sweeps, Optimetrics & Solving",
+  "description": "Creating and editing HFSS solution setups of every type (Driven, Driven Auto, Eigenmode, Transient, SBR+) through create_setup and the SetupHFSS object, adaptive-convergence and advanced options (matrix convergence, multi-frequency and broadband adaptation, derivatives, expression cache, mesh link, continue-from-previous), frequency sweeps with sub-ranges, the analyze/solve_in_batch/submit_job family with HPC options, variations, profile and convergence export, and the Optimetrics wrappers (parametrics, optimizations, sensitivity, statistical, DOE).",
+  "tools": [
+    {
+      "name": "hfss.create_setup (setup_type: HFSSDriven / HFSSDrivenAuto / HFSSEigen / HFSSTransient / HFSSSBR)",
+      "kind": "study",
+      "description": "Create an analysis setup of the given type and return a SetupHFSS (or SetupHFSSAuto) object. Keyword arguments are the native property names of the setup template, so any adaptive or solver option can be fixed at creation instead of editing props afterwards; the type must match the design's solution type (Eigenmode designs take HFSSEigen, SBR+ designs HFSSSBR, Driven designs HFSSDriven or HFSSDrivenAuto).",
+      "usage": "setup = hfss.create_setup(name=\"MySetupAuto\", setup_type=None, **kwargs)",
+      "parameters": [
+        {"name": "name", "description": "Setup name (unique within the design)."},
+        {"name": "setup_type", "description": "\"HFSSDriven\" (default for Driven designs), \"HFSSDrivenAuto\", \"HFSSEigen\", \"HFSSTransient\", \"HFSSSBR\"; None picks the type matching the solution type."},
+        {"name": "HFSSDriven kwargs", "description": "Frequency=\"5GHz\", MaximumPasses=6, MinimumPasses=1, MinimumConvergedPasses=1, MaxDeltaS=0.02, PercentRefinement=30, BasisOrder=1 (0/1/2, -1 mixed), DoLambdaRefine=True, DoMaterialLambda=True, SetLambdaTarget=False, Target=0.3333, UseMaxTetIncrease=False, MaxTetIncrease=1000000, IsEnabled=True, SaveAnyFields=True, SaveRadFieldsOnly=False, UseIterativeSolver=False, IterativeResidual=1e-4, DrivenSolverType=\"Direct Solver\"/\"Domain Decomposition\", IESolverType=\"Auto\"/\"ACA\", AdaptMultipleFreqs=False, MultipleAdaptiveFreqsSetup, UseMatrixConv=False, PortAccuracy=2, SetPortMinMaxTri=False, MinTri, MaxTri, UseABCOnPort=False."},
+        {"name": "HFSSDrivenAuto kwargs", "description": "AutoSolverSetting=\"Balanced\" (\"Accurate\"/\"Fast\"), plus a sweep block (Type, RangeType, RangeStart, RangeEnd, RangeCount)."},
+        {"name": "HFSSEigen kwargs", "description": "MinimumFrequency=\"1GHz\", NumModes=1, MaxDeltaFreq=10, ConvergeOnRealFreq=True, MaximumPasses=3, MinimumPasses, MinimumConvergedPasses, PercentRefinement, BasisOrder."},
+        {"name": "HFSSTransient kwargs", "description": "TimeProfile=\"Broadband Pulse\", MinFreq, MaxFreq, MaximumPasses=20, plus the adaptive options; the transient time step and duration derive from the frequency band."},
+        {"name": "HFSSSBR kwargs", "description": "RayDensityPerWavelength=4, MaxNumberOfBounces=5, PTDUTDSimulationSettings, ComputeFarFields, plus the SBR+ frequency sweep block (RangeType, RangeStart, RangeEnd, RangeStep)."}
+      ],
+      "example": "s1 = hfss.create_setup(\"Setup1\", setup_type=\"HFSSDriven\", Frequency=\"10GHz\", MaximumPasses=15,\n                       MaxDeltaS=0.01, MinimumConvergedPasses=2, BasisOrder=2, PercentRefinement=25)\nprint(s1.props[\"Frequency\"], s1.name)\n\neig = Hfss(solution_type=\"Eigenmode\")\ns2 = eig.create_setup(\"Modes\", setup_type=\"HFSSEigen\", MinimumFrequency=\"2GHz\", NumModes=5, MaxDeltaFreq=1)\n\nsbr = Hfss(solution_type=\"SBR+\")\ns3 = sbr.create_setup(\"SBR1\", setup_type=\"HFSSSBR\", RayDensityPerWavelength=4, MaxNumberOfBounces=8)",
+      "notes": "Native: oModule = oDesign.GetModule(\"AnalysisSetup\"); oModule.InsertSetup(\"HfssDriven\", [\"NAME:Setup1\", \"Frequency:=\", \"10GHz\", \"MaxDeltaS:=\", 0.01, \"MaximumPasses:=\", 15, ...]) or InsertSetup(\"HfssEigen\", [...]), InsertSetup(\"HfssDrivenAuto\", [...]), InsertSetup(\"HfssTransient\", [...]), InsertSetup(\"HfssSBR\", [...]). Unknown keyword names are passed through and rejected by AEDT with a message in the log; the template list is in the PyAEDT SetupTemplatesHFSS page.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.create_setup.html"
+    },
+    {
+      "name": "SetupHFSS object (props, update, update_property, properties, enable/disable, delete, is_solved)",
+      "kind": "study",
+      "description": "The handle for an existing setup (from create_setup, hfss.setups, hfss.get_setup or hfss.design_setups). props is the native property dictionary that is pushed with update(); properties/update_property use the ChildObject API with GUI labels; enable()/disable() toggle the setup for Analyze All; delete() removes it; is_solved reports whether results exist; sweeps lists its frequency sweeps and get_profile() / get_solution_data() give quick access to its results.",
+      "usage": "setup = hfss.get_setup(\"Setup1\")            # or hfss.setups[0]\nsetup.props[\"MaximumPasses\"] = 20\nsetup.props[\"MaxDeltaS\"] = 0.005\nsetup.update()                              # or setup.update({\"MaxDeltaS\": 0.005})\nsetup.update_property(\"Max Delta S\", \"0.005\")   # ChildObject form\nsetup.enable() / setup.disable() / setup.delete()\nsetup.is_solved, setup.sweeps, setup.name, setup.available_properties\nsetup.analyze(cores=None, tasks=None, gpus=None, acf_file=None, use_auto_settings=True, ...)\nsetup.get_solution_data(expressions=None, domain=\"Sweep\", variations=None, primary_sweep_variable=None, report_category=None, context=None, ...)\nsetup.create_report(expressions=None, ...)\nsetup.get_profile()\nhfss.setups / hfss.setup_names / hfss.design_setups / hfss.get_setups() / hfss.delete_setup(name) / hfss.active_setup",
+      "parameters": [
+        {"name": "props", "description": "Dict of native names (Frequency, MaximumPasses, MaxDeltaS, MinimumConvergedPasses, PercentRefinement, BasisOrder, SaveAnyFields, UseIterativeSolver, IterativeResidual, DrivenSolverType, MultipleAdaptiveFreqsSetup, ...)."},
+        {"name": "update(properties=None)", "description": "Sends the current props (or the given dict merged into them) with EditSetup."},
+        {"name": "update_property(prop_name, prop_value)", "description": "Sets one property by its Properties-window name through the ChildObject API."},
+        {"name": "hfss.active_setup", "description": "Get/set the name of the setup used as nominal by reports and post-processing."}
+      ],
+      "example": "setup = hfss.setups[0]\nsetup.props[\"MaximumPasses\"] = 25\nsetup.props[\"MinimumConvergedPasses\"] = 3\nsetup.props[\"SaveAnyFields\"] = False           # matrix-only solve, smaller results\nsetup.props[\"UseIterativeSolver\"] = True\nsetup.props[\"IterativeResidual\"] = 1e-5\nsetup.update()\nprint(setup.is_solved, [s.name for s in setup.sweeps])\nfor s in hfss.setups:\n    if s.name != \"Setup1\":\n        s.disable()",
+      "notes": "Native: oModule.EditSetup(\"Setup1\", [\"NAME:Setup1\", \"MaximumPasses:=\", 25, ...]), oModule.DeleteSetups([\"Setup1\"]), oModule.GetSetups(). Editing a setup invalidates its results. SetupHFSSAuto (from HFSSDrivenAuto) exposes the same interface with the auto-solver properties.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSS.html"
+    },
+    {
+      "name": "setup.enable_adaptive_setup_single / enable_adaptive_setup_multifrequency / enable_adaptive_setup_broadband",
+      "kind": "study",
+      "description": "Switch the adaptive-frequency strategy of a Driven setup: a single adaptive frequency (classic), several discrete frequencies each with its own Delta S (Multi-Frequencies mode, good for multiband antennas and filters with widely separated bands), or broadband adaptation between a low and a high frequency where HFSS picks frequencies automatically (recommended for wideband devices and Touchstone-quality sweeps). They set the AdaptMultipleFreqs / MultipleAdaptiveFreqsSetup properties that are awkward to write by hand.",
+      "usage": "setup.enable_adaptive_setup_single(frequency=None, max_passes=None, max_delta_s=None)\nsetup.enable_adaptive_setup_multifrequency(frequencies, max_delta_s=0.02)\nsetup.enable_adaptive_setup_broadband(low_frequency, high_frequency, max_passes=6, max_delta_s=0.02)",
+      "parameters": [
+        {"name": "frequency / frequencies", "description": "Single value or list, as floats in GHz or strings with units."},
+        {"name": "max_delta_s", "description": "Delta S convergence criterion applied at each adaptive frequency."},
+        {"name": "low_frequency / high_frequency", "description": "Band edges for broadband adaptation."},
+        {"name": "max_passes", "description": "Maximum passes for the broadband setup."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\")\nsetup.enable_adaptive_setup_multifrequency([\"2.4GHz\", \"5.5GHz\"], max_delta_s=0.01)\n\nsetup_bb = hfss.create_setup(\"Broadband\")\nsetup_bb.enable_adaptive_setup_broadband(\"1GHz\", \"20GHz\", max_passes=12, max_delta_s=0.02)",
+      "notes": "Native: props \"AdaptMultipleFreqs:=\", True, [\"NAME:MultipleAdaptiveFreqsSetup\", \"2.4GHz:=\", [0.01], \"5.5GHz:=\", [0.01]] or for broadband [\"NAME:MultipleAdaptiveFreqsSetup\", \"Low:=\", \"1GHz\", \"High:=\", \"20GHz\"] with \"Maximum Number of Frequencies for Broadband Adapt\" in Design Settings. Broadband is not available with Domain Decomposition in every release.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSS.enable_adaptive_setup_broadband.html"
+    },
+    {
+      "name": "setup.use_matrix_convergence",
+      "kind": "study",
+      "description": "Replace the single Max Delta S criterion with per-entry matrix convergence: magnitude and phase tolerances for all diagonal entries, all off-diagonal entries, or a custom list of S-matrix entries, plus a magnitude threshold below which phase is ignored. Use it when the quantity that matters is a specific coupling (isolation, a filter transmission) rather than the whole matrix.",
+      "usage": "setup.use_matrix_convergence(entry_selection=0, ignore_phase_when_mag_is_less_than=0.01, all_diagonal_entries=True,\n                             max_delta=0.02, max_delta_phase=5, all_offdiagonal_entries=True, off_diagonal_mag=0.02,\n                             off_diagonal_phase=5, custom_entries=None)",
+      "parameters": [
+        {"name": "entry_selection", "description": "0 = All entries, 1 = Diagonal entries only, 2 = custom entries."},
+        {"name": "max_delta / max_delta_phase", "description": "Magnitude (absolute) and phase (degrees) tolerance for diagonal entries."},
+        {"name": "off_diagonal_mag / off_diagonal_phase", "description": "Same for off-diagonal entries."},
+        {"name": "ignore_phase_when_mag_is_less_than", "description": "Entries with magnitude below this value are checked on magnitude only."},
+        {"name": "custom_entries", "description": "List of [port1, port2, max_delta_s, max_delta_angle] for entry_selection=2."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\", Frequency=\"5GHz\")\nsetup.use_matrix_convergence(entry_selection=2, custom_entries=[[\"P1\", \"P2\", 0.005, 2], [\"P1\", \"P1\", 0.02, 5]])",
+      "notes": "Native props: \"UseMatrixConv:=\", True, [\"NAME:MatrixConvergence\", \"AllDiagEntries:=\", ..., \"MagnitudeMin:=\", ..., [\"NAME:Entries\", ...]]. In Terminal designs the entries are terminal names.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSS.use_matrix_convergence.html"
+    },
+    {
+      "name": "setup.add_derivatives / get_derivative_variables / set_tuning_offset",
+      "kind": "study",
+      "description": "Enable derivative (sensitivity) computation with respect to design variables during the adaptive solve. HFSS then produces dS/dvar and, when a sweep uses UseDerivativeConvergence, lets reports be tuned in real time for small offsets of those variables without re-solving (the Tune Derivatives slider in reports). set_tuning_offset applies such an offset to a report from a script.",
+      "usage": "setup.add_derivatives(derivative_list)\nsetup.get_derivative_variables()\nsetup.set_tuning_offset(offsets)          # {\"var\": offset_value}",
+      "parameters": [
+        {"name": "derivative_list", "description": "Variable name or list of design-variable names to enable derivatives for."},
+        {"name": "offsets", "description": "Dictionary variable -> offset (with units) applied in the report's derivative tuning."}
+      ],
+      "example": "hfss[\"patch_l\"] = \"29mm\"\nhfss[\"patch_w\"] = \"38mm\"\nsetup = hfss.create_setup(\"Setup1\", Frequency=\"2.45GHz\")\nsetup.add_derivatives([\"patch_l\", \"patch_w\"])\nhfss.create_linear_count_sweep(\"Setup1\", \"GHz\", 2, 3, 201, sweep_type=\"Interpolating\")\nhfss.analyze()\nprint(setup.get_derivative_variables())\nsetup.set_tuning_offset({\"patch_l\": \"0.5mm\"})",
+      "notes": "Derivatives are only computed for variables that move geometry or material values used in the adaptive setup; the Optimetrics Sensitivity study is the alternative that re-solves. GUI: setup > Derivatives tab.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSS.add_derivatives.html"
+    },
+    {
+      "name": "setup.enable_expression_cache",
+      "kind": "study",
+      "description": "Add report expressions (field quantities, S-parameter functions, far-field numbers) to the setup's Expression Cache so they are evaluated after each adaptive pass and, optionally, used as convergence criteria with their own relative or absolute tolerance. This is how a solve can be told to stop when the gain, the Q or an integrated field has converged rather than only the S-matrix.",
+      "usage": "setup.enable_expression_cache(expressions, report_type=\"Fields\", intrinsics=\"\", isconvergence=True, isrelativeconvergence=True,\n                              conv_criteria=1, use_cache_for_pass=True, use_cache_for_freq=True)",
+      "parameters": [
+        {"name": "expressions", "description": "One expression or a list, e.g. \"dB(GainTotal)\" or a named Fields Calculator expression."},
+        {"name": "report_type", "description": "Category the expression belongs to (\"Fields\", \"Far Fields\", \"Modal Solution Data\", ...); list when expressions is a list."},
+        {"name": "intrinsics", "description": "Intrinsic variation string such as \"Freq='2.45GHz' Phase='0deg' Theta='0deg' Phi='0deg'\"."},
+        {"name": "isconvergence / isrelativeconvergence / conv_criteria", "description": "Use the expression as a convergence criterion, relative (%) or absolute, with the tolerance."},
+        {"name": "use_cache_for_pass / use_cache_for_freq", "description": "Cache per adaptive pass and per frequency."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\", Frequency=\"2.45GHz\")\nsetup.enable_expression_cache([\"dB(GainTotal)\"], report_type=\"Far Fields\",\n                              intrinsics=\"Freq='2.45GHz' Theta='0deg' Phi='0deg'\",\n                              isconvergence=True, isrelativeconvergence=False, conv_criteria=0.1)",
+      "notes": "Native: setup props [\"NAME:ExpressionCache\", [\"NAME:CacheItem\", \"Title:=\", \"GainTotal1\", \"Expression:=\", \"dB(GainTotal)\", \"Intrinsics:=\", \"...\", \"IsConvergence:=\", True, \"UseRelativeConvergence:=\", 0, \"MaxConvergenceDelta:=\", 0.1, \"MaxConvergeValue:=\", \"0.1\", \"ReportType:=\", \"Far Fields\", [\"NAME:ExpressionContext\", \"Context:=\", \"3D\"]]]. Far-field expressions require an infinite sphere to exist.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSS.enable_expression_cache.html"
+    },
+    {
+      "name": "setup.add_mesh_link",
+      "kind": "study",
+      "description": "Link the initial mesh of this setup to the solved mesh of another design or setup (Mesh Link / Import Mesh): the adapted mesh of a source solution is imported, optionally with the target's own mesh operations applied on top and with port re-adaptation. Typical uses are starting a second frequency band from an already converged mesh, or importing the mesh of a parametric variant to avoid re-adapting from scratch.",
+      "usage": "setup.add_mesh_link(design, solution=None, parameters=None, project=\"This Project*\", force_source_to_solve=True,\n                    preserve_partner_solution=True, apply_mesh_operations=True, adapt_port=True)",
+      "parameters": [
+        {"name": "design", "description": "Source design name."},
+        {"name": "solution", "description": "\"Setup1 : LastAdaptive\" of the source; None uses its nominal adaptive solution."},
+        {"name": "parameters", "description": "Dict mapping source variables to values (None = nominal)."},
+        {"name": "project", "description": "\"This Project*\" or the path of another .aedt file."},
+        {"name": "force_source_to_solve / preserve_partner_solution", "description": "Solve the source if needed and keep its results."},
+        {"name": "apply_mesh_operations / adapt_port", "description": "Apply this design's mesh operations to the imported mesh; perform port adaptation in the target."}
+      ],
+      "example": "hfss.duplicate_design(\"Band2\")\nhfss[\"f0\"] = \"5.8GHz\"\ns2 = hfss.create_setup(\"Setup5G8\", Frequency=\"5.8GHz\")\ns2.add_mesh_link(design=\"Patch\", solution=\"Setup1 : LastAdaptive\", apply_mesh_operations=True)",
+      "notes": "Native: oModule.EditSetup with [\"NAME:MeshLink\", \"ImportMesh:=\", True, \"Project:=\", \"This Project*\", \"Product:=\", \"HFSS\", \"Design:=\", \"Patch\", \"Soln:=\", \"Setup1 : LastAdaptive\", [\"NAME:Params\", ...], \"ForceSourceToSolve:=\", True, \"PreservePartnerSoln:=\", True, \"PathRelativeTo:=\", \"TargetProject\", \"ApplyMeshOp:=\", True, \"AdaptPort:=\", True]. The geometries must be topologically identical.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSS.add_mesh_link.html"
+    },
+    {
+      "name": "setup.start_continue_from_previous_setup",
+      "kind": "study",
+      "description": "Configure a setup to start from (or continue) the solution of another setup or design - the Start/Continue From option in the setup dialog - mapping variables by name or through an explicit dictionary. In HFSS this reuses a converged adaptive mesh and fields as the starting point, which shortens re-solves after small edits or when chaining setups.",
+      "usage": "setup.start_continue_from_previous_setup(design, solution, map_variables_by_name=True, parameters=None, project=\"This Project*\",\n                                         force_source_to_solve=True, preserve_partner_solution=True)",
+      "parameters": [
+        {"name": "design / solution", "description": "Source design and \"Setup : Solution\" string."},
+        {"name": "map_variables_by_name", "description": "Match variables by identical names; otherwise use parameters."},
+        {"name": "project", "description": "\"This Project*\" or another project path."}
+      ],
+      "example": "s = hfss.get_setup(\"Setup2\")\ns.start_continue_from_previous_setup(design=hfss.design_name, solution=\"Setup1 : LastAdaptive\")",
+      "notes": "Native: EditSetup with [\"NAME:PrevSoln\", \"Project:=\", ..., \"Design:=\", ..., \"Soln:=\", ..., \"MapVariablesByName:=\", True, \"ForceSourceToSolve:=\", True, \"PreservePartnerSoln:=\", True, \"PathRelativeTo:=\", \"TargetProject\"]. The option is most valuable in Maxwell transient; in HFSS it behaves like a mesh link plus initial fields.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSS.start_continue_from_previous_setup.html"
+    },
+    {
+      "name": "setup.add_sweep / SweepHFSS (props, update, frequencies, is_solved)",
+      "kind": "study",
+      "description": "The generic way to add a frequency sweep to a setup and edit it afterwards. add_sweep creates a SweepHFSS of type Fast, Interpolating or Discrete with any native property passed as keyword; the returned object's props hold the full definition (RangeType, RangeStart/End/Count/Step, SaveFields, SaveRadFields, InterpTolerance, InterpMaxSolns, InterpMinSubranges, EnforcePassivity, ExtrapToDC, SMatrixOnlySolveMode ...) and update() pushes edits. The create_linear_count/step/single_point helpers are shortcuts on top of it.",
+      "usage": "sweep = setup.add_sweep(name=None, sweep_type=\"Interpolating\", **props)\nsweep.props[\"RangeStart\"] = \"1GHz\"; sweep.props[\"SaveFields\"] = True; sweep.update()\nsweep.frequencies            # list of solved frequencies (after solve)\nsweep.basis_frequencies      # frequencies with fields available\nsweep.is_solved\nsetup.get_sweep(name=None) / setup.get_sweep_names() / setup.delete_sweep(name) / setup.sweeps\nhfss.get_sweeps(setup) / hfss.existing_analysis_sweeps / hfss.nominal_sweep / hfss.setup_sweeps_names",
+      "parameters": [
+        {"name": "sweep_type", "description": "\"Fast\" (reduced-order, few solves, fields at all frequencies), \"Interpolating\" (rational fit to tolerance, S-only), \"Discrete\" (solve every point, optional fields)."},
+        {"name": "props", "description": "RangeType (\"LinearCount\"/\"LinearStep\"/\"LogScale\"/\"SinglePoints\"), RangeStart, RangeEnd, RangeCount or RangeStep, SaveFields, SaveRadFields, InterpTolerance (%), InterpMaxSolns, InterpMinSolns, InterpMinSubranges, InterpUseS, InterpUsePortImped, InterpUsePropConst, UseDerivativeConvergence, EnforcePassivity, PassivityErrorTolerance, ExtrapToDC, SMatrixOnlySolveMode (\"Auto\"/\"Manual\"), SMatrixOnlySolveAbove, GenerateSurfaceCurrent."},
+        {"name": "hfss.existing_analysis_sweeps", "description": "All \"Setup : Sweep\" strings plus \"Setup : LastAdaptive\", the values used by setup_sweep_name in reports."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\", Frequency=\"10GHz\")\nsw = setup.add_sweep(\"Sweep1\", sweep_type=\"Interpolating\", RangeType=\"LinearCount\", RangeStart=\"1GHz\",\n                     RangeEnd=\"20GHz\", RangeCount=2001, InterpTolerance=0.25, InterpMaxSolns=500,\n                     EnforcePassivity=True, SaveFields=False)\nsw.props[\"ExtrapToDC\"] = True\nsw.update()\nhfss.analyze()\nprint(hfss.existing_analysis_sweeps, sw.is_solved, len(sw.frequencies))",
+      "notes": "Native: oModule.InsertFrequencySweep(\"Setup1\", [\"NAME:Sweep1\", \"IsEnabled:=\", True, \"RangeType:=\", \"LinearCount\", \"RangeStart:=\", \"1GHz\", \"RangeEnd:=\", \"20GHz\", \"RangeCount:=\", 2001, \"Type:=\", \"Interpolating\", \"SaveFields:=\", False, \"SaveRadFields:=\", False, \"InterpTolerance:=\", 0.25, \"InterpMaxSolns:=\", 500, \"InterpMinSolns:=\", 0, \"InterpMinSubranges:=\", 1, \"InterpUseS:=\", True, \"InterpUsePortImped:=\", False, \"InterpUsePropConst:=\", True, \"UseDerivativeConvergence:=\", False, \"InterpDerivTolerance:=\", 0.2, \"UseFullBasis:=\", True, \"EnforcePassivity:=\", True, \"PassivityErrorTolerance:=\", 0.0001, \"SMatrixOnlySolveMode:=\", \"Auto\"]) and EditFrequencySweep(setup, sweep, [...]), DeleteSweep(setup, sweep), GetSweeps(setup).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_sweeps.SweepHFSS.html"
+    },
+    {
+      "name": "sweep.add_subrange (multiple frequency ranges in one sweep)",
+      "kind": "study",
+      "description": "Append a further frequency range (linear count, linear step, log scale or explicit single points) to an existing sweep, so one sweep covers several bands with different resolutions - dense around resonances, coarse elsewhere - exactly like the multi-row frequency table of the sweep dialog. Single points can additionally save fields for later field plots at those frequencies.",
+      "usage": "sweep.add_subrange(range_type, start, end=None, count=None, unit=\"GHz\", save_single_fields=False, clear=False)",
+      "parameters": [
+        {"name": "range_type", "description": "\"LinearCount\", \"LinearStep\", \"LogScale\" or \"SinglePoints\"."},
+        {"name": "start / end", "description": "Range limits in unit (end unused for SinglePoints)."},
+        {"name": "count", "description": "Number of points (LinearCount/LogScale) or step size (LinearStep)."},
+        {"name": "save_single_fields", "description": "For SinglePoints: save fields at that frequency."},
+        {"name": "clear", "description": "True removes all previously defined ranges first."}
+      ],
+      "example": "sw = setup.add_sweep(\"MultiBand\", sweep_type=\"Discrete\", RangeType=\"LinearStep\", RangeStart=\"1GHz\", RangeEnd=\"3GHz\", RangeStep=\"0.1GHz\")\nsw.add_subrange(\"LinearCount\", 2.4, 2.5, 101, \"GHz\")\nsw.add_subrange(\"LogScale\", 3, 30, 20, \"GHz\")\nsw.add_subrange(\"SinglePoints\", 2.45, unit=\"GHz\", save_single_fields=True)",
+      "notes": "Native: the sweep array gains [\"NAME:SweepRanges\", [\"NAME:Subrange\", \"RangeType:=\", \"LinearCount\", \"RangeStart:=\", \"2.4GHz\", \"RangeEnd:=\", \"2.5GHz\", \"RangeCount:=\", 101], ...]. Interpolating sweeps treat sub-ranges as one fit; Discrete sweeps solve every listed point.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_sweeps.SweepHFSS.add_subrange.html"
+    },
+    {
+      "name": "hfss.analyze options (cores, tasks, gpus, acf_file, use_auto_settings, blocking, revert_to_initial_mesh)",
+      "kind": "study",
+      "description": "The full argument set of hfss.analyze / analyze_setup beyond the setup name: number of cores, parallel tasks and GPUs for the solve, an .acf analysis-configuration file, whether the Auto HPC settings apply, non-blocking execution that returns while AEDT solves, and reverting to the initial mesh before solving. The same keywords exist on setup.analyze and on Optimetrics setup objects.",
+      "usage": "hfss.analyze(setup=None, cores=None, tasks=None, gpus=None, acf_file=None, use_auto_settings=True, solve_in_batch=False,\n             machine=\"localhost\", run_in_thread=False, revert_to_initial_mesh=False, blocking=True)\nhfss.analyze_setup(name=None, cores=None, tasks=None, gpus=None, acf_file=None, use_auto_settings=True, ...)\nhfss.stop_simulations(clean_stop=True)\nhfss.are_there_simulations_running",
+      "parameters": [
+        {"name": "setup", "description": "Setup or Optimetrics setup name; None solves all enabled setups (Analyze All)."},
+        {"name": "cores / tasks / gpus", "description": "Override the active HPC configuration for this run; tasks=-1 in batch mode means automatic distribution."},
+        {"name": "acf_file", "description": "Analysis Configuration File exported from HPC and Analysis Options; applied for the run."},
+        {"name": "use_auto_settings", "description": "Let AEDT choose how to distribute frequencies/domains (Auto HPC)."},
+        {"name": "blocking", "description": "False returns immediately (AEDT 2023 R2+); poll are_there_simulations_running or use get_monitor_data."},
+        {"name": "revert_to_initial_mesh", "description": "Discard the adapted mesh and restart adaptation."},
+        {"name": "solve_in_batch / machine / run_in_thread", "description": "Delegate to solve_in_batch on the given machine (see that entry)."}
+      ],
+      "example": "hfss.analyze(setup=\"Setup1\", cores=16, tasks=2, gpus=1, use_auto_settings=True)\n\n# non-blocking run with polling\nhfss.analyze(\"Setup1\", cores=8, blocking=False)\nimport time\nwhile hfss.are_there_simulations_running:\n    time.sleep(30)\nprint(hfss.get_profile(\"Setup1\"))",
+      "notes": "Native: oDesign.Analyze(\"Setup1\") / AnalyzeAll(); distributed runs use oDesign.AnalyzeDistributed(setup). Core/task overrides are implemented through a temporary HPC configuration; with a scheduler-launched session they must not exceed the allocation. stop_simulations aborts running solves (clean_stop keeps the current pass' results).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.analyze.html"
+    },
+    {
+      "name": "hfss.solve_in_batch",
+      "kind": "study",
+      "description": "Save and close the project, run ansysedt -ng -BatchSolve on it as a separate process (locally or on another machine) with the requested cores and tasks, then reopen it. Batch solving avoids the interactive session's memory footprint and license type, survives a lost GUI connection, and is the recommended way to run long solves from PyAEDT on workstations and single cluster nodes.",
+      "usage": "hfss.solve_in_batch(file_name=None, machine=\"localhost\", run_in_thread=False, cores=4, tasks=1, setup=None,\n                    revert_to_initial_mesh=False, blocking=True)",
+      "parameters": [
+        {"name": "file_name", "description": "Project file to solve; None uses the active project (saved and closed first)."},
+        {"name": "machine", "description": "Host name for a remote batch solve (needs the same AEDT version installed there)."},
+        {"name": "cores / tasks", "description": "Passed as -machinelist/-batchoptions; tasks=-1 means auto."},
+        {"name": "setup", "description": "Restrict to one setup or Optimetrics setup (\"Design:Nominal:Setup1\" style qualifiers are built for you)."},
+        {"name": "blocking / run_in_thread", "description": "Wait for the process, or launch it in a thread and continue."}
+      ],
+      "example": "hfss.save_project()\nok = hfss.solve_in_batch(cores=32, tasks=4, setup=\"Setup1\")\nprint(ok, hfss.project_file)\ndata = hfss.post.get_solution_data(\"dB(S(1,1))\")",
+      "notes": "The command line it builds is equivalent to ansysedt -ng -BatchSolve -Distributed -machinelist num=<tasks> -batchoptions ... project.aedt. The Python object is re-bound to the reopened project; handles to boundaries/setups obtained before the call stay valid by name.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.solve_in_batch.html"
+    },
+    {
+      "name": "hfss.submit_job (cluster submission via .areg settings)",
+      "kind": "study",
+      "description": "Submit the project to a job scheduler (LSF, PBS, SLURM, UGE, Windows HPC, or Ansys RSM) through the Submit Job mechanism: a settings file (.areg) exported once from the Submit Job dialog defines scheduler, queue, product path and batch options, and the call returns the job id. Combined with Desktop.job_status / launch_job_monitor it gives a fully scripted queue workflow without writing scheduler scripts.",
+      "usage": "job_id = hfss.submit_job(cluster_name=None, aedt_full_exe_path=None, nodes=1, cores=32, wait_for_license=True, setting_file=None)\nhfss.desktop_class.select_scheduler(scheduler_type, address=\"\", username=\"\", force_password_entry=False)\nhfss.desktop_class.job_status(job_id)\nhfss.desktop_class.launch_job_monitor()",
+      "parameters": [
+        {"name": "cluster_name", "description": "Head node / scheduler address as registered in the Submit Job dialog."},
+        {"name": "aedt_full_exe_path", "description": "Path to ansysedt on the cluster; default /clustername/AnsysEM/AnsysEM2x.x/Win64/ansysedt.exe pattern."},
+        {"name": "nodes / cores", "description": "Resources requested."},
+        {"name": "setting_file", "description": "Exported .areg file; None uses a default template that PyAEDT fills with nodes/cores."},
+        {"name": "wait_for_license", "description": "Add the -waitforlicense flag so the job waits instead of failing when licenses are busy."}
+      ],
+      "example": "hfss.save_project()\njob = hfss.submit_job(cluster_name=\"hpc-head\", nodes=2, cores=64, setting_file=\"C:/hpc/slurm_hfss.areg\")\nprint(\"submitted\", job)\nprint(hfss.desktop_class.job_status(job))",
+      "notes": "Native: oDesktop.SubmitJob(settingsPath, projectPath, design=None, setup=None) returning job IDs, plus SelectScheduler, LaunchJobMonitor, RefreshJobMonitor. Export the .areg from Tools > Job Management > Submit Job > Save Settings after configuring the scheduler once in the GUI.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.submit_job.html"
+    },
+    {
+      "name": "hfss.set_custom_hpc_options / hfss.set_hpc_from_file",
+      "kind": "study",
+      "description": "Programmatic control of the HPC and Analysis Options configuration used by solves: set_custom_hpc_options creates/updates a custom analysis configuration (cores, tasks, GPUs, RAM limit) and makes it active, set_hpc_from_file loads an .acf configuration exported from the dialog (machines list, distribution types, MPI settings) and activates it. Both persist in the registry like the dialog does.",
+      "usage": "hfss.set_custom_hpc_options(cores=None, tasks=None, gpus=None, ram_limit=None, ...)\nhfss.set_hpc_from_file(acf_file=None)",
+      "parameters": [
+        {"name": "cores / tasks / gpus", "description": "Resources of the custom configuration."},
+        {"name": "acf_file", "description": "Analysis Configuration File (.acf) exported from Tools > Options > HPC and Analysis Options > Export."}
+      ],
+      "example": "hfss.set_hpc_from_file(\"C:/hpc/two_nodes_dist.acf\")\nhfss.analyze(\"Setup1\")            # uses the loaded configuration\nhfss.set_custom_hpc_options(cores=8, tasks=1)",
+      "notes": "Related: hfss.set_active_dso_config_name(product_name=\"HFSS\", config_name=\"Local\") switches between saved configurations; -batchoptions overrides everything for a command-line run.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.set_hpc_from_file.html"
+    },
+    {
+      "name": "hfss.available_variations (nominal_values, variations, get_variation_strings)",
+      "kind": "api",
+      "description": "The object that describes solved and nominal variations of the design: nominal_values returns the dictionary {variable: [value]} that reports and get_solution_data expect (and to which Freq/Theta/Phi are added), variations(setup_sweep) lists every solved variation, and the helpers build the variation strings used by native calls. It is the bridge between Optimetrics results and post-processing.",
+      "usage": "hfss.available_variations.nominal_values          # {'patch_l': ['29mm'], 'patch_w': ['38mm']}\nhfss.available_variations.variations(setup_sweep=None, output_as_dict=False)\nhfss.available_variations.get_variation_strings(setup_sweep=None)\nhfss.available_variations.independent_variables / nominal_w_values_dict\nhfss.get_nominal_variation(with_values=False)\nhfss.design_variation(variation=None)",
+      "parameters": [
+        {"name": "setup_sweep", "description": "\"Setup1 : Sweep1\" to list variations that have results for that solution."},
+        {"name": "output_as_dict", "description": "Return each variation as a dict rather than a list of \"var='value'\" strings."},
+        {"name": "get_nominal_variation", "description": "Native nominal variation string (\"patch_l='29mm' patch_w='38mm'\"), with or without values."}
+      ],
+      "example": "vars_ = hfss.available_variations.nominal_values\nvars_[\"Freq\"] = [\"2.45GHz\"]; vars_[\"Theta\"] = [\"All\"]; vars_[\"Phi\"] = [\"0deg\"]\nrep = hfss.post.create_report(\"dB(GainTotal)\", hfss.nominal_adaptive, variations=vars_,\n                              primary_sweep_variable=\"Theta\", report_category=\"Far Fields\", context=\"3D\")\nfor v in hfss.available_variations.variations(\"Setup1 : Sweep1\", output_as_dict=True):\n    print(v)",
+      "notes": "Native: oDesign.GetNominalVariation(), oModule(\"Solutions\").ListVariations(\"Setup1 : Sweep1\"). Variation dictionaries must list every independent variable; PyAEDT fills missing ones with nominal values when possible.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.export_profile / hfss.export_convergence / hfss.get_profile / hfss.export_mesh_stats",
+      "kind": "api",
+      "description": "Retrieve solver diagnostics for a setup and variation: the profile (per-pass timing, memory, element counts, machine info) as a .prof file or as parsed Python data, the convergence table (Delta S / Delta F per pass, converged flag) and the mesh statistics file. They are what a batch script logs after every solve to decide whether to accept results or increase passes.",
+      "usage": "hfss.export_profile(setup, variation=\"\", output_file=None)\nhfss.export_convergence(setup, variation=\"\", output_file=None)\nprofile = hfss.get_profile(name=None)          # dict of parsed profile trees per variation\nhfss.export_mesh_stats(setup, variations=\"\", output_file=None)\nsetup.get_profile()",
+      "parameters": [
+        {"name": "setup", "description": "Setup name."},
+        {"name": "variation / variations", "description": "Variation string such as \"patch_l='29mm'\" or empty for nominal."},
+        {"name": "output_file", "description": "Target path (.prof, .conv, .ms); None writes to the working directory and returns the path."}
+      ],
+      "example": "hfss.analyze(\"Setup1\")\nconv = hfss.export_convergence(\"Setup1\")\nprint(open(conv).read())\nprof = hfss.get_profile(\"Setup1\")\nfor variation, tree in prof.items():\n    print(variation, tree.props.get(\"Elapsed Time\", \"\"))\nhfss.export_mesh_stats(\"Setup1\", output_file=\"C:/work/Setup1.ms\")",
+      "notes": "Native: oDesign.ExportProfile(setup, variation, file, overwrite), ExportConvergence(setup, variation, file, overwrite), ExportMeshStats(setup, variation, file, overwrite). The GUI equivalents are HFSS > Results > Solution Data > Profile / Convergence / Mesh Statistics.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.export_convergence.html"
+    },
+    {
+      "name": "hfss.parametrics.add (variable, start_point, end_point, step, variation_type, solution, name)",
+      "kind": "study",
+      "description": "Create an Optimetrics Parametric setup that sweeps one design variable over a linear-count, linear-step, log-scale or single-value range, tied to a solution setup. The returned SetupParam can then receive more variables (add_variation), synchronisation between variables, output calculations (add_calculation) and be solved with analyze(); results are indexed by the variation values in every report.",
+      "usage": "param = hfss.parametrics.add(variable, start_point, end_point=None, step=100, variation_type=\"LinearCount\", solution=None, name=None)\nhfss.parametrics.add_from_file(input_file, name=None)\nhfss.parametrics.delete(name)\nhfss.parametrics.setups          # existing SetupParam objects",
+      "parameters": [
+        {"name": "variable", "description": "Design or project variable name."},
+        {"name": "start_point / end_point", "description": "Range limits (numbers in the variable's units or unit strings); end_point None with SingleValue."},
+        {"name": "step", "description": "Point count for LinearCount, step size for LinearStep (unit strings like \"0.5mm\" accepted)."},
+        {"name": "variation_type", "description": "\"LinearCount\", \"LinearStep\", \"LogScale\" or \"SingleValue\"."},
+        {"name": "solution", "description": "\"Setup1\" (adaptive) or \"Setup1 : Sweep1\"; None uses the nominal setup."},
+        {"name": "add_from_file", "description": "Build the variation table from a CSV/TXT exported by the Parametric dialog (Import/Export variations)."}
+      ],
+      "example": "param = hfss.parametrics.add(\"patch_l\", \"27mm\", \"31mm\", \"0.5mm\", variation_type=\"LinearStep\",\n                             solution=\"Setup1 : Sweep1\", name=\"LengthSweep\")\nparam.add_variation(\"patch_w\", \"36mm\", \"40mm\", 5, variation_type=\"LinearCount\")\nparam.add_calculation(\"dB(S(1,1))\", ranges={\"Freq\": \"2.45GHz\"})\nparam.props[\"ProdOptiSetupDataV2\"][\"SaveFields\"] = False\nparam.update()\nparam.analyze(cores=16)\nhfss.export_parametric_results(\"LengthSweep\", \"C:/work/sweep.csv\", export_units=True)",
+      "notes": "Native: oModule = oDesign.GetModule(\"Optimetrics\"); oModule.InsertSetup(\"OptiParametric\", [\"NAME:LengthSweep\", \"IsEnabled:=\", True, [\"NAME:ProdOptiSetupDataV2\", \"SaveFields:=\", False, \"CopyMesh:=\", False, \"SolveWithCopiedMeshOnly:=\", True], [\"NAME:StartingPoint\"], \"Sim. Setups:=\", [\"Setup1\"], [\"NAME:Sweeps\", [\"NAME:SweepDefinition\", \"Variable:=\", \"patch_l\", \"Data:=\", \"LIN 27mm 31mm 0.5mm\", \"OffsetF1:=\", False, \"Synchronize:=\", 0]], [\"NAME:Sweep Operations\"], [\"NAME:Goals\"]]). Data strings: \"LIN start stop step\", \"LINC start stop count\", \"DEC start stop count\", explicit lists.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.design_xploration.ParametricSetups.add.html"
+    },
+    {
+      "name": "SetupParam.add_variation / add_calculation / sync_variables / export_to_csv",
+      "kind": "study",
+      "description": "Methods of a parametric setup object: add_variation appends another swept variable (including DecadeCount, OctaveCount and ExponentialCount distributions), sync_variables links variables so they step together instead of forming a full grid, add_calculation registers an output expression evaluated at given ranges (shown in the Optimetrics results table), and export_to_csv writes the variation table for review or re-import.",
+      "usage": "param.add_variation(sweep_variable, start_point, end_point=None, step=100, units=None, variation_type=\"LinearCount\")\nparam.add_calculation(calculation, ranges=None, variables=None, solution=None, context=None, subdesign_id=None, polyline_points=1001, report_type=None)\nparam.sync_variables(variables, sync_n=1)\nparam.export_to_csv(output_file)\nparam.props / param.update() / param.delete() / param.analyze(cores=None, tasks=None, gpus=None, ...)",
+      "parameters": [
+        {"name": "variation_type", "description": "\"SingleValue\", \"LinearCount\", \"LinearStep\", \"DecadeCount\", \"OctaveCount\", \"ExponentialCount\"."},
+        {"name": "calculation / ranges", "description": "Report expression and dict of intrinsic values, e.g. {\"Freq\": \"2.45GHz\"} or {\"Freq\": (\"1GHz\", \"3GHz\")} for a range, {\"Theta\": [\"0deg\", \"30deg\"]} for discrete lists."},
+        {"name": "context", "description": "Infinite sphere name for far-field calculations, polyline name for field calculations."},
+        {"name": "variables / sync_n", "description": "Variables to synchronise and the synchronisation group number."}
+      ],
+      "example": "param = hfss.parametrics.add(\"theta_scan\", 0, 60, 7, variation_type=\"LinearCount\", name=\"Scan\")\nparam.add_variation(\"phi_scan\", 0, 90, 4, variation_type=\"LinearCount\")\nparam.sync_variables([\"theta_scan\", \"phi_scan\"], sync_n=1)     # step together (7 runs, not 28)\nparam.add_calculation(\"dB(RealizedGainTotal)\", ranges={\"Freq\": \"10GHz\", \"Theta\": \"theta_scan\", \"Phi\": \"phi_scan\"}, context=\"3D\")\nparam.export_to_csv(\"C:/work/scan_table.csv\")",
+      "notes": "Calculations appear as columns in the Parametric setup's View Analysis Result table and are also exported by hfss.export_parametric_results. Synchronised variables must have the same number of points.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.design_xploration.SetupParam.add_variation.html"
+    },
+    {
+      "name": "hfss.optimizations.add (optimization_type: Optimization / Sensitivity / Statistical / DXDOE / DesignExplorer / optiSLang)",
+      "kind": "study",
+      "description": "Create an Optimetrics setup of any non-parametric type in one call, with a first goal defined by a calculation, its ranges, condition, goal value and weight, and optionally the subset of variables to include. The returned SetupOpti exposes props for the optimiser choice and stop criteria, add_goal for additional goals and add_variation for variable bounds, and analyze() to run it.",
+      "usage": "opt = hfss.optimizations.add(calculation=None, ranges=None, variables=None, optimization_type=\"Optimization\", condition=\"<=\",\n                             goal_value=1, goal_weight=1, solution=None, name=None, context=None, subdesign_id=None,\n                             polyline_points=1001, report_type=None)\nhfss.optimizations.delete(name)\nhfss.optimizations.setups",
+      "parameters": [
+        {"name": "calculation / ranges / context", "description": "Goal expression (\"dB(S(1,1))\", \"max(dB(GainTotal))\"), intrinsic ranges dict, and context (sphere/polyline/matrix)."},
+        {"name": "optimization_type", "description": "\"Optimization\", \"Sensitivity\", \"Statistical\", \"DXDOE\" (DesignXplorer DOE), \"DesignExplorer\", \"optiSLang\"."},
+        {"name": "condition / goal_value / goal_weight", "description": "\"<=\", \">=\", \"==\", \"Minimize\", \"Maximize\" with target and weight."},
+        {"name": "variables", "description": "List of variables to include (all activated variables by default); their ranges come from the variable's optimisation settings or add_variation."},
+        {"name": "solution", "description": "\"Setup1 : LastAdaptive\" or a sweep."}
+      ],
+      "example": "hfss.activate_variable_optimization(\"patch_l\", \"27mm\", \"31mm\")\nopt = hfss.optimizations.add(calculation=\"dB(S(1,1))\", ranges={\"Freq\": \"2.45GHz\"}, variables=[\"patch_l\"],\n                             optimization_type=\"Optimization\", condition=\"<=\", goal_value=-20, goal_weight=1,\n                             solution=\"Setup1 : Sweep1\", name=\"MatchOpt\")\nopt.props[\"Optimizer\"] = \"Quasi Newton\"          # or \"Pattern Search\", \"SNLP\", \"Genetic Algorithm\", \"MATLAB Optimizer\"\nopt.props[\"AnalysisStopOptions\"][\"MaxNumIteration\"] = 50\nopt.update()\nopt.analyze()\n\nsens = hfss.optimizations.add(\"dB(S(1,1))\", {\"Freq\": \"2.45GHz\"}, optimization_type=\"Sensitivity\", name=\"Sens1\")\nstat = hfss.optimizations.add(\"dB(S(1,1))\", {\"Freq\": \"2.45GHz\"}, optimization_type=\"Statistical\", name=\"Stat1\")",
+      "notes": "Native: oModule.InsertSetup(\"OptiOptimization\", [\"NAME:MatchOpt\", \"IsEnabled:=\", True, [\"NAME:ProdOptiSetupDataV2\", ...], [\"NAME:StartingPoint\", \"patch_l:=\", \"29mm\"], \"Optimizer:=\", \"Quasi Newton\", [\"NAME:AnalysisStopOptions\", \"StopForNumIteration:=\", True, \"MaxNumIteration:=\", 50, ...], \"CostFuncNormType:=\", \"L2\", [\"NAME:Variables\", \"patch_l:=\", [\"i:=\", True, \"int:=\", False, \"Min:=\", \"27mm\", \"Max:=\", \"31mm\", ...]], [\"NAME:Goals\", [\"NAME:Goal\", \"ReportType:=\", \"Modal Solution Data\", \"Solution:=\", \"Setup1 : Sweep1\", [\"NAME:SimValueContext\", \"Domain:=\", \"Sweep\"], \"Calculation:=\", \"dB(S(1,1))\", \"Name:=\", \"dB(S(1,1))\", [\"NAME:Ranges\", \"Range:=\", [\"Var:=\", \"Freq\", \"Type:=\", \"d\", \"DiscreteValues:=\", \"2.45GHz\"]], \"Condition:=\", \"<=\", [\"NAME:GoalValue\", \"GoalValueType:=\", \"Independent\", \"Format:=\", \"Real/Imag\", \"bG:=\", [\"v:=\", \"[-20;]\"]], \"Weight:=\", \"[1]\"]]]); OptiSensitivity / OptiStatistical / OptiDXDOE use the same InsertSetup with their own arrays. A variable must be enabled for the study type (activate_variable_*) before it can be included.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.design_xploration.OptimizationSetups.add.html"
+    },
+    {
+      "name": "SetupOpti.add_goal / SetupOpti.add_variation",
+      "kind": "study",
+      "description": "Extend an optimisation, sensitivity, statistical or DOE setup: add_goal appends another cost-function term (expression, ranges, condition, target, weight, context), and add_variation adds a variable as an input with its minimum, maximum, starting value and step limits. Multi-goal optimisations (match at two frequencies, gain above a level, isolation below a level) are built by chaining add_goal calls.",
+      "usage": "opt.add_goal(calculation, ranges, variables=None, solution=None, context=None, subdesign_id=None, polyline_points=1001,\n             report_type=None, condition=\"<=\", goal_value=1, goal_weight=1)\nopt.add_variation(variable_name, min_value, max_value, starting_point=None, min_step=None, max_step=None, use_manufacturable=False, levels=None)\nopt.props / opt.update() / opt.delete() / opt.analyze()",
+      "parameters": [
+        {"name": "calculation / ranges / context", "description": "As in optimizations.add; ranges may give a frequency band as a tuple so the goal applies over the band."},
+        {"name": "condition / goal_value / goal_weight", "description": "\"<=\", \">=\", \"==\", \"Minimize\", \"Maximize\"; target and relative weight."},
+        {"name": "variable_name / min_value / max_value", "description": "Input variable and its bounds (unit strings)."},
+        {"name": "min_step / max_step", "description": "Step limits used by gradient optimisers."},
+        {"name": "use_manufacturable / levels", "description": "Restrict to a list of manufacturable values."}
+      ],
+      "example": "opt = hfss.optimizations.add(\"dB(S(1,1))\", {\"Freq\": (\"2.4GHz\", \"2.5GHz\")}, condition=\"<=\", goal_value=-15, name=\"Dual\")\nopt.add_goal(\"dB(S(2,1))\", {\"Freq\": \"2.45GHz\"}, condition=\">=\", goal_value=-0.5, goal_weight=2)\nopt.add_goal(\"dB(GainTotal)\", {\"Freq\": \"2.45GHz\", \"Theta\": \"0deg\", \"Phi\": \"0deg\"}, context=\"3D\", condition=\">=\", goal_value=6)\nopt.add_variation(\"patch_l\", \"27mm\", \"31mm\", starting_point=\"29mm\", min_step=\"0.05mm\", max_step=\"0.5mm\")\nopt.add_variation(\"feed_x\", \"2mm\", \"12mm\")\nopt.analyze()",
+      "notes": "Goals over a frequency band are evaluated at every solved frequency in the band (each point contributes to the cost). Weights are relative; the cost function norm is set by props[\"CostFuncNormType\"] (\"L1\", \"L2\", \"Maximum\").",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.design_xploration.SetupOpti.add_goal.html"
+    },
+    {
+      "name": "hfss.activate_variable_optimization / activate_variable_sensitivity / activate_variable_statistical / activate_variable_tuning (and deactivate_*)",
+      "kind": "study",
+      "description": "Enable a design variable for a given Optimetrics study type and optionally set its range - the checkboxes and min/max columns of the Optimization / Sensitivity / Statistical / Tuning tabs in the variable's Properties dialog. Optimetrics setups only see variables that are enabled for their study type, so these calls come before optimizations.add; the deactivate_* counterparts remove the variable from the study.",
+      "usage": "hfss.activate_variable_optimization(name, minimum=None, maximum=None)\nhfss.activate_variable_sensitivity(name, minimum=None, maximum=None)\nhfss.activate_variable_statistical(name, minimum=None, maximum=None, tolerance=None, probability=None, mean=None)\nhfss.activate_variable_tuning(name, minimum=None, maximum=None)\nhfss.deactivate_variable_optimization(name) / deactivate_variable_sensitivity(name) / deactivate_variable_statistical(name) / deactivate_variable_tuning(name)",
+      "parameters": [
+        {"name": "name", "description": "Design or project ($) variable."},
+        {"name": "minimum / maximum", "description": "Bounds with units; None keeps the current values."},
+        {"name": "tolerance / probability / mean", "description": "Statistical distribution parameters (tolerance in %, probability distribution, mean value)."}
+      ],
+      "example": "for v, lo, hi in [(\"patch_l\", \"27mm\", \"31mm\"), (\"patch_w\", \"35mm\", \"41mm\"), (\"feed_x\", \"2mm\", \"12mm\")]:\n    hfss.activate_variable_optimization(v, lo, hi)\n    hfss.activate_variable_sensitivity(v, lo, hi)\nhfss.activate_variable_statistical(\"$sub_h\", tolerance=5)\nhfss.activate_variable_tuning(\"patch_l\", \"27mm\", \"31mm\")",
+      "notes": "Native: oDesign.ChangeProperty([\"NAME:AllTabs\", [\"NAME:LocalVariableTab\", [\"NAME:PropServers\", \"LocalVariables\"], [\"NAME:ChangedProps\", [\"NAME:patch_l\", [\"NAME:Optimization\", \"Included:=\", True, \"Min:=\", \"27mm\", \"Max:=\", \"31mm\"]]]]]). Tuning (Optimetrics > Tune) is interactive; from a script use derivatives or a parametric sweep instead.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.activate_variable_optimization.html"
+    },
+    {
+      "name": "hfss.export_parametric_results / hfss.export_results",
+      "kind": "api",
+      "description": "Bulk result export after Optimetrics or plain solves: export_parametric_results writes the variation table with all calculations of a parametric setup to CSV, and export_results dumps every available report, the profile, convergence and Touchstone files for all (or chosen) variations into a folder with configurable Touchstone formatting - a one-call archive of a solved design.",
+      "usage": "hfss.export_parametric_results(setup, output_file, export_units=True)\nfiles = hfss.export_results(export_folder=None, matrix_name=\"Original\", matrix_type=\"S\", touchstone_format=\"MagPhase\",\n                            touchstone_number_precision=15, length=\"1meter\", impedance=50, include_gamma_comment=True,\n                            support_non_standard_touchstone_extension=False, variations=None)",
+      "parameters": [
+        {"name": "setup", "description": "Parametric setup name."},
+        {"name": "export_units", "description": "Include units in the CSV values."},
+        {"name": "export_folder", "description": "Destination folder (working directory by default)."},
+        {"name": "matrix_type / touchstone_format / impedance", "description": "S/Y/Z; MagPhase, DbPhase or RealImag; reference impedance for the Touchstone files."},
+        {"name": "variations", "description": "List of variation strings to export; None exports all solved variations."},
+        {"name": "return", "description": "List of exported file paths."}
+      ],
+      "example": "hfss.export_parametric_results(\"LengthSweep\", \"C:/work/LengthSweep.csv\", export_units=True)\nfiles = hfss.export_results(export_folder=\"C:/work/results\", touchstone_format=\"RealImag\", touchstone_number_precision=12)\nprint(len(files), files[:3])",
+      "notes": "Native: oModule(\"Optimetrics\").ExportParametricResults(setup, file, bOutputUnits); for reports oModule(\"ReportSetup\").ExportToFile and oModule(\"Solutions\").ExportNetworkData per variation. Field data are not included; use export_field_file for those.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.export_results.html"
+    },
+    {
+      "name": "hfss.create_sbr_chirp_i_doppler_setup / create_sbr_chirp_iq_doppler_setup / create_sbr_pulse_doppler_setup / create_sbr_radar_from_json",
+      "kind": "study",
+      "description": "SBR+ radar helpers: create Doppler (range-Doppler) setups for a chirp-I, chirp-IQ or pulsed radar waveform, deriving the frequency sweep, ray density and bounces from radar parameters (centre frequency, range resolution and period, velocity resolution and span), and optionally a parametric sweep over a time variable that moves the scene (Move It extension); create_sbr_radar_from_json builds a full radar (antennas, positions, waveform) from a JSON description. The results are processed with the FRTM/range-Doppler plotting classes.",
+      "usage": "setup, sweep = hfss.create_sbr_chirp_i_doppler_setup(time_variable=None, sweep_time_duration=0.0, center_freq=76.5, resolution=1,\n                                                     period=200, velocity_resolution=0.4, min_velocity=-20, max_velocity=20,\n                                                     ray_density_per_wavelength=0.2, max_bounces=5, include_coupling_effects=False,\n                                                     doppler_ad_sampling_rate=20, setup=None)\nsetup, sweep = hfss.create_sbr_chirp_iq_doppler_setup(...)      # same arguments\nsetup, sweep = hfss.create_sbr_pulse_doppler_setup(time_variable=None, sweep_time_duration=0.0, center_freq=76.5, resolution=1,\n                                                   period=200, velocity_resolution=0.4, min_velocity=-20, max_velocity=20,\n                                                   ray_density_per_wavelength=0.2, max_bounces=5, setup=None)\nradar = hfss.create_sbr_radar_from_json(radar_file, name, offset=None, speed=0.0, use_relative_cs=False, relative_cs_name=None)",
+      "parameters": [
+        {"name": "center_freq", "description": "Radar centre frequency in GHz (76.5 for automotive)."},
+        {"name": "resolution / period", "description": "Range resolution and unambiguous range in metres; they set the bandwidth and frequency step."},
+        {"name": "velocity_resolution / min_velocity / max_velocity", "description": "Doppler axis definition in m/s."},
+        {"name": "time_variable / sweep_time_duration", "description": "Design variable driving object motion and the duration over which a parametric time sweep is generated."},
+        {"name": "radar_file", "description": "JSON with antenna types, positions, tx/rx assignments and waveform for create_sbr_radar_from_json."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"SBR+\")\nhfss[\"time_var\"] = \"0s\"\nhfss.modeler.import_3d_cad(\"C:/cad/car.step\", create_lightweight_part=True)\nradar = hfss.create_sbr_radar_from_json(\"C:/work/radar_77GHz.json\", name=\"Radar1\", offset=[0, 0, 0.5])\nsetup, sweep = hfss.create_sbr_chirp_iq_doppler_setup(time_variable=\"time_var\", sweep_time_duration=0.2, center_freq=77,\n                                                       resolution=0.5, period=150, velocity_resolution=0.25,\n                                                       min_velocity=-30, max_velocity=30, max_bounces=3)\nhfss.analyze(sweep.name if sweep else setup.name)",
+      "notes": "Requires the SBR+ solution type and HFSS SBR+ licensing; the Doppler post-processing (range-Doppler maps) is done from exported FRTM data with ansys.aedt.core.visualization.advanced.frtm_visualization (FRTMData / FRTMPlotter). GUI: HFSS > Analysis > Add Doppler Setup (SBR+).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.create_sbr_chirp_i_doppler_setup.html"
+    },
+    {
+      "name": "hfss.set_sbr_txrx_settings / set_sbr_current_sources_options / get_hdm_plotter / parse_hdm_file (SBR+ options and ray visualisation)",
+      "kind": "study",
+      "description": "SBR+-specific controls: set_sbr_txrx_settings declares which antenna sources transmit and which receive (the TX/RX table used for coupling and radar), set_sbr_current_sources_options tunes how linked-antenna current sources are represented (conformance, thin sources, power fraction), and parse_hdm_file / get_hdm_plotter read the .hdm ray-trace export of an SBR+ or creeping-wave solve for Visual Ray Trace inspection in PyVista.",
+      "usage": "hfss.set_sbr_txrx_settings(txrx_settings)          # {\"TX1\": \"RX1\", ...} or {tx: [rx, ...]}\nhfss.set_sbr_current_sources_options(conformance=False, thin_sources=False, power_fraction=0.95)\nparser = hfss.parse_hdm_file(file_name)\nplotter = hfss.get_hdm_plotter(file_name=None)\nplotter.add_rays(...); plotter.plot_rays(...)",
+      "parameters": [
+        {"name": "txrx_settings", "description": "Mapping of transmitter antenna names to receiver antenna names."},
+        {"name": "conformance / thin_sources / power_fraction", "description": "Current-source representation options for linked antennas."},
+        {"name": "file_name", "description": "Path to the .hdm file written by the SBR+ setup when ray export is enabled (Visual Ray Trace)."}
+      ],
+      "example": "hfss.set_sbr_txrx_settings({\"TX1\": \"RX1\", \"TX2\": \"RX1\"})\nhfss.set_sbr_current_sources_options(conformance=True, thin_sources=True, power_fraction=0.98)\nhfss.analyze()\nplotter = hfss.get_hdm_plotter(\"C:/work/rays.hdm\")\nplotter.plot_rays()",
+      "notes": "GUI equivalents live on the SBR+ setup's Advanced tab (TX/RX, ray export) and in the Visual Ray Trace panel. HDM files can be large; limit the exported bounces when only a qualitative view is needed.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.parse_hdm_file.html"
+    },
+    {
+      "name": "hfss.export_touchstone_on_completion / hfss.export_touchstone (variations, renormalization)",
+      "kind": "api",
+      "description": "Touchstone export controls: export_touchstone_on_completion sets the design to write .sNp files automatically after each solve (Design Settings > Export After Simulation), and export_touchstone writes one file for a given setup/sweep and variation with optional renormalisation to a real impedance and gamma/impedance comments. The set_export_touchstone method (see post-processing) fixes the file format options.",
+      "usage": "hfss.export_touchstone_on_completion(export=True, output_dir=None)\npath = hfss.export_touchstone(setup=None, sweep=None, output_file=None, variations=None, variations_value=None,\n                              renormalization=False, impedance=None, gamma_impedance_comments=False)",
+      "parameters": [
+        {"name": "export / output_dir", "description": "Enable automatic export and the target folder."},
+        {"name": "setup / sweep", "description": "Solved setup and sweep names; None uses the nominal sweep."},
+        {"name": "variations / variations_value", "description": "Parallel lists of variable names and values selecting the variation to export, e.g. [\"patch_l\"], [\"29mm\"]."},
+        {"name": "renormalization / impedance", "description": "Renormalise to the given real impedance (50 if None)."},
+        {"name": "gamma_impedance_comments", "description": "Write port gamma and impedance as comments in the file."}
+      ],
+      "example": "hfss.export_touchstone_on_completion(True, output_dir=\"C:/work/snp\")\nhfss.analyze()\nfor l in [\"27mm\", \"29mm\", \"31mm\"]:\n    hfss.export_touchstone(setup=\"Setup1\", sweep=\"Sweep1\", output_file=f\"C:/work/snp/patch_{l}.s1p\",\n                           variations=[\"patch_l\"], variations_value=[l], renormalization=True, impedance=50)",
+      "notes": "Native: oModule(\"Solutions\").ExportNetworkData(variationKey, [\"Setup1:Sweep1\"], 3, file, [\"all\"], True, 50, \"S\", -1, 0, 15, True, True, True). Interpolating sweeps export the fitted data at the requested points; Discrete sweeps only the solved points.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.export_touchstone.html"
+    },
+    {
+      "name": "Desktop.get_monitor_data / hfss.get_monitor_data / Desktop.analyze_all",
+      "kind": "api",
+      "description": "Session-level solve helpers: analyze_all solves every design and setup of the active (or named) project, and get_monitor_data returns the state of the running analysis - the same information as the Progress and Monitor windows (current pass, elapsed time, memory, machine) - which non-blocking runs poll to report progress or to abort on excessive memory use.",
+      "usage": "hfss.desktop_class.analyze_all(project=None, design=None)\ninfo = hfss.get_monitor_data()          # dict with per-solve progress, or {} when idle\nhfss.are_there_simulations_running\nhfss.stop_simulations(clean_stop=True)",
+      "parameters": [
+        {"name": "project / design", "description": "Restrict analyze_all to one project or design; None = active project, all designs."},
+        {"name": "clean_stop", "description": "True lets the current step finish and keeps partial results; False aborts immediately."}
+      ],
+      "example": "hfss.analyze(\"Setup1\", blocking=False)\nimport time\nwhile hfss.are_there_simulations_running:\n    m = hfss.get_monitor_data()\n    print(m)\n    time.sleep(60)\nprint(\"solved:\", hfss.get_setup(\"Setup1\").is_solved)",
+      "notes": "Native: oProject.AnalyzeAll() and oDesign.AnalyzeAll(); the monitor data has no simple native call - PyAEDT reads it through the ChildObject API of the running solve. blocking=False requires AEDT 2023 R2 or later.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.desktop.Desktop.html"
+    },
+    {
+      "name": "hfss.cleanup_solution / hfss.delete_setup / hfss.generate_unique_setup_name",
+      "kind": "api",
+      "description": "Result and setup housekeeping: cleanup_solution deletes solution data for all or selected variations (optionally keeping the mesh or linked data), which is the scripted Results > Clean Up Solutions; delete_setup removes an analysis setup and its sweeps; generate_unique_setup_name returns a setup name that does not clash with existing ones for scripts that add setups repeatedly.",
+      "usage": "hfss.cleanup_solution(variations=\"All\", entire_solution=True, field=True, mesh=True, linked_data=True)\nhfss.delete_setup(name)\nname = hfss.generate_unique_setup_name(name=None)",
+      "parameters": [
+        {"name": "variations", "description": "\"All\" or a list of variation strings to clean."},
+        {"name": "entire_solution", "description": "True removes matrix data and fields (DeleteFullVariation); False removes only fields (DeleteFieldVariation)."},
+        {"name": "field / mesh / linked_data", "description": "Which parts to delete when entire_solution is False."}
+      ],
+      "example": "hfss.cleanup_solution(variations=\"All\", entire_solution=False, field=True, mesh=False)   # keep mesh, drop fields\nhfss.delete_setup(\"ScratchSetup\")\nnew = hfss.create_setup(hfss.generate_unique_setup_name(\"Setup\"))",
+      "notes": "Native: oDesign.DeleteFullVariation([\"All\"], False), oDesign.DeleteFieldVariation([\"All\"], True, False, False), oModule(\"AnalysisSetup\").DeleteSetups([name]). Cleaning solutions does not shrink the .aedtresults folder until the project is saved.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.cleanup_solution.html"
+    },
+    {
+      "name": "Hfss.create_setup(setup_type=\"HFSSDrivenAuto\") - Auto solver setup (SetupHFSSAuto)",
+      "kind": "study",
+      "description": "The HFSS Auto (\"Driven Auto\") setup lets HFSS choose adaptive frequencies, passes and sweep strategy from a single Fast/Balanced/Accurate preference and a frequency range, and returns a SetupHFSSAuto object. It is the recommended starting point for broadband S-parameter extraction of interconnects and packages when the engineer does not want to tune adaptation settings; the classic HFSSDriven setup remains the choice when explicit control is needed.",
+      "usage": "setup = hfss.create_setup(\"AutoSetup\", setup_type=\"HFSSDrivenAuto\", AutoSolverSetting=\"Balanced\",\n                          Type=\"Discrete\", RangeType=\"LinearCount\", RangeStart=\"1GHz\", RangeEnd=\"10GHz\", RangeCount=\"501\")",
+      "parameters": [
+        {"name": "AutoSolverSetting", "description": "\"Fast\", \"Balanced\" or \"Accurate\" - trades passes and interpolation tolerance against speed."},
+        {"name": "Type / RangeType / RangeStart / RangeEnd / RangeCount", "description": "The sweep embedded in the auto setup (Discrete or Interpolating over a linear/log range)."},
+        {"name": "SetupHFSSAuto", "description": "Object with the same interface as SetupHFSS (props, update, analyze, sweeps) but auto-specific properties."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Terminal\")\nauto = hfss.create_setup(\"AutoSetup\", setup_type=\"HFSSDrivenAuto\", AutoSolverSetting=\"Accurate\",\n                         RangeType=\"LinearCount\", RangeStart=\"0.1GHz\", RangeEnd=\"20GHz\", RangeCount=\"1001\")\nauto.analyze(cores=8)\nhfss.export_touchstone(setup=\"AutoSetup\")",
+      "notes": "Native: oModule.InsertSetup(\"HfssDrivenAuto\", [\"NAME:AutoSetup\", \"IsEnabled:=\", True, [\"NAME:MeshLink\", ...], \"AutoSolverSetting:=\", \"Balanced\", [\"NAME:Sweeps\", [\"NAME:Sweep\", \"RangeType:=\", \"LinearCount\", \"RangeStart:=\", \"1GHz\", \"RangeEnd:=\", \"10GHz\", \"RangeCount:=\", 501, \"AutoSolverSetting:=\", \"Balanced\", \"Type:=\", \"Discrete\"]]]). Auto setups are only available in Driven Modal/Terminal designs.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.solve_setup.SetupHFSSAuto.html"
+    }
+  ]
+}

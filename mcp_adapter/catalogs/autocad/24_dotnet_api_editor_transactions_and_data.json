@@ -1,0 +1,605 @@
+{
+  "category": ".NET API: Editor Input, Transactions, Symbol Tables & Data Storage",
+  "description": "The AutoCAD managed .NET API (AcMgd.dll, AcDbMgd.dll, AcCoreMgd.dll; .NET 8 from AutoCAD 2025, .NET Framework 4.8 before): Editor prompts and selection, SelectionFilter/TypedValue/ResultBuffer, document locking and command execution, the transaction pattern, symbol tables, ObjectId/Handle, XData, Xrecords and dictionaries, extension-application entry points, autoloader bundles and side-database operations. Not available in AutoCAD LT.",
+  "tools": [
+    {
+      "name": "Editor.GetSelection",
+      "kind": "api",
+      "description": "Prompts the user to select objects and returns a PromptSelectionResult whose Value is a SelectionSet. Overloads accept PromptSelectionOptions (custom prompts, single-only, keywords) and a SelectionFilter that restricts which objects can be selected, like ssget with a filter list.",
+      "usage": "PromptSelectionResult Editor.GetSelection()\nPromptSelectionResult Editor.GetSelection(SelectionFilter filter)\nPromptSelectionResult Editor.GetSelection(PromptSelectionOptions options, SelectionFilter filter)",
+      "parameters": [
+        {"name": "options", "description": "PromptSelectionOptions: MessageForAdding, MessageForRemoval, SingleOnly, SinglePickInSpace, RejectObjectsOnLockedLayers, Keywords."},
+        {"name": "filter", "description": "SelectionFilter built from TypedValue pairs (DXF codes)."},
+        {"name": "result.Status", "description": "PromptStatus.OK when something was selected; Cancel or Error otherwise."}
+      ],
+      "example": "var ed = Application.DocumentManager.MdiActiveDocument.Editor;\nvar filter = new SelectionFilter(new[] {\n    new TypedValue((int)DxfCode.Start, \"CIRCLE\"),\n    new TypedValue((int)DxfCode.LayerName, \"HOLES\") });\nvar pso = new PromptSelectionOptions { MessageForAdding = \"\\nSelect holes: \" };\nPromptSelectionResult psr = ed.GetSelection(pso, filter);\nif (psr.Status != PromptStatus.OK) return;\nforeach (ObjectId id in psr.Value.GetObjectIds()) { /* open in a transaction */ }",
+      "notes": "The objects are returned as ObjectIds; open them inside a transaction. Must run in document context (a command without CommandFlags.Session) or the prompt fails.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor_GetSelection"
+    },
+    {
+      "name": "Editor.SelectAll",
+      "kind": "api",
+      "description": "Selects all objects in the drawing database that pass an optional SelectionFilter, without user interaction. Equivalent to (ssget \"_X\" filter) and includes objects in model space and all paper-space layouts.",
+      "usage": "PromptSelectionResult Editor.SelectAll()\nPromptSelectionResult Editor.SelectAll(SelectionFilter filter)",
+      "parameters": [
+        {"name": "filter", "description": "Optional SelectionFilter; add (410, \"Model\") to restrict to model space."}
+      ],
+      "example": "var f = new SelectionFilter(new[] {\n    new TypedValue((int)DxfCode.Start, \"INSERT\"),\n    new TypedValue((int)DxfCode.LayoutName, \"Model\") });\nvar res = ed.SelectAll(f);\nint n = res.Status == PromptStatus.OK ? res.Value.Count : 0;\ned.WriteMessage($\"\\n{n} block references in model space.\");",
+      "notes": "Status is Error (not OK) when nothing matches, so check the status before using Value. Iterating BlockTableRecord contents is an alternative when you need a single space only.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.SelectImplied",
+      "kind": "api",
+      "description": "Returns the pickfirst (noun-verb) selection set, i.e. objects the user selected before starting the command. SetImpliedSelection does the reverse and highlights a set of ObjectIds as the current pickfirst set.",
+      "usage": "PromptSelectionResult Editor.SelectImplied()\nvoid Editor.SetImpliedSelection(ObjectId[] ids)",
+      "parameters": [
+        {"name": "CommandFlags.UsePickSet", "description": "The command must be declared with UsePickSet or the pickfirst set is cleared before it runs."},
+        {"name": "CommandFlags.Redraw", "description": "Needed on the command for SetImpliedSelection results to remain selected after the command ends."}
+      ],
+      "example": "[CommandMethod(\"PFCOUNT\", CommandFlags.UsePickSet)]\npublic void PfCount() {\n    var ed = Application.DocumentManager.MdiActiveDocument.Editor;\n    var r = ed.SelectImplied();\n    var ss = r.Status == PromptStatus.OK ? r.Value : ed.GetSelection().Value;\n    if (ss != null) ed.WriteMessage($\"\\n{ss.Count} objects\");\n}",
+      "notes": "Fall back to GetSelection when the implied set is empty (Status != OK). SetImpliedSelection is how 'select similar' style tools hand back a selection.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.GetEntity",
+      "kind": "api",
+      "description": "Prompts the user to pick a single object and returns its ObjectId and the pick point. PromptEntityOptions can restrict the allowed classes (for example only Polyline) with a rejection message, and allow keywords or Enter.",
+      "usage": "PromptEntityResult Editor.GetEntity(PromptEntityOptions options)\nPromptEntityResult Editor.GetEntity(string message)",
+      "parameters": [
+        {"name": "SetRejectMessage", "description": "Message shown when a disallowed class is picked; must be called before AddAllowedClass."},
+        {"name": "AddAllowedClass(Type, bool exactMatch)", "description": "Allowed entity type; exactMatch false also accepts derived classes."},
+        {"name": "result.ObjectId / PickedPoint", "description": "Selected object and the UCS pick point."}
+      ],
+      "example": "var peo = new PromptEntityOptions(\"\\nSelect a polyline: \");\npeo.SetRejectMessage(\"\\nMust be a polyline.\");\npeo.AddAllowedClass(typeof(Polyline), true);\nvar per = ed.GetEntity(peo);\nif (per.Status == PromptStatus.OK) {\n    using var tr = db.TransactionManager.StartTransaction();\n    var pl = (Polyline)tr.GetObject(per.ObjectId, OpenMode.ForRead);\n    ed.WriteMessage($\"\\nLength = {pl.Length:F2}\");\n    tr.Commit();\n}",
+      "notes": "Calling AddAllowedClass before SetRejectMessage throws an exception. For objects inside blocks or xrefs use GetNestedEntity.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.GetNestedEntity",
+      "kind": "api",
+      "description": "Lets the user pick an entity nested inside a block reference or xref and returns its ObjectId together with the transformation matrix to WCS and the chain of containing block references. The .NET counterpart of nentsel/nentselp.",
+      "usage": "PromptNestedEntityResult Editor.GetNestedEntity(PromptNestedEntityOptions options)",
+      "parameters": [
+        {"name": "result.ObjectId", "description": "The nested entity (in the block definition's database)."},
+        {"name": "result.Transform", "description": "Matrix3d from block-definition coordinates to WCS."},
+        {"name": "result.GetContainers()", "description": "ObjectIds of the containing block references, innermost first."}
+      ],
+      "example": "var r = ed.GetNestedEntity(new PromptNestedEntityOptions(\"\\nPick nested object: \"));\nif (r.Status != PromptStatus.OK) return;\nusing var tr = db.TransactionManager.StartTransaction();\nvar ent = (Entity)tr.GetObject(r.ObjectId, OpenMode.ForRead);\nvar copy = (Entity)ent.Clone();\ncopy.TransformBy(r.Transform);   // bring into WCS\n// append copy to model space ...",
+      "notes": "For xrefs the ObjectId belongs to the xref database, which is read-only in the host drawing.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.GetPoint",
+      "kind": "api",
+      "description": "Prompts for a point, with optional rubber-band line from a base point, keywords and Enter-to-accept behaviour. The result is expressed in the current UCS and must be transformed to WCS before being used to create entities.",
+      "usage": "PromptPointResult Editor.GetPoint(PromptPointOptions options)\nPromptPointResult Editor.GetPoint(string message)",
+      "parameters": [
+        {"name": "UseBasePoint / BasePoint", "description": "Draws a rubber-band line from BasePoint (UCS)."},
+        {"name": "AllowNone", "description": "true lets the user press Enter (Status = None)."},
+        {"name": "Keywords", "description": "Optional keywords; Status = Keyword with StringResult set."}
+      ],
+      "example": "var p1 = ed.GetPoint(\"\\nFirst point: \");\nif (p1.Status != PromptStatus.OK) return;\nvar ppo = new PromptPointOptions(\"\\nSecond point: \") { UseBasePoint = true, BasePoint = p1.Value };\nvar p2 = ed.GetPoint(ppo);\nif (p2.Status != PromptStatus.OK) return;\nvar ucs = ed.CurrentUserCoordinateSystem;\nvar line = new Line(p1.Value.TransformBy(ucs), p2.Value.TransformBy(ucs));",
+      "notes": "GetCorner draws a rectangle from a base point instead of a line. Object snaps and tracking apply automatically.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.GetKeywords",
+      "kind": "api",
+      "description": "Prompts the user to choose one of a set of keywords, shown as clickable command-line options, with an optional default. The chosen global keyword is returned in StringResult.",
+      "usage": "PromptResult Editor.GetKeywords(PromptKeywordOptions options)",
+      "parameters": [
+        {"name": "Keywords.Add(global, local, display)", "description": "Adds a keyword; the capital letters define the shortcut."},
+        {"name": "Keywords.Default", "description": "Keyword returned when the user presses Enter."},
+        {"name": "AllowNone", "description": "Allow Enter when no default is set."}
+      ],
+      "example": "var pko = new PromptKeywordOptions(\"\\nOutput format [Pdf/Dwf/Png] <Pdf>: \");\npko.Keywords.Add(\"Pdf\"); pko.Keywords.Add(\"Dwf\"); pko.Keywords.Add(\"Png\");\npko.Keywords.Default = \"Pdf\";\npko.AllowNone = true;\nvar r = ed.GetKeywords(pko);\nif (r.Status == PromptStatus.OK) ed.WriteMessage($\"\\nChosen: {r.StringResult}\");",
+      "notes": "Other prompt option classes (PromptPointOptions, PromptEntityOptions, PromptSelectionOptions) also carry Keywords; they then return Status = Keyword.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.GetString",
+      "kind": "api",
+      "description": "Prompts for a text string on the command line. With AllowSpaces the user can type spaces, and Enter ends input; otherwise a space also terminates the entry.",
+      "usage": "PromptResult Editor.GetString(PromptStringOptions options)\nPromptResult Editor.GetString(string message)",
+      "parameters": [
+        {"name": "AllowSpaces", "description": "true to accept spaces in the string."},
+        {"name": "DefaultValue / UseDefaultValue", "description": "Value returned when the user just presses Enter."}
+      ],
+      "example": "var pso = new PromptStringOptions(\"\\nNew layer name: \") { AllowSpaces = true };\nvar r = ed.GetString(pso);\nif (r.Status == PromptStatus.OK && r.StringResult.Length > 0)\n    SymbolUtilityServices.ValidateSymbolName(r.StringResult, false);",
+      "notes": "Validate names destined for symbol tables with SymbolUtilityServices.ValidateSymbolName, which throws for invalid characters.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.GetDouble",
+      "kind": "api",
+      "description": "Prompts for a real number with validation options for zero, negative values and a default. Companion methods GetInteger, GetDistance (accepts two picked points) and GetAngle (accepts picks, returns radians) follow the same pattern.",
+      "usage": "PromptDoubleResult Editor.GetDouble(PromptDoubleOptions options)\nPromptIntegerResult Editor.GetInteger(PromptIntegerOptions options)\nPromptDoubleResult Editor.GetDistance(PromptDistanceOptions options)",
+      "parameters": [
+        {"name": "AllowNegative / AllowZero", "description": "Input validation switches (default: both allowed)."},
+        {"name": "DefaultValue / UseDefaultValue", "description": "Value used when the user presses Enter."},
+        {"name": "LowerLimit / UpperLimit", "description": "Range limits for PromptIntegerOptions."}
+      ],
+      "example": "var pdo = new PromptDistanceOptions(\"\\nOffset distance <10>: \") {\n    AllowNegative = false, AllowZero = false, DefaultValue = 10, UseDefaultValue = true };\nvar r = ed.GetDistance(pdo);\nif (r.Status != PromptStatus.OK) return;\ndouble d = r.Value;",
+      "notes": "GetDistance honours the current linear units format for typed input (feet-inches etc.), unlike GetDouble.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.WriteMessage",
+      "kind": "api",
+      "description": "Writes text to the command-line window, with composite-format support like String.Format. It is the standard way to report results and progress from a command.",
+      "usage": "void Editor.WriteMessage(string message)\nvoid Editor.WriteMessage(string format, params object[] args)",
+      "parameters": [
+        {"name": "message / format", "description": "Text; start with \\n to begin on a new line."},
+        {"name": "args", "description": "Values substituted into {0}, {1} ... placeholders."}
+      ],
+      "example": "ed.WriteMessage(\"\\nProcessed {0} drawings in {1:F1} s.\", count, sw.Elapsed.TotalSeconds);",
+      "notes": "Curly braces in a literal message passed to the params overload must be doubled. In accoreconsole the output goes to stdout, which is useful for batch logging.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.Command",
+      "kind": "api",
+      "description": "Executes AutoCAD commands synchronously from a .NET command, like (command-s) in AutoLISP: the arguments are passed in sequence and the call returns when the command sequence completes. Available since AutoCAD 2015.",
+      "usage": "void Editor.Command(params object[] parameters)",
+      "parameters": [
+        {"name": "parameters", "description": "Command names and inputs: strings, numbers, Point3d, ObjectId, SelectionSet; \"\" is Enter."}
+      ],
+      "example": "[CommandMethod(\"ZEP\")]\npublic void ZoomExtentsPurge() {\n    var ed = Application.DocumentManager.MdiActiveDocument.Editor;\n    ed.Command(\"_.ZOOM\", \"_E\");\n    ed.Command(\"_.-PURGE\", \"_A\", \"*\", \"_N\");\n}",
+      "notes": "Only valid in document context; from a session-context command or a modeless UI use Document.SendStringToExecute. The sequence must be complete; use Editor.CommandAsync when the user must interact (pause).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.CommandAsync",
+      "kind": "api",
+      "description": "Asynchronous counterpart of Editor.Command that can pause for user input with Editor.PauseToken. It returns an awaitable object, so the calling command method is declared async and awaits each step.",
+      "usage": "Editor.CommandResult Editor.CommandAsync(params object[] parameters)\nawait ed.CommandAsync(\"_.LINE\", Editor.PauseToken, Editor.PauseToken, \"\");",
+      "parameters": [
+        {"name": "Editor.PauseToken", "description": "Placeholder that lets the user supply that input interactively."},
+        {"name": "parameters", "description": "Same types as Editor.Command."}
+      ],
+      "example": "[CommandMethod(\"MYCIRC\")]\npublic async void MyCircle() {\n    var ed = Application.DocumentManager.MdiActiveDocument.Editor;\n    await ed.CommandAsync(\"_.CIRCLE\", Editor.PauseToken, 25.0);\n    ed.WriteMessage(\"\\nCircle placed.\");\n}",
+      "notes": "Use async void only for CommandMethod handlers. Exceptions thrown after an await are reported differently; wrap the body in try/catch.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "Editor.CurrentUserCoordinateSystem",
+      "kind": "api",
+      "description": "Gets or sets the current UCS as a Matrix3d that transforms UCS coordinates to WCS. Points returned by prompts are in UCS and must be transformed with this matrix before creating geometry in the database, which always stores WCS (or OCS) values.",
+      "usage": "Matrix3d Editor.CurrentUserCoordinateSystem { get; set; }",
+      "parameters": [
+        {"name": "get", "description": "UCS-to-WCS matrix; use .Inverse() for WCS-to-UCS."},
+        {"name": "set", "description": "Assign a matrix built with Matrix3d.AlignCoordinateSystem to change the UCS."}
+      ],
+      "example": "Matrix3d ucs = ed.CurrentUserCoordinateSystem;\nPoint3d wcsPt = ppr.Value.TransformBy(ucs);\nPoint3d ucsPt = wcsPt.TransformBy(ucs.Inverse());\ned.CurrentUserCoordinateSystem = Matrix3d.Identity; // back to WCS",
+      "notes": "Forgetting the UCS transform is the most common bug in .NET drawing code; it only shows up when the user works in a rotated UCS.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_Editor"
+    },
+    {
+      "name": "SelectionFilter",
+      "kind": "api",
+      "description": "Filter used by Editor.GetSelection and SelectAll, constructed from an array of TypedValue pairs using DXF group codes, including relational and logical operators (-4). It mirrors the AutoLISP ssget filter-list syntax.",
+      "usage": "new SelectionFilter(TypedValue[] values)",
+      "parameters": [
+        {"name": "DxfCode.Start (0)", "description": "Object type, wildcards allowed: \"LINE,ARC,*POLYLINE\"."},
+        {"name": "DxfCode.LayerName (8)", "description": "Layer name with wildcards."},
+        {"name": "DxfCode.Operator (-4)", "description": "\"<OR\" ... \"OR>\", \"<AND\", \"<NOT\", \"<XOR\" and relational tests \"<\", \">=\", \"*\"."}
+      ],
+      "example": "var f = new SelectionFilter(new[] {\n    new TypedValue(-4, \"<OR\"),\n      new TypedValue(0, \"LINE\"),\n      new TypedValue(-4, \"<AND\"),\n        new TypedValue(0, \"LWPOLYLINE\"), new TypedValue(70, 1),\n      new TypedValue(-4, \"AND>\"),\n    new TypedValue(-4, \"OR>\") });",
+      "notes": "Bit-coded flags such as 70 need the \"&\" or \"&=\" relational operator to test bits. Filtering on properties that are ByLayer (color 256) does not match the layer's color.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_SelectionFilter"
+    },
+    {
+      "name": "TypedValue",
+      "kind": "api",
+      "description": "An immutable pair of a DXF type code and a value, the .NET equivalent of an AutoLISP dotted pair. It is the element type of selection filters, ResultBuffers (XData, Xrecord data, LISP arguments) and several other APIs.",
+      "usage": "new TypedValue(int typeCode, object value)\ntv.TypeCode  tv.Value",
+      "parameters": [
+        {"name": "typeCode", "description": "DXF group code, usually cast from the DxfCode or LispDataType enum."},
+        {"name": "value", "description": "Value whose .NET type matches the code (string, short, int, double, Point3d, ObjectId...)."}
+      ],
+      "example": "var tv = new TypedValue((int)DxfCode.ExtendedDataReal, 3.5);\nif (tv.TypeCode == 1040) ed.WriteMessage($\"\\nReal xdata: {(double)tv.Value}\");",
+      "notes": "Using the wrong .NET type for a code (for example int instead of short for 70) causes eInvalidResBuf or silent filter mismatches.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_TypedValue"
+    },
+    {
+      "name": "ResultBuffer",
+      "kind": "api",
+      "description": "A disposable list of TypedValue items, the managed wrapper of the ObjectARX resbuf chain. It carries XData, Xrecord data, arguments and return values of [LispFunction] methods, and data for Application.Invoke.",
+      "usage": "new ResultBuffer(params TypedValue[] values)\nrb.Add(TypedValue)  rb.AsArray()  foreach (TypedValue tv in rb)",
+      "parameters": [
+        {"name": "AsArray()", "description": "Returns the items as TypedValue[]."},
+        {"name": "Dispose()", "description": "Release native memory; use a using statement."}
+      ],
+      "example": "[LispFunction(\"ADDNUMS\")]\npublic ResultBuffer AddNums(ResultBuffer args) {\n    double sum = 0;\n    if (args != null)\n        foreach (TypedValue tv in args)\n            if (tv.TypeCode == (int)LispDataType.Double || tv.TypeCode == (int)LispDataType.Int16)\n                sum += Convert.ToDouble(tv.Value);\n    return new ResultBuffer(new TypedValue((int)LispDataType.Double, sum));\n}",
+      "notes": "LISP arguments use LispDataType codes (Int16 5003, Double 5001, Text 5005, Point3d 5009, ListBegin 5016...), not DXF codes.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_ResultBuffer"
+    },
+    {
+      "name": "PromptStatus",
+      "kind": "api",
+      "description": "Enumeration returned in the Status property of every prompt result, telling whether the user supplied a value, cancelled, pressed Enter or chose a keyword. Every prompt call should branch on it before reading Value.",
+      "usage": "PromptStatus.OK | Cancel | None | Keyword | Error | Modeless | Other",
+      "parameters": [
+        {"name": "OK", "description": "A valid value was entered."},
+        {"name": "Cancel", "description": "User pressed Esc."},
+        {"name": "None", "description": "Enter pressed with AllowNone = true."},
+        {"name": "Keyword", "description": "A keyword was chosen; read StringResult."}
+      ],
+      "example": "var r = ed.GetPoint(ppo);\nswitch (r.Status) {\n    case PromptStatus.OK: Place(r.Value); break;\n    case PromptStatus.Keyword: HandleKeyword(r.StringResult); break;\n    default: return; // Cancel, None, Error\n}",
+      "notes": "Reading Value when Status is not OK returns a default value (for example Point3d.Origin), which silently produces wrong geometry.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_EditorInput_PromptStatus"
+    },
+    {
+      "name": "Document.LockDocument",
+      "kind": "api",
+      "description": "Locks a document for writing and returns a DocumentLock that releases the lock when disposed. Required whenever the database is modified from application (session) context: modeless dialogs, palettes, ribbon handlers, event handlers and commands registered with CommandFlags.Session.",
+      "usage": "using (DocumentLock loc = doc.LockDocument()) { ... }",
+      "parameters": [
+        {"name": "overloads", "description": "LockDocument(DocumentLockMode mode, string globalCommandName, string localCommandName, bool promptIfFails) for explicit lock modes."}
+      ],
+      "example": "// button click in a PaletteSet\nvar doc = Application.DocumentManager.MdiActiveDocument;\nusing (doc.LockDocument())\nusing (var tr = doc.Database.TransactionManager.StartTransaction()) {\n    // modify objects\n    tr.Commit();\n}",
+      "notes": "Missing locks produce eLockViolation. Ordinary modal commands run in document context and already hold the lock.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_ApplicationServices_Document"
+    },
+    {
+      "name": "Document.SendStringToExecute",
+      "kind": "api",
+      "description": "Queues a command string to be executed asynchronously in a document when AutoCAD becomes idle, as if typed at the command line. It is the reliable way to start commands from modeless UI, from session-context code or in another document.",
+      "usage": "void Document.SendStringToExecute(string command, bool activate, bool wrapUpInactiveDoc, bool echoCommand)",
+      "parameters": [
+        {"name": "command", "description": "Command text; end with a space or \\n to press Enter."},
+        {"name": "activate", "description": "true activates the target document first."},
+        {"name": "wrapUpInactiveDoc", "description": "true to finish execution in an inactive document (used when switching documents)."},
+        {"name": "echoCommand", "description": "true echoes the command on the command line."}
+      ],
+      "example": "var doc = Application.DocumentManager.MdiActiveDocument;\ndoc.SendStringToExecute(\"._ZOOM _E \", true, false, false);\ndoc.SendStringToExecute(\"(c:MYLISPCMD) \", true, false, true);",
+      "notes": "The string runs after the current command finishes, so code after the call cannot rely on its effects. Prefer Editor.Command inside document-context commands.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_ApplicationServices_Document"
+    },
+    {
+      "name": "DocumentCollection.Open",
+      "kind": "api",
+      "description": "Opens a drawing file in the editor and returns its Document. Since AutoCAD 2015 Open and Add (new drawing from template) are extension methods in DocumentCollectionExtension, called on Application.DocumentManager.",
+      "usage": "Document DocumentCollectionExtension.Open(this DocumentCollection docs, string fileName, bool forReadOnly, string password)\nDocument DocumentCollectionExtension.Add(this DocumentCollection docs, string templateFileName)",
+      "parameters": [
+        {"name": "fileName", "description": "Full DWG path."},
+        {"name": "forReadOnly", "description": "true to open read-only."},
+        {"name": "templateFileName", "description": "DWT used by Add."}
+      ],
+      "example": "[CommandMethod(\"OPENLIB\", CommandFlags.Session)]\npublic void OpenLib() {\n    var docs = Application.DocumentManager;\n    Document d = docs.Open(@\"C:\\CAD\\Library\\symbols.dwg\", true, null);\n    docs.MdiActiveDocument = d;\n}",
+      "notes": "Must be called from session context (CommandFlags.Session or modeless UI), because opening switches documents. For batch reading without the editor, use Database.ReadDwgFile instead.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_ApplicationServices_DocumentCollectionExtension"
+    },
+    {
+      "name": "Application.GetSystemVariable",
+      "kind": "api",
+      "description": "Reads a system variable and returns it as object; Application.SetSystemVariable writes one. The static methods live on Autodesk.AutoCAD.ApplicationServices.Application and act on the current document for drawing-level variables.",
+      "usage": "object Application.GetSystemVariable(string name)\nvoid Application.SetSystemVariable(string name, object value)",
+      "parameters": [
+        {"name": "name", "description": "System variable name, case-insensitive."},
+        {"name": "value", "description": "New value; pass the variable's own type (integers are typically Int16, reals double, points Point3d)."}
+      ],
+      "example": "short oldOsmode = (short)Application.GetSystemVariable(\"OSMODE\");\nApplication.SetSystemVariable(\"OSMODE\", (short)0);\ntry { /* work */ }\nfinally { Application.SetSystemVariable(\"OSMODE\", oldOsmode); }",
+      "notes": "Always restore changed variables in a finally block. Some variables are available directly as Database properties (db.Clayer, db.Ltscale), which also works on side databases.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_ApplicationServices_Core_Application"
+    },
+    {
+      "name": "Application.ShowAlertDialog",
+      "kind": "api",
+      "description": "Displays a simple modal message box with an OK button, parented to the AutoCAD main window. Equivalent to AutoLISP (alert).",
+      "usage": "void Application.ShowAlertDialog(string message)",
+      "parameters": [
+        {"name": "message", "description": "Text to display."}
+      ],
+      "example": "Application.ShowAlertDialog($\"Export finished:\\n{outputPath}\");",
+      "notes": "Blocks the UI; in batch or accoreconsole use Editor.WriteMessage instead. For richer dialogs use Application.ShowModalDialog with a WinForms/WPF window.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_ApplicationServices_Core_Application"
+    },
+    {
+      "name": "Transaction.GetObject",
+      "kind": "api",
+      "description": "Opens a database object by ObjectId within a transaction and returns it as DBObject, which is then cast to the specific type. The object remains open until the transaction ends, and all objects are closed automatically on Commit or Dispose.",
+      "usage": "DBObject Transaction.GetObject(ObjectId id, OpenMode mode)\nDBObject Transaction.GetObject(ObjectId id, OpenMode mode, bool openErased, bool forceOpenOnLockedLayer)",
+      "parameters": [
+        {"name": "id", "description": "ObjectId of the object."},
+        {"name": "mode", "description": "OpenMode.ForRead, ForWrite or ForNotify."},
+        {"name": "openErased", "description": "true to open erased objects (e.g. to unerase)."},
+        {"name": "forceOpenOnLockedLayer", "description": "true to open entities on locked layers for write."}
+      ],
+      "example": "using (var tr = db.TransactionManager.StartTransaction()) {\n    var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\n    var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);\n    foreach (ObjectId id in ms) {\n        if (tr.GetObject(id, OpenMode.ForRead) is Circle c && c.Radius < 1.0) {\n            c.UpgradeOpen();\n            c.ColorIndex = 1;\n        }\n    }\n    tr.Commit();\n}",
+      "notes": "Open for read first and call UpgradeOpen() only on objects you change; opening everything for write is slower and fails on locked layers (eOnLockedLayer). Pattern matching (is Circle c) or 'as' casts avoid InvalidCastException when iterating mixed entities.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Transaction"
+    },
+    {
+      "name": "OpenMode",
+      "kind": "api",
+      "description": "Enumeration that states how a database object is opened: ForRead (many readers allowed), ForWrite (exclusive, required to modify) or ForNotify (used by reactors/overrules). DBObject.UpgradeOpen and DowngradeOpen switch between read and write on an open object.",
+      "usage": "OpenMode.ForRead | OpenMode.ForWrite | OpenMode.ForNotify",
+      "parameters": [
+        {"name": "ForRead", "description": "Read-only access; modifying throws eNotOpenForWrite."},
+        {"name": "ForWrite", "description": "Write access; fails for objects on locked layers unless forced."},
+        {"name": "ForNotify", "description": "Notification access used internally by reactors."}
+      ],
+      "example": "var ent = (Entity)tr.GetObject(id, OpenMode.ForRead);\nif (ent.Layer == \"TEMP\") { ent.UpgradeOpen(); ent.Erase(); }",
+      "notes": "Symbol tables (LayerTable, BlockTable) need ForWrite only when adding records: call UpgradeOpen just before Add.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_OpenMode"
+    },
+    {
+      "name": "Transaction.AddNewlyCreatedDBObject",
+      "kind": "api",
+      "description": "Registers a newly created object with the transaction after it has been added to the database (AppendEntity, SymbolTable.Add, DBDictionary.SetAt). The transaction then manages closing it, and aborting the transaction removes it again.",
+      "usage": "void Transaction.AddNewlyCreatedDBObject(DBObject obj, bool add)",
+      "parameters": [
+        {"name": "obj", "description": "The new object, already database-resident."},
+        {"name": "add", "description": "true to add to the transaction (normal case)."}
+      ],
+      "example": "var ms = (BlockTableRecord)tr.GetObject(SymbolUtilityServices.GetBlockModelSpaceId(db), OpenMode.ForWrite);\nvar c = new Circle(new Point3d(0, 0, 0), Vector3d.ZAxis, 5.0);\nms.AppendEntity(c);\ntr.AddNewlyCreatedDBObject(c, true);\ntr.Commit();",
+      "notes": "Forgetting this call leaves the new object open, producing eWasOpenForWrite errors or a crash on exit. Call it after AppendEntity/Add, not before.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Transaction"
+    },
+    {
+      "name": "Transaction.Commit",
+      "kind": "api",
+      "description": "Commits all changes made in the transaction and closes every object opened through it. Disposing a transaction without committing aborts it and rolls back all changes, which is the built-in error recovery of the pattern.",
+      "usage": "void Transaction.Commit()\nvoid Transaction.Abort()",
+      "parameters": [
+        {"name": "Abort()", "description": "Explicitly roll back; Dispose without Commit does the same."}
+      ],
+      "example": "using (var tr = db.TransactionManager.StartTransaction()) {\n    try { DoWork(tr); tr.Commit(); }\n    catch (Autodesk.AutoCAD.Runtime.Exception ex) {\n        ed.WriteMessage($\"\\nFailed: {ex.ErrorStatus}\"); // tr disposed -> rolled back\n    }\n}",
+      "notes": "Commit even read-only transactions: aborting is more expensive than committing. Nested transactions must be committed or aborted innermost first.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Transaction"
+    },
+    {
+      "name": "StartOpenCloseTransaction",
+      "kind": "api",
+      "description": "Starts an OpenCloseTransaction, a lightweight transaction that uses the classic open/close mechanism internally instead of the transaction manager. It is safe to use inside event handlers, overrules and jigs where a regular transaction could interfere with the one the command is running.",
+      "usage": "OpenCloseTransaction TransactionManager.StartOpenCloseTransaction()",
+      "parameters": [
+        {"name": "return value", "description": "An OpenCloseTransaction with the same GetObject/AddNewlyCreatedDBObject/Commit API."}
+      ],
+      "example": "void Db_ObjectAppended(object sender, ObjectEventArgs e) {\n    var db = (Database)sender;\n    using (var tr = db.TransactionManager.StartOpenCloseTransaction()) {\n        var ent = tr.GetObject(e.DBObject.ObjectId, OpenMode.ForRead) as Entity;\n        // inspect only; do not modify the notifying object here\n        tr.Commit();\n    }\n}",
+      "notes": "It does not support nesting semantics or undo-grouping like the regular transaction manager, but it is faster for many small read operations.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_OpenCloseTransaction"
+    },
+    {
+      "name": "BlockTableRecord.AppendEntity",
+      "kind": "api",
+      "description": "Adds a new entity to a block table record (model space, a paper-space layout or a block definition) and returns its ObjectId. The record must be open for write, and the entity must then be registered with the transaction.",
+      "usage": "ObjectId BlockTableRecord.AppendEntity(Entity entity)",
+      "parameters": [
+        {"name": "entity", "description": "A new, non-database-resident Entity."}
+      ],
+      "example": "var btr = (BlockTableRecord)tr.GetObject(db.CurrentSpaceId, OpenMode.ForWrite);\nvar txt = new DBText { Position = new Point3d(10, 10, 0), Height = 2.5, TextString = \"A-101\" };\ntxt.SetDatabaseDefaults();\nObjectId id = btr.AppendEntity(txt);\ntr.AddNewlyCreatedDBObject(txt, true);",
+      "notes": "db.CurrentSpaceId targets whatever space is active; SymbolUtilityServices.GetBlockModelSpaceId(db) always returns model space. Call SetDatabaseDefaults to pick up current layer, color and linetype.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_BlockTableRecord"
+    },
+    {
+      "name": "LayerTableRecord",
+      "kind": "api",
+      "description": "A layer definition in the LayerTable, with Name, Color, LinetypeObjectId, LineWeight, IsFrozen, IsOff, IsLocked, IsPlottable and Transparency. Layers are created by adding a new record to the LayerTable and modified by opening existing records for write.",
+      "usage": "var ltr = new LayerTableRecord { Name = \"E-POWER\", Color = Color.FromColorIndex(ColorMethod.ByAci, 1) };\nlayerTable.Add(ltr); tr.AddNewlyCreatedDBObject(ltr, true);",
+      "parameters": [
+        {"name": "Name", "description": "Layer name (validate with SymbolUtilityServices.ValidateSymbolName)."},
+        {"name": "IsFrozen / IsOff / IsLocked", "description": "Visibility and edit state; the current layer cannot be frozen."},
+        {"name": "LinetypeObjectId", "description": "ObjectId of a LinetypeTableRecord (must be loaded)."}
+      ],
+      "example": "var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);\nif (!lt.Has(\"E-POWER\")) {\n    lt.UpgradeOpen();\n    var ltr = new LayerTableRecord { Name = \"E-POWER\", Color = Color.FromColorIndex(ColorMethod.ByAci, 1) };\n    lt.Add(ltr);\n    tr.AddNewlyCreatedDBObject(ltr, true);\n}\ndb.Clayer = lt[\"E-POWER\"];",
+      "notes": "Changing IsFrozen on layers needs a Regen (ed.Regen()) to update the display. Viewport-specific freezing uses Viewport.FreezeLayersInViewport.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_LayerTableRecord"
+    },
+    {
+      "name": "SymbolTable.Has",
+      "kind": "api",
+      "description": "Tests whether a symbol table (LayerTable, BlockTable, TextStyleTable, LinetypeTable, DimStyleTable, RegAppTable, UcsTable, ViewTable) contains a record with a given name or ObjectId. The string indexer then returns the record's ObjectId.",
+      "usage": "bool SymbolTable.Has(string key)\nbool SymbolTable.Has(ObjectId id)\nObjectId SymbolTable[string key]",
+      "parameters": [
+        {"name": "key", "description": "Record name, case-insensitive."}
+      ],
+      "example": "var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\nObjectId blkId = bt.Has(\"TITLE_A1\") ? bt[\"TITLE_A1\"] : ImportBlock(db, \"TITLE_A1\");",
+      "notes": "Has returns true for erased records in some releases; check !id.IsErased when it matters. The indexer throws if the name is missing.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_SymbolTable"
+    },
+    {
+      "name": "Database.LoadLineTypeFile",
+      "kind": "api",
+      "description": "Loads one or more linetype definitions (wildcards allowed) from a .lin file into the database's LinetypeTable, so they can be assigned to layers or entities.",
+      "usage": "void Database.LoadLineTypeFile(string linetypeName, string filename)",
+      "parameters": [
+        {"name": "linetypeName", "description": "Linetype name or wildcard pattern, e.g. \"DASHED\" or \"*\"."},
+        {"name": "filename", "description": "\"acad.lin\", \"acadiso.lin\" or a full path; found on the support path."}
+      ],
+      "example": "var ltt = (LinetypeTable)tr.GetObject(db.LinetypeTableId, OpenMode.ForRead);\nif (!ltt.Has(\"HIDDEN\")) db.LoadLineTypeFile(\"HIDDEN\", \"acadiso.lin\");\nltr.LinetypeObjectId = ltt[\"HIDDEN\"];",
+      "notes": "Loading a linetype that already exists throws eDuplicateRecordName; check Has first. Linetypes referencing shapes need the corresponding .shx on the support path.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Database"
+    },
+    {
+      "name": "ObjectId",
+      "kind": "api",
+      "description": "Session-level identifier of a database-resident object, used to open objects in transactions and to link objects. Its ObjectClass property exposes the runtime class without opening the object, which enables very fast type filtering over large collections.",
+      "usage": "ObjectId id;  id.IsNull  id.IsErased  id.IsValid  id.ObjectClass  id.Database  id.Handle",
+      "parameters": [
+        {"name": "ObjectClass", "description": "RXClass; compare DxfName or use IsDerivedFrom(RXObject.GetClass(typeof(Curve)))."},
+        {"name": "IsNull / IsErased", "description": "Validity checks before opening."},
+        {"name": "Handle", "description": "The persistent Handle of the object."}
+      ],
+      "example": "var lineClass = RXObject.GetClass(typeof(Line));\nforeach (ObjectId id in ms)\n    if (id.ObjectClass == lineClass) count++;   // no GetObject needed",
+      "notes": "ObjectIds change between sessions; store Handles (or use the object's persistent reference) when you need identity across saves.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_ObjectId"
+    },
+    {
+      "name": "Handle",
+      "kind": "api",
+      "description": "The persistent hexadecimal identifier of an object (DXF group code 5), stable across save and reopen. Database.GetObjectId or TryGetObjectId converts a handle back to an ObjectId in the current session.",
+      "usage": "Handle h = new Handle(Convert.ToInt64(\"2A7F\", 16));\nObjectId id = db.GetObjectId(false, h, 0);\nbool ok = db.TryGetObjectId(h, out ObjectId id2);",
+      "parameters": [
+        {"name": "createIfNotFound", "description": "GetObjectId first argument; normally false."},
+        {"name": "identifier", "description": "Reserved; pass 0."}
+      ],
+      "example": "string hs = ent.Handle.ToString();       // e.g. \"2A7F\" stored in a spreadsheet\n// later session:\nvar h = new Handle(Convert.ToInt64(hs, 16));\nif (db.TryGetObjectId(h, out ObjectId id) && !id.IsErased) { /* open id */ }",
+      "notes": "Handles are unique only within one drawing; copying objects to another drawing assigns new handles.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Handle"
+    },
+    {
+      "name": "DBObject.XData",
+      "kind": "api",
+      "description": "Gets or sets the extended entity data (XData) of an object as a ResultBuffer. Each application's data starts with a 1001 registered-application name that must exist in the RegAppTable. GetXDataForApplication reads one application's block.",
+      "usage": "ResultBuffer DBObject.XData { get; set; }\nResultBuffer DBObject.GetXDataForApplication(string regAppName)",
+      "parameters": [
+        {"name": "1001", "description": "Registered application name (DxfCode.ExtendedDataRegAppName)."},
+        {"name": "1000 / 1040 / 1070 / 1071", "description": "String, real, 16-bit integer and 32-bit integer values."},
+        {"name": "1005", "description": "Database handle that is translated on copy (soft pointer)."}
+      ],
+      "example": "var rat = (RegAppTable)tr.GetObject(db.RegAppTableId, OpenMode.ForRead);\nif (!rat.Has(\"ACME\")) { rat.UpgradeOpen(); var r = new RegAppTableRecord { Name = \"ACME\" }; rat.Add(r); tr.AddNewlyCreatedDBObject(r, true); }\nent.UpgradeOpen();\nent.XData = new ResultBuffer(\n    new TypedValue((int)DxfCode.ExtendedDataRegAppName, \"ACME\"),\n    new TypedValue((int)DxfCode.ExtendedDataAsciiString, \"PUMP-07\"),\n    new TypedValue((int)DxfCode.ExtendedDataReal, 3.2));",
+      "notes": "Setting XData for one application leaves other applications' XData untouched. Total XData per object is limited to about 16 KB; store larger data in an extension dictionary Xrecord.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_DBObject"
+    },
+    {
+      "name": "Xrecord",
+      "kind": "api",
+      "description": "A non-graphical object that stores arbitrary data as a ResultBuffer (Data property) inside a DBDictionary, either the named objects dictionary or an object's extension dictionary. Xrecords have no size limit comparable to XData and are the preferred way to store application data in drawings.",
+      "usage": "var xr = new Xrecord { Data = new ResultBuffer(...) };\ndict.SetAt(\"KEY\", xr); tr.AddNewlyCreatedDBObject(xr, true);",
+      "parameters": [
+        {"name": "Data", "description": "ResultBuffer using ordinary DXF codes (1-369, not 1000+ XData codes)."},
+        {"name": "XlateReferences", "description": "Whether handle references in the data are translated on deep clone."}
+      ],
+      "example": "var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForWrite);\nvar xr = new Xrecord { Data = new ResultBuffer(\n    new TypedValue((int)DxfCode.Text, \"Project 2026-017\"),\n    new TypedValue((int)DxfCode.Real, 50.0)) };\nnod.SetAt(\"ACME_SETTINGS\", xr);\ntr.AddNewlyCreatedDBObject(xr, true);",
+      "notes": "Readable from AutoLISP with dictsearch/entget, so data can be shared between LISP and .NET.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Xrecord"
+    },
+    {
+      "name": "DBDictionary",
+      "kind": "api",
+      "description": "A container object mapping string keys to ObjectIds of other objects (Xrecords, nested dictionaries, layouts, groups, styles). It is enumerable as DBDictionaryEntry (Key, Value) pairs and provides Contains, GetAt, SetAt and Remove.",
+      "usage": "bool Contains(string key)  ObjectId GetAt(string key)  ObjectId SetAt(string key, DBObject obj)  void Remove(string key)",
+      "parameters": [
+        {"name": "key", "description": "Entry name (case-insensitive, unique within the dictionary)."},
+        {"name": "obj", "description": "New object to add; must then be added to the transaction."}
+      ],
+      "example": "var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);\nforeach (DBDictionaryEntry e in nod)\n    ed.WriteMessage($\"\\n{e.Key}\");\nif (nod.Contains(\"ACAD_GROUP\")) {\n    var groups = (DBDictionary)tr.GetObject(nod.GetAt(\"ACAD_GROUP\"), OpenMode.ForRead);\n}",
+      "notes": "Built-in dictionaries in the NOD include ACAD_GROUP, ACAD_LAYOUT, ACAD_MLINESTYLE, ACAD_MLEADERSTYLE, ACAD_TABLESTYLE, ACAD_PLOTSETTINGS, ACAD_MATERIAL and ACAD_VISUALSTYLE.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_DBDictionary"
+    },
+    {
+      "name": "Database.NamedObjectsDictionaryId",
+      "kind": "api",
+      "description": "ObjectId of the drawing's named objects dictionary (NOD), the root dictionary for drawing-wide non-graphical data such as groups, layouts, styles and application-defined Xrecords.",
+      "usage": "ObjectId Database.NamedObjectsDictionaryId { get; }",
+      "parameters": [
+        {"name": "return value", "description": "Open it as DBDictionary; ForWrite to add entries."}
+      ],
+      "example": "var nod = (DBDictionary)tr.GetObject(db.NamedObjectsDictionaryId, OpenMode.ForRead);\nbool hasMyData = nod.Contains(\"ACME_SETTINGS\");",
+      "notes": "Prefix your own keys with a registered developer symbol to avoid collisions with other applications. The AutoLISP equivalent is (namedobjdict).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Database"
+    },
+    {
+      "name": "DBObject.CreateExtensionDictionary",
+      "kind": "api",
+      "description": "Creates an extension dictionary owned by an object, after which the ExtensionDictionary property returns its ObjectId. Extension dictionaries hold per-object Xrecords and are copied and erased along with the owner.",
+      "usage": "void DBObject.CreateExtensionDictionary()\nObjectId DBObject.ExtensionDictionary { get; }",
+      "parameters": [
+        {"name": "ExtensionDictionary", "description": "ObjectId.Null when no extension dictionary exists yet."}
+      ],
+      "example": "ent.UpgradeOpen();\nif (ent.ExtensionDictionary.IsNull) ent.CreateExtensionDictionary();\nvar xd = (DBDictionary)tr.GetObject(ent.ExtensionDictionary, OpenMode.ForWrite);\nvar xr = new Xrecord { Data = new ResultBuffer(new TypedValue(1, \"inspected 2026-09\")) };\nxd.SetAt(\"QA\", xr);\ntr.AddNewlyCreatedDBObject(xr, true);",
+      "notes": "Empty extension dictionaries add overhead; ReleaseExtensionDictionary removes one that is no longer needed.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_DBObject"
+    },
+    {
+      "name": "IExtensionApplication",
+      "kind": "api",
+      "description": "Interface implemented by one class in a .NET plug-in to receive Initialize when the assembly is loaded (NETLOAD or autoloader) and Terminate when AutoCAD shuts down. Used to register event handlers, create UI such as ribbon tabs and palettes, and load settings.",
+      "usage": "[assembly: ExtensionApplication(typeof(MyPlugin.App))]\npublic class App : IExtensionApplication { public void Initialize() {...} public void Terminate() {...} }",
+      "parameters": [
+        {"name": "Initialize()", "description": "Called once on load; keep it fast and exception-safe."},
+        {"name": "Terminate()", "description": "Called on AutoCAD shutdown only; .NET assemblies cannot be unloaded."},
+        {"name": "[assembly: CommandClass]", "description": "Companion attribute naming the classes that contain [CommandMethod]s, which speeds loading."}
+      ],
+      "example": "[assembly: ExtensionApplication(typeof(Acme.App))]\n[assembly: CommandClass(typeof(Acme.Commands))]\nnamespace Acme {\n  public class App : IExtensionApplication {\n    public void Initialize() {\n      Application.DocumentManager.DocumentCreated += (s, e) => { /* per-doc setup */ };\n    }\n    public void Terminate() { }\n  }\n}",
+      "notes": "Exceptions thrown in Initialize are swallowed or shown as load errors; wrap the body in try/catch and log. Ribbon creation should wait for the ribbon to exist (ComponentManager.ItemInitialized).",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_Runtime_IExtensionApplication"
+    },
+    {
+      "name": "CommandFlags",
+      "kind": "api",
+      "description": "Flags passed to [CommandMethod] that control how a .NET command runs: modal or transparent, whether it uses the pickfirst set, whether it runs in session context, where it is allowed, and undo behaviour.",
+      "usage": "[CommandMethod(\"GROUP\", \"GLOBALNAME\", \"LOCALNAME\", CommandFlags.Modal | CommandFlags.UsePickSet)]",
+      "parameters": [
+        {"name": "Modal / Transparent", "description": "Modal (default) cannot run inside another command; Transparent can (prefix ' when invoked)."},
+        {"name": "UsePickSet / Redraw", "description": "Access the pickfirst set; keep grips/selection after the command."},
+        {"name": "Session", "description": "Run in application context, required for switching or opening documents."},
+        {"name": "NoPaperSpace / NoTileMode / NoBlockEditor / NoUndoMarker / NoHistory", "description": "Restrictions on where the command may run and how it is recorded."}
+      ],
+      "example": "[CommandMethod(\"ACME\", \"RENUM\", \"RENUM\", CommandFlags.Modal | CommandFlags.UsePickSet | CommandFlags.NoBlockEditor)]\npublic void Renumber() { /* ... */ }",
+      "notes": "Session commands must lock documents themselves (Document.LockDocument) before modifying them.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_Runtime_CommandFlags"
+    },
+    {
+      "name": "PackageContents.xml",
+      "kind": "format",
+      "description": "The manifest of an Autodesk application bundle (a folder named *.bundle) used by the AutoCAD autoloader to load .NET assemblies, ObjectARX modules, LISP files and partial CUIx files automatically, per AutoCAD version, without NETLOAD or acad.lsp edits.",
+      "usage": "%APPDATA%\\Autodesk\\ApplicationPlugins\\Acme.bundle\\PackageContents.xml\n%PROGRAMDATA%\\Autodesk\\ApplicationPlugins\\  or  %PROGRAMFILES%\\Autodesk\\ApplicationPlugins\\",
+      "parameters": [
+        {"name": "ApplicationPackage", "description": "Root element: SchemaVersion, AutodeskProduct=\"AutoCAD\", Name, AppVersion, ProductCode (GUID)."},
+        {"name": "Components / RuntimeRequirements", "description": "OS=\"Win64\", Platform=\"AutoCAD*\", SeriesMin/SeriesMax such as R25.0 (2025) and R25.1 (2026); set SeriesMax for .NET 8 vs .NET Framework builds."},
+        {"name": "ComponentEntry", "description": "AppName, ModuleName=\"./Contents/Acme.dll\" (.dll, .arx/.dbx, .lsp/.fas/.vlx or .cuix module), LoadOnAutoCADStartup or LoadOnCommandInvocation with a Commands list."}
+      ],
+      "example": "<ApplicationPackage SchemaVersion=\"1.0\" AutodeskProduct=\"AutoCAD\" Name=\"Acme Tools\" AppVersion=\"1.2.0\" ProductCode=\"{8C2A...}\">\n  <Components>\n    <RuntimeRequirements OS=\"Win64\" Platform=\"AutoCAD*\" SeriesMin=\"R25.0\" SeriesMax=\"R25.1\" />\n    <ComponentEntry AppName=\"AcmeTools\" ModuleName=\"./Contents/2025/Acme.dll\" LoadOnAutoCADStartup=\"True\" />\n  </Components>\n</ApplicationPackage>",
+      "notes": "APPAUTOLOAD controls when bundles load; trusted locations and SECURELOAD still apply. AutoCAD 2025 switched to .NET 8, so ship separate assemblies for 2024-and-earlier and bound them with SeriesMin/SeriesMax.",
+      "docs": "https://help.autodesk.com/view/ACD/2025/ENU/?guid=GUID-BC76355D-682B-46ED-B9B7-66C95EEF2BD0"
+    },
+    {
+      "name": "Database.ReadDwgFile",
+      "kind": "api",
+      "description": "Reads a DWG file into a side database that is not open in the editor, the fastest way to query or modify many drawings (batch attribute extraction, block import, title-block updates) without the overhead of opening documents.",
+      "usage": "var sideDb = new Database(false, true);\nsideDb.ReadDwgFile(string fileName, FileOpenMode mode, bool allowCPConversion, string password);",
+      "parameters": [
+        {"name": "new Database(false, true)", "description": "buildDefaultDrawing = false, noDocument = true: required for reading an existing file."},
+        {"name": "mode", "description": "FileOpenMode.OpenForReadAndAllShare, OpenForReadAndWriteNoShare, OpenForReadAndReadShare, OpenTryForReadShare."},
+        {"name": "allowCPConversion", "description": "Allow code-page conversion for legacy drawings."}
+      ],
+      "example": "foreach (var f in Directory.GetFiles(@\"C:\\Proj\\Sheets\", \"*.dwg\"))\nusing (var sdb = new Database(false, true)) {\n    sdb.ReadDwgFile(f, FileOpenMode.OpenForReadAndAllShare, true, \"\");\n    sdb.CloseInput(true);\n    using (var tr = sdb.TransactionManager.StartTransaction()) {\n        // read block references, attributes ...\n        tr.Commit();\n    }\n}",
+      "notes": "Some operations (text alignment, attribute AdjustAlignment, certain regens) need HostApplicationServices.WorkingDatabase temporarily set to the side database. Cannot read a file that is open for write by another user when a write mode is requested.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Database"
+    },
+    {
+      "name": "Database.SaveAs",
+      "kind": "api",
+      "description": "Saves a database (side database or a document's database) to a DWG file in a chosen format version. DxfOut writes DXF. Used in batch processing and for down-saving to older releases.",
+      "usage": "void Database.SaveAs(string fileName, DwgVersion version)\nvoid Database.SaveAs(string fileName, bool bBakAndRename, DwgVersion version, SecurityParameters security)\nvoid Database.DxfOut(string fileName, int precision, DwgVersion version)",
+      "parameters": [
+        {"name": "version", "description": "DwgVersion.Current, AC1032 (2018), AC1027 (2013), AC1024 (2010), AC1021 (2007), AC1800 (2004), AC1015 (2000) ..."},
+        {"name": "bBakAndRename", "description": "Create a .bak of the existing file first."},
+        {"name": "precision", "description": "DxfOut decimal places (0-16)."}
+      ],
+      "example": "sdb.SaveAs(f, DwgVersion.Current);                        // save side db in place\nsdb.SaveAs(@\"C:\\Out\\plan_2013.dwg\", DwgVersion.AC1027);    // down-save\nsdb.DxfOut(@\"C:\\Out\\plan.dxf\", 16, DwgVersion.Current);",
+      "notes": "Saving the active document's database with SaveAs does not rename the document in the editor; use the document-level save commands for that. Enum names follow internal version codes rather than release years.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Database"
+    },
+    {
+      "name": "Database.WblockCloneObjects",
+      "kind": "api",
+      "description": "Copies objects from one database to another, with all their dependencies (layers, linetypes, styles, nested blocks). It is the standard way to import block definitions, layers or styles from a library drawing into the current drawing.",
+      "usage": "void Database.WblockCloneObjects(ObjectIdCollection ids, ObjectId ownerId, IdMapping mapping, DuplicateRecordCloning cloning, bool deferTranslation)",
+      "parameters": [
+        {"name": "ids", "description": "Objects in the source database to copy."},
+        {"name": "ownerId", "description": "Owner in the destination, e.g. destination BlockTableId for block definitions."},
+        {"name": "cloning", "description": "DuplicateRecordCloning.Ignore (keep existing), Replace (redefine), MangleName."}
+      ],
+      "example": "using (var lib = new Database(false, true)) {\n    lib.ReadDwgFile(@\"C:\\CAD\\blocks.dwg\", FileOpenMode.OpenForReadAndAllShare, true, \"\");\n    ObjectId srcId;\n    using (var tr = lib.TransactionManager.StartTransaction()) {\n        srcId = ((BlockTable)tr.GetObject(lib.BlockTableId, OpenMode.ForRead))[\"VALVE\"];\n        tr.Commit();\n    }\n    var map = new IdMapping();\n    lib.WblockCloneObjects(new ObjectIdCollection { srcId }, db.BlockTableId, map, DuplicateRecordCloning.Replace, false);\n}",
+      "notes": "Call it outside any open transaction on the destination objects involved, or at least with the owner closed. The IdMapping maps source ids to new ids afterwards.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_Database"
+    },
+    {
+      "name": "HostApplicationServices.WorkingDatabase",
+      "kind": "api",
+      "description": "Static property holding the database that AutoCAD treats as current for operations that implicitly use 'the' database, such as SetDatabaseDefaults, text alignment and some entity constructors. Normally the active document's database; temporarily switched when working on side databases.",
+      "usage": "Database HostApplicationServices.WorkingDatabase { get; set; }",
+      "parameters": [
+        {"name": "set", "description": "Assign a side database temporarily; always restore the previous value in finally."}
+      ],
+      "example": "var prev = HostApplicationServices.WorkingDatabase;\ntry {\n    HostApplicationServices.WorkingDatabase = sideDb;\n    attRef.AdjustAlignment(sideDb);\n} finally {\n    HostApplicationServices.WorkingDatabase = prev;\n}",
+      "notes": "In accoreconsole and Design Automation this is the drawing loaded with /i. Leaving a side database as working database after it is disposed crashes AutoCAD.",
+      "docs": "https://help.autodesk.com/view/OARX/2025/ENU/?guid=OARX-ManagedRefGuide-Autodesk_AutoCAD_DatabaseServices_HostApplicationServices"
+    }
+  ]
+}

@@ -1,0 +1,396 @@
+{
+  "category": "Subsystems, user-defined functions & model architecture",
+  "description": "Blocks and APIs that impose structure on a Simulink model: subsystems that group blocks, conditionally executed subsystems driven by enable, trigger, function-call, if and switch-case control, iterator and For Each subsystems, and the reuse mechanisms (referenced models, referenced subsystems, variants, masks). It also covers the user-defined function blocks that embed MATLAB code, System objects, Simulink functions and external C into a diagram.",
+  "tools": [
+    {
+      "name": "Subsystem",
+      "kind": "block",
+      "description": "Groups a set of blocks into a single block, creating one level of model hierarchy. By default a Subsystem is virtual: it is flattened at compile time and exists only for readability. Setting Treat as atomic unit makes it a real execution unit that runs as a single indivisible step, which is what enables sample-time specification, code reuse as a function, and most conditional-execution options. Use subsystems to name and encapsulate a function of the design, and make them atomic when you need deterministic execution order or reusable generated code.",
+      "usage": "Simulink > Ports & Subsystems > Subsystem  |  add_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Ctrl'])",
+      "parameters": [
+        {"name": "TreatAsAtomicUnit", "description": "'on' | 'off'. 'on' makes the subsystem atomic so it executes as a unit and can have its own sample time and code-generation function."},
+        {"name": "SystemSampleTime", "description": "Sample time of an atomic subsystem; '-1' inherits from the contained blocks."},
+        {"name": "RTWSystemCode", "description": "Code-generation packaging: 'Auto', 'Inline', 'Nonreusable function' or 'Reusable function'. Requires Simulink Coder."},
+        {"name": "RTWFcnNameOpts", "description": "'Auto', 'Use subsystem name' or 'User specified' - how the generated function is named."},
+        {"name": "RTWFcnName", "description": "Explicit generated function name when RTWFcnNameOpts is 'User specified'."},
+        {"name": "ReferencedSubsystem", "description": "File name of a subsystem file, which turns the block into a Subsystem Reference."},
+        {"name": "ShowPortLabels", "description": "'FromPortIcon', 'FromPortBlockName', 'SignalName' or 'none'."},
+        {"name": "Permissions", "description": "'ReadWrite', 'ReadOnly' or 'NoReadOrWrite' - protects the contents from editing or viewing."},
+        {"name": "PermitHierarchicalResolution", "description": "'All', 'ExplicitOnly' or 'None' - how variable names inside resolve against parent workspaces."}
+      ],
+      "example": "mdl = 'archDemo';\nnew_system(mdl); open_system(mdl);\nadd_block('simulink/Ports & Subsystems/Subsystem', [mdl '/Ctrl']);\nset_param([mdl '/Ctrl'], 'TreatAsAtomicUnit', 'on', ...\n    'SystemSampleTime', '0.01', 'RTWSystemCode', 'Reusable function');\n% a new Subsystem is pre-populated with In1 -> Out1; add blocks inside it\nadd_block('simulink/Math Operations/Gain', [mdl '/Ctrl/K']);\nset_param([mdl '/Ctrl/K'], 'Gain', '2.5');",
+      "notes": "An Atomic Subsystem ('simulink/Ports & Subsystems/Atomic Subsystem') is the same block with TreatAsAtomicUnit preset to 'on'. Making a subsystem atomic can introduce algebraic loops where a virtual one had none. Use Simulink.BlockDiagram.createSubsystem to wrap existing blocks, and Simulink.SubSystem.convertToModelReference to promote one to a referenced model.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/subsystem.html"
+    },
+    {
+      "name": "Enabled Subsystem",
+      "kind": "block",
+      "description": "A subsystem that executes only while the signal feeding its Enable port is positive, and holds or resets its outputs and states otherwise. It is the block-diagram equivalent of running a piece of an algorithm only under a condition that persists over time, such as a controller that runs only when a system is armed. The Enable block inside decides whether states are held or reset when the subsystem is re-enabled.",
+      "usage": "Simulink > Ports & Subsystems > Enabled Subsystem  |  add_block('simulink/Ports & Subsystems/Enabled Subsystem', [mdl '/EnaSub'])",
+      "parameters": [
+        {"name": "StatesWhenEnabling", "description": "On the contained Enable block: 'held' keeps the states from the last execution, 'reset' returns them to their initial values."},
+        {"name": "ShowOutputPort", "description": "On the Enable block: 'on' exposes the enable value as a signal inside the subsystem."},
+        {"name": "ZeroCross", "description": "On the Enable block: 'on' | 'off'. Zero-crossing detection so a variable-step solver lands exactly on the enable transition."},
+        {"name": "PropagateVarSize", "description": "On the Enable block: when variable-size signals may change dimensions - 'Only when enabling' or 'During execution'."},
+        {"name": "OutputWhenDisabled", "description": "On each contained Out1 block: 'held' or 'reset' - what the port emits while the subsystem is disabled."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Enabled Subsystem', [mdl '/EnaSub']);\nset_param([mdl '/EnaSub/Enable'], 'StatesWhenEnabling', 'reset', 'ShowOutputPort', 'on');\nset_param([mdl '/EnaSub/Out1'], 'OutputWhenDisabled', 'held', 'InitialOutput', '0');",
+      "notes": "An Enable port can be added to any subsystem by dropping 'simulink/Ports & Subsystems/Enable' inside it; the preconfigured block is just a convenience. Combine with Merge when several mutually exclusive enabled subsystems drive one signal. An Enabled and Triggered Subsystem requires both conditions to be satisfied at the same step.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/enabledsubsystem.html"
+    },
+    {
+      "name": "Triggered Subsystem",
+      "kind": "block",
+      "description": "A subsystem that executes exactly once each time the signal at its Trigger port produces a qualifying edge - rising, falling or either. Between triggers its outputs hold their last values. Use it for event-driven logic such as sampling on a hardware interrupt, latching a value on a button press, or running a computation once per detected zero crossing. A triggered subsystem inherits a triggered sample time, so it cannot contain continuous-time blocks.",
+      "usage": "Simulink > Ports & Subsystems > Triggered Subsystem  |  add_block('simulink/Ports & Subsystems/Triggered Subsystem', [mdl '/TrigSub'])",
+      "parameters": [
+        {"name": "TriggerType", "description": "On the contained Trigger block: 'rising', 'falling', 'either', 'function-call' or 'message'."},
+        {"name": "ShowOutputPort", "description": "On the Trigger block: 'on' exposes the trigger value (1, -1 or 0) as a signal inside the subsystem."},
+        {"name": "OutputDataType", "description": "On the Trigger block: data type of that trigger-value output, for example 'auto' or 'int8'."},
+        {"name": "ZeroCross", "description": "On the Trigger block: 'on' | 'off' for zero-crossing detection on the trigger signal."},
+        {"name": "StatesWhenEnabling", "description": "On a function-call Trigger block: 'held', 'reset' or 'inherit' behaviour for contained states."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Triggered Subsystem', [mdl '/TrigSub']);\nset_param([mdl '/TrigSub/Trigger'], 'TriggerType', 'rising', 'ShowOutputPort', 'on');",
+      "notes": "Blocks inside a triggered subsystem must all support an inherited (triggered) sample time - Integrator and other continuous blocks are rejected. Use Unit Delay or Memory inside to build latches. For a subsystem that must be both armed and edge-driven use Enabled and Triggered Subsystem.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/triggeredsubsystem.html"
+    },
+    {
+      "name": "Function-Call Subsystem",
+      "kind": "block",
+      "description": "A subsystem executed on demand when another block issues a function-call event on its control port - typically a Stateflow chart, a Function-Call Generator, an S-Function or an interrupt-service block. Unlike a triggered subsystem it can be called several times within a single time step and the caller controls the exact execution point. Use it to model interrupt handlers, scheduler-driven tasks and export-function components where the calling environment owns the timing.",
+      "usage": "Simulink > Ports & Subsystems > Function-Call Subsystem  |  add_block('simulink/Ports & Subsystems/Function-Call Subsystem', [mdl '/FcnSub'])",
+      "parameters": [
+        {"name": "TriggerType", "description": "On the contained Trigger block: set to 'function-call' for this subsystem type."},
+        {"name": "StatesWhenEnabling", "description": "On the Trigger block: 'held', 'reset' or 'inherit' - what happens to contained states between calls."},
+        {"name": "SampleTimeType", "description": "On the Trigger block: 'triggered' (executes only when called) or 'periodic' (the caller guarantees a fixed period, which allows continuous states and discrete rates inside)."},
+        {"name": "TreatAsAtomicUnit", "description": "Always 'on' for a function-call subsystem; it executes as an indivisible unit."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Function-Call Subsystem', [mdl '/FcnSub']);\nset_param([mdl '/FcnSub/Trigger'], 'TriggerType', 'function-call', ...\n    'SampleTimeType', 'periodic', 'StatesWhenEnabling', 'held');\nadd_block('simulink/Ports & Subsystems/Function-Call Generator', [mdl '/FCG']);\nset_param([mdl '/FCG'], 'sample_time', '0.01');\nadd_line(mdl, 'FCG/1', 'FcnSub/1', 'autorouting', 'on');",
+      "notes": "Use the Function-Call Generator block to drive one periodically, and Function-Call Split ('simulink/Ports & Subsystems/Function-Call Split') to fan one call signal out to several subsystems with a defined execution order. A function-call subsystem whose SampleTimeType is 'triggered' cannot contain continuous-time blocks. Export-function models are built entirely from function-call subsystems at the root level.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/function-callsubsystem.html"
+    },
+    {
+      "name": "Resettable Subsystem",
+      "kind": "block",
+      "description": "A subsystem that runs on every time step like an ordinary atomic subsystem, but whose internal states are reset to their initial values whenever the signal at its Reset port produces a qualifying edge. It separates the notions of 'execute' and 'reinitialise', which an Enabled Subsystem conflates. Use it for integrators, counters and filters that must be zeroed on a mode change or fault recovery without pausing the rest of the computation.",
+      "usage": "Simulink > Ports & Subsystems > Resettable Subsystem  |  add_block('simulink/Ports & Subsystems/Resettable Subsystem', [mdl '/RstSub'])",
+      "parameters": [
+        {"name": "ResetTriggerType", "description": "On the contained Reset block: 'rising', 'falling', 'either' or 'level hold' - the edge that causes the reset."},
+        {"name": "PropagateVarSize", "description": "On the Reset block: when variable-size signals may change dimensions."},
+        {"name": "ZeroCross", "description": "On the Reset block: 'on' | 'off' for zero-crossing detection on the reset signal."},
+        {"name": "TreatAsAtomicUnit", "description": "Always 'on' - a resettable subsystem is atomic by construction."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Resettable Subsystem', [mdl '/RstSub']);\nset_param([mdl '/RstSub/Reset'], 'ResetTriggerType', 'rising', 'ZeroCross', 'on');",
+      "notes": "A Reset port can be added to any subsystem by placing 'simulink/Ports & Subsystems/Reset' inside it. Only blocks with resettable states are affected; blocks that hold no state are unchanged. For finer-grained reinitialisation of individual states use an Initialize/Reset/Terminate Function block with a State Writer.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/resettablesubsystem.html"
+    },
+    {
+      "name": "If",
+      "kind": "block",
+      "description": "Evaluates an if / elseif / else chain over its inputs and emits an action signal on exactly one output port. The conditions are written as MATLAB-style expressions in terms of u1, u2, ... referring to the block's input ports. It does not compute anything itself - each output must drive an If Action Subsystem that holds the branch body. Use it when only one branch of a computation should actually execute, unlike a Switch where every branch runs.",
+      "usage": "Simulink > Ports & Subsystems > If  |  add_block('simulink/Ports & Subsystems/If', [mdl '/If'])",
+      "parameters": [
+        {"name": "NumInputs", "description": "Number of input ports available to the condition expressions as u1, u2, ..."},
+        {"name": "IfExpression", "description": "The if condition, for example 'u1 > 0'."},
+        {"name": "ElseIfExpressions", "description": "Comma-separated list of elseif conditions, for example 'u1 < -1, u2 == 0'. Each adds one output port."},
+        {"name": "ShowElse", "description": "'on' | 'off'. Adds a final else output port that fires when no condition matched."},
+        {"name": "ZeroCross", "description": "'on' | 'off'. Zero-crossing detection on the condition transitions."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/If', [mdl '/If']);\nset_param([mdl '/If'], 'NumInputs', '2', ...\n    'IfExpression', 'u1 > 0', ...\n    'ElseIfExpressions', 'u1 < 0', 'ShowElse', 'on');",
+      "notes": "Condition expressions may only use the input ports, comparison and logical operators and constants - no workspace variables and no function calls. Merge the outputs of the driven If Action Subsystems with a Merge block. For dispatch on an integer value use the Switch Case block instead.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/if.html"
+    },
+    {
+      "name": "If Action Subsystem",
+      "kind": "block",
+      "description": "A subsystem whose execution is controlled by an Action port driven from one output of an If block, so it runs only when that branch is selected. It is a preconfigured Subsystem containing an Action Port block plus In1/Out1. Use one per branch of an if/elseif/else structure, and feed their outputs into a Merge block so downstream logic sees a single continuously defined signal.",
+      "usage": "Simulink > Ports & Subsystems > If Action Subsystem  |  add_block('simulink/Ports & Subsystems/If Action Subsystem', [mdl '/ThenBranch'])",
+      "parameters": [
+        {"name": "InitializeStates", "description": "On the contained Action Port block: 'held', 'reset' or 'inherit' - what happens to contained states when the branch is not selected."},
+        {"name": "PropagateVarSize", "description": "On the Action Port block: how variable-size signals are propagated."},
+        {"name": "OutputWhenDisabled", "description": "On each contained Out1 block: 'held' or 'reset' - the value emitted while this branch is not active."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/If Action Subsystem', [mdl '/ThenBranch']);\nadd_block('simulink/Ports & Subsystems/If Action Subsystem', [mdl '/ElseBranch']);\nadd_line(mdl, 'If/1', 'ThenBranch/1', 'autorouting', 'on');   % action port\nadd_line(mdl, 'If/2', 'ElseBranch/1', 'autorouting', 'on');\nset_param([mdl '/ThenBranch/Action Port'], 'InitializeStates', 'held');",
+      "notes": "The first input port of an Action Subsystem is the action (control) port, so ordinary data inports start at index 2 when wiring with add_line. Switch Case Action Subsystem is the equivalent block for Switch Case branches - the two are interchangeable in structure but must be driven from the matching controller.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/ifactionsubsystem.html"
+    },
+    {
+      "name": "Switch Case",
+      "kind": "block",
+      "description": "Dispatches to one of several action outputs based on an integer-valued input, the diagram form of a C switch statement. Each case is a value or a list of values in braces, and an optional default port handles anything unmatched. Use it for mode logic and state dispatch where the number of branches makes an If chain unwieldy; each output drives a Switch Case Action Subsystem holding that branch's body.",
+      "usage": "Simulink > Ports & Subsystems > Switch Case  |  add_block('simulink/Ports & Subsystems/Switch Case', [mdl '/Case'])",
+      "parameters": [
+        {"name": "CaseConditions", "description": "Cell array of case values, for example '{1, [2 3], 4}'. Each entry creates one output port and may list several values."},
+        {"name": "ShowDefaultCase", "description": "'on' | 'off'. Adds a default output port used when no case matches."},
+        {"name": "ZeroCross", "description": "'on' | 'off'. Zero-crossing detection on the case-selection input."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Switch Case', [mdl '/Case']);\nset_param([mdl '/Case'], 'CaseConditions', '{1, [2 3], 4}', 'ShowDefaultCase', 'on');\nadd_block('simulink/Ports & Subsystems/Switch Case Action Subsystem', [mdl '/Mode1']);\nadd_line(mdl, 'Case/1', 'Mode1/1', 'autorouting', 'on');",
+      "notes": "The control input is truncated to an integer, so a floating-point mode signal should be converted deliberately with a Data Type Conversion block first. Without a default port an unmatched value simply runs no branch, leaving the merged output at its held value - usually you want ShowDefaultCase 'on'.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/switchcase.html"
+    },
+    {
+      "name": "For Iterator Subsystem",
+      "kind": "block",
+      "description": "Repeats its contents a fixed or signal-determined number of times within a single simulation time step, like a C for loop. The contained For Iterator block sets the iteration count, exposes the current index, and decides whether internal states persist between time steps. Use it for sequential algorithms that must run to completion inside one step, such as iterative solvers, search loops or per-element processing of a vector with feedback between elements.",
+      "usage": "Simulink > Ports & Subsystems > For Iterator Subsystem  |  add_block('simulink/Ports & Subsystems/For Iterator Subsystem', [mdl '/ForSub'])",
+      "parameters": [
+        {"name": "IterationSource", "description": "On the contained For Iterator block: 'internal' (count from the dialog) or 'external' (count supplied on an input port)."},
+        {"name": "IterationLimit", "description": "Number of iterations when IterationSource is 'internal'."},
+        {"name": "ResetStates", "description": "'held' or 'reset' - whether internal states persist from one time step to the next."},
+        {"name": "ShowIterationPort", "description": "'on' | 'off'. Outputs the current iteration index for use inside the loop."},
+        {"name": "IndexMode", "description": "'Zero-based' or 'One-based' iteration index."},
+        {"name": "ExternalIncrement", "description": "'on' | 'off'. Shows a Next_i port so the loop body can compute the next index itself."},
+        {"name": "IterationVariableDataType", "description": "Data type of the iteration-index output, for example 'int32' or 'double'."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/For Iterator Subsystem', [mdl '/ForSub']);\nset_param([mdl '/ForSub/For Iterator'], 'IterationSource', 'internal', ...\n    'IterationLimit', '10', 'ShowIterationPort', 'on', ...\n    'IndexMode', 'One-based', 'ResetStates', 'held');",
+      "notes": "Every iteration happens at the same simulation time, so continuous blocks are not allowed inside. If the iterations are independent, a For Each Subsystem is usually faster and generates better code. Use Assignment and Selector blocks with the iteration index to read and write vector elements inside the loop.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/foriteratorsubsystem.html"
+    },
+    {
+      "name": "For Each Subsystem",
+      "kind": "block",
+      "description": "Applies the same algorithm independently to each slice of one or more array inputs and concatenates the results back into an array output. Unlike a For Iterator Subsystem each repetition has its own copy of the internal states, so the block models N independent instances of a component rather than N steps of one loop. Use it for per-channel filters, per-wheel controllers or any vectorised component where the instances do not interact.",
+      "usage": "Simulink > Ports & Subsystems > For Each Subsystem  |  add_block('simulink/Ports & Subsystems/For Each Subsystem', [mdl '/EachSub'])",
+      "parameters": [
+        {"name": "InputPartition", "description": "On the contained For Each block: 'on' | 'off' per input port - whether that input is sliced or broadcast whole to every iteration."},
+        {"name": "PartitionDimension", "description": "Dimension along which each partitioned input is sliced."},
+        {"name": "PartitionWidth", "description": "Width of each slice taken from the input."},
+        {"name": "PartitionOffset", "description": "Offset of the first slice within the input."},
+        {"name": "OutputConcatenation", "description": "'on' | 'off' per output port - whether the per-iteration results are concatenated into an array."},
+        {"name": "ConcatenationDimension", "description": "Dimension along which the outputs are concatenated."},
+        {"name": "StatesPartitioning", "description": "Whether each iteration gets its own copy of the internal states."},
+        {"name": "SpecifiedNumIters", "description": "Explicit number of iterations, when it is not implied by the input partitioning."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/For Each Subsystem', [mdl '/EachSub']);\nset_param([mdl '/EachSub/For Each'], 'InputPartition', 'on', ...\n    'PartitionDimension', '1', 'PartitionWidth', '1', ...\n    'OutputConcatenation', 'on', 'ConcatenationDimension', '1');",
+      "notes": "Because states are replicated per iteration, a For Each Subsystem containing a Unit Delay gives each channel its own delay memory - exactly what a per-channel filter needs. Parameters can also be partitioned, so each instance can use a different gain. Code generation emits a single reusable function called in a loop, which keeps generated code small.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/foreachsubsystem.html"
+    },
+    {
+      "name": "While Iterator Subsystem",
+      "kind": "block",
+      "description": "Repeats its contents within a single time step for as long as a logical condition input remains true, up to a maximum iteration count. The contained While Iterator block chooses between while semantics (test before executing) and do-while semantics (execute then test). Use it for convergence loops such as a Newton iteration or a search that must finish inside one step, and always set a finite MaxIters so a non-converging model cannot hang the simulation.",
+      "usage": "Simulink > Ports & Subsystems > While Iterator Subsystem  |  add_block('simulink/Ports & Subsystems/While Iterator Subsystem', [mdl '/WhileSub'])",
+      "parameters": [
+        {"name": "WhileBlockType", "description": "On the contained While Iterator block: 'while' (condition and an initial-condition IC port) or 'do-while' (body runs at least once, no IC port)."},
+        {"name": "MaxIters", "description": "Maximum iterations allowed in one time step; '-1' means unlimited (not recommended)."},
+        {"name": "ResetStates", "description": "'held' or 'reset' - whether internal states persist between time steps."},
+        {"name": "ShowIterationPort", "description": "'on' | 'off'. Outputs the number of iterations executed."},
+        {"name": "OutputDataType", "description": "Data type of the iteration-count output, for example 'int32'."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/While Iterator Subsystem', [mdl '/WhileSub']);\nset_param([mdl '/WhileSub/While Iterator'], 'WhileBlockType', 'do-while', ...\n    'MaxIters', '100', 'ShowIterationPort', 'on', 'ResetStates', 'held');",
+      "notes": "In 'while' mode the subsystem gains an IC port that decides whether the first iteration runs at all. Continuous blocks are not allowed inside because all iterations share one simulation time. Hitting MaxIters is reported by the 'While loop maximum iterations exceeded' diagnostic.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/whileiteratorsubsystem.html"
+    },
+    {
+      "name": "Model",
+      "kind": "block",
+      "description": "References another Simulink model as a component, giving true file-level modularity: the referenced model is compiled and simulated separately, with a fixed interface and its own configuration. Instance parameters let several Model blocks reference the same model with different parameter values. Use model reference (rather than subsystems) for large designs, team development, incremental build, protected models and unit testing of components in isolation.",
+      "usage": "Simulink > Ports & Subsystems > Model  |  add_block('simulink/Ports & Subsystems/Model', [mdl '/Plant'])",
+      "parameters": [
+        {"name": "ModelNameDialog", "description": "Name of the referenced model, with or without the file extension. 'ModelName' (no extension) and 'ModelFile' (with extension) are also accepted."},
+        {"name": "SimulationMode", "description": "'Normal', 'Accelerator', 'Software-in-the-loop (SIL)' or 'Processor-in-the-loop (PIL)'."},
+        {"name": "InstanceParameters", "description": "Struct array with fields Name, Value, Path and Argument giving per-instance values for the referenced model's parameter arguments."},
+        {"name": "ParameterArgumentNames", "description": "Comma-separated list of the referenced model's model arguments."},
+        {"name": "ParameterArgumentValues", "description": "Query-only parameter returning the current argument values for this instance."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Model', [mdl '/Plant']);\nset_param([mdl '/Plant'], 'ModelNameDialog', 'plantModel.slx', ...\n    'SimulationMode', 'Accelerator');\nip = get_param([mdl '/Plant'], 'InstanceParameters');\nip(1).Value = '3.5';\nset_param([mdl '/Plant'], 'InstanceParameters', ip);",
+      "notes": "A referenced model has a fixed interface: data types, dimensions and sample times at its root ports must be fully specified, unlike a subsystem which adapts to context. Use Simulink.SubSystem.convertToModelReference to promote an existing subsystem, Simulink.ModelReference.protect to ship a model without exposing its contents, and Simulink.ModelReference.refresh to pick up interface changes.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/model.html"
+    },
+    {
+      "name": "Variant Subsystem",
+      "kind": "block",
+      "description": "A container holding several alternative implementations of the same function, exactly one of which is active in any given simulation or build. Each child (Subsystem, Model block or Subsystem Reference) is associated with a variant control condition, and the activation time decides whether the choice is fixed at update-diagram, at code compile time via #if, or at model startup. Use it to manage product lines, hardware options and plant-model fidelity levels in a single model.",
+      "usage": "Simulink > Ports & Subsystems > Variant Subsystem  |  add_block('simulink/Ports & Subsystems/Variant Subsystem', [mdl '/Plant'])",
+      "parameters": [
+        {"name": "VariantControlMode", "description": "'expression' (conditions are MATLAB expressions over workspace variables), 'label' (choose a choice by name), 'sim codegen switching' or 'expression (codegen switching)'."},
+        {"name": "VariantControls", "description": "Mapping of variant control conditions to the child blocks that implement each choice."},
+        {"name": "VariantActivationTime", "description": "'update diagram', 'update diagram analyze all choices', 'code compile' or 'startup' - when the active choice is resolved."},
+        {"name": "LabelModeActiveChoice", "description": "Name of the active choice when VariantControlMode is 'label'."},
+        {"name": "VariantControlVariable", "description": "The variable whose value selects the choice in the newer variant-control workflows."},
+        {"name": "PropagateVariantConditions", "description": "'on' | 'off'. Propagates variant conditions into the surrounding diagram so inactive regions are removed too."},
+        {"name": "AllowFlexibleInterface", "description": "'on' | 'off'. Lets the choices have different port counts, with the Variant Subsystem interface adapting."},
+        {"name": "EmptyChoice", "description": "'on' | 'off'. Allows a configuration where no choice is active."}
+      ],
+      "example": "add_block('simulink/Ports & Subsystems/Variant Subsystem', [mdl '/Plant']);\nset_param([mdl '/Plant'], 'VariantControlMode', 'label', ...\n    'VariantActivationTime', 'update diagram');\n% add two choices inside, then pick one\nset_param([mdl '/Plant'], 'LabelModeActiveChoice', 'HighFidelity');",
+      "notes": "With 'expression' mode the control conditions are evaluated in the base workspace or a data dictionary, commonly using Simulink.VariantControl or Simulink.Variant objects. Choosing 'code compile' activation keeps every choice in the generated code behind preprocessor conditionals. Variant Source and Variant Sink apply the same idea at signal level; a Model block configured with variant choices is referred to as a Variant Model.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/variantsubsystem.html"
+    },
+    {
+      "name": "Variant Source",
+      "kind": "block",
+      "description": "Selects one of several input signal paths according to variant conditions, removing the inactive branches from the compiled model entirely rather than just ignoring them. Because inactive paths are pruned, blocks feeding them are eliminated from simulation and from generated code. Use it for signal-level variation - swapping a sensor model for a stub, or switching between simulation-only and code-generation sources - where a full Variant Subsystem would be heavy.",
+      "usage": "Simulink > Signal Routing > Variant Source  |  add_block('simulink/Signal Routing/Variant Source', [mdl '/VSrc'])",
+      "parameters": [
+        {"name": "VariantControlMode", "description": "'expression', 'label' or 'sim codegen switching'."},
+        {"name": "VariantControls", "description": "The variant conditions associated with each input port."},
+        {"name": "VariantActivationTime", "description": "'update diagram', 'update diagram analyze all choices', 'code compile' or 'startup'."},
+        {"name": "LabelModeActiveChoice", "description": "Active choice name when VariantControlMode is 'label'."},
+        {"name": "AllowZeroVariantControls", "description": "'on' | 'off'. Permits a configuration where no input condition is true."},
+        {"name": "ShowConditionOnBlock", "description": "'on' | 'off'. Annotates each port with its variant condition."},
+        {"name": "OutputFunctionCall", "description": "'on' | 'off'. Allows the block to route function-call signals."}
+      ],
+      "example": "add_block('simulink/Signal Routing/Variant Source', [mdl '/VSrc']);\nset_param([mdl '/VSrc'], 'VariantControlMode', 'sim codegen switching', ...\n    'ShowConditionOnBlock', 'on');",
+      "notes": "Variant Source with 'sim codegen switching' is the supported replacement for the Environment Controller block, which was removed from the Signal Routing library in R2021b. Variant Sink is the mirror image, selecting which of several downstream paths receives a signal. Unlike a Switch, the unselected branches cost nothing at run time.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/variantsource.html"
+    },
+    {
+      "name": "Subsystem Reference",
+      "kind": "block",
+      "description": "References a subsystem stored in its own .slx file, so one definition can be instantiated many times across models and edited in a single place. Unlike model reference, a referenced subsystem keeps the flexible interface of an ordinary subsystem - the same file can be instantiated with scalar inputs in one place and vectors in another - and it is not separately compiled. Use it for reusable building blocks that need context adaptation but should not be duplicated by copy and paste.",
+      "usage": "Simulink > Ports & Subsystems > Subsystem Reference  |  add_block('simulink/Ports & Subsystems/Subsystem Reference', [mdl '/Filter'])",
+      "parameters": [
+        {"name": "ReferencedSubsystem", "description": "Name of the subsystem file (.slx or .mdl) this block instantiates. Setting it on an ordinary Subsystem block turns that block into a subsystem reference."},
+        {"name": "ShowPortLabels", "description": "'FromPortIcon', 'FromPortBlockName', 'SignalName' or 'none'."},
+        {"name": "TreatAsAtomicUnit", "description": "'on' | 'off'. A referenced subsystem may be virtual or atomic just like an inline one."}
+      ],
+      "example": "% create the reusable subsystem file once\nnew_system('timesK', 'Subsystem');\nsave_system('timesK');\n% instantiate it twice in a model\nadd_block('simulink/Ports & Subsystems/Subsystem Reference', [mdl '/K1']);\nset_param([mdl '/K1'], 'ReferencedSubsystem', 'timesK');\nadd_block([mdl '/K1'], [mdl '/K2']);",
+      "notes": "Subsystem reference was introduced in R2019b. It gives incremental loading and reduces merge conflicts compared with copying subsystems, but unlike model reference it offers no separate compilation, no SIL/PIL and no fixed interface contract. Use the Simulink Editor's Convert command, or set ReferencedSubsystem on an existing Subsystem block, to convert an inline subsystem into a referenced one.",
+      "docs": "https://www.mathworks.com/help/simulink/ug/create-and-use-referenced-subsystems-in-models-using-subsystem-reference.html"
+    },
+    {
+      "name": "MATLAB Function",
+      "kind": "block",
+      "description": "Embeds a MATLAB function directly in the model, compiled to C for simulation and code generation. It supports the code-generation subset of the MATLAB language, including control flow, structures, enumerations, fixed-point types and persistent variables for state. Use it for algorithms that are far easier to express in code than in blocks - table interpolation logic, state machines with heavy arithmetic, string or struct manipulation - while keeping the result fully code-generatable.",
+      "usage": "Simulink > User-Defined Functions > MATLAB Function  |  add_block('simulink/User-Defined Functions/MATLAB Function', [mdl '/Algo'])",
+      "parameters": [
+        {"name": "Script (via the Stateflow API)", "description": "The function body. Set it with the EMChart object's Script property: rt = sfroot; ch = rt.find('-isa','Stateflow.EMChart','Path',blkPath); ch.Script = code."},
+        {"name": "SampleTime", "description": "Block sample time; '-1' inherits from the driving signals."},
+        {"name": "UpdateMethod", "description": "'Inherited', 'Discrete' or 'Continuous' execution of the function."},
+        {"name": "SupportVariableSizing", "description": "'on' | 'off'. Allows variable-size inputs and outputs."}
+      ],
+      "example": "add_block('simulink/User-Defined Functions/MATLAB Function', [mdl '/Algo']);\ncode = sprintf('function y = fcn(u, k)\\n%%#codegen\\ny = k * tanh(u);\\nend');\nrt = sfroot;\nch = rt.find('-isa', 'Stateflow.EMChart', 'Path', [mdl '/Algo']);\nch.Script = code;\nset_param(mdl, 'SimulationCommand', 'update');   % rebuild ports from the signature",
+      "notes": "The block's input and output ports are derived from the function signature, so editing the Script changes the port count - re-wire after a scripted update. Only the code-generation subset of MATLAB is allowed; calls to unsupported functions must be wrapped in coder.extrinsic (simulation only). Use persistent variables for state and declare them with the standard 'if isempty(x)' initialisation pattern. Interpreted MATLAB Function runs arbitrary MATLAB but cannot be code-generated.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/matlabfunction.html"
+    },
+    {
+      "name": "MATLAB System",
+      "kind": "block",
+      "description": "Brings a MATLAB System object (a class derived from matlab.System) into a Simulink model, giving a structured, object-oriented way to implement a block with setup, step, reset and release phases. The System object's properties become block dialog parameters, and its stepImpl method provides the algorithm. Use it when an algorithm has significant internal state or initialisation, when you want the same implementation to run in MATLAB and Simulink, or to reuse System objects from DSP, Communications and Computer Vision toolboxes.",
+      "usage": "Simulink > User-Defined Functions > MATLAB System  |  add_block('simulink/User-Defined Functions/MATLAB System', [mdl '/Sys'])",
+      "parameters": [
+        {"name": "System", "description": "Fully qualified class name of the System object, for example 'myPkg.MyFilter'."},
+        {"name": "SimulateUsing", "description": "'Code generation' (compiled, faster, restricted to the code-generation subset) or 'Interpreted execution' (runs the MATLAB code directly)."},
+        {"name": "SaturateOnIntegerOverflow", "description": "'on' | 'off'. Integer overflow behaviour for fixed-point operations inside the object."},
+        {"name": "ShowFiSettings", "description": "'on' | 'off'. Exposes the fixed-point settings section of the dialog."}
+      ],
+      "example": "add_block('simulink/User-Defined Functions/MATLAB System', [mdl '/Sys']);\nset_param([mdl '/Sys'], 'System', 'myPkg.MyFilter', ...\n    'SimulateUsing', 'Code generation');",
+      "notes": "Implement getNumInputsImpl / getNumOutputsImpl, getOutputSizeImpl, getOutputDataTypeImpl and isOutputFixedSizeImpl in the class so Simulink can resolve the interface without running the object. Use matlab.system.mixin.Propagates for non-trivial propagation. The class file must be on the MATLAB path when the model compiles.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/matlabsystem.html"
+    },
+    {
+      "name": "Simulink Function",
+      "kind": "block",
+      "description": "Defines a reusable function inside a Simulink model that can be invoked by Function Caller blocks, Stateflow charts or MATLAB Function blocks, rather than by a wired signal connection. The body is an ordinary subsystem whose interface is described by a Trigger block in function-call mode plus Argument Inport and Argument Outport blocks. Use it for service-oriented designs - a shared arbitration routine, a diagnostic service, a message handler - where several clients need the same operation without duplicating the blocks.",
+      "usage": "Simulink > User-Defined Functions > Simulink Function  |  add_block('simulink/User-Defined Functions/Simulink Function', [mdl '/computeLimit'])",
+      "parameters": [
+        {"name": "Function name (on the contained Trigger block)", "description": "The name clients call; also shown in the function prototype text on the block icon."},
+        {"name": "Function visibility (on the Trigger block)", "description": "'scoped' (visible within the model hierarchy), 'global' (visible to every model) or 'port' (exposed through a function-call port)."},
+        {"name": "ShowPortLabels", "description": "'FromPortIcon', 'FromPortBlockName', 'SignalName' or 'none'."},
+        {"name": "PermitHierarchicalResolution", "description": "'All', 'ExplicitOnly' or 'None' - how variables inside resolve against parent workspaces."},
+        {"name": "Permissions", "description": "'ReadWrite', 'ReadOnly' or 'NoReadOrWrite'."}
+      ],
+      "example": "add_block('simulink/User-Defined Functions/Simulink Function', [mdl '/computeLimit']);\n% the prototype y = computeLimit(u) is edited on the block icon;\n% the body uses Argument Inport / Argument Outport blocks inside\nadd_block('simulink/User-Defined Functions/Function Caller', [mdl '/callLimit']);\nset_param([mdl '/callLimit'], 'FunctionPrototype', 'y = computeLimit(u)');",
+      "notes": "The prototype is stored on the block icon rather than as a simple set_param parameter; the function name and visibility live on the Trigger block inside. A Simulink Function placed at the root of a model and made global can be called from any model in the hierarchy. Related: Function Caller (the client block), Initialize/Reset/Terminate Function blocks (event-driven variants) and Message Triggered Subsystem for message-driven services.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulinkfunction.html"
+    },
+    {
+      "name": "Function Caller",
+      "kind": "block",
+      "description": "Calls a Simulink Function, an exported Stateflow graphical function or a function defined in another model, passing arguments in and receiving results out. The prototype string defines the call syntax, and the argument specifications pin down data types and dimensions when they cannot be inherited. Use it wherever a client needs a shared service, which decouples callers from the implementation and avoids duplicating the same blocks in several places.",
+      "usage": "Simulink > User-Defined Functions > Function Caller  |  add_block('simulink/User-Defined Functions/Function Caller', [mdl '/callLimit'])",
+      "parameters": [
+        {"name": "FunctionPrototype", "description": "The call syntax, for example 'y = computeLimit(u)' or '[a,b] = f(u1,u2)'. This determines the block's ports."},
+        {"name": "ScopedFunctionName", "description": "Qualified name shown on the icon when the target is scoped, for example 'Client.f'."},
+        {"name": "InputArgumentSpecifications", "description": "Comma-separated type/size specifications for the inputs, for example 'single(1)' or 'int16([2 3])'."},
+        {"name": "OutputArgumentSpecifications", "description": "Comma-separated type/size specifications for the outputs."},
+        {"name": "SampleTime", "description": "Interval between calls; '-1' inherits."},
+        {"name": "AsynchronousCaller", "description": "'on' | 'off'. Marks the call as asynchronous with respect to the caller's rate."}
+      ],
+      "example": "add_block('simulink/User-Defined Functions/Function Caller', [mdl '/callLimit']);\nset_param([mdl '/callLimit'], 'FunctionPrototype', 'y = computeLimit(u)', ...\n    'InputArgumentSpecifications', 'single(1)', ...\n    'OutputArgumentSpecifications', 'single(1)', 'SampleTime', '0.01');",
+      "notes": "The prototype must match the target Simulink Function exactly, including argument order and count, or the model fails to compile. Argument specifications are required when the function lives in a different model and the types cannot be propagated. A single Simulink Function may have many Function Caller clients; calls execute in the caller's task.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/functioncaller.html"
+    },
+    {
+      "name": "C Caller",
+      "kind": "block",
+      "description": "Calls a function from external C source code directly, with Simulink generating the port interface automatically from the C prototype. You register the source files and headers in the model's Simulation Target settings, then pick a function from the discovered list. Use it to reuse validated legacy C algorithms, driver code or third-party libraries inside a model without hand-writing an S-function.",
+      "usage": "Simulink > User-Defined Functions > C Caller  |  add_block('simulink/User-Defined Functions/C Caller', [mdl '/callC'])",
+      "parameters": [
+        {"name": "FunctionName", "description": "Name of the C function to call, chosen from the functions discovered in the registered source files."},
+        {"name": "AvailableFunctions", "description": "Read-only cell array of the C functions Simulink found in the custom code settings."},
+        {"name": "FunctionPortSpecification", "description": "Object describing how each C argument maps to a Simulink port (input, output, parameter, scope and label)."},
+        {"name": "SampleTime", "description": "Interval between calls in seconds; '-1' inherits."}
+      ],
+      "example": "% register the external code on the model first\nset_param(mdl, 'SimUserSources', 'my_alg.c', 'SimUserIncludeDirs', '.');\nset_param(mdl, 'CustomHeaderCode', '#include \"my_alg.h\"');\nadd_block('simulink/User-Defined Functions/C Caller', [mdl '/callC']);\nset_param([mdl '/callC'], 'FunctionName', 'saturate_i16');\nfuncs = get_param([mdl '/callC'], 'AvailableFunctions');",
+      "notes": "Only C constructs Simulink can map to signals are supported - pointer-heavy or void* interfaces usually need a wrapper function. The C Function block ('simulink/User-Defined Functions/C Function', parameters OutputCode, StartCode, InitializeConditionsCode, TerminateCode) is the more flexible relative: it lets you write the glue code inline and call several functions per block. Legacy Code Tool and S-Function Builder remain available for more complex integrations.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/ccaller.html"
+    },
+    {
+      "name": "Simulink.Mask",
+      "kind": "script-object",
+      "description": "The programmatic interface to block masks: the custom dialog, icon and parameter set that turns a subsystem into a self-documenting, reusable component. Create a mask on a block, add typed parameters that map to variables used by the blocks inside, write initialisation code, and draw an icon - all from a script. Use it to build a library of parameterised components without hand-editing dialogs, and to regenerate masks reproducibly as part of a model-build script.",
+      "usage": "maskObj = Simulink.Mask.create(blockPath)\nmaskObj = Simulink.Mask.get(blockPath)\np = maskObj.addParameter('Type', 'edit', 'Name', 'K', 'Prompt', 'Gain', 'Value', '1')\nmaskObj.delete()",
+      "parameters": [
+        {"name": "Type", "description": "Mask type string, shown in the dialog title and returned by get_param(blk,'MaskType')."},
+        {"name": "Description", "description": "Descriptive text shown at the top of the mask dialog."},
+        {"name": "Display", "description": "MATLAB drawing commands that render the block icon, for example \"disp('Gain K')\" or a plot command."},
+        {"name": "Initialization", "description": "MATLAB code executed when the mask is loaded or a parameter changes; typically used to compute derived values."},
+        {"name": "Parameters", "description": "Array of Simulink.MaskParameter objects; managed with addParameter, getParameter, insertParameter and removeParameter."},
+        {"name": "IconOpaque", "description": "'opaque', 'transparent' or 'opaque-with-ports' - how the icon hides the contained blocks."},
+        {"name": "ParameterConstraints", "description": "Validation rules added with addParameterConstraint and addCrossParameterConstraint."}
+      ],
+      "example": "blk = [mdl '/Ctrl'];\nm = Simulink.Mask.create(blk);\nm.Type = 'PI Controller';\nm.Description = 'Discrete PI controller with anti-windup.';\nm.addParameter('Type', 'edit',  'Name', 'Kp', 'Prompt', 'Proportional gain', 'Value', '1');\nm.addParameter('Type', 'edit',  'Name', 'Ki', 'Prompt', 'Integral gain',     'Value', '0.1');\nm.addParameter('Type', 'popup', 'Name', 'mode', 'Prompt', 'Mode', ...\n    'TypeOptions', {'Discrete','Continuous'}, 'Value', 'Discrete');\nm.Display = 'disp(''PI'')';\n% read it back later\nm2 = Simulink.Mask.get(blk);\nkp = m2.getParameter('Kp').Value;",
+      "notes": "Mask parameter names become variables in the block's mask workspace, so blocks inside the subsystem can simply reference Kp and Ki in their expressions. Simulink.Mask.get returns an empty array if the block has no mask - check before calling methods on it. Related parameters on the block itself: MaskType, MaskPromptString, MaskValues and MaskEnables, which the older get_param/set_param mask interface uses.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.mask-class.html"
+    },
+    {
+      "name": "Simulink.BlockDiagram.createSubsystem",
+      "kind": "function",
+      "description": "Wraps a set of existing blocks into a new Subsystem block in place, automatically adding Inport and Outport blocks for every signal that crossed the boundary and reconnecting the surrounding lines. Called with no arguments it operates on the current selection in the editor. Use it to refactor a flat diagram into a hierarchy from a script, which is far more reliable than adding a subsystem and moving blocks by hand.",
+      "usage": "Simulink.BlockDiagram.createSubsystem(blocks)\nSimulink.BlockDiagram.createSubsystem()\nSimulink.BlockDiagram.createSubsystem(___, 'Name', name, 'MakeNameUnique', 'on'|'off')",
+      "parameters": [
+        {"name": "blocks", "description": "Vector of block handles to group. All blocks must be at the same level of the same model."},
+        {"name": "Name", "description": "Name for the new subsystem block."},
+        {"name": "MakeNameUnique", "description": "'on' (default) appends a number if the name is taken; 'off' errors instead."}
+      ],
+      "example": "load_system(mdl);\nblks = find_system(mdl, 'SearchDepth', 1, 'BlockType', 'Gain');\nh = get_param(blks, 'Handle');\nSimulink.BlockDiagram.createSubsystem(cell2mat(h), ...\n    'Name', 'GainStage', 'MakeNameUnique', 'on');\nset_param([mdl '/GainStage'], 'TreatAsAtomicUnit', 'on');",
+      "notes": "Pass block handles, not path strings - use get_param(...,'Handle'). The function errors if the selection spans hierarchy levels or includes blocks that cannot be grouped, such as root-level Inports in some configurations. The resulting subsystem is virtual; set TreatAsAtomicUnit afterwards if you need atomic behaviour.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.blockdiagram.createsubsystem.html"
+    },
+    {
+      "name": "Simulink.SubSystem.convertToModelReference",
+      "kind": "function",
+      "description": "Converts one or more Subsystem blocks into separate referenced models, creating the new model files and replacing each subsystem with a Model block that points at them. It runs a set of compatibility checks first and reports anything that blocks the conversion, such as unresolved interface attributes or goto/from tags crossing the boundary. Use it to promote a subsystem to a true component once it is stable enough to deserve its own file, test harness and build.",
+      "usage": "success = Simulink.SubSystem.convertToModelReference(subsystem, modelName, 'Name', Value)",
+      "parameters": [
+        {"name": "subsystem", "description": "Path, handle, or cell array of paths of the Subsystem blocks to convert."},
+        {"name": "modelName", "description": "Name (or cell array of names) for the referenced models to create."},
+        {"name": "AutoFix", "description": "true | false. Automatically fixes issues it can, such as moving required data into the new model's workspace."},
+        {"name": "ReplaceSubsystem", "description": "true | false. Replaces the original subsystem with a Model block instead of only creating the file."},
+        {"name": "BuildTarget", "description": "'Sim' or 'RTW' - whether to check compatibility for simulation or for code generation."},
+        {"name": "CheckSimulationResults", "description": "true | false. Compares simulation results before and after conversion to confirm equivalence."},
+        {"name": "Force", "description": "true | false. Proceeds despite warnings from the compatibility checks."}
+      ],
+      "example": "load_system(mdl);\nok = Simulink.SubSystem.convertToModelReference([mdl '/Ctrl'], 'ctrlModel', ...\n    'AutoFix', true, 'ReplaceSubsystem', true, ...\n    'BuildTarget', 'Sim', 'CheckSimulationResults', true);\nif ok\n    set_param([mdl '/Ctrl'], 'SimulationMode', 'Accelerator');\nend",
+      "notes": "The subsystem must be atomic and have a fully determined interface - referenced models cannot inherit sample times or data types the way subsystems can. Data stores, goto tags and mask parameters that cross the boundary are the usual causes of failure; AutoFix handles many but not all. The Model Reference Conversion Advisor is the interactive equivalent.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/simulink.subsystem.converttomodelreference.html"
+    },
+    {
+      "name": "libinfo",
+      "kind": "function",
+      "description": "Returns a struct array describing every library-linked block in a model or subsystem: where the instance sits, which library it came from, the path of the source block and the state of the link. Use it to audit which library versions a model depends on, to find blocks whose links have been disabled or broken, and as the input to a script that restores or removes links in bulk.",
+      "usage": "libdata = libinfo(modelName)\nlibdata = libinfo(modelName, 'BlockType', 'SubSystem')",
+      "parameters": [
+        {"name": "modelName", "description": "Model, subsystem path or handle to search."},
+        {"name": "Block", "description": "Returned field: path of the linked block instance inside the model."},
+        {"name": "Library", "description": "Returned field: name of the source library."},
+        {"name": "ReferenceBlock", "description": "Returned field: path of the block within its source library."},
+        {"name": "LinkStatus", "description": "Returned field and a settable block parameter: 'none' (no link / fully disconnected), 'resolved', 'unresolved', 'implicit', 'inactive' (disabled link) or 'restore'."}
+      ],
+      "example": "load_system(mdl);\nlibdata = libinfo(mdl);\nfor k = 1:numel(libdata)\n    fprintf('%-40s <- %s (%s)\\n', libdata(k).Block, ...\n        libdata(k).ReferenceBlock, libdata(k).LinkStatus);\nend\n% break the link on one block so it can be edited independently\nset_param(libdata(1).Block, 'LinkStatus', 'none');\n% or disable it temporarily and restore it later\nset_param(libdata(2).Block, 'LinkStatus', 'inactive');\nset_param(libdata(2).Block, 'LinkStatus', 'restore');",
+      "notes": "Setting LinkStatus to 'none' is irreversible - the instance becomes a plain copy and stops tracking library updates, so prefer 'inactive' while experimenting. A block reported as 'unresolved' means its library is missing from the MATLAB path. Use find_system(mdl,'LookUnderMasks','all','FollowLinks','on',...) when you need to search inside linked blocks.",
+      "docs": "https://www.mathworks.com/help/simulink/slref/libinfo.html"
+    }
+  ]
+}

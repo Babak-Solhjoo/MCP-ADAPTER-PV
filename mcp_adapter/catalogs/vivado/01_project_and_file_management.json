@@ -1,0 +1,591 @@
+{
+  "category": "Project & File Management (Tcl)",
+  "description": "Create, open, script and archive Vivado projects and everything inside them. Covers Project Mode projects and filesets, the Non-Project (batch) Mode file readers, design checkpoints, part and board selection, and the synthesis/implementation run objects that a headless `vivado -mode batch -source build.tcl` script drives end to end.",
+  "tools": [
+    {
+      "name": "create_project",
+      "kind": "tcl-command",
+      "description": "Creates a new Vivado project on disk (an .xpr file plus <name>.srcs, .runs and .cache directories) and makes it the current project. This is the entry point of Project Mode, where Vivado manages filesets, compile order, IP and runs for you. Passing -in_memory creates a project that exists only in RAM, which is how Non-Project batch scripts get a part and project context without writing any project files to disk.",
+      "usage": "create_project [<name>] [<dir>] [-part <part>] [-force] [-in_memory] [-ip] [-quiet]",
+      "parameters": [
+        {"name": "<name>", "description": "Project name; the file created is <dir>/<name>/<name>.xpr."},
+        {"name": "<dir>", "description": "Parent directory for the project. Defaults to the current working directory."},
+        {"name": "-part", "description": "Target device, e.g. xc7z020clg400-1. Omit it and set the board_part property instead when you target a known board."},
+        {"name": "-force", "description": "Overwrite an existing project of the same name instead of erroring."},
+        {"name": "-in_memory", "description": "Create the project only in memory; nothing is written to disk. Used to give a Non-Project script a part context."},
+        {"name": "-ip", "description": "Create a project intended for managing IP (an IP-only 'Manage IP' project)."}
+      ],
+      "example": "create_project fir_demo D:/work/fir_demo -part xc7z020clg400-1 -force\nset_property target_language Verilog [current_project]\nset_property default_lib work [current_project]\nputs \"Project dir: [get_property DIRECTORY [current_project]]\"",
+      "notes": "In Non-Project (batch) Mode you skip create_project entirely and use set_part plus read_verilog/read_vhdl/read_xdc and synth_design; nothing is managed for you and nothing persists after the session. `create_project -in_memory -part <part>` is the middle ground when a command needs a project object but you do not want files on disk.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_project"
+    },
+    {
+      "name": "open_project",
+      "kind": "tcl-command",
+      "description": "Opens an existing Vivado project file (.xpr) and makes it current, restoring its filesets, properties and run definitions. Only one project can be open per Vivado session, so close_project first if another one is open. Use -read_only when a script only needs to report on a project and must not modify it.",
+      "usage": "open_project [-part <part>] [-read_only] [-quiet] <file.xpr>",
+      "parameters": [
+        {"name": "<file.xpr>", "description": "Path to the project file. Forward slashes work on Windows and are safer in Tcl."},
+        {"name": "-read_only", "description": "Open without taking a write lock; property and source changes cannot be saved."},
+        {"name": "-part", "description": "Open the project against a different part than the one stored in the .xpr."}
+      ],
+      "example": "open_project D:/work/fir_demo/fir_demo.xpr\nputs \"Part : [get_property PART [current_project]]\"\nputs \"Runs : [get_runs]\"\nputs \"Top  : [get_property TOP [get_filesets sources_1]]\"",
+      "notes": "Opening a project created by an older release migrates it in place, so work on a copy if the original must stay usable by the old version. A stale .xpr.lock directory from a crashed session blocks the open; remove it manually.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_project"
+    },
+    {
+      "name": "close_project",
+      "kind": "tcl-command",
+      "description": "Closes the current project, discards the in-memory design and releases the project's write lock. Property and source changes are written into the .xpr as they are made, so there is no separate save step. The -delete option additionally removes the project directory from disk, which is convenient for throw-away scripted builds.",
+      "usage": "close_project [-delete] [-quiet]",
+      "parameters": [
+        {"name": "-delete", "description": "Close the project and delete its directory and files from disk."}
+      ],
+      "example": "open_project D:/work/fir_demo/fir_demo.xpr\nreport_compile_order -fileset sources_1 -sources\nclose_project\n# In a batch script, finish with:\n# exit",
+      "notes": "close_project also closes any design opened by open_run or open_checkpoint; close_design closes only the design and leaves the project open. A `vivado -mode batch` script should end with `exit` so the process terminates.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/close_project"
+    },
+    {
+      "name": "save_project_as",
+      "kind": "tcl-command",
+      "description": "Saves the currently open project under a new name and directory and makes the copy the current project. Use it to branch a project before an experiment, or to produce a clean deliverable copy without run artefacts. By default run results are copied too, which can make the copy very large; -exclude_run_results skips them.",
+      "usage": "save_project_as [-force] [-exclude_run_results] [-include_local_ip_cache] [-scan_for_includes] [-quiet] <name> [<dir>]",
+      "parameters": [
+        {"name": "<name>", "description": "Name of the new project."},
+        {"name": "<dir>", "description": "Parent directory for the new project."},
+        {"name": "-force", "description": "Overwrite an existing project with that name."},
+        {"name": "-exclude_run_results", "description": "Do not copy synthesis/implementation run output into the new project."},
+        {"name": "-include_local_ip_cache", "description": "Copy the project's local out-of-context IP cache as well."},
+        {"name": "-scan_for_includes", "description": "Scan the sources for Verilog include files and add them to the new project."}
+      ],
+      "example": "open_project D:/work/fir_demo/fir_demo.xpr\nsave_project_as fir_demo_explore D:/work/experiments -force -exclude_run_results\nputs \"Now working in: [current_project]\"\nset_property strategy Performance_Explore [get_runs impl_1]",
+      "notes": "The original project is closed and the copy becomes current. For a single compressed, self-contained file use archive_project; for a text, version-controllable representation use write_project_tcl.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/save_project_as"
+    },
+    {
+      "name": "current_project",
+      "kind": "tcl-command",
+      "description": "Returns the project object for the currently open project, and with an argument makes a different open project current. Nearly every project-scope setting is read or written by passing this object to get_property/set_property, so `[current_project]` is one of the most common idioms in Vivado scripts. It errors if no project is open, which makes it a useful guard in batch flows.",
+      "usage": "current_project [<project>] [-quiet]",
+      "parameters": [
+        {"name": "<project>", "description": "Optional project object to make current."}
+      ],
+      "example": "set_property board_part xilinx.com:zcu104:part0:1.1 [current_project]\nset_property target_language VHDL [current_project]\nset_property simulator_language Mixed [current_project]\nputs \"Name : [current_project]\"\nputs \"Part : [get_property PART [current_project]]\"\nputs \"Dir  : [get_property DIRECTORY [current_project]]\"",
+      "notes": "Useful project properties: PART, BOARD_PART, TARGET_LANGUAGE, DEFAULT_LIB, SIMULATOR_LANGUAGE, SOURCE_MGMT_MODE, DIRECTORY, NAME. Run `list_property [current_project]` to see all of them for your release.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/current_project"
+    },
+    {
+      "name": "archive_project",
+      "kind": "tcl-command",
+      "description": "Packs the current project (sources, constraints, IP, block designs and optionally run results) into a single .xpr.zip archive for hand-off or a support case. Sources referenced from outside the project directory are copied in, so the archive opens standalone on another machine. Use it when someone else must reproduce your exact project.",
+      "usage": "archive_project [-force] [-temp_dir <dir>] [-include_run_results] [-include_config_settings] [-include_local_ip_cache] [-quiet] [<file.xpr.zip>]",
+      "parameters": [
+        {"name": "<file.xpr.zip>", "description": "Output archive path. Defaults to <project_name>.xpr.zip in the current directory."},
+        {"name": "-force", "description": "Overwrite an existing archive file."},
+        {"name": "-temp_dir", "description": "Scratch directory used while staging the archive; point it at a fast local disk for large projects."},
+        {"name": "-include_run_results", "description": "Include synthesis and implementation run output (checkpoints, reports, bitstreams). Greatly increases size."},
+        {"name": "-include_config_settings", "description": "Include the Vivado configuration settings in effect for the project."},
+        {"name": "-include_local_ip_cache", "description": "Include the project's local out-of-context IP cache."}
+      ],
+      "example": "open_project D:/work/fir_demo/fir_demo.xpr\narchive_project -force -include_run_results -include_config_settings D:/deliver/fir_demo_v1.xpr.zip\nclose_project",
+      "notes": "Leave run results out unless the recipient must inspect the exact implementation output. Unzip the archive and open the .xpr inside it with open_project. For a small, diff-friendly alternative that regenerates the project from your own sources, use write_project_tcl.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/archive_project"
+    },
+    {
+      "name": "write_project_tcl",
+      "kind": "tcl-command",
+      "description": "Writes a Tcl script that recreates the currently open project: part and board, filesets, source and constraint files, non-default properties, IP, block designs and run definitions. Sourcing that script in a fresh Vivado rebuilds an equivalent project, which is the standard way to keep a Vivado project under version control without committing the .xpr and the generated .runs/.cache directories. Combine -no_copy_sources with -paths_relative_to so the script references the sources in your repository instead of copying them.",
+      "usage": "write_project_tcl [-force] [-no_copy_sources] [-all_properties] [-paths_relative_to <dir>] [-target_proj_dir <dir>] [-absolute_path] [-quiet] <file.tcl>",
+      "parameters": [
+        {"name": "<file.tcl>", "description": "Path of the Tcl script to write."},
+        {"name": "-force", "description": "Overwrite an existing script file."},
+        {"name": "-no_copy_sources", "description": "Reference the sources where they live instead of copying them into the regenerated project. Essential for a repo-based flow."},
+        {"name": "-paths_relative_to", "description": "Base directory that file paths are written relative to, so the script is portable across checkouts."},
+        {"name": "-target_proj_dir", "description": "Directory where the regenerated project will be created when the script runs."},
+        {"name": "-all_properties", "description": "Write every property rather than only the ones that differ from the defaults."},
+        {"name": "-absolute_path", "description": "Write absolute file paths instead of relative ones."}
+      ],
+      "example": "open_project D:/work/fir_demo/fir_demo.xpr\nwrite_project_tcl -force -no_copy_sources -paths_relative_to D:/work/repo D:/work/repo/scripts/create_project.tcl\nclose_project\n# On a clean checkout, rebuild the project headlessly:\n#   vivado -mode batch -source scripts/create_project.tcl",
+      "notes": "The generated script defines an `origin_dir` variable near the top that you can override before sourcing to relocate all relative paths. Run results are never regenerated, so relaunch the runs after rebuilding. Check the generated script into version control together with the RTL, XDC and .xci files.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_project_tcl"
+    },
+    {
+      "name": "set_part",
+      "kind": "tcl-command",
+      "description": "Sets the target device for the current in-memory design or in-memory project. It is the Non-Project Mode counterpart of the -part option of create_project: call it before read_verilog/read_vhdl and synth_design so the tools know the device, package and speed grade. In Project Mode, change the device by setting the PART property on the project object instead.",
+      "usage": "set_part <part> [-quiet]",
+      "parameters": [
+        {"name": "<part>", "description": "Full part name including package and speed grade, e.g. xcvu9p-flga2104-2L-e or xc7a35tcpg236-1."}
+      ],
+      "example": "# Non-Project (batch) flow\nset_part xcku040-ffva1156-2-e\nread_verilog [glob ./rtl/*.v]\nread_xdc ./xdc/top.xdc\nsynth_design -top top\nwrite_checkpoint -force ./checkpoints/post_synth.dcp",
+      "notes": "In Project Mode use `set_property part xc7z020clg400-1 [current_project]`, which also revalidates the IP and marks the runs as needing refresh. get_parts lists every installed part string.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_part"
+    },
+    {
+      "name": "get_parts",
+      "kind": "tcl-command",
+      "description": "Returns the device parts installed with this Vivado release as part objects carrying properties such as family, device, package and speed grade. Use it to discover the exact part string required by create_project or set_part, and to check that the device family you need was installed. Patterns accept Tcl globs, so `get_parts xc7a*` narrows to a family quickly.",
+      "usage": "get_parts [<patterns>] [-filter <expr>] [-regexp] [-nocase] [-of_objects <objects>] [-quiet]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Glob patterns matched against the part name, e.g. xc7z020* or xcku040*."},
+        {"name": "-filter", "description": "Property expression, e.g. {SPEED == -2}. Use list_property on a part to see available property names for your release."},
+        {"name": "-regexp", "description": "Treat the patterns as regular expressions."},
+        {"name": "-nocase", "description": "Case-insensitive matching (use with -regexp)."},
+        {"name": "-of_objects", "description": "Return the part(s) associated with other objects, such as a board part."}
+      ],
+      "example": "puts \"Installed parts: [llength [get_parts]]\"\nset p [lindex [get_parts xc7z020clg400-1] 0]\nputs [list_property $p]\nputs \"Speed grade: [get_property SPEED $p]\"\nforeach part [lsort [get_parts xc7a*]] { puts $part }",
+      "notes": "Only parts belonging to device families selected during installation are returned, so a missing part usually means a missing family, not a wrong name. get_board_parts is the equivalent for board definitions.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_parts"
+    },
+    {
+      "name": "get_board_parts",
+      "kind": "tcl-command",
+      "description": "Lists the board definitions available from the installed board repositories, returned as vendor:board:part:version strings such as xilinx.com:zcu104:part0:1.1. Setting the project's BOARD_PART property to one of these enables board-aware IP configuration, the Board tab in IP Integrator and the board's pin-out constraints. Use -latest_file_version so a script does not pin itself to an outdated board revision.",
+      "usage": "get_board_parts [<patterns>] [-filter <expr>] [-regexp] [-nocase] [-latest_file_version] [-of_objects <objects>] [-quiet]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Glob patterns matched against the board part name, e.g. *zcu104* or xilinx.com:kc705*."},
+        {"name": "-latest_file_version", "description": "Return only the newest version of each matching board part."},
+        {"name": "-filter", "description": "Property expression to narrow the result."},
+        {"name": "-regexp", "description": "Treat the patterns as regular expressions."},
+        {"name": "-of_objects", "description": "Return the board parts associated with other objects, such as a board."}
+      ],
+      "example": "puts [get_board_parts -latest_file_version *zcu104*]\nset_property board_part xilinx.com:zcu104:part0:1.1 [current_project]\nputs \"Part now: [get_property PART [current_project]]\"",
+      "notes": "Setting board_part also sets the project's PART, so on a known board set the board part rather than the part. Board objects themselves are returned by get_boards. Add a custom or vendor board repository with `set_param board.repoPaths {D:/boards}` before opening the project.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_board_parts"
+    },
+    {
+      "name": "add_files",
+      "kind": "tcl-command",
+      "description": "Adds existing files to a project fileset by reference, so the project stores a pointer to the file where it already lives and edits in your repository are picked up directly. It handles RTL, constraints, IP (.xci), block designs, netlists and simulation sources; a directory argument is added recursively unless -norecurse is given. Use -fileset to target something other than the active sources fileset, for example `-fileset sim_1` for testbenches or `-fileset constrs_1` for XDC.",
+      "usage": "add_files [-fileset <name>] [-norecurse] [-scan_for_includes] [-copy_to <dir>] [-force] [-of_objects <objects>] [-quiet] <files_or_dirs>",
+      "parameters": [
+        {"name": "<files_or_dirs>", "description": "One or more file or directory paths; Tcl globbing works, e.g. [glob ./rtl/*.sv]."},
+        {"name": "-fileset", "description": "Target fileset: sources_1 for design sources, constrs_1 for constraints, sim_1 for simulation. Defaults to the active sources fileset."},
+        {"name": "-norecurse", "description": "Do not descend into subdirectories when a directory is given."},
+        {"name": "-scan_for_includes", "description": "Scan the added sources for Verilog include files and add those as well."},
+        {"name": "-copy_to", "description": "Copy the files into the given directory first and add the copies."},
+        {"name": "-force", "description": "Add or overwrite even when the file is already present in the fileset."}
+      ],
+      "example": "add_files -fileset sources_1 [glob D:/work/repo/rtl/*.sv]\nadd_files -fileset sources_1 D:/work/repo/ip/clk_wiz_0/clk_wiz_0.xci\nadd_files -fileset constrs_1 D:/work/repo/xdc/top.xdc\nadd_files -fileset sim_1 -norecurse D:/work/repo/sim/tb_top.sv\nset_property top fir_top [get_filesets sources_1]\nset_property top tb_top  [get_filesets sim_1]\nupdate_compile_order -fileset sources_1\nupdate_compile_order -fileset sim_1",
+      "notes": "add_files references files in place; import_files copies them into the project's .srcs directory. Always follow a batch of adds with update_compile_order for each affected fileset, otherwise the compile order and auto-detected top can be stale. In Non-Project Mode use read_verilog/read_vhdl/read_xdc instead.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/add_files"
+    },
+    {
+      "name": "import_files",
+      "kind": "tcl-command",
+      "description": "Copies files into the project's <project>.srcs directory and adds the copies to a fileset, making the project self-contained and independent of the original locations. This is what the IDE's 'Copy sources into project' option does. Use it for deliverables and frozen snapshots; prefer add_files when the sources live in version control and must stay there.",
+      "usage": "import_files [-fileset <name>] [-force] [-norecurse] [-flat] [-relative_to <dir>] [-of_objects <objects>] [-quiet] <files_or_dirs>",
+      "parameters": [
+        {"name": "<files_or_dirs>", "description": "Files or directories to copy into the project."},
+        {"name": "-fileset", "description": "Destination fileset (sources_1, constrs_1, sim_1, or a custom set)."},
+        {"name": "-force", "description": "Overwrite copies that already exist in the project."},
+        {"name": "-norecurse", "description": "Do not descend into subdirectories of a directory argument."},
+        {"name": "-flat", "description": "Copy every file into the fileset root instead of recreating the source directory hierarchy."},
+        {"name": "-relative_to", "description": "Base directory used to compute the directory structure that is recreated inside the project."}
+      ],
+      "example": "create_project golden D:/work/golden -part xc7a35tcpg236-1 -force\nimport_files -fileset sources_1 -flat D:/vendor/release_v2/rtl\nimport_files -fileset constrs_1 D:/vendor/release_v2/xdc/top.xdc\nset_property top top [get_filesets sources_1]\nupdate_compile_order -fileset sources_1",
+      "notes": "After importing you are editing the project's copy, so later changes to the original files are ignored. import_ip is the IP-specific equivalent for .xci files and also creates the IP's out-of-context run.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/import_files"
+    },
+    {
+      "name": "remove_files",
+      "kind": "tcl-command",
+      "description": "Removes files from a project fileset. The file on disk is not deleted; only the project's reference to it goes away, and for imported files the copy inside the project directory remains until you delete it yourself. Pass file objects returned by get_files so you remove exactly what you matched rather than relying on name matching.",
+      "usage": "remove_files [-fileset <name>] [-quiet] <files>",
+      "parameters": [
+        {"name": "<files>", "description": "File names or file objects from get_files."},
+        {"name": "-fileset", "description": "Fileset to remove them from. Defaults to the active sources fileset."}
+      ],
+      "example": "remove_files [get_files -of_objects [get_filesets sources_1] old_top.v]\nremove_files -fileset sim_1 [get_files tb_legacy.sv]\nupdate_compile_order -fileset sources_1\nputs [get_files -of_objects [get_filesets sources_1]]",
+      "notes": "Removing the file that defines the fileset's TOP leaves the project without a valid top module; set a new one with `set_property top <module> [get_filesets sources_1]`. Use Tcl's `file delete` afterwards if the copy on disk should go too.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/remove_files"
+    },
+    {
+      "name": "get_files",
+      "kind": "tcl-command",
+      "description": "Returns file objects from the project, optionally scoped to a fileset, IP or block design and filtered by property. With -compile_order and -used_in it returns the files in the exact order the compiler will read them, which is the reliable way to confirm what will actually be synthesized or simulated. The objects it returns are what you pass to set_property, remove_files and reporting scripts.",
+      "usage": "get_files [<patterns>] [-of_objects <objects>] [-filter <expr>] [-regexp] [-all] [-compile_order <sources|constraints>] [-used_in <synthesis|simulation|implementation>] [-quiet]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Name patterns such as *.xdc or top.v, matched against the file name."},
+        {"name": "-of_objects", "description": "Restrict to files belonging to a fileset, an IP from get_ips, or a block design."},
+        {"name": "-filter", "description": "Property expression, e.g. {FILE_TYPE == \"VHDL\"} or {IS_ENABLED}."},
+        {"name": "-compile_order", "description": "Return files in processing order: 'sources' for HDL, 'constraints' for XDC. Use together with -used_in."},
+        {"name": "-used_in", "description": "Restrict to files used in synthesis, simulation or implementation."},
+        {"name": "-all", "description": "Also return files inside IP and other sub-designs that are normally hidden."}
+      ],
+      "example": "update_compile_order -fileset sources_1\nforeach f [get_files -compile_order sources -used_in synthesis] { puts $f }\nputs [get_files -of_objects [get_filesets constrs_1]]\nforeach f [get_files -filter {FILE_TYPE == \"VHDL\"}] {\n    set_property file_type {VHDL 2008} $f\n}",
+      "notes": "-compile_order and -used_in are used together; run update_compile_order first or the order may be stale. With no arguments get_files returns every file in the project, including generated IP output products, which is rarely what you want.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_files"
+    },
+    {
+      "name": "update_compile_order",
+      "kind": "tcl-command",
+      "description": "Re-analyzes the sources in a fileset, re-elaborates the hierarchy and recomputes both the compile order and the automatically detected top module. Run it after any batch of add_files, import_files or remove_files calls, otherwise synthesis and simulation may use a stale order or the wrong top. The IDE does this automatically in the background; a script must call it explicitly.",
+      "usage": "update_compile_order [-fileset <name>] [-quiet]",
+      "parameters": [
+        {"name": "-fileset", "description": "Fileset to update, e.g. sources_1 or sim_1. Defaults to the active sources fileset; call it once per fileset you changed."}
+      ],
+      "example": "add_files -fileset sources_1 [glob ./rtl/*.v]\nadd_files -fileset sim_1 [glob ./sim/*.v]\nupdate_compile_order -fileset sources_1\nupdate_compile_order -fileset sim_1\nputs \"Auto-detected top: [get_property TOP [get_filesets sources_1]]\"",
+      "notes": "Setting the project's SOURCE_MGMT_MODE property to None disables automatic hierarchy management, after which you must set the top and maintain the order yourself. report_compile_order or `get_files -compile_order sources -used_in synthesis` shows the result.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/update_compile_order"
+    },
+    {
+      "name": "report_compile_order",
+      "kind": "tcl-command",
+      "description": "Prints the order in which the source or constraint files of a fileset will be processed, including the library each HDL file is compiled into. The -missing_instances form lists instantiated modules for which no source file was found, which is the fastest way to diagnose an unintended black box. Use it to confirm that update_compile_order produced what you expect before launching a run.",
+      "usage": "report_compile_order [-fileset <name>] [-sources] [-constraints] [-used_in <arg>] [-missing_instances] [-file <name>] [-append] [-return_string] [-quiet]",
+      "parameters": [
+        {"name": "-fileset", "description": "Fileset to report on. Defaults to the active sources fileset."},
+        {"name": "-sources", "description": "Report the HDL source compile order."},
+        {"name": "-constraints", "description": "Report the constraint file processing order."},
+        {"name": "-used_in", "description": "Report the order as seen by synthesis, simulation or implementation."},
+        {"name": "-missing_instances", "description": "List instantiated modules with no matching source file (black boxes)."},
+        {"name": "-file", "description": "Write the report to a file instead of the console."},
+        {"name": "-return_string", "description": "Return the report as a Tcl string for further processing."}
+      ],
+      "example": "update_compile_order -fileset sources_1\nreport_compile_order -fileset sources_1 -sources -used_in synthesis\nreport_compile_order -missing_instances\nreport_compile_order -fileset constrs_1 -constraints -file D:/work/reports/constraint_order.txt",
+      "notes": "Constraint order matters: later XDC files override earlier ones, and files whose USED_IN_SYNTHESIS property is false are skipped during synthesis. get_files -compile_order returns the same information as a plain Tcl list for scripting.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_compile_order"
+    },
+    {
+      "name": "read_verilog",
+      "kind": "tcl-command",
+      "description": "Reads Verilog or SystemVerilog source into the in-memory design without adding it to any project. This is the Non-Project (batch) Mode way to bring in RTL: nothing is copied, no fileset is created and no compile order is managed, so you control the read order yourself. Use -sv to force SystemVerilog parsing for files that do not carry an .sv extension.",
+      "usage": "read_verilog [-library <name>] [-sv] [-quiet] <files>",
+      "parameters": [
+        {"name": "<files>", "description": "One or more Verilog/SystemVerilog files; read in the order given."},
+        {"name": "-sv", "description": "Parse the files as SystemVerilog regardless of extension."},
+        {"name": "-library", "description": "Compile the files into the named library instead of the default work library."}
+      ],
+      "example": "set_part xcku040-ffva1156-2-e\nread_verilog -sv [glob ./rtl/*.sv]\nread_verilog ./rtl/legacy/uart.v\nread_xdc ./xdc/top.xdc\nsynth_design -top top\nwrite_checkpoint -force ./checkpoints/post_synth.dcp",
+      "notes": "In Project Mode use add_files instead: read_verilog does not register the file with the project, so the source is lost when the design is closed. Read packages and definitions before the modules that use them, since there is no automatic ordering.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_verilog"
+    },
+    {
+      "name": "read_vhdl",
+      "kind": "tcl-command",
+      "description": "Reads VHDL source into the in-memory design in Non-Project (batch) Mode. Because VHDL is order- and library-sensitive, you must read packages and entities before the units that reference them and place each file into the correct library with -library. VHDL-2008 constructs are not enabled by default, so pass -vhdl2008 for files that need them.",
+      "usage": "read_vhdl [-library <name>] [-vhdl2008] [-quiet] <files>",
+      "parameters": [
+        {"name": "<files>", "description": "One or more VHDL files, read in the order given."},
+        {"name": "-library", "description": "Compile the files into the named VHDL library instead of work."},
+        {"name": "-vhdl2008", "description": "Parse the files using the VHDL-2008 language standard."}
+      ],
+      "example": "set_part xc7a200tsbg484-1\nread_vhdl -library common [glob ./rtl/common/*.vhd]\nread_vhdl -vhdl2008 ./rtl/axi_stream_pkg.vhd\nread_vhdl ./rtl/top.vhd\nread_xdc ./xdc/top.xdc\nsynth_design -top top",
+      "notes": "In Project Mode the equivalent is add_files plus `set_property file_type {VHDL 2008} [get_files <file>]` and `set_property library common [get_files <file>]`. Mixing libraries requires the referencing file to contain the matching `library`/`use` clauses.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_vhdl"
+    },
+    {
+      "name": "read_xdc",
+      "kind": "tcl-command",
+      "description": "Reads Xilinx Design Constraints (XDC/SDC) into the in-memory design in Non-Project Mode. Constraints are applied in the order the files are read and later constraints override earlier ones, so read the pin-out and clock definitions before any timing exceptions. -cells and -ref scope the constraints to a specific instance or module, which is how out-of-context constraints for an IP or a module are applied.",
+      "usage": "read_xdc [-cells <cells>] [-ref <module>] [-mode <default|out_of_context>] [-unmanaged] [-quiet] <files>",
+      "parameters": [
+        {"name": "<files>", "description": "One or more .xdc or .sdc files, applied in the order given."},
+        {"name": "-cells", "description": "Scope the constraints to the given cell instances rather than the whole design."},
+        {"name": "-ref", "description": "Scope the constraints to every instance of the named module or IP reference."},
+        {"name": "-mode", "description": "'out_of_context' marks the constraints as applying to an out-of-context synthesis of the scoped module."},
+        {"name": "-unmanaged", "description": "Read the file as an unmanaged Tcl script instead of a managed XDC constraints file."}
+      ],
+      "example": "set_part xc7z020clg400-1\nread_verilog [glob ./rtl/*.v]\nread_xdc ./xdc/pinout.xdc\nread_xdc ./xdc/clocks.xdc\nread_xdc ./xdc/exceptions.xdc\nread_xdc -ref fifo_gen_0 -mode out_of_context ./xdc/fifo_ooc.xdc\nsynth_design -top top",
+      "notes": "In Project Mode add constraints with `add_files -fileset constrs_1` and control when each file applies through the USED_IN_SYNTHESIS and USED_IN_IMPLEMENTATION properties. write_xdc exports the constraints currently held in memory.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_xdc"
+    },
+    {
+      "name": "read_ip",
+      "kind": "tcl-command",
+      "description": "Reads an existing IP customization file (.xci) into the in-memory design in Non-Project Mode so the IP can be used by the rest of the design. It does not generate the IP: you still call generate_target and synth_ip to produce the output products and the synthesized checkpoint. Use it in batch scripts that build from checked-in .xci files rather than from a project.",
+      "usage": "read_ip [-quiet] <xci_files>",
+      "parameters": [
+        {"name": "<xci_files>", "description": "One or more .xci IP customization files."}
+      ],
+      "example": "set_part xc7z020clg400-1\nread_ip ./ip/clk_wiz_0/clk_wiz_0.xci\ngenerate_target all [get_ips clk_wiz_0]\nsynth_ip [get_ips clk_wiz_0]\nread_verilog [glob ./rtl/*.v]\nread_xdc ./xdc/top.xdc\nsynth_design -top top",
+      "notes": "In Project Mode use add_files or import_ip with the .xci, which also registers the IP with the project and creates its out-of-context run. Run `upgrade_ip [get_ips]` when moving an .xci to a newer Vivado release, otherwise generation can fail with a version mismatch.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_ip"
+    },
+    {
+      "name": "read_edif",
+      "kind": "tcl-command",
+      "description": "Reads an EDIF or NGC gate-level netlist into the in-memory design, for third-party synthesis output or encrypted vendor cores that must not be re-synthesized. The netlist stays staged until link_design (or opt_design in a project flow) resolves it against the RTL, filling any matching black box. Use it for mixed flows where part of the design arrives pre-synthesized.",
+      "usage": "read_edif [-quiet] <edif_or_ngc_files>",
+      "parameters": [
+        {"name": "<edif_or_ngc_files>", "description": "One or more .edf, .edn or .ngc netlist files."}
+      ],
+      "example": "set_part xc7k325tffg900-2\nread_edif ./netlist/vendor_core.edf\nread_verilog [glob ./rtl/*.v]\nread_xdc ./xdc/top.xdc\nsynth_design -top top\nwrite_checkpoint -force ./checkpoints/post_synth.dcp",
+      "notes": "The module instantiated as a black box in the RTL is filled by the matching EDIF cell during linking, so the cell name must match the instantiated module name exactly. In Project Mode add the .edf/.edn with add_files, which sets its file type to EDIF automatically.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_edif"
+    },
+    {
+      "name": "read_checkpoint",
+      "kind": "tcl-command",
+      "description": "Reads a design checkpoint (.dcp) into memory without opening it as the current design; it stages a netlist that link_design then elaborates and links. Its two main uses are pulling an out-of-context module checkpoint into a black box with -cell, and setting a reference checkpoint for incremental implementation with -incremental. To simply open a complete checkpoint and work on it, use open_checkpoint instead.",
+      "usage": "read_checkpoint [-cell <cell>] [-name <design_name>] [-incremental] [-quiet] <file.dcp>",
+      "parameters": [
+        {"name": "<file.dcp>", "description": "Path to the design checkpoint to read."},
+        {"name": "-cell", "description": "Black-box instance the checkpoint's netlist is read into, for bottom-up assembly of out-of-context modules."},
+        {"name": "-name", "description": "Name given to the design that will be created from the checkpoint."},
+        {"name": "-incremental", "description": "Use this checkpoint as the reference for incremental implementation rather than loading it as the design."}
+      ],
+      "example": "# Bottom-up assembly of an out-of-context module\nset_part xc7k325tffg900-2\nread_checkpoint ./checkpoints/top_synth.dcp\nread_checkpoint -cell u_dsp_core ./checkpoints/dsp_core_synth.dcp\nread_xdc ./xdc/top.xdc\nlink_design -top top\nopt_design\nplace_design\nroute_design",
+      "notes": "read_checkpoint only stages the netlist; no design is current until link_design runs. open_checkpoint is effectively read_checkpoint plus link_design in one step and is what you want for a single, complete checkpoint.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_checkpoint"
+    },
+    {
+      "name": "get_filesets",
+      "kind": "tcl-command",
+      "description": "Returns the project's fileset objects. Every Vivado project has at least sources_1 (design sources), constrs_1 (constraints) and sim_1 (simulation); IP and block designs add their own block filesets. Fileset objects are what you pass as -fileset arguments elsewhere and, importantly, they own the TOP property rather than the project doing so.",
+      "usage": "get_filesets [<patterns>] [-of_objects <objects>] [-filter <expr>] [-regexp] [-quiet]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Glob patterns matched against fileset names, e.g. sim_* or constrs_1."},
+        {"name": "-filter", "description": "Property expression, e.g. {FILESET_TYPE == SimulationSrcs}."},
+        {"name": "-of_objects", "description": "Return the filesets associated with another object, such as an IP or block design."},
+        {"name": "-regexp", "description": "Treat the patterns as regular expressions."}
+      ],
+      "example": "foreach fs [get_filesets] {\n    puts [format \"%-16s %s\" $fs [get_property FILESET_TYPE $fs]]\n}\nset_property top fir_top [get_filesets sources_1]\nset_property top tb_fir  [get_filesets sim_1]\nputs [get_files -of_objects [get_filesets sim_1]]",
+      "notes": "FILESET_TYPE is DesignSrcs, Constrs, SimulationSrcs or BlockSrcs. current_fileset returns the active source, constraint or simulation set. The TOP property belongs to the fileset, so a project can have a different top for synthesis and for simulation.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_filesets"
+    },
+    {
+      "name": "create_fileset",
+      "kind": "tcl-command",
+      "description": "Creates a new fileset in the project: a design source set by default, a constraint set with -constrset, a simulation set with -simset, or a block fileset with -blockset. Multiple simulation sets let you keep separate testbench groups (unit tests versus a system testbench) and switch between them, and multiple constraint sets let you build the same RTL for different boards. After creating one, populate it with add_files and make it active with current_fileset or a run's CONSTRSET property.",
+      "usage": "create_fileset [-constrset] [-simset] [-blockset] [-clone_simset <simset>] [-quiet] <name>",
+      "parameters": [
+        {"name": "<name>", "description": "Name of the new fileset."},
+        {"name": "-simset", "description": "Create a simulation fileset (holds testbenches and their own TOP)."},
+        {"name": "-constrset", "description": "Create a constraint fileset (holds XDC files)."},
+        {"name": "-blockset", "description": "Create a block fileset, used for block design sources."},
+        {"name": "-clone_simset", "description": "Populate the new simulation set with a copy of an existing one."}
+      ],
+      "example": "# A second simulation set for unit tests\ncreate_fileset -simset sim_unit\nadd_files -fileset sim_unit [glob D:/work/repo/sim/unit/*.sv]\nset_property top tb_fir_unit [get_filesets sim_unit]\nupdate_compile_order -fileset sim_unit\ncurrent_fileset -simset [get_filesets sim_unit]\nlaunch_simulation\n\n# A second constraint set for a different board\ncreate_fileset -constrset constrs_zcu104\nadd_files -fileset constrs_zcu104 D:/work/repo/xdc/zcu104.xdc\nset_property constrset constrs_zcu104 [get_runs impl_1]",
+      "notes": "A run selects its constraints through the CONSTRSET property; only one simulation set is active at a time and current_fileset -simset selects it. Remove an unused set with delete_fileset.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_fileset"
+    },
+    {
+      "name": "delete_fileset",
+      "kind": "tcl-command",
+      "description": "Deletes a fileset from the project together with its list of file references; the files themselves remain on disk. Use it to clean up experimental constraint or simulation sets after a sweep. The fileset must not be in use, so switch the active simulation set and reassign any run that points at the constraint set first.",
+      "usage": "delete_fileset [-quiet] <fileset>",
+      "parameters": [
+        {"name": "<fileset>", "description": "Fileset name or object from get_filesets."}
+      ],
+      "example": "current_fileset -simset [get_filesets sim_1]\ndelete_fileset [get_filesets sim_unit]\nset_property constrset constrs_1 [get_runs impl_1]\ndelete_fileset [get_filesets constrs_zcu104]\nputs [get_filesets]",
+      "notes": "Vivado refuses to delete the active source fileset or a constraint set still referenced by a run; change the run's CONSTRSET property or delete the run with delete_runs first. Deleting a fileset never deletes source files from disk.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/delete_fileset"
+    },
+    {
+      "name": "set_property",
+      "kind": "tcl-command",
+      "description": "Sets a property on any Vivado object: project, fileset, file, run, IP, cell, port or net. It is the single mechanism behind almost all project configuration, because the top module lives on the fileset, the language and library live on the file, the strategy and constraint set live on the run, and the part and board live on the project. Use the -dict form to set several properties on the same object in one call.",
+      "usage": "set_property <name> <value> <objects>\nset_property -dict {<name> <value> ...} <objects>",
+      "parameters": [
+        {"name": "<name>", "description": "Property name; case-insensitive, e.g. top, file_type, library, used_in_synthesis, part, board_part, strategy."},
+        {"name": "<value>", "description": "Value to assign. Brace values that contain spaces, e.g. {VHDL 2008}."},
+        {"name": "<objects>", "description": "One or more objects, typically [current_project], [get_filesets ...], [get_files ...] or [get_runs ...]."},
+        {"name": "-dict", "description": "A {name value name value ...} list applied to the same objects in one call."}
+      ],
+      "example": "# TOP lives on the fileset, not on the project\nset_property top fir_top [get_filesets sources_1]\nset_property top tb_fir  [get_filesets sim_1]\n\n# File type and library\nset_property file_type {VHDL 2008}   [get_files axi_stream_pkg.vhd]\nset_property file_type SystemVerilog [get_files fir_top.sv]\nset_property library common          [get_files axi_stream_pkg.vhd]\n\n# Where each constraint file is used\nset_property used_in_synthesis      false [get_files timing_impl.xdc]\nset_property used_in_implementation true  [get_files timing_impl.xdc]\nset_property used_in_simulation     false [get_files top_pinout.xdc]\n\n# Several project properties at once\nset_property -dict {target_language Verilog default_lib work} [current_project]\nset_property board_part xilinx.com:zcu104:part0:1.1 [current_project]",
+      "notes": "`list_property <object>` shows every valid property for an object and `list_property_value <property> <object>` shows the legal values, which is far safer than guessing. Setting an unknown property is an error; property names are case-insensitive but values often are not.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "get_property",
+      "kind": "tcl-command",
+      "description": "Reads one property from one object and returns its value as a string. It is how a script inspects project state: the current part, a file's type, whether a run finished, or how far a run got before it stopped. Paired with get_runs, get_files and current_project it provides the gating logic that makes a headless build script fail loudly instead of silently producing nothing.",
+      "usage": "get_property [-min] [-max] [-quiet] <name> <object>",
+      "parameters": [
+        {"name": "<name>", "description": "Property name, e.g. PART, TOP, STATUS, PROGRESS, NEEDS_REFRESH, DIRECTORY, FILE_TYPE."},
+        {"name": "<object>", "description": "A single object; get_property does not accept a list."},
+        {"name": "-min / -max", "description": "For properties that hold a range of values (such as timing corner values), return the minimum or maximum."}
+      ],
+      "example": "puts \"Part : [get_property PART [current_project]]\"\nputs \"Top  : [get_property TOP  [get_filesets sources_1]]\"\n\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\n\nset progress [get_property PROGRESS      [get_runs impl_1]]\nset status   [get_property STATUS        [get_runs impl_1]]\nset stale    [get_property NEEDS_REFRESH [get_runs impl_1]]\nputs \"impl_1: progress=$progress status=$status needs_refresh=$stale\"\nif {$progress ne \"100%\"} {\n    error \"Implementation did not complete: $status\"\n}",
+      "notes": "PROGRESS is a string such as \"100%\", not a number, so compare it as a string. NEEDS_REFRESH is 1 when sources or properties changed after the run completed, meaning the results are stale. STATUS carries the last step reported, for example \"write_bitstream Complete!\" or a failure message. Use list_property to discover readable properties.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_property"
+    },
+    {
+      "name": "write_checkpoint",
+      "kind": "tcl-command",
+      "description": "Writes the current in-memory design (netlist, constraints, and placement and routing if present) to a design checkpoint (.dcp). Checkpoints are the unit of exchange in Non-Project Mode: write one after each stage so any stage can be reloaded later without rerunning the whole flow. -cell writes only the sub-design under a given instance, which is how out-of-context module checkpoints are produced.",
+      "usage": "write_checkpoint [-force] [-cell <cell>] [-quiet] <file.dcp>",
+      "parameters": [
+        {"name": "<file.dcp>", "description": "Output checkpoint path."},
+        {"name": "-force", "description": "Overwrite an existing checkpoint file; without it an existing file is an error."},
+        {"name": "-cell", "description": "Write only the design under the given cell instance, producing an out-of-context module checkpoint."}
+      ],
+      "example": "synth_design -top top -part xcku040-ffva1156-2-e\nwrite_checkpoint -force ./checkpoints/post_synth.dcp\nopt_design\nplace_design\nwrite_checkpoint -force ./checkpoints/post_place.dcp\nroute_design\nwrite_checkpoint -force ./checkpoints/post_route.dcp\nreport_timing_summary -file ./reports/post_route_timing.rpt",
+      "notes": "Project Mode runs write their own checkpoints into <project>.runs/<run>/; locate them with `get_property DIRECTORY [get_runs impl_1]`. A checkpoint records the part, so it can be reopened on any machine with the same Vivado release and device family installed.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_checkpoint"
+    },
+    {
+      "name": "open_checkpoint",
+      "kind": "tcl-command",
+      "description": "Opens a design checkpoint as the current in-memory design in one step: it reads the checkpoint and links the design for you, with no project involved. Use it to re-open a post-synthesis or post-route DCP for analysis, to continue implementation from a stage, or to inspect results on a machine that has no project. It is the Non-Project counterpart of open_run.",
+      "usage": "open_checkpoint [-part <part>] [-ignore_timing] [-quiet] <file.dcp>",
+      "parameters": [
+        {"name": "<file.dcp>", "description": "Checkpoint to open."},
+        {"name": "-part", "description": "Override the part stored in the checkpoint."},
+        {"name": "-ignore_timing", "description": "Skip reading the timing constraints, giving a much faster load when only the netlist or placement is needed."}
+      ],
+      "example": "open_checkpoint ./checkpoints/post_route.dcp\nreport_timing_summary -file ./reports/timing.rpt\nreport_utilization   -file ./reports/util.rpt\nwrite_bitstream -force ./bit/top.bit\nclose_design",
+      "notes": "open_checkpoint closes any design that is already open and does not need a project. Use read_checkpoint plus link_design instead when you must assemble several checkpoints (for example an out-of-context module into a black box) before the design is elaborated.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_checkpoint"
+    },
+    {
+      "name": "link_design",
+      "kind": "tcl-command",
+      "description": "Elaborates the netlists staged in memory by read_checkpoint, read_edif or synthesis into a single linked in-memory design that the implementation commands can operate on. It resolves black boxes against the sub-netlists that were read for them and applies the chosen constraint set. Use it whenever a design is assembled from separate netlist pieces rather than opened from one complete checkpoint.",
+      "usage": "link_design [-name <design_name>] [-part <part>] [-top <module>] [-constrset <fileset>] [-mode <default|out_of_context>] [-quiet]",
+      "parameters": [
+        {"name": "-top", "description": "Top-level module of the linked design."},
+        {"name": "-name", "description": "Name given to the resulting design, useful when several designs are open."},
+        {"name": "-part", "description": "Target part, if not already established by set_part or the checkpoint."},
+        {"name": "-constrset", "description": "Constraint set to apply (Project Mode object)."},
+        {"name": "-mode", "description": "'out_of_context' links the design as a standalone module, so no I/O buffers are inserted."}
+      ],
+      "example": "set_part xc7k325tffg900-2\nread_checkpoint ./checkpoints/top_synth.dcp\nread_checkpoint -cell u_dsp ./checkpoints/dsp_core_synth.dcp\nread_xdc ./xdc/top.xdc\nlink_design -top top -name assembled\nopt_design\nplace_design\nroute_design\nwrite_checkpoint -force ./checkpoints/post_route.dcp",
+      "notes": "In Project Mode, open_run performs the equivalent link on a completed synthesis run. -mode out_of_context is what an out-of-context IP run uses, so the module keeps its ports as internal pins instead of gaining I/O buffers.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/link_design"
+    },
+    {
+      "name": "open_run",
+      "kind": "tcl-command",
+      "description": "Opens the results of a completed Project Mode run as the current in-memory design. For a synthesis run it links the netlist; for an implementation run it loads the placed and routed design. Use it after wait_on_run when a script needs to run reports, apply ECOs, probe nets or write a bitstream from a project run.",
+      "usage": "open_run [-name <design_name>] [-pr_config <config>] [-quiet] <run>",
+      "parameters": [
+        {"name": "<run>", "description": "Run name or object, e.g. synth_1 or [get_runs impl_1]."},
+        {"name": "-name", "description": "Name for the resulting design, e.g. netlist_1. Helpful when several designs are open at once."},
+        {"name": "-pr_config", "description": "Partial reconfiguration configuration to open for a PR design."}
+      ],
+      "example": "launch_runs synth_1 -jobs 8\nwait_on_run synth_1\nopen_run synth_1 -name netlist_1\nreport_utilization -file D:/work/reports/synth_util.rpt\nclose_design\n\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\nopen_run impl_1\nreport_timing_summary -file D:/work/reports/impl_timing.rpt\nclose_design",
+      "notes": "The run must have completed; check `get_property PROGRESS [get_runs synth_1]` first or open_run errors. open_checkpoint is the Non-Project equivalent. Use current_design to see what is open and close_design to release it before opening another.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_run"
+    },
+    {
+      "name": "current_design",
+      "kind": "tcl-command",
+      "description": "Returns the design object currently open in memory, and with an argument switches between several designs opened under different -name values. Scripts use it to confirm that a design is actually open before running analysis commands, and to read design-scope properties such as the part and top module. It raises an error when no design is open, which makes it a convenient guard.",
+      "usage": "current_design [<design>] [-quiet]",
+      "parameters": [
+        {"name": "<design>", "description": "Optional design object or name to make current."}
+      ],
+      "example": "if {[catch {current_design}]} {\n    open_checkpoint ./checkpoints/post_route.dcp\n}\nputs \"Design: [current_design]\"\nputs \"Part  : [get_property PART [current_design]]\"\nputs \"Top   : [get_property TOP  [current_design]]\"\nreport_utilization -file ./reports/util.rpt",
+      "notes": "Wrap it in `catch` for a safe 'is a design open?' test, since it errors rather than returning an empty string. In Project Mode the open design corresponds to the run opened by open_run, under the name given by -name.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/current_design"
+    },
+    {
+      "name": "close_design",
+      "kind": "tcl-command",
+      "description": "Closes the design currently open in memory without closing the project. Use it between stages of a script that opens several runs or checkpoints in turn, so the previous netlist does not stay resident and consume memory. Anything you changed in memory (ECOs, edited constraints) is lost unless it was saved first.",
+      "usage": "close_design [-quiet]",
+      "parameters": [],
+      "example": "open_run synth_1 -name netlist_1\nreport_utilization -file ./reports/synth_util.rpt\nclose_design\n\nopen_run impl_1\nreport_timing_summary -file ./reports/impl_timing.rpt\nreport_power -file ./reports/power.rpt\nclose_design",
+      "notes": "close_project closes any open design as well, so an explicit close_design is only needed when the project stays open. If you edited constraints in memory, call save_constraints (Project Mode) or write_xdc before closing, and write_checkpoint to preserve netlist edits.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/close_design"
+    },
+    {
+      "name": "create_run",
+      "kind": "tcl-command",
+      "description": "Defines a new synthesis or implementation run in the project. An implementation run must name its -parent_run (the synthesis run providing the netlist) and a -flow string that matches the installed release, for example {Vivado Implementation 2024}. Creating several runs with different strategies or constraint sets is how you sweep implementation options and compare the results side by side.",
+      "usage": "create_run [-flow <flow>] [-strategy <strategy>] [-constrset <fileset>] [-parent_run <run>] [-part <part>] [-report_strategy <name>] [-pr_config <config>] [-quiet] <name>",
+      "parameters": [
+        {"name": "<name>", "description": "Name of the new run, e.g. impl_explore_1."},
+        {"name": "-flow", "description": "Flow name for the installed release, e.g. {Vivado Synthesis 2024} or {Vivado Implementation 2024}."},
+        {"name": "-strategy", "description": "Named strategy such as Flow_PerfOptimized_high (synthesis) or Performance_ExplorePostRoutePhysOpt (implementation)."},
+        {"name": "-parent_run", "description": "For an implementation run, the synthesis run that supplies the netlist."},
+        {"name": "-constrset", "description": "Constraint set the run uses; lets two runs build the same RTL against different XDC."},
+        {"name": "-part", "description": "Target part for this run, if it differs from the project part."},
+        {"name": "-report_strategy", "description": "Named report strategy controlling which reports the run generates automatically."}
+      ],
+      "example": "create_run synth_perf -flow {Vivado Synthesis 2024} -strategy {Flow_PerfOptimized_high} -constrset constrs_1\ncreate_run impl_perf -flow {Vivado Implementation 2024} -parent_run synth_perf -strategy {Performance_ExplorePostRoutePhysOpt} -constrset constrs_1\nlaunch_runs impl_perf -to_step write_bitstream -jobs 8\nwait_on_run impl_perf\nputs [get_property STATUS [get_runs impl_perf]]",
+      "notes": "The -flow and -strategy strings are release-specific and create_run errors on an unknown one. Read the exact strings for your install from an existing run: `get_property FLOW [get_runs synth_1]` and `get_property STRATEGY [get_runs impl_1]`.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_run"
+    },
+    {
+      "name": "launch_runs",
+      "kind": "tcl-command",
+      "description": "Starts one or more synthesis or implementation runs as background jobs. -jobs controls how much work runs in parallel and -to_step stops the flow at a named step, most commonly write_bitstream so the run produces a bitstream in one call. launch_runs returns immediately, so any batch script must follow it with wait_on_run or the Vivado process will exit while the runs are still going.",
+      "usage": "launch_runs <runs> [-jobs <N>] [-to_step <step>] [-next_step] [-scripts_only] [-dir <dir>] [-force] [-quiet]",
+      "parameters": [
+        {"name": "<runs>", "description": "One or more run names or objects, e.g. `synth_1 impl_1` or [get_runs impl_*]."},
+        {"name": "-jobs", "description": "Maximum number of jobs to run in parallel; set it to the number of cores you want to use."},
+        {"name": "-to_step", "description": "Run through this step and stop, e.g. write_bitstream, route_design, opt_design."},
+        {"name": "-next_step", "description": "Advance a partially completed run by one step."},
+        {"name": "-scripts_only", "description": "Generate the run scripts without executing them, for submission to a compute farm."},
+        {"name": "-dir", "description": "Directory in which to create the run directories, instead of <project>.runs."},
+        {"name": "-force", "description": "Reset and relaunch a run that has already completed."}
+      ],
+      "example": "launch_runs synth_1 -jobs 8\nwait_on_run synth_1\nif {[get_property PROGRESS [get_runs synth_1]] ne \"100%\"} {\n    error \"Synthesis failed: [get_property STATUS [get_runs synth_1]]\"\n}\n\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\nputs [get_property STATUS [get_runs impl_1]]",
+      "notes": "Launching an implementation run whose parent synthesis run is out of date makes Vivado rerun synthesis first. You can launch synthesis and implementation in one call (`launch_runs synth_1 impl_1 -jobs 8 -to_step write_bitstream`), but you still need a wait_on_run for each run you depend on. Use -scripts_only plus the generated runme scripts for LSF/SGE submission.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/launch_runs"
+    },
+    {
+      "name": "wait_on_run",
+      "kind": "tcl-command",
+      "description": "Blocks the Tcl interpreter until the named run finishes, fails, or an optional timeout expires. It is mandatory in `vivado -mode batch -source build.tcl` scripts because launch_runs is asynchronous and the script would otherwise reach `exit` while the run is still in progress. After it returns, read the run's PROGRESS and STATUS properties to decide whether the run actually succeeded.",
+      "usage": "wait_on_run [-timeout <minutes>] [-quiet] <run>",
+      "parameters": [
+        {"name": "<run>", "description": "Run name or object to wait for."},
+        {"name": "-timeout", "description": "Maximum wait in minutes; the command returns when it expires even if the run is still going."}
+      ],
+      "example": "launch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run -timeout 120 impl_1\n\nset progress [get_property PROGRESS [get_runs impl_1]]\nset status   [get_property STATUS   [get_runs impl_1]]\nputs \"impl_1: $progress / $status\"\nif {$progress ne \"100%\"} {\n    puts \"FAILED: $status\"\n    exit 1\n}\nexit 0",
+      "notes": "wait_on_run returns normally when a run fails, so never treat a successful return as a successful build; always check PROGRESS afterwards. Newer Vivado releases also provide wait_on_runs, which accepts several runs in a single call.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/wait_on_run"
+    },
+    {
+      "name": "reset_run",
+      "kind": "tcl-command",
+      "description": "Resets a run to its not-started state, clearing the results under <project>.runs/<run> so the next launch starts clean. Use it when a run failed, when its inputs changed, or before relaunching with a different strategy or constraint set. -from_step resets an implementation run only from a given step onward, which avoids rerunning the earlier steps.",
+      "usage": "reset_run [-from_step <step>] [-prev_step] [-quiet] <run>",
+      "parameters": [
+        {"name": "<run>", "description": "Run name or object to reset."},
+        {"name": "-from_step", "description": "Reset the implementation run from this step forward, e.g. place_design or phys_opt_design."},
+        {"name": "-prev_step", "description": "Reset the run back to the previous step."}
+      ],
+      "example": "if {[get_property NEEDS_REFRESH [get_runs impl_1]]} {\n    reset_run impl_1\n}\nreset_run synth_1\nlaunch_runs synth_1 -jobs 8\nwait_on_run synth_1\n\n# Redo only placement onwards after a constraint tweak\nreset_run impl_1 -from_step place_design\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1",
+      "notes": "Resetting a synthesis run invalidates the implementation runs that name it as -parent_run, which will then rerun synthesis. reset_run keeps the run definition; delete_runs removes it entirely. Newer releases also provide reset_runs for several runs in one call.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/reset_run"
+    },
+    {
+      "name": "get_runs",
+      "kind": "tcl-command",
+      "description": "Returns the run objects defined in the project: the default synth_1 and impl_1, any runs you created, and the out-of-context runs Vivado creates for IP and block designs. Use it to enumerate runs for a status report, to filter for the ones that went stale, and to supply run objects to launch_runs, reset_run and get_property. Patterns accept Tcl globs such as impl_*.",
+      "usage": "get_runs [<patterns>] [-of_objects <objects>] [-filter <expr>] [-regexp] [-quiet]",
+      "parameters": [
+        {"name": "<patterns>", "description": "Glob patterns matched against run names, e.g. impl_* or synth_1."},
+        {"name": "-filter", "description": "Property expression, e.g. {IS_IMPLEMENTATION} or {NEEDS_REFRESH}."},
+        {"name": "-of_objects", "description": "Return the runs associated with another object, such as an IP."},
+        {"name": "-regexp", "description": "Treat the patterns as regular expressions."}
+      ],
+      "example": "foreach r [get_runs] {\n    puts [format \"%-18s %-6s %s\" $r [get_property PROGRESS $r] [get_property STATUS $r]]\n}\n\n# Relaunch everything that has gone stale\nset stale [get_runs -filter {NEEDS_REFRESH}]\nforeach r $stale { reset_run $r }\nif {[llength $stale]} {\n    launch_runs $stale -jobs 8\n    foreach r $stale { wait_on_run $r }\n}",
+      "notes": "Useful run properties: PROGRESS, STATUS, NEEDS_REFRESH, IS_SYNTHESIS, IS_IMPLEMENTATION, PARENT, STRATEGY, FLOW, CONSTRSET, PART and DIRECTORY. Filter with {IS_IMPLEMENTATION} to exclude synthesis and out-of-context IP runs.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_runs"
+    },
+    {
+      "name": "current_run",
+      "kind": "tcl-command",
+      "description": "Returns the run that is currently active in the project, and with an argument makes a different run active. A project has one active synthesis run and one active implementation run, selected with -synthesis and -implementation. Scripts use it so they do not have to hard-code the names synth_1 and impl_1 when several runs exist.",
+      "usage": "current_run [-synthesis] [-implementation] [<run>] [-quiet]",
+      "parameters": [
+        {"name": "-synthesis", "description": "Operate on the active synthesis run."},
+        {"name": "-implementation", "description": "Operate on the active implementation run."},
+        {"name": "<run>", "description": "Run to make active; omit to query the current one."}
+      ],
+      "example": "puts \"Active synth: [current_run -synthesis]\"\nputs \"Active impl : [current_run -implementation]\"\n\ncurrent_run -implementation [get_runs impl_perf]\nset r [current_run -implementation]\nlaunch_runs $r -to_step write_bitstream -jobs 8\nwait_on_run $r\nputs [get_property STATUS $r]",
+      "notes": "The active run is the one the IDE's Run Synthesis / Run Implementation buttons target. Setting it does not launch anything. Always pass -synthesis or -implementation explicitly so the intent is unambiguous.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/current_run"
+    },
+    {
+      "name": "delete_runs",
+      "kind": "tcl-command",
+      "description": "Removes run definitions from the project and, by default, deletes their result directories under <project>.runs. Use it to clean up experiment runs after a strategy sweep, or to drop a run that blocks deletion of a constraint set or a parent synthesis run. Pass -noclean_dir to keep the results on disk while removing the run from the project.",
+      "usage": "delete_runs [-noclean_dir] [-quiet] <runs>",
+      "parameters": [
+        {"name": "<runs>", "description": "One or more run names or objects to delete."},
+        {"name": "-noclean_dir", "description": "Leave the run's directory and its results on disk; only the project's definition is removed."}
+      ],
+      "example": "foreach r [get_runs impl_explore_*] {\n    puts \"Deleting $r\"\n    delete_runs $r\n}\ndelete_runs -noclean_dir [get_runs synth_perf]\nputs [get_runs]",
+      "notes": "Deleting a synthesis run also removes the implementation runs that reference it as their parent. When you only want to clear the results and relaunch later, use reset_run instead so the run definition, strategy and constraint set are preserved.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/delete_runs"
+    }
+  ]
+}

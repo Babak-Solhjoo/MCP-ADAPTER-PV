@@ -1,0 +1,449 @@
+{
+  "category": "Uncertainty Quantification Module and Design Module geometry tools",
+  "description": "COMSOL 6.4 Uncertainty Quantification Module (UQ study types: Screening MOAT, Sobol/correlation sensitivity analysis, uncertainty propagation, EGRA reliability analysis, MCMC inverse UQ; input distributions and sampling; PCE/GP surrogates; verification; KDE and Sobol results; job configurations) and the Design Module's 3D CAD-kernel operations (Fillet, Chamfer, Midsurface, Offset Faces, Transform Faces, Project to Faces) plus 2D sketch constraints and dimensions. API types verified against the 6.4 completion data and the Design Module programming reference.",
+  "tools": [
+    {
+      "name": "Uncertainty Quantification (study step) - compute actions and settings",
+      "kind": "study",
+      "description": "Study step of the Uncertainty Quantification Module that samples uncertain input parameters, evaluates the COMSOL model for each sample, trains a surrogate and runs the selected UQ analysis (uqtype: screening, sensitivityanalysis, uncertaintypropagation, reliabilityanalysis, inverseuq). Compute actions let you compute and analyze, improve (append samples to the existing QoI table and surrogate), analyze only, or include verification data, so expensive model evaluations are reused between analyses.",
+      "usage": "Study > right-click > Uncertainty Quantification (one per study, placed above the solved steps); API: model.study(\"std2\").create(\"uq\", \"UncertaintyQuantification\"); set(\"uqtype\", ...); run via the Compute action button",
+      "parameters": [
+        {"name": "uqtype", "description": "screening (default) | sensitivityanalysis | uncertaintypropagation | reliabilityanalysis | inverseuq."},
+        {"name": "computeaction", "description": "Compute and analyze | Improve and analyze | Analyze only | Analyze only, including verification data."},
+        {"name": "surrogatemodel / surrogatetol", "description": "Surrogate type (ASPCE, SPCE, AGP, GP depending on uqtype) and relative tolerance."},
+        {"name": "uqresultgrpusage / clearprevious", "description": "Automatic or manual output table group; clear previous result tables."},
+        {"name": "pdistrib / errorhandling / reusesol", "description": "Distribute model evaluations on a cluster, skip failed parameter tuples, reuse previous solution."}
+      ],
+      "example": "model.study().create(\"std2\");\nmodel.study(\"std2\").create(\"uq\", \"UncertaintyQuantification\");\nmodel.study(\"std2\").feature(\"uq\").set(\"uqtype\", \"uncertaintypropagation\");\nmodel.study(\"std2\").feature(\"uq\").set(\"pdistrib\", \"on\");\n// Application Library: Uncertainty_Quantification_Module/Tutorials/bracket_uncertainty_quantification",
+      "notes": "Right-click an existing UQ study > Add New Uncertainty Quantification Study For > ... to copy QoIs, inputs and the trained surrogate into a new analysis type. The existing entry 'Surrogate Model Training / Uncertainty Quantification' gives a shorter overview.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.26.html"
+    },
+    {
+      "name": "Screening, MOAT (UQ study type)",
+      "kind": "study",
+      "description": "Cheap first UQ step that ranks input parameters by influence using the Morris one-at-a-time method: r trajectories through a discretized input space (partition level 4-12) change one parameter at a time, and the mean and standard deviation of the elementary effects indicate importance and nonlinearity/interaction. Use it to discard unimportant parameters before surrogate-based analyses.",
+      "usage": "Uncertainty Quantification > UQ study type: Screening, MOAT; API: set(\"uqtype\", \"screening\"); set(\"partitionlevel\", \"lvl4\"|\"lvl6\"|\"lvl8\"|\"lvl10\"|\"lvl12\")",
+      "parameters": [
+        {"name": "Repetition number", "description": "Number of Morris trajectories r; model evaluations = r*(m+1)."},
+        {"name": "partitionlevel", "description": "Number of levels of the Morris grid."}
+      ],
+      "example": "model.study(\"std2\").feature(\"uq\").set(\"uqtype\", \"screening\");\nmodel.study(\"std2\").feature(\"uq\").set(\"partitionlevel\", \"lvl6\");\n// results: Quantities of Interest table + MOAT table (mean, std of elementary effects) with 1D annotation plots",
+      "notes": "No surrogate model is used. Study-dependent QoIs (time, frequency) get additional MOAT Study-Dependent tables.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.08.html"
+    },
+    {
+      "name": "Sensitivity Analysis - Sobol indices / Correlation (UQ study type)",
+      "kind": "study",
+      "description": "UQ study type that apportions QoI variance to the inputs: the Sobol method computes first-order and total Sobol indices, most efficiently from a (adaptive) sparse polynomial chaos expansion or via Monte Carlo on a Gaussian process; the Correlation method reports bivariate, rank bivariate, partial and rank partial correlation coefficients directly from sampled data. Sobol index plots sorted by total index are generated automatically.",
+      "usage": "Uncertainty Quantification > UQ study type: Sensitivity analysis > Method: Sobol (default) or Correlation; API: set(\"uqtype\", \"sensitivityanalysis\")",
+      "parameters": [
+        {"name": "Method", "description": "Sobol | Correlation."},
+        {"name": "Surrogate model", "description": "Adaptive sparse PCE (default), sparse PCE (q-norm), GP or adaptive GP (needs Monte Carlo analysis)."},
+        {"name": "Relative tolerance", "description": "Leave-one-out cross-validation target for PCE."}
+      ],
+      "example": "model.study(\"std2\").feature(\"uq\").set(\"uqtype\", \"sensitivityanalysis\");\n// outputs: QoI table, Sobol table, Sobol training error table, Sobol Index plots (one per QoI)\n// Application Library: ishigami_function_uncertainty_quantification, solidly_mounted_resonator_2d_uncertainty_quantification",
+      "notes": "Correlation needs no surrogate and can Improve and analyze by appending samples.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.12.html"
+    },
+    {
+      "name": "Uncertainty Propagation (UQ study type)",
+      "kind": "study",
+      "description": "Propagates input distributions to the QoIs by Monte Carlo sampling of a trained surrogate (PCE or GP), reporting mean, standard deviation, min/max and 90/95/99% confidence intervals, predicted QoI and predicted-standard-deviation tables, a maximum-entropy table and kernel density estimation (KDE) plots of each QoI's probability density. Study-dependent QoIs also get mean with 95% prediction interval versus time or frequency.",
+      "usage": "Uncertainty Quantification > UQ study type: Uncertainty propagation; API: set(\"uqtype\", \"uncertaintypropagation\")",
+      "parameters": [
+        {"name": "Surrogate model / PCE or GP function", "description": "New or existing surrogate function to (re)use."},
+        {"name": "Monte Carlo settings", "description": "Number of surrogate evaluations and sampling (mcsamplemethod lhs | is)."},
+        {"name": "Solution selection / outer solution", "description": "How QoIs are extracted from time/parametric solutions (auto, sum, min, max, first, last)."}
+      ],
+      "example": "model.study(\"std2\").feature(\"uq\").set(\"uqtype\", \"uncertaintypropagation\");\n// results: QoI Confidence interval table, UP predicted QoI table (feeds KDE datasets), Uncertainty Quantification plot group with KDE plots\n// Application Library: microstrip_patch_antenna_uq, bracket_uncertainty_quantification",
+      "notes": "Starting from a copy of a sensitivity study with a trained surrogate lets you use Improve and analyze without new model runs.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.16.html"
+    },
+    {
+      "name": "Reliability Analysis, EGRA (UQ study type)",
+      "kind": "study",
+      "description": "Computes the probability that QoIs exceed (or fall below) thresholds using Efficient Global Reliability Analysis: an adaptive Gaussian process refined near the limit state with the expected feasibility function, followed by multimodal adaptive importance sampling for low failure probabilities. Conditions for several QoIs can be combined with All true or Any true.",
+      "usage": "Uncertainty Quantification > UQ study type: Reliability analysis, EGRA (surrogate fixed to Adaptive Gaussian process); API: set(\"uqtype\", \"reliabilityanalysis\"); QoI table: failif = larger | smaller, threshold",
+      "parameters": [
+        {"name": "True if / threshold (per QoI)", "description": "failif larger | smaller than the threshold value."},
+        {"name": "rafailure", "description": "Probability for conditions: parallel (All true, default) | serial (Any true)."},
+        {"name": "mcsamplemethod", "description": "is (importance sampling, default) | lhs; initial/maximum samples and tolerance."}
+      ],
+      "example": "model.study(\"std2\").feature(\"uq\").set(\"uqtype\", \"reliabilityanalysis\");\nmodel.study(\"std2\").feature(\"uq\").set(\"rafailure\", \"parallel\");\n// results: Probability for conditions table, maximum expected feasibility function tables, RA predicted QoI\n// Application Library: bowtie_antenna_optimization, bracket_uncertainty_quantification",
+      "notes": "Only the adaptive GP surrogate is applicable; new samples are placed near the thresholds.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.20.html"
+    },
+    {
+      "name": "Inverse Uncertainty Quantification, MCMC (UQ study type)",
+      "kind": "study",
+      "description": "Bayesian calibration that computes the posterior distribution of calibration parameters from experimental data and prior distributions, using Markov chain Monte Carlo on a surrogate of the model with an additive Gaussian discrepancy (measurement uncertainty calibrated or taken from the data). Posterior samples, statistics and densities are reported.",
+      "usage": "Uncertainty Quantification > UQ study type: Inverse uncertainty quantification, MCMC; API: set(\"uqtype\", \"inverseuq\")",
+      "parameters": [
+        {"name": "Number of samples / Step size", "description": "MCMC chain length and proposal step."},
+        {"name": "measurementerrortypeAUX", "description": "calibrated | user (Experimental data) measurement uncertainty."},
+        {"name": "useseediuq", "description": "Fixed MCMC random seed for reproducibility."},
+        {"name": "Experimental data", "description": "Measured QoI values with their experimental parameters."}
+      ],
+      "example": "model.study(\"std2\").feature(\"uq\").set(\"uqtype\", \"inverseuq\");\n// Application Library: Uncertainty_Quantification_Module/Tutorials/tensile_test_uncertainty_quantification",
+      "notes": "Compare with deterministic Parameter Estimation (Optimization Module), which returns point estimates and confidence intervals instead of full posteriors.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.24.html"
+    },
+    {
+      "name": "Input parameter distributions and correlation groups (UQ)",
+      "kind": "reference",
+      "description": "Each UQ input parameter is a global parameter with an Analytic distribution (Uniform, Normal(mu,sigma), LogNormal(mu,sigma), Gamma(k,theta), Beta(alpha,beta), Weibull(k,lambda), Gumbel(mu,beta)) truncated by CDF-lower/upper levels or manual bounds, or with Data from specified values or a results table. Dependent inputs are grouped with a correlation matrix and combined through a Gaussian copula.",
+      "usage": "Uncertainty Quantification > Input Parameters table (Parameter, Source type Analytic/Data, Distribution, CDF-Lower/Upper, bounds, unit); Correlated input parameters > Correlation group / Correlation matrix",
+      "parameters": [
+        {"name": "distributionselectionAUX", "description": "uniform | normal | lognormal | gamma | beta | weibull | gumbel."},
+        {"name": "lcdfselectionAUX / ucdfselectionAUX", "description": "0.3 ... 1e-7 or manual (default 0.001 and 0.999)."},
+        {"name": "correlatedinput", "description": "Enable correlation groups (GP-based methods except Sobol)."},
+        {"name": "inputdatasizetype", "description": "Automatic or manual number of input points."}
+      ],
+      "example": "Input parameters table in std2 > uq: E_mod Normal(200[GPa], 10[GPa]) CDF 0.1%-99.9%; t_plate Uniform(1.9[mm], 2.1[mm]); load LogNormal(1[kN], 0.1[kN]).",
+      "notes": "Parameters that change geometry trigger remeshing for each sample; keep the mesh robust across the range.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_theory.3.06.html"
+    },
+    {
+      "name": "Latin hypercube, Morris and importance sampling (UQ data sampling)",
+      "kind": "reference",
+      "description": "Sampling methods of the UQ Module: optimal Latin hypercube sampling (space-filling, centered L2 discrepancy, repeated global optimization from several starts) for surrogate training and all analyses except screening; Morris trajectories on an n-level grid for MOAT screening; and multimodal adaptive importance sampling for small failure probabilities in reliability analysis. Samples are generated in the unit hypercube and mapped through the inverse CDFs.",
+      "usage": "Automatic per UQ study type; LHS settings (maximum iterations, number of restart points) in Job Configurations > Design of Experiments; random seed type (useseed automatic | manual | currenttime)",
+      "parameters": [
+        {"name": "Maximum number of iterations for LHS / Number of restart points for LHS", "description": "Quality vs cost of the optimal LHS design."},
+        {"name": "useseed / useseedmc", "description": "Reproducibility of sampling."},
+        {"name": "sweeptype", "description": "filled (All combinations) | sparse (Specified combinations) for specified-value inputs."}
+      ],
+      "example": "A 4-parameter uncertainty propagation with 40 initial points uses an optimal LHS of 40 rows; Improve and analyze adds a second-stage LHS that complements the existing points.",
+      "notes": "LHS has good one-dimensional projections, which helps when only a subset of inputs matters.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_theory.3.03.html"
+    },
+    {
+      "name": "Polynomial Chaos Expansion (surrogate model function)",
+      "kind": "function",
+      "description": "Global function (API type PolynomialChaosExpansion) that approximates QoIs as sparse expansions in orthonormal polynomials matched to the input distributions (Legendre for uniform, Hermite for normal, Laguerre for gamma, Jacobi for beta, isoprobabilistic transform otherwise), trained by least-angle regression with leave-one-out error control. It is the preferred surrogate for Sobol sensitivity analysis because Sobol indices follow directly from its coefficients.",
+      "usage": "Global Definitions > Functions > Polynomial Chaos Expansion (pce1), usually created by a UQ or Surrogate Model Training study; call pce1(p1, p2, ...) in expressions; API: model.func().create(\"pce1\", \"PolynomialChaosExpansion\")",
+      "parameters": [
+        {"name": "pcesettings / polydegreespce / qnorm", "description": "Automatic or manual; maximum polynomial degree; q-norm (0-1) controlling interaction terms."},
+        {"name": "source / filename / resultTable", "description": "Training data from file or results table."},
+        {"name": "Distribution columns", "description": "Input distributions (uniform ... gumbel) used to pick the polynomial family."},
+        {"name": "surrogatetol / validation", "description": "Relative tolerance and validation data (none, random, every Nth, last part, separate table)."}
+      ],
+      "example": "model.func().create(\"pce1\", \"PolynomialChaosExpansion\");\nmodel.func(\"pce1\").set(\"source\", \"resultTable\");\nmodel.func(\"pce1\").set(\"resultTable\", \"tbl1\");\nmodel.func(\"pce1\").set(\"qnorm\", \"0.5\");\nmodel.func(\"pce1\").run();  // train",
+      "notes": "Gaussian Process and Deep Neural Network surrogate functions are catalogued separately.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_definitions.21.073.html"
+    },
+    {
+      "name": "Adaptive surrogates: ASPCE and adaptive Gaussian process (UQ surrogate settings)",
+      "kind": "reference",
+      "description": "UQ surrogate options: sparse PCE (fixed q-norm), adaptive sparse PCE (default for sensitivity analysis; adds LHS points until the leave-one-out error meets the tolerance), Gaussian process (error = predictive standard deviation, maximized by DIRECT or Monte Carlo) and adaptive GP (adds one point at a time where the error is largest; the only choice for reliability analysis). GP covariance can be squared exponential, Matern 3/2 (default), Matern 5/2, neural network or spectral mixture, with constant, linear or quadratic mean.",
+      "usage": "Uncertainty Quantification > Surrogate model settings; API: set(\"covfunction\", \"se\"|\"matern32\"|\"matern52\"|\"nn\"), set(\"meanfunction\", \"const\"|\"linear\"|\"quadratic\"), set(\"gpadpoptmethod\", \"direct\"|\"montecarlo\")",
+      "parameters": [
+        {"name": "Relative tolerance", "description": "Termination criterion for training/adaptation (AGP default 0.001)."},
+        {"name": "Maximum of input points", "description": "Cap on model evaluations for adaptive methods."},
+        {"name": "maxgpevals / maxgpiters", "description": "Limits of the DIRECT maximization of the error estimate (defaults 10000 / 500)."},
+        {"name": "Maximum polynomial degree (job configuration)", "description": "SPCE degree cap (default 30)."}
+      ],
+      "example": "model.study(\"std2\").feature(\"uq\").set(\"covfunction\", \"matern52\");\nmodel.study(\"std2\").feature(\"uq\").set(\"gpadpoptmethod\", \"direct\");",
+      "notes": "If the error target is not met a warning is written to the Log window; increase the maximum number of input points and use Improve and analyze.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.04.html"
+    },
+    {
+      "name": "Quantities of Interest table (UQ study)",
+      "kind": "function",
+      "description": "Table in the UQ study defining the QoIs (name, global expression, unit, per-QoI solution selection and, for reliability, threshold and direction) plus the results table that stores all sampled inputs and computed QoI values. Global QoIs reduce time/parametric solutions by automatic, sum, min, max, first or last; study-dependent QoIs keep the dependence on time, frequency or parameter.",
+      "usage": "Uncertainty Quantification > Quantities of Interest section; Quantities of interest table = New or existing results table; API: setIndex on the QoI table columns of the uq feature",
+      "parameters": [
+        {"name": "qoisolution", "description": "auto | sum | min | max | first | last."},
+        {"name": "outersolution", "description": "sum | min | max over an outer parametric/material/function sweep."},
+        {"name": "Expression", "description": "Global expression, may use at(), with(), maxop1() etc."}
+      ],
+      "example": "QoI table: name vmax, expression comp1.maxop1(solid.mises), unit MPa; name f1, expression freq, solution Use first (eigenfrequency).",
+      "notes": "The QoI table is the training data for all surrogates and is reused by Analyze only and Improve and analyze.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.26.html"
+    },
+    {
+      "name": "Surrogate model verification (UQ Verify action)",
+      "kind": "tool",
+      "description": "Independent quality check of a trained surrogate: Compute and verify adds new sample points (distinct from the training set), runs the COMSOL model there and compares with surrogate predictions; Improve and verify extends the verification set; Verify only reuses an existing verification table. Verification never changes the UQ analysis results but can be merged into them with 'Analyze only, including verification data'.",
+      "usage": "Uncertainty Quantification > Surrogate model settings > Verify action list + action button (after a surrogate has been computed)",
+      "parameters": [
+        {"name": "Verify action", "description": "Compute and verify | Improve and verify | Verify only."},
+        {"name": "Verification input settings", "description": "Distributions/data for verification points (AUXve properties)."}
+      ],
+      "example": "After an adaptive GP uncertainty propagation, run Compute and verify with 20 points; inspect the verification error table before trusting the 99% confidence interval.",
+      "notes": "Especially important for GP surrogates whose built-in error estimate can be optimistic.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.26.html"
+    },
+    {
+      "name": "Kernel Density Estimation (dataset)",
+      "kind": "result",
+      "description": "Dataset that estimates a probability density function from table data (1D, 2D or 3D) with a Gaussian or parabolic (Epanechnikov) kernel and automatic (Silverman's rule) or manual bandwidth. UQ uncertainty propagation and reliability studies create KDE datasets from their predicted-QoI tables for PDF plots, and they can be used for any Monte Carlo output.",
+      "usage": "Results > Datasets > More Datasets > Kernel Density Estimation (kde1); API: model.result().dataset().create(\"kde1\", \"KernelDensityEstimation\")",
+      "parameters": [
+        {"name": "Dimension / Source", "description": "1 | 2 | 3; Table or Evaluation Group."},
+        {"name": "Columns", "description": "Table columns used as x (y, z) coordinates."},
+        {"name": "Kernel type / Bandwidth", "description": "Gaussian or Parabolic (Epanechnikov); Auto (Silverman) or Manual h / H matrix."}
+      ],
+      "example": "model.result().dataset().create(\"kde1\", \"KernelDensityEstimation\");\nmodel.result().dataset(\"kde1\").set(\"table\", \"tbl3\");\nmodel.result().create(\"pg5\", \"PlotGroup1D\");\nmodel.result(\"pg5\").set(\"data\", \"kde1\");\n// Application Library: ishigami_function_direct_monte_carlo",
+      "notes": "Silverman's rule assumes roughly Gaussian data; set the bandwidth manually for multimodal results.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_results.37.062.html"
+    },
+    {
+      "name": "Sobol Index (plot)",
+      "kind": "result",
+      "description": "1D plot that displays first-order and total Sobol indices of each input parameter for a chosen quantity of interest from a UQ Sobol table, optionally sorted by decreasing total index. It is created automatically by Sobol sensitivity analyses and can be added manually for other tables.",
+      "usage": "1D Plot Group > More Plots > Sobol Index; API: model.result(\"pg1\").create(\"sob1\", \"SobolIndex\")",
+      "parameters": [
+        {"name": "Table", "description": "Sobol table from a UQ study."},
+        {"name": "Quantity of interest", "description": "Column (QoI) to plot."},
+        {"name": "Sort", "description": "Order parameters by total Sobol index."}
+      ],
+      "example": "model.result().create(\"pg6\", \"PlotGroup1D\");\nmodel.result(\"pg6\").create(\"sob1\", \"SobolIndex\");\nmodel.result(\"pg6\").feature(\"sob1\").set(\"table\", \"tbl4\");",
+      "notes": "Requires the Uncertainty Quantification Module.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_ref_results.37.182.html"
+    },
+    {
+      "name": "Uncertainty Quantification / Design of Experiments (Job Configurations)",
+      "kind": "solver",
+      "description": "Job configuration nodes behind UQ studies: Uncertainty Quantification holds the synchronized UQ settings plus advanced ones (maximum PCE degree, GP hyperparameter restart points and training tolerance), and Design of Experiments holds input parameter definitions and LHS generation settings (maximum iterations, restart points). Set 'Defined by study step' to User defined to edit and run them directly.",
+      "usage": "Show More Options > Solver and Job Configurations; Study > Job Configurations > Uncertainty Quantification / Design of Experiments; API types (batch): UncertaintyQuantification, DesignofExperiments",
+      "parameters": [
+        {"name": "Defined by study step", "description": "Synchronize from the UQ study or User defined."},
+        {"name": "Maximum polynomial degree", "description": "SPCE degree cap (default 30)."},
+        {"name": "Method for the number of restart points for training", "description": "Automatic (40m restarts) or Manual; relative tolerance for training."},
+        {"name": "Maximum number of iterations for LHS / Number of restart points for LHS", "description": "DOE sampling optimization."}
+      ],
+      "example": "Study 2 > Job Configurations > Uncertainty Quantification 1: set Defined by study step = User defined, Maximum polynomial degree = 12, then run the job configuration to retrain with a lower degree cap.",
+      "notes": "Most users never need these nodes; they matter for tuning GP training cost and LHS quality.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.28.html"
+    },
+    {
+      "name": "Fillet (3D, Design Module)",
+      "kind": "tool",
+      "description": "3D CAD-kernel operation (API type Fillet3D) that rounds selected edges of solids or surfaces with constant radius (rolling ball), constant width or variable radius interpolated from a radius table along each edge, inserting patch faces where several filleted edges meet. Options group tangent-continuous edges, propagate along tangent chains, preserve overlapped entities and create Y-shaped fillets.",
+      "usage": "Geometry toolbar > Editing > Fillet (3D, Design Module); API: model.component(\"comp1\").geom(\"geom1\").create(\"fil1\", \"Fillet3D\")",
+      "parameters": [
+        {"name": "fillettype", "description": "constantradius (default) | constantwidth | variableradius."},
+        {"name": "edge (selection) / radius / width", "description": "Edges to fillet and size."},
+        {"name": "tableedge / tableparam / tableradius / tableclamp", "description": "Radii table for variable-radius fillets (relative arc length 0-1)."},
+        {"name": "groupcontang / angletol / propagate / yshaped / filletsharp", "description": "Edge grouping and topology options."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").geomRep(\"cadps\");\nmodel.component(\"comp1\").geom(\"geom1\").create(\"blk1\", \"Block\");\nmodel.component(\"comp1\").geom(\"geom1\").create(\"fil1\", \"Fillet3D\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"fil1\").selection(\"edge\").set(\"blk1\", 2, 4, 6, 8);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"fil1\").set(\"radius\", \"0.1\");\nmodel.component(\"comp1\").geom(\"geom1\").run();",
+      "notes": "Requires the Design Module and the CAD kernel (geomRep cadps). The existing 'Fillet' entry covers the 2D vertex fillet (type Fillet).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.41.html"
+    },
+    {
+      "name": "Chamfer (3D, Design Module)",
+      "kind": "tool",
+      "description": "3D CAD-kernel operation (API type Chamfer3D) that bevels selected edges of 3D objects with a given distance, optionally grouping tangent-continuous edges, propagating to tangent edges and creating Y-shaped chamfers at vertices. It requires the Design Module and objects in the CAD kernel representation.",
+      "usage": "Geometry toolbar > Editing > Chamfer (3D, Design Module); API: model.component(\"comp1\").geom(\"geom1\").create(\"cha1\", \"Chamfer3D\")",
+      "parameters": [
+        {"name": "edge (selection)", "description": "Edges to chamfer."},
+        {"name": "radius", "description": "Chamfer distance (property name radius)."},
+        {"name": "groupcontang / angletol / propagate / preserveoverlapped / yshaped", "description": "Grouping and topology options."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").geomRep(\"cadps\");\nmodel.component(\"comp1\").geom(\"geom1\").create(\"blk1\", \"Block\");\nmodel.component(\"comp1\").geom(\"geom1\").create(\"cha1\", \"Chamfer3D\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"cha1\").selection(\"edge\").set(\"blk1\", 2, 4, 6, 8);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"cha1\").set(\"radius\", \"0.1\");\nmodel.component(\"comp1\").geom(\"geom1\").run();",
+      "notes": "The existing 'Chamfer' entry is the 2D vertex chamfer (type Chamfer).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_ref.6.14.html"
+    },
+    {
+      "name": "Midsurface (Design Module)",
+      "kind": "tool",
+      "description": "Converts thin solids of constant thickness into midsurface (surface) objects, the inverse of a symmetric Thicken, so that thin-walled parts can be modeled with Shell, Plate or Membrane interfaces. Overlapping midsurfaces can be repaired and results split into smooth manifold components.",
+      "usage": "Geometry toolbar > Conversions > Midsurface; API: model.component(\"comp1\").geom(\"geom1\").create(\"mid1\", \"Midsurface\")",
+      "parameters": [
+        {"name": "input (selection) / keep", "description": "Solid objects to process; keep input objects."},
+        {"name": "repair", "description": "Repair overlapping midsurfaces (default on)."},
+        {"name": "split", "description": "Split in smooth components (default off)."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"mid1\", \"Midsurface\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"mid1\").selection(\"input\").set(\"imp1\");\nmodel.component(\"comp1\").geom(\"geom1\").run();\n// Application Library: Design_Module/ladder_frame_geometry",
+      "notes": "Thickness information is lost; enter it in the shell interface (or use the Thicken feature to go back to solids).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.44.html"
+    },
+    {
+      "name": "Offset Faces (Design Module)",
+      "kind": "tool",
+      "description": "Moves selected faces of 3D objects along their normals by a distance, extending or trimming neighboring faces, optionally filleting convex edges, inserting step faces and subtracting the input to create a shell layer. It is the main tool to parameterize imported CAD without a feature history, e.g. changing a wall thickness or hole diameter for optimization.",
+      "usage": "Geometry toolbar > Editing > Offset Faces; API: model.component(\"comp1\").geom(\"geom1\").create(\"off1\", \"OffsetFaces\")",
+      "parameters": [
+        {"name": "face (selection) / distance / reverse", "description": "Faces, offset distance and direction."},
+        {"name": "keep / subtractinput", "description": "Keep input objects; subtract input from the offset result."},
+        {"name": "fillet / stepfaces / perpstepedges", "description": "Fillet convex edges; step faces contang | no; perpendicular step edges for surfaces."},
+        {"name": "overflow", "description": "auto | extendoffset | extendother | capfaces | error."}
+      ],
+      "example": "model.param().set(\"dt\", \"0.5[mm]\");\nmodel.component(\"comp1\").geom(\"geom1\").create(\"off1\", \"OffsetFaces\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"off1\").selection(\"face\").set(\"imp1\", 12, 14);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"off1\").set(\"distance\", \"dt\");\n// Application Library: Design_Module/bracket_import_optimization_dimensions",
+      "notes": "Works on CAD-kernel objects; combine with Parameter Optimization to optimize imported designs.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.45.html"
+    },
+    {
+      "name": "Transform Faces (Design Module)",
+      "kind": "tool",
+      "description": "Applies a rigid linear transform (displacement, rotation about an axis/Euler angles/edge, isotropic scaling) to selected faces of 3D objects and heals the model by extending or trimming adjacent faces or inserting step faces. Use it to move a boss, rotate a port or scale a hole in an imported part.",
+      "usage": "Geometry toolbar > Editing > Transform Faces; API: model.component(\"comp1\").geom(\"geom1\").create(\"tf1\", \"TransformFaces\")",
+      "parameters": [
+        {"name": "face (selection) / keep", "description": "Faces to transform."},
+        {"name": "workplane / center / displ", "description": "Coordinate system, center of rotation/scaling and displacement."},
+        {"name": "specify / axistype / ax3 / eulerang / rot", "description": "Rotation defined by axis, Euler angles (Z-X-Z) or edge, and angle."},
+        {"name": "factor / stepfaces / overflow", "description": "Scale factor, step faces (yes, contang, no) and overflow handling."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"tf1\", \"TransformFaces\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"tf1\").selection(\"face\").set(\"imp1\", 20, 21, 22);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"tf1\").set(\"displ\", new String[]{\"0\", \"dx\", \"0\"});\nmodel.component(\"comp1\").geom(\"geom1\").run();",
+      "notes": "Select all faces of a feature (e.g. a whole hole) to move it consistently.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.49.html"
+    },
+    {
+      "name": "Project to Faces (Design Module)",
+      "kind": "tool",
+      "description": "Projects edges (or the edges of selected faces) onto target faces to imprint and partition them, with projection perpendicular to the target, along a vector, parallel to a straight edge, or in perspective from an eye vertex. Imprinted regions are then available for boundary conditions such as heat sources, contact pads or ports.",
+      "usage": "Geometry toolbar > Booleans and Partitions > Project to Faces; API: model.component(\"comp1\").geom(\"geom1\").create(\"ptf1\", \"ProjectToFaces\")",
+      "parameters": [
+        {"name": "target / tool (selections)", "description": "Faces to project to and entities to project."},
+        {"name": "imprint", "description": "Partition target faces (default) or output projected edges as separate objects."},
+        {"name": "projdir / dirvector / edge / eyevertex / maxdist", "description": "perptotarget | vector | edge | perspective and projection limits."},
+        {"name": "extendedges", "description": "Extend projected edges."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"ptf1\", \"ProjectToFaces\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"ptf1\").selection(\"target\").set(\"cyl1\", 3);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"ptf1\").selection(\"tool\").set(\"wp1\", 1, 2, 3, 4);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"ptf1\").set(\"projdir\", \"vector\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"ptf1\").set(\"dirvector\", new double[]{1, 0, 0});",
+      "notes": "After Form Union/Assembly the imprint option is always on.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.47.html"
+    },
+    {
+      "name": "Sketch constraints: Coincident / Concentric / Horizontal / Vertical / Parallel / Perpendicular / Tangent / Equal Distance / Equal Radius (Design Module)",
+      "kind": "tool",
+      "description": "Valueless geometric constraints for 2D geometry sequences and work planes that the sketch solver enforces by adjusting the input fields of the drawing features: coincident vertices/edges, concentric arcs, horizontal/vertical edges, parallel/perpendicular edges, tangency, equal distances and equal radii. Together with dimensions they turn a rough drawing into a fully defined parametric sketch.",
+      "usage": "Sketch toolbar > Constraints; or right-click the 2D Geometry/Plane Geometry node; API types Coincident, Concentric, Horizontal, Vertical, Parallel, Perpendicular, TangentConstraint, EqualDistance, EqualRadius, e.g. geom(\"geom1\").create(\"coi1\", \"Coincident\")",
+      "parameters": [
+        {"name": "entity1 / entity2", "description": "Vertex or edge selections the constraint relates."},
+        {"name": "helppoint1 / helppoint2", "description": "Disambiguation points for the solver."},
+        {"name": "symbolentity / symboledgpar / symboledgdispl", "description": "Placement of the constraint symbol in the Graphics window."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"perp1\", \"Perpendicular\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"perp1\").selection(\"entity1\").set(\"pol1\", 1);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"perp1\").selection(\"entity2\").set(\"pol1\", 2);\nmodel.component(\"comp1\").geom(\"geom1\").run();",
+      "notes": "Requires Use constraints and dimensions = On on the 2D geometry (enabled automatically when a constraint is added). Lock a field with its Constrain button to keep the solver from changing it.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.03.html"
+    },
+    {
+      "name": "Sketch dimensions: Distance / Directed Distance / x-Distance / y-Distance / Angle / Radius / Position / Total Edge Length (Design Module)",
+      "kind": "tool",
+      "description": "Valued constraints in 2D sketches that fix a distance between entities, a signed distance along a direction, horizontal or vertical offsets, an angle, an arc radius, a vertex position or the total length of an edge chain; each can be constraining or only measuring, and can generate a global parameter (dimension parameter) that drives or reports the value. Expressions may use global parameters, enabling parametric sweeps and optimization of sketches.",
+      "usage": "Sketch toolbar > Dimensions; API types Distance, DirDistance, XDistance, YDistance, Angle, Radius, Position, TotalEdgeLength, e.g. geom(\"geom1\").create(\"dist1\", \"Distance\")",
+      "parameters": [
+        {"name": "distance / radius / angle value", "description": "Dimension value or expression."},
+        {"name": "distanceconstr / radiusconstr", "description": "on = constraining dimension, off = measuring dimension."},
+        {"name": "createpar / parname", "description": "Generate a global parameter from the dimension."},
+        {"name": "arrowdispl / labelpos / arrowint", "description": "Dimension arrow display."}
+      ],
+      "example": "model.param().set(\"W\", \"40[mm]\");\nmodel.component(\"comp1\").geom(\"geom1\").create(\"dist1\", \"Distance\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"dist1\").selection(\"entity1\").set(\"pol1\", 1);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"dist1\").selection(\"entity2\").set(\"pol1\", 3);\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"dist1\").set(\"distance\", \"W\");\nmodel.component(\"comp1\").geom(\"geom1\").run();",
+      "notes": "Measurement Parameters cannot be added while constraints and dimensions are enabled; use measuring dimensions with createpar instead.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.03.html"
+    },
+    {
+      "name": "Use constraints and dimensions (2D sketch mode, Design Module)",
+      "kind": "reference",
+      "description": "Setting on 2D Geometry and Plane Geometry nodes that activates the Design Module sketch solver, enabling constraint and dimension features and interactive dragging of vertices and edges of previously built objects. Preferences control whether new geometries and opened models use it by default.",
+      "usage": "Geometry (2D) or Work Plane > Plane Geometry > Settings: Use constraints and dimensions = On; Preferences > Geometry > 2D Constraints and Dimensions (Use in new geometries, Use when opening a model)",
+      "parameters": [
+        {"name": "Use constraints and dimensions", "description": "On/Off for the sequence."},
+        {"name": "Constrain button (per input field)", "description": "Locks a feature input so the solver cannot change it."}
+      ],
+      "example": "Design Module tutorial 'Creating Sketches with Constraints and Dimensions': draw a bracket with Polygon and Circle, turn on constraints, add Coincident/Tangent constraints and Distance/Radius dimensions, then Sketch Fillet.",
+      "notes": "Very large sketches with many entities can make interactive editing slow; turn the mode off when not needed.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.design/design_ug_function.5.03.html"
+    },
+    {
+      "name": "Surrogate Model Training - surrogate types, least-squares fit and design of experiments",
+      "kind": "study",
+      "description": "Study step (API type SurrogateModelTraining) that samples input parameters (LHS or specified values), runs the model and trains a Gaussian process, polynomial chaos expansion, deep neural network or least-squares-fit function on the collected QoIs, or only generates a design-of-experiments table when the surrogate is set to none. Automatic training, Improve and build (append data), output tables and saving each evaluated model to file are available.",
+      "usage": "Study > Study Steps > Surrogate Model Training; API: model.study(\"std3\").create(\"sm\", \"SurrogateModelTraining\"); set(\"surrogatemodel\", \"none\"|\"gp\"|\"pce\"|\"dnn\"|\"lsq\")",
+      "parameters": [
+        {"name": "surrogatemodel", "description": "none (Design of experiments) | gp | pce | dnn | lsq (least-squares fit with lsqexpression, lsqparameternames, bounds)."},
+        {"name": "computeaction", "description": "recompute (Compute and build) | append (Improve and build surrogate model)."},
+        {"name": "automatictraining", "description": "Train the surrogate function right after the model evaluations."},
+        {"name": "DNN layers (layertype / activation)", "description": "input | dense layers with none, relu, elu, sigmoid, tanh, softplus, leakyrelu, gelu activations."},
+        {"name": "savefile / paramfilename", "description": "Save each evaluated model to file with parameter names/values or index in the filename."}
+      ],
+      "example": "model.study().create(\"std3\");\nmodel.study(\"std3\").create(\"sm\", \"SurrogateModelTraining\");\nmodel.study(\"std3\").feature(\"sm\").set(\"surrogatemodel\", \"dnn\");\nmodel.study(\"std3\").feature(\"sm\").set(\"automatictraining\", \"on\");\n// the trained function (dnn1) can then drive a fast app or an optimization",
+      "notes": "Surrogate Model Training is included with COMSOL Multiphysics; the UQ-specific analyses require the Uncertainty Quantification Module. See also the Gaussian Process and Deep Neural Network function entries.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.uq/uq_ug_modeling.4.04.html"
+    },
+    {
+      "name": "Geometry representation: CAD kernel (Parasolid) vs COMSOL kernel",
+      "kind": "reference",
+      "description": "The CAD Import Module, Design Module and CAD LiveLinks add the Parasolid-based CAD kernel, which is required for 3D CAD import, defeaturing/repair tools and the Design Module operations; the geometry sequence setting chooses CAD kernel or COMSOL kernel. Some 3D primitives and operations (Bezier Polygon, Extrude, Revolve, Sweep, Helix, Parametric Curve/Surface, Work Plane, Torus, ...) always use the COMSOL kernel and are converted automatically when fed to CAD-kernel operations.",
+      "usage": "Geometry node > Settings > Advanced > Geometry representation: CAD kernel | COMSOL kernel; API: model.component(\"comp1\").geom(\"geom1\").geomRep(\"cadps\") or geomRep(\"comsol\"); Preferences > Geometry > Geometry representation",
+      "parameters": [
+        {"name": "geomRep", "description": "cadps (CAD kernel) or comsol (COMSOL kernel)."},
+        {"name": "Preference: In new geometries / When opening an existing model", "description": "Default kernel and whether to convert models to the COMSOL kernel on opening."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").geomRep(\"comsol\");\nmodel.component(\"comp1\").geom(\"geom1\").run();\n// then Study toolbar > Update Solution to map the existing solution onto the rebuilt COMSOL-kernel geometry",
+      "notes": "A model solved on the CAD kernel cannot be postprocessed without a CAD license unless you switch to the COMSOL kernel and update the solution before saving (only possible without CAD-only features).",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.cad/cad_ug_cad_import_repair_defeaturing.5.02.html"
+    },
+    {
+      "name": "Convert to COMSOL (CAD Import / Design Module)",
+      "kind": "tool",
+      "description": "Converts selected CAD-kernel objects into COMSOL-kernel representation, for example before exporting to .mphbin/.mphtxt for use in a sequence without a CAD license or before COMSOL-only operations. Objects resulting from Convert to COMSOL are not automatically converted back to the CAD kernel by later Boolean operations.",
+      "usage": "Geometry toolbar > Conversions > Convert to COMSOL; API: model.component(\"comp1\").geom(\"geom1\").create(\"ccom1\", \"ConvertToCOMSOL\")",
+      "parameters": [
+        {"name": "input (selection)", "description": "Objects to convert."},
+        {"name": "Resulting objects selection / Contribute to", "description": "Selection outputs for later use."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"ccom1\", \"ConvertToCOMSOL\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"ccom1\").selection(\"input\").set(\"imp1\");\nmodel.component(\"comp1\").geom(\"geom1\").run();",
+      "notes": "Objects created from a mesh or with self-intersecting edge loops cannot be converted to the CAD kernel in the other direction.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.cad/cad_ug_cad_import_repair_defeaturing.5.03.html"
+    },
+    {
+      "name": "Export to 3D CAD formats (Parasolid / ACIS / IGES / STEP)",
+      "kind": "format",
+      "description": "With the CAD Import Module, Design Module or a CAD LiveLink, selected geometry objects or the finalized geometry can be exported to Parasolid binary/text (v37), ACIS binary/text (4.0, 7.0 or 2016 1.0), IGES 5.3 or STEP AP203, with optional length-unit conversion and splitting of nonmanifold objects. COMSOL objects are converted to CAD objects automatically before writing.",
+      "usage": "Geometry > Export (selected objects or entire finalized geometry); API: geom(\"geom1\").export().setType(\"parasolidbin\"|\"parasolidascii\"|\"acisbin\"|\"acisascii\"|\"iges\"|\"step\"); geom(\"geom1\").export(filename) or geom(\"geom1\").exportFinal(filename)",
+      "parameters": [
+        {"name": "setType", "description": "parasolidbin | parasolidascii | acisbin | acisascii | iges | step."},
+        {"name": "setAcisVersion", "description": "4.0, 7.0 or 2016 1.0 (default)."},
+        {"name": "setLengthUnit / setLengthUnitIGES", "description": "fromgeom (no conversion) or a length unit."},
+        {"name": "setSplitInManifold", "description": "Split nonmanifold objects on Parasolid export (default true)."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").export().selection().set(new String[]{\"fin\"});\nmodel.component(\"comp1\").geom(\"geom1\").export().setType(\"step\");\nmodel.component(\"comp1\").geom(\"geom1\").exportFinal(\"C:/out/optimized_part.step\");",
+      "notes": "Mesh-derived objects and virtual operations after Form Union cannot be exported. Parasolid does not allow coordinates above 500 in the chosen unit; change the export unit if needed.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.cad/cad_ug_cad_import_repair_defeaturing.5.06.html"
+    },
+    {
+      "name": "Projection (3D objects onto a work plane, CAD kernel)",
+      "kind": "tool",
+      "description": "Plane Geometry feature that projects 3D objects, domains, boundaries, edges or vertices onto a work plane as outlines or as edges and vertices, so 2D drawings can reference existing 3D CAD geometry; it can also project into a separate 2D component from a 3D sequence using the CAD kernel. The projected curves can then be used as construction references or as the outline of new 2D objects.",
+      "usage": "Work Plane > Plane Geometry > Projection; API: model.component(\"comp1\").geom(\"geom1\").feature(\"wp1\").geom().create(\"proj1\", \"Projection\")",
+      "parameters": [
+        {"name": "project", "description": "all | obj | dom | bnd | edg | vtx."},
+        {"name": "projectiontype", "description": "outline (default) | edgvtx | all."},
+        {"name": "input / workplane / repairtol", "description": "Entities to project, target work plane and repair tolerance."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"wp1\", \"WorkPlane\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"wp1\").set(\"quickz\", \"0.01\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"wp1\").geom().create(\"proj1\", \"Projection\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"wp1\").geom().feature(\"proj1\").set(\"project\", \"all\");",
+      "notes": "The source 3D geometry must use the CAD kernel.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.cad/cad_ug_cad_import_repair_defeaturing.5.22.html"
+    },
+    {
+      "name": "Cap Faces (CAD Import / Design Module)",
+      "kind": "tool",
+      "description": "Creates planar or fitted faces spanning closed loops of edges to fill openings, making new solid domains (for example the fluid volume inside a pipe or loudspeaker enclosure) or partitioning an object. Each edge loop yields one cap face; newly enclosed volumes become solid domains.",
+      "usage": "Geometry toolbar > Defeaturing and Repair > Cap Faces; API: model.component(\"comp1\").geom(\"geom1\").create(\"cap1\", \"CapFaces\")",
+      "parameters": [
+        {"name": "input (selection)", "description": "Bounding edges forming one or more loops (loops may not share edges or vertices)."},
+        {"name": "groupadjedg", "description": "Extend selection to the full adjacent edge loop or chain."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"cap1\", \"CapFaces\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"cap1\").selection(\"input\").set(\"imp1\", 101, 102, 103, 104);\nmodel.component(\"comp1\").geom(\"geom1\").run();\n// Application Library: CAD_Import_Module / Design_Module loudspeaker_modeling_domains",
+      "notes": "Volumes bounded by faces from several objects are not converted to solids; unite the objects first.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.cad/cad_ug_cad_import_repair_defeaturing.5.20.html"
+    },
+    {
+      "name": "Knit to Solid (CAD Import / Design Module)",
+      "kind": "tool",
+      "description": "Knits imported surface objects into solids (or cleaner surface objects) by merging edges closer than the absolute repair tolerance, removing small gaps and spikes and optionally filling holes with new faces. It is used when a CAD exchange file (often IGES) arrives as a set of loose surfaces.",
+      "usage": "Geometry toolbar > Defeaturing and Repair > Knit to Solid; API: model.component(\"comp1\").geom(\"geom1\").create(\"knit1\", \"Knit\")",
+      "parameters": [
+        {"name": "input (selection)", "description": "Surface objects to knit (manifold topology)."},
+        {"name": "repairtol", "description": "Absolute repair tolerance (default 1e-5)."},
+        {"name": "fillholes", "description": "Attempt to generate faces for missing geometry."}
+      ],
+      "example": "model.component(\"comp1\").geom(\"geom1\").create(\"imp1\", \"Import\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"imp1\").set(\"filename\", \"repair_demo_2.x_b\");\nmodel.component(\"comp1\").geom(\"geom1\").create(\"knit1\", \"Knit\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"knit1\").selection(\"input\").set(\"imp1\");\nmodel.component(\"comp1\").geom(\"geom1\").feature(\"knit1\").set(\"repairtol\", \"1e-4\");\nmodel.component(\"comp1\").geom(\"geom1\").run();",
+      "notes": "Nonmanifold results (interior faces) cannot be produced by knitting; the Import node's knit option can knit during import instead.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.cad/cad_ug_cad_import_repair_defeaturing.5.21.html"
+    }
+  ]
+}

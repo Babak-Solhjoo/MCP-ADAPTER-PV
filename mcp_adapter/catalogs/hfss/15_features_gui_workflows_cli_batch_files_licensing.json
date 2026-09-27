@@ -1,0 +1,500 @@
+{
+  "category": "HFSS Features, GUI Workflows, Command Line, Batch Options, Environment, Files & Licensing",
+  "description": "GUI-level features and workflows not covered elsewhere - finite arrays and unit cells, SBR+ solver options, characteristic modes, port and source dialogs, material frequency dependence and libraries, mesh and adaptive options, 3D Layout editors and ECAD import, application windows and options - together with the ansysedt command-line flags, batch options, environment variables, licensing and Student limits, and the remaining file types of an Electronics Desktop installation.",
+  "tools": [
+    {
+      "name": "3D Component Array (finite array from a unit-cell 3D component)",
+      "kind": "tool",
+      "description": "The finite-array feature of HFSS: a unit cell saved as a 3D component with two lattice-pair boundaries is replicated into an M x N array (Array Setup dialog) where each cell can be active, passive or padding, given its own rotation and colour, and post-processed as one design. The array is solved with the Domain Decomposition Method (each cell a domain), so hundreds or thousands of elements become tractable, and results include the full S-matrix, active element patterns, embedded patterns and array fields on virtual instances.",
+      "usage": "HFSS > Model > Create Array (or right-click Model > Create Array) > Regular / Custom: select primary and secondary lattice pairs, rows, columns, padding cells, cell active/passive states\nPyAEDT: hfss.create_3d_component_array(input_data, name=None) with a JSON/dict describing primarylattice, secondarylattice, rowdimension, columndimension, cells and their properties\nEdit Sources for array excitations; Results > Solution Data > Array Post-Processing",
+      "parameters": [
+        {"name": "Lattice pairs", "description": "Two Lattice Pair (or Primary/Secondary) boundaries in the unit cell define the row and column periodicity; they must be exported with the 3D component."},
+        {"name": "Active / Passive / Padding cells", "description": "Active cells carry excitations, passive cells are present but not excited (terminated), padding cells are background material that extends the domain for field evaluation."},
+        {"name": "Row/Column dimension, Visible, Show cell number, Reference CS", "description": "Array size and display options; the reference CS positions the array."},
+        {"name": "DDM", "description": "Domain Decomposition is enabled automatically; the array needs HPC licensing and enough cores/RAM per domain."}
+      ],
+      "example": "# PyAEDT\narray_def = {\n  \"primarylattice\": \"LatticeX\", \"secondarylattice\": \"LatticeY\", \"useairobjects\": True,\n  \"rowdimension\": 8, \"columndimension\": 8, \"visible\": True, \"showcellnumber\": True, \"paddingcells\": 0,\n  \"referencecs\": \"Global\", \"PatchCell\": \"C:/lib/patch_cell.a3dcomp\",\n  \"cells\": {\"(1,1)\": {\"name\": \"PatchCell\", \"color\": \"(255,0,0)\", \"active\": True, \"postprocessing\": True, \"rotation\": 0.0}}\n}\narr = hfss.create_3d_component_array(array_def, name=\"Array8x8\")\nhfss.create_setup(\"Setup1\", Frequency=\"10GHz\")\nhfss.analyze(cores=32)\nhfss.edit_sources({f\"Array8x8_{i}_{j}:P1:1\": (\"1W\", \"0deg\") for i in range(1, 9) for j in range(1, 9)})",
+      "notes": "Legacy Regular Arrays built from native geometry can be opened but not created any more; new arrays must use 3D components. Native geometry and 3D components cannot be mixed in one array. Element patterns are exported with hfss.export_element_pattern for offline beamforming; the Floquet-port unit cell (infinite array) remains the fast alternative for scan-impedance studies.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v251/en/Subsystems/HFSS/Content/HFSS/AssigningArraysinHFSS.htm"
+    },
+    {
+      "name": "Unit cell with Lattice Pair boundaries and Floquet port (infinite array / FSS / metasurface)",
+      "kind": "tool",
+      "description": "The infinite-periodic workflow: model one period of an array, FSS, metasurface or absorber, close its side walls with Lattice Pair (rectangular lattice) or Primary/Secondary (skewed lattice) boundaries carrying the scan phase, and terminate the top (and bottom) with Floquet ports that expose the specular TE/TM modes. Results are Floquet-mode S-parameters (reflection/transmission versus frequency and scan angle), active impedance and unit-cell fields; scan and incidence angles are swept as variables.",
+      "usage": "Draw the cell (period p) > HFSS > Boundaries > Assign > Lattice Pair on opposite faces (Use Scan Angle: theta_scan, phi_scan) > HFSS > Excitations > Assign > Floquet Port on the top face (lattice A/B vectors, 2 modes, deembed to the surface) > Analysis setup > Optimetrics sweep of theta_scan / phi_scan / Freq\nPyAEDT: hfss.auto_assign_lattice_pairs(cell) + hfss.create_floquet_port(face, modes=2, deembed_distance=...)",
+      "parameters": [
+        {"name": "Scan angle", "description": "Phase delay across the lattice pairs expressed as (theta, phi); use design variables so Optimetrics can sweep them."},
+        {"name": "Floquet modes", "description": "TE00 and TM00 specular modes at minimum; grating-lobe modes (TE01, TM10...) when the period exceeds lambda/(1+sin theta)."},
+        {"name": "Reporter filter", "description": "Restricts reported modes; Post-Processing > Floquet Port modes shows the mode table and cut-off frequencies."},
+        {"name": "Deembed", "description": "Move the reference plane from the port face to the structure surface for clean reflection phase."}
+      ],
+      "example": "# Reflection phase of a metasurface cell versus frequency at normal incidence\nhfss[\"p\"] = \"10mm\"; hfss[\"theta_scan\"] = \"0deg\"; hfss[\"phi_scan\"] = \"0deg\"\ncell = hfss.modeler.create_box([\"-p/2\", \"-p/2\", 0], [\"p\", \"p\", \"30mm\"], name=\"Cell\", material=\"vacuum\")\nhfss.auto_assign_lattice_pairs(\"Cell\")\nfp = hfss.create_floquet_port(cell.top_face_z, modes=2, deembed_distance=\"30mm\", name=\"Floquet\")\nhfss.assign_perfecte_to_sheets(\"Patch\")\nhfss.create_setup(\"Setup1\", Frequency=\"10GHz\")\nhfss.create_linear_count_sweep(\"Setup1\", \"GHz\", 8, 12, 401, sweep_type=\"Interpolating\")\nhfss.analyze()\nhfss.post.create_report(\"ang_deg(S(Floquet:1,Floquet:1))\")",
+      "notes": "The active element pattern of a finite array element is approximated by the unit cell's scan behaviour; edge effects need the finite 3D Component Array. Lattice Pair needs a rectangular cell aligned with the pair faces; skewed/triangular lattices use Primary/Secondary with explicit U vectors.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v251/en/Subsystems/HFSS/Content/HFSS/AssigningArraysinHFSS.htm"
+    },
+    {
+      "name": "SBR+ solver options: Ray Density Per Wavelength, Maximum Number of Bounces, PTD Correction, UTD Rays, Creeping Waves, Self-Coupling",
+      "kind": "study",
+      "description": "The physics and accuracy controls of an SBR+ (shooting and bouncing rays) setup: how many rays are launched per wavelength across the source aperture, how many reflections each ray may undergo, and the optional diffraction physics - PTD edge corrections, UTD diffracted rays from wedges (with a PTD edge density), creeping waves on smooth curved surfaces - plus self-coupling for accurate port reflection, the option to skip SBR+ during adaptive passes of hybrid designs, multibounce ray density control and GO blockage options. These trade solve time against fidelity for electrically large platforms (vehicles, aircraft, ships, buildings).",
+      "usage": "Analysis > Add Solution Setup (SBR+ design) > General / Advanced tabs:\n  Ray Density Per Wavelength (default 4), Maximum Number of Bounces (default 5), Compute Far Fields,\n  PTD/UTD: None | PTD Correction | PTD Correction + UTD Rays (PTD Edge Density), Creeping Waves,\n  Enable SBR+ Self-Coupling, Skip SBR+ Solve During Adaptive Passes, Customize Multibounce Ray Density Control (MBRDC Maximum Split Depth), GO Blockage Options\nPyAEDT: hfss.create_setup(\"SBR1\", setup_type=\"HFSSSBR\", RayDensityPerWavelength=4, MaxNumberOfBounces=5, PTDUTDSimulationSettings=\"PTD Correction + UTD Rays\")",
+      "parameters": [
+        {"name": "Ray Density Per Wavelength", "description": "Rays per wavelength on the launch grid; 4 is the default, higher values for fine features or low-level sidelobes/RCS."},
+        {"name": "Maximum Number of Bounces", "description": "Reflection depth; cavities and multi-reflection scenes need more, at linear cost."},
+        {"name": "PTD Correction / UTD Rays", "description": "PTD corrects surface currents near edges (RCS, pattern accuracy off-specular); UTD adds diffracted rays that illuminate shadowed regions."},
+        {"name": "Creeping Waves", "description": "Rays that follow geodesics on smooth convex surfaces (fuselages, cylinders) to capture shadow-region coupling."},
+        {"name": "SBR+ Self-Coupling", "description": "Include ray returns to the source for correct S11 / active impedance of installed antennas."},
+        {"name": "GPU acceleration", "description": "SBR+ ray tracing runs on NVIDIA GPUs when enabled in HPC and Analysis Options (EnableGPU)."}
+      ],
+      "example": "sbr = Hfss(project=\"C:/work/car.aedt\", solution_type=\"SBR+\")\nsetup = sbr.create_setup(\"SBR_77G\", setup_type=\"HFSSSBR\", RayDensityPerWavelength=6, MaxNumberOfBounces=4,\n                         PTDUTDSimulationSettings=\"PTD Correction + UTD Rays\", ComputeFarFields=True)\nsetup.props[\"RangeType\"] = \"LinearStep\"; setup.props[\"RangeStart\"] = \"76GHz\"; setup.props[\"RangeEnd\"] = \"78GHz\"; setup.props[\"RangeStep\"] = \"0.1GHz\"\nsetup.update()\nsbr.analyze(gpus=1)",
+      "notes": "SBR+ is an asymptotic method: accurate for objects many wavelengths in size, not for resonant structures - use it with FEM-solved antennas linked as sources (installed antenna) or with hybrid SBR+ regions inside an FEM design. SBR+ is disabled in the Student edition. Visual Ray Trace (VRT) plots show individual ray paths for debugging.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v251/en/Subsystems/HFSS/Content/HFSS/ShootingAndBouncingRaysSBR.htm"
+    },
+    {
+      "name": "Installed antenna workflow (linked HFSS source in an SBR+ platform design)",
+      "kind": "tool",
+      "description": "The standard way to predict antenna patterns on a large platform: solve the antenna with FEM in its own HFSS design, then in an SBR+ design import the platform CAD as lightweight parts and add the antenna as a linked source (near-field currents or far-field pattern) at a coordinate system on the platform; SBR+ traces rays from the source over the platform and returns installed patterns, coupling between installed antennas (TX/RX pairs) and near fields, orders of magnitude faster than a full-wave solve of the whole scene.",
+      "usage": "SBR+ design > HFSS > Excitations > Assign > Linked Antenna (Setup Link to the FEM design, field type near/far field, thin sources, power fraction) or Antenna (parametric beam)\nPyAEDT: target.create_sbr_linked_antenna(source_hfss, target_cs=\"RoofCS\", setup=\"Setup1\", field_type=\"farfield\"); target.set_sbr_txrx_settings({...})",
+      "parameters": [
+        {"name": "Source design", "description": "Solved HFSS FEM design of the antenna (same or another project); its solution is linked, so changes trigger a re-solve."},
+        {"name": "Field type", "description": "Near-field (equivalent currents, accurate when the platform is close) or far-field (pattern only)."},
+        {"name": "Thin sources / power fraction", "description": "Compress the current source to the dominant contributions keeping the given power fraction."},
+        {"name": "TX/RX settings", "description": "Which sources transmit and receive for coupling (S-parameter) computation in the SBR+ setup."}
+      ],
+      "example": "src = Hfss(project=\"C:/work/plane.aedt\", design=\"BladeAntenna\")\nsrc.analyze()\nsbr = Hfss(project=\"C:/work/plane.aedt\", design=\"Airframe\", solution_type=\"SBR+\")\nsbr.modeler.import_3d_cad(\"C:/cad/airframe.stl\", create_lightweight_part=True, input_file_unit=\"m\")\ncs = sbr.modeler.create_coordinate_system(origin=[\"12m\", \"0m\", \"2.1m\"], name=\"BladeCS\", mode=\"axis\", x_pointing=[1,0,0], y_pointing=[0,1,0])\nant = sbr.create_sbr_linked_antenna(src, target_cs=\"BladeCS\", setup=\"Setup1\", field_type=\"nearfield\", name=\"Blade\")\nsbr.insert_infinite_sphere(name=\"3D\", x_step=1, y_step=1)\nsbr.create_setup(\"SBR1\", setup_type=\"HFSSSBR\", RayDensityPerWavelength=4, MaxNumberOfBounces=3, ComputeFarFields=True)\nsbr.analyze()\nsbr.post.create_report(\"dB(GainTotal)\", report_category=\"Far Fields\", context=\"3D\", primary_sweep_variable=\"Phi\", variations={\"Freq\": [\"1.2GHz\"], \"Theta\": [\"90deg\"], \"Phi\": [\"All\"]})",
+      "notes": "Lightweight parts have no history and low memory footprint; keep the platform in metres and check the CAD unit. Alternatives inside one FEM design: far_field_wave (illumination by a pattern) and SBR+/PO hybrid regions.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.create_sbr_linked_antenna.html"
+    },
+    {
+      "name": "Monostatic and bistatic RCS setup (plane-wave illumination, incident-angle sweep, RCS report quantities)",
+      "kind": "study",
+      "description": "Radar cross section in HFSS: illuminate the target with an incident plane wave (FEM designs with FE-BI or PML truncation, or SBR+ designs for large targets), sweep the incidence direction through the plane wave's spherical angle ranges for monostatic RCS or keep one incidence and observe all directions for bistatic RCS, and report RCSTotal/RCSTheta/RCSPhi (dB or linear) from the Far Fields category versus IWaveTheta/IWavePhi (monostatic) or Theta/Phi (bistatic). Scattered-field formulation is selected in Edit Sources.",
+      "usage": "HFSS > Excitations > Assign > Incident Wave > Plane Wave (Spherical: Phi/Theta start/stop/points) > Radiation > Insert Far Field Setup > Infinite Sphere > Analyze > Results > Create Far Fields Report > Rectangular Plot: X = IWavePhi, Y = dB(RCSTotal) (monostatic) or X = Phi, Y = dB(RCSTotal) with IWavePhi fixed (bistatic)\nPyAEDT: hfss.plane_wave(vector_format=\"Spherical\", ...); hfss.get_rcs_data(...); hfss.post.create_report(\"dB(RCSTotal)\", report_category=\"Far Fields\", context=\"3D\", primary_sweep_variable=\"IWavePhi\", variations={...})",
+      "parameters": [
+        {"name": "Incident wave angles", "description": "PhiStart/Stop/Points and ThetaStart/Stop/Points define the monostatic scan grid; each direction is a separate excitation solved simultaneously."},
+        {"name": "Polarisation", "description": "EoTheta / EoPhi (vertical/horizontal) set the incident polarisation; co- and cross-polar RCS come from RCSTheta/RCSPhi."},
+        {"name": "Report quantities", "description": "RCSTotal, RCSTheta, RCSPhi (and dB()/dB10 of them), ComplexMonostaticRCSTheta/Phi for export, NormalizedRCS variants."},
+        {"name": "Truncation", "description": "FE-BI gives the cleanest scattered fields for FEM targets; radiation boundaries need lambda/4 padding; SBR+ needs no region."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Modal\")\nhfss.modeler.import_3d_cad(\"C:/cad/target.step\")\nhfss.assign_material(\"Target\", \"pec\")\nreg = hfss.modeler.create_region(pad_value=[\"30mm\"]*6, pad_type=\"Absolute Offset\")\nhfss.assign_febi(reg.name)\nhfss.plane_wave(vector_format=\"Spherical\", polarization=\"Vertical\", propagation_vector=[[\"0deg\", \"180deg\", 91], [\"90deg\", \"90deg\", 1]], name=\"PW\")\nhfss.insert_infinite_sphere(name=\"3D\", x_step=2, y_step=2)\nhfss.create_setup(\"Setup1\", Frequency=\"10GHz\", MaximumPasses=10)\nhfss.analyze()\nhfss.post.create_report(\"dB(RCSTotal)\", hfss.nominal_adaptive, report_category=\"Far Fields\", context=\"3D\",\n                        primary_sweep_variable=\"IWavePhi\", variations={\"Freq\": [\"10GHz\"], \"IWavePhi\": [\"All\"], \"IWaveTheta\": [\"90deg\"], \"Phi\": [\"0deg\"], \"Theta\": [\"90deg\"]})",
+      "notes": "Monostatic RCS requires the observation direction to equal the incidence direction; HFSS handles this when the report's Theta/Phi are left at the incidence values or when using the dedicated monostatic quantities. For frequency-swept RCS (range profiles, ISAR) use SBR+ with hfss.get_rcs_data and the MonostaticRCSPlotter.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.get_rcs_data.html"
+    },
+    {
+      "name": "Characteristic Mode Analysis (Characteristic solution type, modal significance, characteristic angle)",
+      "kind": "study",
+      "description": "The Characteristic solution type computes the characteristic modes of a conducting structure (antenna and platform) without excitation: eigencurrents, modal significance (0 decaying to 1 externally resonant, with a 0.02 minimum threshold), characteristic angle and modal Q versus frequency, plus voltage per port when ports exist. It guides where to feed a platform, which modes to excite for bandwidth and pattern goals, and how MIMO antennas can be decoupled, before any driven design is built.",
+      "usage": "HFSS > Solution Type > Characteristic (Characteristic Mode Analysis) > Analysis setup (frequency, number of modes) > Results: Modal Significance, Characteristic Angle, Eigenvalues, modal currents (field overlays per mode), Edit Sources: CMA excitations by Port or by Modes\nPyAEDT: Hfss(solution_type=\"Characteristic\"); native oDesign.SetSolutionType(\"Characteristic\", [\"NAME:Options\"])",
+      "parameters": [
+        {"name": "Number of modes", "description": "How many modes are tracked; modes are ordered by modal significance at each frequency and tracked across frequency."},
+        {"name": "Modal Significance", "description": "|1/(1+j*lambda_n)|; a plot versus frequency shows which modes radiate efficiently where."},
+        {"name": "Characteristic angle", "description": "180 deg at resonance; the slope gives the modal bandwidth."},
+        {"name": "Edit Sources (CMA)", "description": "Choose mode weightings or port excitations to synthesise fields and patterns from the modal basis."}
+      ],
+      "example": "cma = Hfss(project=\"C:/work/handset.aedt\", design=\"CMA\", solution_type=\"Characteristic\")\ncma.modeler.import_3d_cad(\"C:/cad/chassis.step\")\ncma.assign_material(\"Chassis\", \"pec\")\ncma.create_open_region(frequency=\"1GHz\")\nsetup = cma.create_setup(\"CMA1\")\nsetup.props[\"Frequency\"] = \"1GHz\"\nsetup.update()\ncma.create_linear_count_sweep(\"CMA1\", \"GHz\", 0.6, 3, 121)\ncma.analyze()\nprint(cma.post.available_report_quantities())   # modal significance / characteristic angle quantities",
+      "notes": "CMA is a surface-current (MoM-based) formulation on conductors; dielectrics are supported in recent releases with limitations. Near-field setups and most excitations are not available in Characteristic designs; the same geometry is reused in a Driven design once feed positions are chosen.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Content/HFSS/TheoryofCharacteristicModeAnalysis.htm"
+    },
+    {
+      "name": "Edit Sources dialog (source magnitudes, phases, terminations, incident/scattered fields, system power)",
+      "kind": "panel",
+      "description": "The post-processing dialog (right-click Field Overlays > Edit Sources, or HFSS > Fields > Edit Sources) where each port mode, terminal, incident wave or eigenmode receives a magnitude and phase used for field plots, far fields, antenna parameters and active S-parameters. Options include port post-processing (renormalisation), incident-voltage definition for terminals, a system power reference for gain, termination flags, scattered/incident/total field type, and eigenmode stored energy. Array beam steering and power scaling are done here without re-solving.",
+      "usage": "Right-click Field Overlays (or Radiation / Port Field Display) > Edit Sources > table of sources: Magnitude, Phase (and Terminated for Terminal designs) > options: Include Port Post Processing Effects, Use Incident Voltage, Specify System Power, Field Type (Scattered / Incident / Total)\nPyAEDT: hfss.edit_sources({\"P1:1\": (\"1W\", \"0deg\"), ...}, include_port_post_processing=True, max_available_power=None, use_incident_voltage=False, incident_wave=None)",
+      "parameters": [
+        {"name": "Magnitude units", "description": "W (power) for port modes, V for incident voltage/terminals, V_per_meter or A_per_meter for incident waves, Joules for eigenmode stored energy."},
+        {"name": "Terminated", "description": "Terminal designs: whether the terminal is loaded with its reference impedance when not driven."},
+        {"name": "Specify System Power", "description": "Gains referenced to a stated available power instead of the sum of incident powers."},
+        {"name": "Field Type", "description": "For incident waves: scattered fields (RCS), incident fields or total fields."}
+      ],
+      "example": "# GUI steps for a 2-element array phase scan\n# 1. Right-click Field Overlays > Edit Sources\n# 2. Set P1:1 = 1 W / 0 deg, P2:1 = 1 W / 60 deg, keep 'Include Port Post Processing Effects'\n# 3. OK - far-field plots and Antenna Parameters now reflect the steered beam\n\n# same in PyAEDT\nhfss.edit_sources({\"P1:1\": (\"1W\", \"0deg\"), \"P2:1\": (\"1W\", \"60deg\")})",
+      "notes": "Native: oModule(\"Solutions\").EditSources([...]). Source weights persist with the design and affect every field/far-field report until changed; S-parameters are unaffected (they are solved per port). Push Excitations from a Circuit design fills this dialog from circuit results.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/EditSources.htm"
+    },
+    {
+      "name": "Wave Port dialog options: modes, integration lines, Zpi/Zpv/Zvi, renormalization, deembedding, polarize E field, terminal reference conductors",
+      "kind": "excitation",
+      "description": "The detailed options of the Wave Port dialog beyond assignment: number of modes and per-mode integration lines (defining the sign and the Zpi voltage path), the characteristic impedance definition used for renormalisation (Zpi power-current, Zpv power-voltage, Zvi voltage-current), renormalisation to a reference impedance, de-embedding by a distance (positive into the model), the Polarize E Field option to align degenerate modes, alignment groups for multi-mode ports, and in Terminal designs the reference conductors that define terminals and the terminal resistances. Post-processing > Port Field Display shows the solved port modes.",
+      "usage": "HFSS > Excitations > Assign > Wave Port > General (name, faces) > Modes (Number of Modes, Integration Line per mode: New Line / None, Characteristic Impedance Zpi/Zpv/Zvi, Alignment Group) > Post Processing (Renormalize All Modes to impedance, Deembed distance) > Terminal designs: Terminals tab (reference conductor selection, terminal resistance)\nPyAEDT: hfss.wave_port(assignment, reference=None, integration_line=..., impedance=50, num_modes=1, deembed=0, renormalize=True, characteristic_impedance=\"Zpi\", name=...)",
+      "parameters": [
+        {"name": "Number of Modes", "description": "Coax/microstrip 1; waveguide above cut-off of higher modes and coupled lines need more; mode order follows cut-off frequency."},
+        {"name": "Integration Line", "description": "Voltage path from ground to signal; fixes the mode sign (phase reference) and Zpi/Zpv; required for consistent multi-port phase."},
+        {"name": "Zpi / Zpv / Zvi", "description": "Impedance definitions: Zpi = P/|I|^2 (TEM lines, default), Zpv = |V|^2/P, Zvi = sqrt(Zpi*Zpv) (quasi-TEM compromise)."},
+        {"name": "Renormalize", "description": "Renormalise S to a fixed impedance (50 ohm) instead of the port's own Zo."},
+        {"name": "Deembed", "description": "Shift the reference plane along the port normal; negative moves it outward."},
+        {"name": "Polarize E Field / Alignment Group", "description": "Orient the field of degenerate modes and group modes that must be aligned together."}
+      ],
+      "example": "port = hfss.wave_port(\"PortSheet\", integration_line=[[\"-L\", \"r_in\", 0], [\"-L\", \"r_out\", 0]], impedance=50, num_modes=1,\n                      deembed=\"5mm\", renormalize=True, name=\"P1\")\nport.props[\"Modes\"][\"Mode1\"][\"CharImp\"] = \"Zpv\"\nport.update()\n# Terminal design\nhfss_t = Hfss(solution_type=\"Terminal\")\np = hfss_t.wave_port(\"PortSheet\", reference=\"Gnd\", impedance=50, name=\"P1\")   # terminals created from the reference conductor",
+      "notes": "A wave port must lie on the outer boundary of the solved region or be backed by a PEC cap; ports inside the volume fail validation. Port size rules: for microstrip roughly 3-4 substrate heights high and 8-10 trace widths wide. Port Only solve (Analysis > Solve Ports Only) checks modes and impedances quickly before the 3D solve.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/AssignWavePort.htm"
+    },
+    {
+      "name": "Solve Ports Only / Port Field Display",
+      "kind": "menu",
+      "description": "Two port-diagnostic features: Solve Ports Only runs just the 2D port eigen-solutions (mode patterns, gamma, Zo) for a setup, taking seconds, so port sizing, integration lines and mode ordering can be checked before the 3D adaptive solve; Port Field Display (in the project tree after a solve) plots the E/H field of each port mode on the port face and lists its propagation constant and impedance. Both catch the most common causes of wrong S-parameters early.",
+      "usage": "Right-click Analysis > Setup > Solve Ports Only  (or HFSS > Analysis Setup > Solve Ports Only)\nProject tree > Port Field Display > <Port> > <Mode> : field overlay of the mode; right-click for Zo/Gamma tables\nResults > Solution Data > Matrix Data: Gamma, Zo per mode (needs Port Only or full solution)\nPyAEDT: hfss.analyze(setup) after hfss.get_setup(name).props[\"SolveType\"]... - port-only solves are triggered natively with oDesign.SolveSetup? use oDesign.Analyze on a setup whose 'Port Only' option is enabled",
+      "parameters": [
+        {"name": "Port Only results", "description": "Per port mode: complex propagation constant (alpha, beta), Zpi/Zpv/Zvi, cut-off frequency for waveguide modes, at the adaptive frequency."},
+        {"name": "Port Field Display", "description": "Mode field vectors on the port face; verify the intended mode (e.g. TEM coax vs a higher mode) is Mode 1."}
+      ],
+      "example": "# GUI\n# 1. Analysis > Setup1 > right-click > Solve Ports Only\n# 2. Results > Solution Data > Matrix Data, select Gamma / Zo, check Re(Zo) ~ 50 ohm for the coax port\n# 3. Port Field Display > P1 > Mode 1: E field should be radial (TEM)\n\n# PyAEDT: read the port impedance after a solve\ndata = hfss.post.get_solution_data(\"Zo(P1)\", hfss.nominal_adaptive)\nprint(data.get_expression_data(\"Zo(P1)\", formula=\"re\"))",
+      "notes": "Port-only solutions are stored as 'Setup : PortOnly' and appear in reports for Gamma/Zo. If a mode's Zo is far from expected, the port is too small/large or the integration line is missing. In PyAEDT there is no dedicated port-only call; use the GUI or the recorded native command.",
+      "docs": "https://ansyshelp.ansys.com/"
+    },
+    {
+      "name": "Material Set Frequency Dependency (Djordjevic-Sarkar, Debye, Multipole Debye, Piecewise Linear) and Automatically use causal materials",
+      "kind": "panel",
+      "description": "In the material editor (View/Edit Material > Set Frequency Dependency) a dielectric's permittivity and loss tangent become frequency dependent through causal models: Djordjevic-Sarkar (wideband Debye from Dk/Df at one frequency, the PCB default), Debye and Multipole Debye (relaxation poles), or piecewise linear from measured data (datasets), and conductors can get frequency-dependent conductivity. The HFSS Design Settings option 'Automatically use causal materials' applies a causal model to constant-property dielectrics at solve time, which is required for consistent broadband sweeps, TDR and passivity/causality of exported Touchstone files.",
+      "usage": "Project tree > Definitions > Materials > <material> > View/Edit Material > Set Frequency Dependency... > Djordjevic-Sarkar | Debye | Multipole Debye | Piecewise Linear (Enter Frequency Dependent Data / datasets)\nHFSS > Design Settings > Lossy Dielectrics > Automatically use causal materials\nPyAEDT: material.set_djordjevic_sarkar_model(dk, df, i_freq, sigma_dc, freq_hi); hfss.change_automatically_use_causal_materials(True)",
+      "parameters": [
+        {"name": "Djordjevic-Sarkar", "description": "Inputs: relative permittivity and loss tangent at a frequency, DC conductivity, upper frequency; produces a causal complex permittivity over the band."},
+        {"name": "Debye / Multipole Debye", "description": "Relaxation model(s) with static/optical permittivity and relaxation frequencies for polar dielectrics."},
+        {"name": "Piecewise Linear", "description": "Frequency tables (datasets) for permittivity and loss tangent; not guaranteed causal."},
+        {"name": "Automatically use causal materials", "description": "Design-level switch applying Djordjevic-Sarkar to constant lossy dielectrics."}
+      ],
+      "example": "ro = hfss.materials.duplicate_material(\"Rogers RO4350B (tm)\", \"RO4350B_causal\")\nro.set_djordjevic_sarkar_model(dk=3.66, df=0.0037, i_freq=10e9, sigma_dc=1e-12)\nhfss.assign_material(\"Sub\", \"RO4350B_causal\")\nhfss.change_automatically_use_causal_materials(True)\nhfss.set_export_touchstone(enforce_passivity=True, enforce_causality=False)",
+      "notes": "Frequency-dependent materials are evaluated at each sweep frequency; interpolating sweeps handle them natively. Metals can use frequency-dependent conductivity and surface roughness (Huray/Groisse) on Finite Conductivity boundaries or through layer roughness in 3D Layout stackups.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.material.Material.set_djordjevic_sarkar_model.html"
+    },
+    {
+      "name": "Material libraries: SysLib, UserLib, PersonalLib, Edit Libraries and .amat files; anisotropic / thermal-modifier / ferrite properties",
+      "kind": "panel",
+      "description": "Materials live in three library scopes - the read-only system library shipped with AEDT (SysLib), a shared user library (UserLib, typically on a network share) and the per-user PersonalLib - plus project-local definitions. Tools > Edit Libraries > Materials manages them and exports/imports .amat files; the material editor supports simple, anisotropic (diagonal tensor in a material coordinate system) and non-linear properties, thermal modifiers (expression in Temp or dataset) and ferrite parameters (saturation magnetisation, Lande g factor, delta H) used with a Magnetic Bias excitation for gyrotropic devices (circulators, isolators).",
+      "usage": "Tools > Edit Libraries > Materials... (Add Material, Clone, Export to Library, Import from library file .amat)\nProject > Definitions > Materials (project materials); Select Definition dialog when assigning\nMaterial editor: Property type Simple / Anisotropic / Nonlinear; Set Thermal Modifier; Material Appearance; Physics types (Electromagnetic, Thermal, Structural)\nPyAEDT: hfss.materials.import_materials_from_file(\"lib.amat\"); mat.permittivity.value = [9.4, 9.4, 11.6]; mat.permittivity.thermalmodifier = \"1+0.0004*(Temp-22)\"",
+      "parameters": [
+        {"name": "Library directories", "description": "oDesktop.GetLibraryDirectory() (SysLib), GetUserLibDirectory(), GetPersonalLibDirectory(); set UserLib in Tools > Options > General Options > Directories."},
+        {"name": "Anisotropic", "description": "Three diagonal components in the material CS (Cartesian, Cylindrical, Spherical); full tensors for permittivity/permeability in Cartesian."},
+        {"name": "Thermal modifier", "description": "Scales a property with temperature; the design temperature comes from Design Settings or from a linked Icepak/Mechanical solution."},
+        {"name": "Ferrite", "description": "Magnetic Saturation (Ms), Lande G Factor, Delta H; requires HFSS > Excitations > Assign > Magnetic Bias (uniform or from a Maxwell solution)."}
+      ],
+      "example": "# scripted equivalent of Edit Libraries > Import\nnames = hfss.materials.import_materials_from_file(\"//share/aedt/UserLib/company.amat\")\nyig = hfss.materials.add_material(\"YIG_custom\")\nyig.permittivity.value = 15\nyig.dielectric_loss_tangent.value = 0.0002\nyig.set_magnetic_coercivity(value=0)\n# ferrite parameters are edited through the material's props / GUI (Magnetic Saturation, Lande G Factor, Delta H)\nhfss.assign_material(\"Puck\", \"YIG_custom\")",
+      "notes": "Materials with the same name in project and library: the project copy wins. .amat files are text and version-tolerant; PyAEDT's JSON/TOML export is an alternative interchange format. Material temperature for thermal modifiers is set in HFSS > Design Settings > Set Material Override / Temperature.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.material_lib.Materials.html"
+    },
+    {
+      "name": "Adaptive solve options: Lambda Refinement target, Maximum Refinement Per Pass, Use current mesh, Iterative solver residual, Save fields for all passes, Broadband adapt frequency count",
+      "kind": "study",
+      "description": "The Options tab of an HFSS Driven setup beyond passes and Delta S: initial lambda refinement (seed the mesh so elements are a fraction of the wavelength - target 0.3333 in dielectrics, material-dependent), the maximum percentage of elements refined per pass and an absolute cap, whether to restart from the current (adapted) mesh, the direct vs iterative solver with its relative residual, saving fields for all adaptive passes, and the maximum number of frequencies used by broadband adaptation. They control convergence speed and memory more than any mesh operation.",
+      "usage": "Analysis > Setup > Options tab: Do Lambda Refinement (target 0.3333, Use free space lambda), Maximum Refinement Per Pass (30 %), Maximum Refinement (elements), Use Current Mesh, Enable Iterative Solver (Relative Residual 1e-4), Solver: Direct / Iterative / Auto, Save Fields for all adaptive passes\nHFSS > Design Settings: Maximum Number of Frequencies for Broadband Adapt\nPyAEDT setup.props: DoLambdaRefine, DoMaterialLambda, SetLambdaTarget, Target, PercentRefinement, UseMaxTetIncrease, MaxTetIncrease, UseIterativeSolver, IterativeResidual, SaveAnyFields, SaveRadFieldsOnly, DrivenSolverType",
+      "parameters": [
+        {"name": "Lambda refinement target", "description": "Element size relative to the local wavelength for the initial mesh (default 0.3333; 'Use free space lambda' ignores material wavelength)."},
+        {"name": "Maximum Refinement Per Pass", "description": "Percent of elements that may be added per adaptive pass (default 30 %); smaller values give finer control near convergence."},
+        {"name": "Use current mesh", "description": "Start adaptation from the existing solved mesh instead of regenerating the initial mesh."},
+        {"name": "Iterative solver / residual", "description": "Memory-saving solver for large problems; relative residual 1e-4 default, tighten for high-Q structures."},
+        {"name": "Save fields for all adaptive passes", "description": "Keep fields of every pass (large disk use) for convergence inspection."}
+      ],
+      "example": "setup = hfss.create_setup(\"Setup1\", Frequency=\"10GHz\", MaximumPasses=25, MaxDeltaS=0.005, MinimumConvergedPasses=3)\nsetup.props[\"PercentRefinement\"] = 20\nsetup.props[\"SetLambdaTarget\"] = True\nsetup.props[\"Target\"] = 0.25\nsetup.props[\"UseIterativeSolver\"] = True\nsetup.props[\"IterativeResidual\"] = 1e-5\nsetup.props[\"SaveAnyFields\"] = False\nsetup.update()",
+      "notes": "A converged Delta S does not guarantee converged far fields or fields; use expression-cache convergence for those. Basis order (zero/first/second/mixed) is in the same tab and interacts with lambda refinement: mixed order lets HFSS assign orders per element.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/SetupTemplatesHFSS.html"
+    },
+    {
+      "name": "Auto Open Region (Design Settings / Solution Type option)",
+      "kind": "study",
+      "description": "Auto Open Region lets HFSS build the air region and its truncation automatically at solve time - a radiation boundary, PML or FE-BI surrounding the model with solver-chosen padding - so antenna and scattering designs need no drawn region. It is enabled in the Solution Type dialog (Auto-Open Region checkbox, or the Composite solution types) and configured in Design Settings, and is reflected in scripts by the EnableAutoOpen / ModelExteriorAsIE options of SetSolutionType.",
+      "usage": "HFSS > Solution Type > Driven Modal/Terminal > Auto-Open Region (checkbox) > Design Settings > Auto Open Region: Type = Radiation | PML | FE-BI\nPyAEDT: hfss.set_auto_open(True, opening_type=\"PML\")\nNative: oDesign.SetSolutionType(\"HFSS Terminal Network\", [\"NAME:Options\", \"EnableAutoOpen:=\", True, \"ModelExteriorAsIE:=\", \"PML\"])",
+      "parameters": [
+        {"name": "Type", "description": "Radiation (ABC, lambda/4 padding), PML (better absorption, more elements), FE-BI (exact, conformal, hybrid license)."},
+        {"name": "Interaction with drawn regions", "description": "Any drawn Region and its boundaries are ignored when auto-open is on; remove them to avoid confusion."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Terminal\")\nhfss.set_auto_open(True, \"Radiation\")\nhfss.create_setup(\"Setup1\", Frequency=\"2.45GHz\")\nhfss.insert_infinite_sphere(name=\"3D\")\nhfss.analyze()",
+      "notes": "Auto open is not available in Eigenmode designs. The automatic region is sized per solve frequency; for parametric studies with large size changes it re-meshes anyway. Explicit regions remain necessary when the padding must be controlled (e.g. near-field probes in the air).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.set_auto_open.html"
+    },
+    {
+      "name": "Mesh methods: Classic, TAU, Phi, Phi Plus (Initial Mesh Settings and 3D Layout meshing)",
+      "kind": "mesh",
+      "description": "HFSS has several initial meshers. Classic is the original robust tetrahedral mesher; TAU (the default 'Auto' choice for 3D designs) is faster and more parallel with dynamic surface resolution and flex meshing options and falls back to Classic when needed; Phi is a layered mesher for planar/PCB geometry (default in HFSS 3D Layout) that meshes layer by layer; Phi Plus extends Phi to arbitrary via and trace shapes in layouts and 3D designs with layered geometry. The choice is made in Initial Mesh Settings (3D) or the setup's meshing settings (3D Layout).",
+      "usage": "HFSS > Mesh > Initial Mesh Settings > Mesh Method: Auto | TAU | Classic; Allow Phi for layered geometry; Use alternative mesh methods as fallback\nHFSS 3D Layout: Setup > Advanced > Mesh Method: Phi | Phi Plus | Classic\nPyAEDT: hfss.mesh.assign_initial_mesh_from_slider(method=\"AnsoftTAU\", phi=True, fallback=True); h3d.set_meshing_settings(mesh_method=\"PhiPlus\")",
+      "parameters": [
+        {"name": "Auto", "description": "Picks TAU for general 3D and Phi for layered geometry when allowed."},
+        {"name": "TAU options", "description": "Dynamic Surface Resolution, Use Flex Meshing for TAU volume mesh, Use legacy faceter."},
+        {"name": "Phi / Phi Plus", "description": "Layer-aware meshing with far fewer elements for thin layered stacks; Phi Plus handles non-planar vias, bondwires and arbitrary shapes."},
+        {"name": "Fallback", "description": "Retry with Classic when TAU/Phi fail on difficult geometry."}
+      ],
+      "example": "hfss.mesh.assign_initial_mesh_from_slider(level=6, method=\"AnsoftTAU\", dynamic_surface=True, flex_mesh=True, fallback=True, phi=True)\nh3d = Hfss3dLayout(project=hfss.project_file)\nh3d.set_meshing_settings(\"PhiPlus\", enable_intersections_check=True, use_alternative_fallback=True)",
+      "notes": "Mesh method changes only the initial mesh; adaptive refinement is the same afterwards. Phi requires geometry that is layered along one axis; imported 3D CAD with slanted faces makes HFSS fall back automatically. The Student edition restricts total element counts, not the mesher choice.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.mesh.Mesh.assign_initial_mesh_from_slider.html"
+    },
+    {
+      "name": "HFSS 3D Layout: Layer Stackup Editor and Padstack Editor",
+      "kind": "panel",
+      "description": "The two definition editors of a layout design. The Layer Stackup Editor (Layout > Layers, or the Layer Stackup Wizard) lists signal and dielectric layers with thickness, elevation, material, fill, roughness model (Huray/Groisse, per surface), etch factor, colour and visibility, supports Laminate/Overlap/Multizone stackups, import from CSV/XML and export (including IPC-2581). The Padstack Editor (Layout > Padstacks) defines pad/antipad/thermal shapes per layer, hole size and plating for vias and pins, and is where back-drill and pad-removal edits for SI are made.",
+      "usage": "Layout > Layers... (stackup editor): Add/Remove layer, Material, Thickness, Roughness, Etch factor, Stackup Type; Import/Export stackup; Layer Stackup Wizard (Layout > Layer Stackup Wizard) for guided creation with IPC-2581 export\nLayout > Padstacks...: New/Edit padstack definition, Pad/Antipad/Thermal per layer, Hole, Plating %, Solder ball\nPyAEDT: h3d.modeler.layers / h3d.modeler.padstacks / new_padstack; PyEDB: edb.stackup / edb.padstacks",
+      "parameters": [
+        {"name": "Roughness", "description": "Huray (nodule radius, surface ratio) or Groisse (RMS) per layer surface; increases conductor loss with frequency."},
+        {"name": "Etch factor", "description": "Trapezoidal trace cross-section from etching, applied at solve time."},
+        {"name": "Multizone", "description": "Rigid-flex or multi-board designs with different stackups per zone."},
+        {"name": "Padstack hole range / plating", "description": "Through, upper pad to lower pad, or explicit start/stop layer; plating percentage sets the effective via wall thickness."}
+      ],
+      "example": "# GUI\n# 1. Layout > Layers: select TOP, set Roughness = Huray (0.5 um, 2.9), Etch factor 0.1\n# 2. Layout > Padstacks: edit VIA_0p3, Antipad 0.7 mm on GND, Plating 25 %\n# PyEDB equivalent\nfor n, l in edb.stackup.signal_layers.items():\n    l.assign_roughness_model(\"huray\", huray_radius=\"0.5um\", huray_surface_ratio=\"2.9\")\n    l.etch_factor = 0.1\nedb.padstacks.definitions[\"VIA_0p3\"].antipad_by_layer\nedb.save()",
+      "notes": "Stackup material references the project material database; dielectrics need Dk/Df (ideally Djordjevic-Sarkar). ECAD imports carry the stackup only when the source (ODB++/IPC-2581/.brd) includes it - Gerber and DXF imports need a manually defined stackup.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v251/en/Subsystems/Circuit/Content/3DLayout/UsingTheLayerStackupWizardInHFSS3D.htm"
+    },
+    {
+      "name": "HFSS 3D Layout: ECAD import (ODB++, IPC-2581, Cadence .brd/.mcm via ANF, GDSII with XML/tech file, Gerber, DXF, Altium/Mentor/Zuken translators)",
+      "kind": "menu",
+      "description": "Board and package data enter 3D Layout through File > Import > ECAD (or the New Layout from ECAD dialog): ODB++ archives (from Altium, Mentor Expedition/PADS, Zuken CADSTAR/CR-8000, Cadence), IPC-2581 XML (Cadence 17.4+, Altium), Cadence .brd/.mcm/.sip through the ANF translator, GDSII with a technology XML/tech file that maps GDS layers to a stackup (ICs, interposers), Gerber sets and DXF (layer-only, no stackup). The importer creates an .aedb database with stackup, nets, components and padstacks and opens it as a design.",
+      "usage": "File > Import > ECAD > choose format > options (stackup mapping, component import, net filter, dissolve/keep components) > new project/design\nPyAEDT: h3d.import_odb / import_ipc2581 / import_brd / import_gds(control_file) / import_gerber / import_dxf; PyEDB: Edb(edbpath=\"board.brd\") or edb.import_layout_file(...)\nCommand line: ansysedt -ng -RunScriptAndExit import.py (import scripts) or the anstranslator utility",
+      "parameters": [
+        {"name": "ODB++", "description": "Most complete (stackup, nets, components, padstacks, drill, silkscreen); preferred exchange format."},
+        {"name": "IPC-2581", "description": "XML standard with stackup and materials; Cadence and Altium native export."},
+        {"name": "GDSII + control file", "description": "IC/interposer layouts; the XML control file (or .tech) defines layer stackup, via definitions, materials, and optional bounding box/cutout."},
+        {"name": "Gerber / DXF", "description": "Geometry-only; stackup and nets must be assigned afterwards."},
+        {"name": "Component handling", "description": "Options to import RLC values, footprints, solder balls and to keep or dissolve components."}
+      ],
+      "example": "h3d = Hfss3dLayout(version=\"2025.1\", non_graphical=True, new_desktop=True)\nh3d.import_odb(\"C:/ecad/board_odb.tgz\", output_dir=\"C:/work/board.aedb\")\nprint(h3d.modeler.layers.all_signal_layers, len(h3d.modeler.components))\n\n# IC layout\nh3d.import_gds(\"C:/ecad/chip.gds\", output_dir=\"C:/work/chip.aedb\", control_file=\"C:/ecad/chip_tech.xml\")",
+      "notes": "ECAD translators need the corresponding license features (ANF/ODB++/GDS import). Check nets and disjoint copper after import (PyEDB layout_validation), and confirm layer elevations - Gerber imports default to unit thicknesses. The Layout Design Toolkit extension offers guided imports.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss3dlayout.Hfss3dLayout.import_gds.html"
+    },
+    {
+      "name": "HFSS 3D Layout: HFSS Regions, SIwave DC IR and SIwave SYZ setups, Cutout, Auto ports on nets, Layout DRC / Geometry check",
+      "kind": "tool",
+      "description": "Solver and preparation features specific to layout designs: HFSS Regions (Draw > HFSS Region) mark areas of a board to solve with full-wave HFSS while the rest uses the faster SIwave hybrid solver in one setup; SIwave DC IR and SIwave SYZ setups run the SIwave solvers inside 3D Layout for PDN drop and quick S-parameters; Cutout (Layout > Cutout) clips the design around selected nets; Auto Port (right-click nets/components > Create Ports) generates ports on all pins of chosen nets; and Layout > Geometry Check / DRC finds self-intersections, small features and overlaps.",
+      "usage": "Draw > HFSS Region (rectangle/polygon) > assign nets/settings; Analysis > Add Setup > HFSS | SIwave DC IR | SIwave SYZ; Layout > Cutout (nets, reference nets, extent type, expansion); right-click Net > Create Ports on all pins; Layout > Geometry Check\nPyAEDT: h3d.create_setup(setup_type=...); h3d.create_ports_by_nets(nets); PyEDB: edb.cutout(...), edb.create_siwave_dc_setup(), edb.create_siwave_syz_setup(), edb.hfss.create_hfss_region? (regions are drawn in the GUI)",
+      "parameters": [
+        {"name": "HFSS Region", "description": "A polygon on the board; geometry inside is solved with HFSS FEM (accurate vias, discontinuities), outside with SIwave 2.5D - the 'HFSS Regions' hybrid setup."},
+        {"name": "SIwave DC IR", "description": "DC voltage/current distribution with sources/sinks on PDN nets, via current tables, IR-drop plots; needs SIwave licensing."},
+        {"name": "SIwave SYZ", "description": "Frequency-domain S/Y/Z of selected nets with the SIwave hybrid solver; fast pre-check before HFSS."},
+        {"name": "Cutout", "description": "Conforming / convex hull / bounding extent around signal nets with reference nets and an expansion distance."},
+        {"name": "Geometry check", "description": "Detects and can fix small edges, self-intersecting polygons, disjoint nets."}
+      ],
+      "example": "# PyEDB preparation, then 3D Layout solve\nedb = Edb(\"C:/work/board.aedb\", version=\"2025.1\")\nedb.cutout(signal_list=[\"PCIe_TX0_P\", \"PCIe_TX0_N\"], reference_list=[\"GND\"], extent_type=\"ConvexHull\", expansion_size=\"2mm\", output_aedb_path=\"C:/work/pcie.aedb\")\nedb.components.create_port_on_component(\"U1\", [\"PCIe_TX0_P\", \"PCIe_TX0_N\"], port_type=\"coax\", reference_net=\"GND\")\nedb.components.create_port_on_component(\"J1\", [\"PCIe_TX0_P\", \"PCIe_TX0_N\"], port_type=\"coax\", reference_net=\"GND\")\ns = edb.create_hfss_setup(\"HFSS1\"); s.set_solution_single_frequency(\"8GHz\", max_num_passes=12, max_delta_s=\"0.01\")\ns.add_sweep(\"Sweep1\", frequency_set=[[\"linear count\", \"0GHz\", \"32GHz\", 3201]])\nedb.save(); edb.close()\nh3d = Hfss3dLayout(project=\"C:/work/pcie.aedb\", non_graphical=True)\nh3d.set_differential_pair(h3d.port_list[0], h3d.port_list[1], differential_mode=\"TX0\")\nh3d.analyze(\"HFSS1\", cores=16)",
+      "notes": "SIwave setups inside 3D Layout require SIwave licenses; HFSS Regions require the HFSS 3D Layout hybrid capability. DC IR results are read with h3d.get_dcir_solution_data; Touchstone from SYZ/HFSS setups with h3d.export_touchstone.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss3dlayout.Hfss3dLayout.html"
+    },
+    {
+      "name": "Dynamic Link between Circuit and HFSS / HFSS 3D Layout (co-simulation, Push Excitations, Tune with EM)",
+      "kind": "tool",
+      "description": "A Circuit design can embed an HFSS, 3D Layout, Q3D or 2D Extractor design as a dynamically linked sub-circuit: the EM design's S-matrix is used as an N-port block, its design variables appear as component parameters (tunable, with interpolation or automatic re-solve), and circuit results can be pushed back as EM excitations for field visualisation. This is the workflow for matching networks, filters with lumped elements, packages with drivers, and SerDes channels with IBIS models around an extracted layout.",
+      "usage": "Circuit design > Draw > Add Sub-circuit > HFSS design / HFSS 3D Layout design / Q3D design (choose solution, options: simulate or interpolate) > wire ports > LNA/Transient setup > Analyze\nCircuit > right-click sub-circuit > Push Excitations (to HFSS), Tune variables of the linked design\nPyAEDT: sch.add_subcircuit_dynamic_link(hfss, solution_name=\"Setup1 : Sweep1\"); sch.add_subcircuit_3dlayout(\"LayoutDesign\"); cir.push_excitations(\"U1\", setup=\"LNA1\")",
+      "parameters": [
+        {"name": "Simulate / Interpolate", "description": "Re-solve the EM design when its variables change, or interpolate between solved variations."},
+        {"name": "Solution selection", "description": "Which EM setup/sweep feeds the S-matrix; the circuit frequency range should lie within it."},
+        {"name": "Push Excitations", "description": "Transfer circuit port voltages/powers (LNA) or time waveforms (transient) into the EM design's Edit Sources."},
+        {"name": "Nexxim solvers", "description": "LNA (linear), Transient (with convolution of S-parameters), DC, Harmonic Balance, Envelope, Eye/AMI for channels."}
+      ],
+      "example": "hfss = Hfss(project=\"C:/work/amp.aedt\", design=\"OutputMatch\")\ncir = Circuit(project=hfss.project_file, design=\"PA_Circuit\")\nsch = cir.modeler.schematic\nem = sch.add_subcircuit_dynamic_link(hfss, solution_name=\"Setup1 : Sweep1\", name=\"Match\")\nsch.set_sim_option_on_hfss_subcircuit(em, \"interpolate\")\np_in = sch.create_interface_port(\"In\", [-1000, 0]); p_out = sch.create_interface_port(\"Out\", [1000, 0])\np_in.pins[0].connect_to_component(em.pins[0]); em.pins[1].connect_to_component(p_out.pins[0])\ncir.create_setup(\"LNA1\", setup_type=\"NexximLNA\", Data=\"LINC 1GHz 3GHz 401\")\ncir.analyze()\ncir.push_excitations(\"Match\", setup=\"LNA1\")",
+      "notes": "Dynamic links keep both designs in one project (recommended) or reference another project. HFSS 3D Layout designs can also be linked as Nexxim 'Layout' components with Layout-driven co-simulation (tuning with re-extraction). The Circuit design needs the Nexxim/Circuit license in addition to HFSS.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modeler.circuits.primitives_nexxim.NexximComponents.add_subcircuit_dynamic_link.html"
+    },
+    {
+      "name": "Antenna Toolkit (PyAEDT antenna synthesis wizard)",
+      "kind": "tool",
+      "description": "An Ansys-published PyAEDT toolkit (ansys-aedt-toolkits-antenna, launched from the Extension Manager or standalone) that synthesises common antennas from target frequency, substrate and feed parameters - rectangular/circular patches (probe, inset, edge fed), dipoles and monopoles (wire, planar, bowtie), Vivaldi, log-periodic, helix, horns (pyramidal, conical, corrugated), slot and PIFA types - creates the parametrised geometry, ports, boundaries and a setup in the active HFSS design, and can run the solve and plot results. It replaces the older Antenna Design Kit.",
+      "usage": "Automation > Extension Manager > Toolkits > Antenna Toolkit > install / launch; or pip install ansys-aedt-toolkits-antenna and run its GUI\nIn the toolkit: choose antenna type > enter frequency, substrate material/height, feed type, outer boundary > Create > (optional) Analyze\nPython: from ansys.aedt.toolkits.antenna.backend.antenna_models... (model classes with .draw(), synthesis parameters)",
+      "parameters": [
+        {"name": "Antenna families", "description": "Patch (rectangular, circular, elliptical; probe/inset/edge feed), Dipole/Monopole (wire, planar, bowtie, short), Vivaldi, Log-periodic, Helix (axial/normal), Horn (pyramidal, conical, corrugated, quad-ridged), Slot, PIFA, Misc."},
+        {"name": "Synthesis inputs", "description": "Centre frequency, substrate (material, height), feed type and impedance, outer boundary (radiation/PML/FEBI), coordinate system and position."},
+        {"name": "Outputs", "description": "Parametrised model with variables (dimensions), port, boundary, infinite sphere and setup; optional analysis and pattern plots."}
+      ],
+      "example": "# Steps (GUI)\n# 1. Automation > Extension Manager > install 'Antenna Toolkit' (HFSS)\n# 2. Launch it with an HFSS design active; Antenna: Patch > Rectangular > Probe Fed\n# 3. Frequency 2.45 GHz, Substrate 'Rogers RT/duroid 5880 (tm)', Height 1.575 mm, Outer boundary Radiation\n# 4. Create -> variables such as patch_l / patch_w / feed_x appear in the design; Analyze -> S11 and gain plots\n\n# The generated design is then scriptable like any other:\nhfss = Hfss(new_desktop=False)\nprint(hfss.variable_manager.design_variable_names)",
+      "notes": "Synthesised dimensions are analytical starting points; run an Optimetrics optimisation on the generated variables to hit the target return loss. The toolkit requires PyAEDT and the same AEDT version support as PyAEDT; documentation lives at aedt.antenna.toolkit.docs.pyansys.com.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/User_guide/extensions.html"
+    },
+    {
+      "name": "Ansys Electronics Desktop windows: Project Manager, Properties, Message Manager, Progress, 3D Modeler window and ribbon tabs (Draw, Model, Simulation, Results, View, Automation)",
+      "kind": "panel",
+      "description": "The desktop layout: the Project Manager tree (projects > designs > Model, Boundaries, Excitations, Mesh, Analysis, Optimetrics, Results, Port Field Display, Field Overlays, Radiation, Definitions), the Properties window showing the selected item's editable attributes (with tabs matching the ChangeProperty tabs), the Message Manager collecting info/warning/error messages per project and design, the Progress window with per-solve progress bars and abort buttons, and the 3D Modeler window with its history tree. Ribbon tabs group commands: Draw (primitives), Model (boolean, arrange, CS, units), Simulation (boundaries, excitations, mesh, setup, analyze, validate), Results (reports, fields, calculator), View, Automation (scripts, toolkits, PyAEDT).",
+      "usage": "View > Project Manager | Properties | Message Manager | Progress (toggle windows); Window > tiling of design windows\nRibbon: Draw | Model | Simulation | Results | View | Automation (context tabs change with the active editor)\nTools > Options > General Options / HFSS Options / 3D Modeler Options / Report2D Options",
+      "parameters": [
+        {"name": "Project Manager", "description": "Right-click menus on each node expose the corresponding Assign/Insert/Edit commands and the Record Script targets."},
+        {"name": "Properties window", "description": "Edits object attributes and command parameters (Geometry3DAttributeTab / Geometry3DCmdTab in scripts); expressions with variables are typed here."},
+        {"name": "Message Manager", "description": "Severity-coded messages; scripts read them with oDesktop.GetMessages and PyAEDT's logger.messages."},
+        {"name": "Progress window", "description": "Shows adaptive pass, sweep point and Optimetrics variation progress; Abort stops the solve (StopSimulations)."},
+        {"name": "Automation tab", "description": "Record/Run Script, Open Command Window (IronPython), PyAEDT Console/Jupyter/Run Script, Extension Manager, Toolkits."}
+      ],
+      "example": "# Typical interactive session\n# Draw > Box  ->  Properties: set XSize = patch_w (creates a variable prompt)\n# Simulation > Boundaries > Assign > Perfect E on the selected face\n# Simulation > Validate  ->  check Message Manager for warnings\n# Simulation > Analyze All  ->  watch Progress; Results > Create Report\n# Automation > Record Script To File to capture the same actions as Python",
+      "notes": "Window layouts are stored per user (View > Reset Window Layout restores defaults). Many dialogs have an equivalent tab in Properties, so property names seen there are the ones to use with ChangeProperty and the ChildObject API.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v251/en/home.htm"
+    },
+    {
+      "name": "Tools > Options: General Options, HFSS Options, 3D Modeler Options, Report2D Options, HPC and Analysis Options",
+      "kind": "panel",
+      "description": "The user-level preference dialogs: General Options (project directories, autosave interval, temp directory, UserLib path, default units, desktop/GUI behaviour, remote analysis), HFSS Options (solver defaults such as basis order and mesh method, boundary assignment defaults, port validation, auto open defaults, Update reports dynamically on edits), 3D Modeler Options (drawing mode, history, colours, tolerance, import/export settings), Report2D Options (default fonts, colours and axis formats for new plots) and HPC and Analysis Options (analysis configurations with cores/tasks/GPU/RAM limit, distributed machine lists, license type Pack/Pool, remote solve). Most map to registry keys reachable with -batchoptions and Set/GetRegistry*.",
+      "usage": "Tools > Options > General Options... | HFSS Options... | 3D Modeler Options... | Report2D Options... | HPC and Analysis Options...\nHPC and Analysis Options: Configurations tab (Add/Edit: Name, Machines list with cores/RAM %, Tasks, Cores, GPUs, 'Use automatic settings'), Options tab (HPC license type, Remote spawn command, MPI vendor/version, Temp directory), Export/Import .acf\nScripts: oDesktop.SetRegistryString/Int, SetActiveDSOConfigName; PyAEDT hfss.set_registry_key, set_hpc_from_file, set_license_type",
+      "parameters": [
+        {"name": "General > Project Options", "description": "Do Autosave (interval), project directory, temp directory, 'Save before solving', reference library paths."},
+        {"name": "HFSS Options > Solver", "description": "Default basis order, initial mesh method, 'Number of processors', 'Use Auto HPC settings', memory limit, first pass fields."},
+        {"name": "HFSS Options > Boundary Assignment", "description": "Duplicate boundaries with geometry, use wireframe on boundaries, terminal naming."},
+        {"name": "3D Modeler Options", "description": "Tolerance, drawing snap, default material, history preferences, import healing defaults."},
+        {"name": "HPC and Analysis Options", "description": "Per-product analysis configurations; the active one is used by Analyze; -batchoptions override it for command-line runs."}
+      ],
+      "example": "# Equivalent registry keys of common option changes (Automation > Open Command Window or PyAEDT)\noDesktop.SetRegistryInt(\"Desktop/Settings/ProjectOptions/DoAutoSave\", 0)\noDesktop.SetRegistryString(\"Desktop/ProjectDirectory\", \"D:/aedt_projects\")\noDesktop.SetRegistryString(\"HFSS/HPCLicenseType\", \"Pool\")\noDesktop.SetRegistryInt(\"Desktop/Settings/ProjectOptions/HFSS/UpdateReportsDynamicallyOnEdits\", 1)",
+      "notes": "Options are per user and per AEDT version (registry on Windows, ~/.config or the Ansys settings files on Linux). Analysis configurations can be exported as .acf and applied in scripts (set_hpc_from_file) or committed to a shared location.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v251/en/home.htm"
+    },
+    {
+      "name": "ansysedt command line: -RunScript / -RunScriptAndExit / -ScriptArgs / -BatchSolve / -BatchSave / -BatchExtract / -ng / -Iconic / -LogFile / -monitor / -features / -project / -design / -setup / -waitforlicense / -grpcsrv",
+      "kind": "command",
+      "description": "Complete list of the everyday ansysedt switches: script execution with or without exiting and with arguments, batch solving/saving/extraction, non-graphical and minimised windows, log file redirection, console progress monitoring, beta features, explicit project/design/setup selection, waiting for licenses instead of failing, and starting a gRPC server for PyAEDT clients. Switches are case-insensitive and the project file is the last argument.",
+      "usage": "ansysedt [-ng] [-Iconic] [-LogFile <file>] [-monitor] [-features=beta] [-waitforlicense] [-batchoptions \"<opts>\"|<file>] [-Distributed -machinelist ...|-auto] \\\n         (-RunScript <file.py|.vbs> | -RunScriptAndExit <file> [-ScriptArgs \"<args>\"] | -BatchSolve [Design:Variation:Setup] | -BatchSave | -BatchExtract <file>) [-project <p.aedt>] [-design <d>] [-setup <s>] <project.aedt>\nansysedt -grpcsrv <port> [-ng]        # gRPC server for remote PyAEDT sessions",
+      "parameters": [
+        {"name": "-RunScript / -RunScriptAndExit", "description": "Execute an IronPython/VBScript object-model script inside AEDT; AndExit closes the session afterwards (headless with -ng)."},
+        {"name": "-ScriptArgs \"...\"", "description": "String delivered to the script as ScriptArgument."},
+        {"name": "-BatchSolve [qualifier]", "description": "Solve all, or Design:Nominal:Setup1 / Design:Optimetrics:ParametricSetup1 style qualifiers; solving requires -ng in most environments."},
+        {"name": "-BatchSave", "description": "Open, update/convert and save the project (e.g. version upgrade) without solving."},
+        {"name": "-BatchExtract <file>", "description": "Run extraction defined in an options file (SIwave/3D Layout extraction flows)."},
+        {"name": "-ng / -Iconic / -LogFile / -monitor", "description": "No GUI; minimised window; log to file; write progress to the console."},
+        {"name": "-features=beta", "description": "Enable beta features for the session."},
+        {"name": "-waitforlicense", "description": "Queue for a license instead of exiting when none is available."},
+        {"name": "-project / -design / -setup", "description": "Explicit selection instead of the qualifier syntax."}
+      ],
+      "example": "REM Windows: headless build + solve + exit, logging progress\n\"C:\\Program Files\\AnsysEM\\v251\\Win64\\ansysedt.exe\" -ng -LogFile C:\\work\\build.log -RunScriptAndExit C:\\work\\build_filter.py -ScriptArgs \"f0=2.45GHz,passes=12\"\n\"C:\\Program Files\\AnsysEM\\v251\\Win64\\ansysedt.exe\" -ng -monitor -waitforlicense -BatchSolve \"Filter:Nominal:Setup1\" C:\\work\\filter.aedt\n\n# Linux cluster\n/opt/ansys_inc/v251/AnsysEM/ansysedt -ng -monitor -BatchSolve -Distributed -machinelist num=16 -batchoptions \"'HFSS/NumCoresPerDistributedTask'=4\" filter.aedt",
+      "notes": "On Linux always launch the ansysedt wrapper script (it sets up the environment), never the raw binary. -RunScript scripts run in IronPython (no numpy); for CPython/PyAEDT use an external interpreter with Hfss(non_graphical=True) instead. ansysedt -help prints the full switch list of the installed version.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v242/en/Subsystems/Maxwell/Content/CommandLineEnhancementsforANSYSElectromagneticsSuiteDesktopProducts.htm"
+    },
+    {
+      "name": "-machinelist num= / list= / file= and -Distributed / -auto / -Local distribution options",
+      "kind": "command",
+      "description": "Distribution controls for batch solves: -Distributed enables distributed processing, -machinelist tells AEDT how many tasks or which hosts (with cores and RAM per host) to use - as a count, an inline list, or a file - and -auto lets AEDT choose the distribution strategy (frequencies, domains, variations) for the run; -Local restricts everything to the launching machine (multi-core only). Under a scheduler the host list usually comes from the allocation (SLURM/PBS variables) and is passed as num= or a generated file.",
+      "usage": "ansysedt -ng -BatchSolve -Distributed -machinelist num=<tasks> project.aedt\nansysedt -ng -BatchSolve -Distributed -machinelist list=\"host1:4:32:90%,host2:4:32:90%\" project.aedt      # host:tasks:cores:ram%\nansysedt -ng -BatchSolve -Distributed -machinelist file=\"hosts.txt\" project.aedt\nansysedt -ng -BatchSolve -Distributed -auto project.aedt\nansysedt -ng -BatchSolve -Local project.aedt",
+      "parameters": [
+        {"name": "num=<N>", "description": "Number of distributed tasks; hosts are taken from the scheduler environment."},
+        {"name": "list=\"host:tasks:cores:ram%\"", "description": "Explicit hosts with tasks, cores per task and RAM limit; older syntax host:cores is accepted."},
+        {"name": "file=", "description": "Text file with one host specification per line."},
+        {"name": "-auto", "description": "Automatic HPC settings (equivalent to 'Use automatic settings' in the analysis configuration)."},
+        {"name": "-batchoptions 'HFSS/NumCoresPerDistributedTask'=N", "description": "Cores per task, combined with the task count for the total core usage."}
+      ],
+      "example": "#!/bin/bash\n#SBATCH --nodes=2 --ntasks-per-node=8 --cpus-per-task=4\nHOSTS=$(scontrol show hostnames $SLURM_JOB_NODELIST | awk -v t=$SLURM_NTASKS_PER_NODE -v c=$SLURM_CPUS_PER_TASK '{printf \"%s%s:%d:%d:90%%\", (NR>1?\",\":\"\"), $1, t, c}')\n/opt/ansys_inc/v251/AnsysEM/ansysedt -ng -monitor -BatchSolve -Distributed \\\n  -machinelist list=\"$HOSTS\" -batchoptions \"'HFSS/NumCoresPerDistributedTask'=$SLURM_CPUS_PER_TASK 'HFSS/HPCLicenseType'='Pool'\" \\\n  \"Filter:Nominal:Setup1\" $PWD/filter.aedt",
+      "notes": "Distributed solves need HPC licenses (packs or pool). MPI settings (Intel MPI version, remote spawn command) are batch options: 'HFSS/MPIVendor'='Intel', 'HFSS/MPIVersion'='2021', 'HFSS/RemoteSpawnCommand'='Scheduler' on Linux schedulers.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v242/en/Subsystems/Maxwell/Content/DistributionCommandLineOptions.htm"
+    },
+    {
+      "name": "-batchoptions keys: HFSS/NumCoresPerDistributedTask, HFSS/HPCLicenseType, HFSS/MPIVendor, HFSS/MPIVersion, HFSS/EnableGPU, HFSS/SolveAdaptiveOnly, HFSS/CreateStartingMesh, HFSS/ValidateOnly, Desktop/ProjectDirectory, Desktop/Settings/ProjectOptions/DoAutoSave, TempDirectory, HFSS/RAMLimitPercent",
+      "kind": "system-variable",
+      "description": "Registry-backed options that a batch run can override on the command line as quoted 'Path/Key'=value pairs (or collected in a text file passed to -batchoptions). The most used: cores per distributed task, HPC license type (Pack/Pool), MPI vendor/version and remote spawn command on Linux, GPU enable, solve-adaptive-only / create-starting-mesh / validate-only partial runs, RAM limits (percent or per core in GB), the project and temp directories and autosave. Keys are per product (replace HFSS with 'HFSS 3D Layout Design', 'Maxwell 3D', etc.).",
+      "usage": "-batchoptions \"'HFSS/NumCoresPerDistributedTask'=4 'HFSS/HPCLicenseType'='Pool' 'HFSS/EnableGPU'=1 'TempDirectory'='/scratch/tmp'\"\n-batchoptions options.txt      # one 'Key'=value per line\nKeys (HFSS): NumCoresPerDistributedTask, TotalNumOfCores, HPCLicenseType ('Pack'|'Pool'), MPIVendor ('Intel'), MPIVersion ('Default'|'2018'|'2021'), RemoteSpawnCommand ('Scheduler'), EnableGPU (0|1), SolveAdaptiveOnly (0|1), CreateStartingMesh (0|1), ValidateOnly (0|1), RAMLimitPercent, RAMLimitPerCoreInGB, SelectedDSOConfiguration\nKeys (Desktop): Desktop/ProjectDirectory, Desktop/Settings/ProjectOptions/DoAutoSave, TempDirectory",
+      "parameters": [
+        {"name": "HFSS/HPCLicenseType", "description": "'Pack' (HPC Pack licenses, 4 cores base + packs) or 'Pool' (per-core pool licenses)."},
+        {"name": "HFSS/EnableGPU", "description": "1 enables GPU acceleration (FEM direct solver on supported NVIDIA cards, SBR+ ray tracing)."},
+        {"name": "SolveAdaptiveOnly / CreateStartingMesh / ValidateOnly", "description": "Partial runs: only the adaptive passes (no sweeps), only the initial mesh, or only validation - useful in pipelines."},
+        {"name": "RAMLimitPercent / RAMLimitPerCoreInGB", "description": "Memory guard per host (percentage of system RAM, or GB per allocated core)."},
+        {"name": "SelectedDSOConfiguration", "description": "Name of the HPC and Analysis Options configuration to use."}
+      ],
+      "example": "ansysedt -ng -BatchSolve -batchoptions \"'HFSS/SolveAdaptiveOnly'=1 'HFSS/NumCoresPerDistributedTask'=8 'HFSS/RAMLimitPercent'=85 'Desktop/Settings/ProjectOptions/DoAutoSave'=0 'TempDirectory'='D:/scratch'\" \"Filter:Nominal:Setup1\" C:/work/filter.aedt\n\n# options file form\n# C:/work/opts.txt contains:\n#   'HFSS/HPCLicenseType'='Pool'\n#   'HFSS/EnableGPU'=1\nansysedt -ng -BatchSolve -batchoptions C:/work/opts.txt C:/work/filter.aedt",
+      "notes": "Batch options only affect the run; the saved user preferences are untouched. The equivalent persistent calls are oDesktop.SetRegistryString/Int and PyAEDT set_registry_key. The full key list is in the HPC Administrator's Guide of the installed release.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v242/en/Subsystems/Maxwell/Content/DistributionCommandLineOptions.htm"
+    },
+    {
+      "name": "Environment variables: ANSYSEM_ROOT251 / ANSYSEM_ROOT<ver>, ANSYSLMD_LICENSE_FILE, ANSYSLI_SERVERS, ANSYSEM_FEATURE_*_ENABLE, ANS_NODEPCHECK, PYAEDT_LOCAL_SETTINGS_PATH",
+      "kind": "system-variable",
+      "description": "Environment variables around an Electronics Desktop installation: ANSYSEM_ROOT<ver> (e.g. ANSYSEM_ROOT251) points to the AnsysEM installation folder and is how PyAEDT and scripts locate a version; ANSYSLMD_LICENSE_FILE / ANSYSLI_SERVERS name the license (FlexNet / Ansys licensing interconnect) servers; ANSYSEM_FEATURE_<id>_ENABLE=1 variables switch on individual beta features (PyAEDT passes them through settings.aedt_environment_variables); ANS_NODEPCHECK=1 skips the Linux dependency check; PYAEDT_LOCAL_SETTINGS_PATH points PyAEDT to a settings YAML.",
+      "usage": "Windows: setx ANSYSEM_ROOT251 \"C:\\Program Files\\AnsysEM\\v251\\Win64\"\nLinux:   export ANSYSEM_ROOT251=/opt/ansys_inc/v251/AnsysEM\n         export ANSYSLMD_LICENSE_FILE=1055@license-server\n         export ANSYSLI_SERVERS=2325@license-server\n         export ANSYSEM_FEATURE_SF6694_NON_GRAPHICAL_COMMAND_EXECUTION_ENABLE=1\n         export ANS_NODEPCHECK=1\n         export PYAEDT_LOCAL_SETTINGS_PATH=/home/user/pyaedt_settings.yaml",
+      "parameters": [
+        {"name": "ANSYSEM_ROOT<ver>", "description": "Installation root of a release (251 = 2025 R1, 242 = 2024 R2 ...); PyAEDT's installed_versions reads these."},
+        {"name": "ANSYSLMD_LICENSE_FILE / ANSYSLI_SERVERS", "description": "port@host of the FlexNet license manager (1055) and the Ansys licensing interconnect (2325); also configurable in ansyslmd.ini."},
+        {"name": "ANSYSEM_FEATURE_*_ENABLE", "description": "Beta feature flags; the ids are listed in the release notes / PyAEDT settings documentation."},
+        {"name": "ANS_NODEPCHECK", "description": "Skip the Linux library dependency check at start-up (use only when the check gives false positives)."}
+      ],
+      "example": "# PyAEDT picks the version from the environment\nimport os\nos.environ[\"ANSYSEM_ROOT251\"] = r\"C:\\Program Files\\AnsysEM\\v251\\Win64\"\nfrom ansys.aedt.core import Desktop, settings\nsettings.aedt_environment_variables[\"ANSYSEM_FEATURE_SF6694_NON_GRAPHICAL_COMMAND_EXECUTION_ENABLE\"] = \"1\"\nd = Desktop(version=\"2025.1\", non_graphical=True)\nprint(d.installed_versions)\nd.release_desktop()",
+      "notes": "The installer sets ANSYSEM_ROOT<ver> on Windows; on Linux clusters the module system usually exports it. Student installations use the same variable naming with the student path (ANSYSEMSV_ROOT<ver> in some releases).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/User_guide/settings.html"
+    },
+    {
+      "name": "Licensing: HFSS / Electronics Pro-Premium-Enterprise, HPC Pack vs Pool, Student edition limits",
+      "kind": "reference",
+      "description": "Electronics Desktop products are licensed as feature bundles (Electronics Pro / Premium / Enterprise tiers bundle HFSS with 3D Layout, Circuit, SIwave/Q3D/Maxwell/Icepak depending on tier; older 'HFSS' and 'HFSS Premium' names still appear in license files) and the solvers check out HPC licenses for cores beyond the base 4: HPC Pack licenses (each pack doubles the core count: 8, 32, 128 ...) or HPC pool licenses (per core, shared across products). Ansys Electronics Desktop Student is free and needs no license server but caps problem size and features.",
+      "usage": "Tools > Options > HPC and Analysis Options > Options > HPC License Type: Pack | Pool   (registry HFSS/HPCLicenseType)\nHelp > Licensing / Ansys License Management Center to see checked-out features; license logs on the server show feature names such as hfss_solve, electronics_desktop, anshpc / anshpc_pack",
+      "parameters": [
+        {"name": "HPC Pack", "description": "1 pack -> 8 cores, 2 -> 32, 3 -> 128, 4 -> 512 per solve (including distributed tasks and GPU counting as cores)."},
+        {"name": "HPC Pool", "description": "Each core above 4 consumes one pool license; flexible for many small jobs."},
+        {"name": "Student edition", "description": "HFSS mesh limits 64,000 3D volume elements / 8,000 3D surface elements / 2,000 2D triangles; HPC limited to 4 cores, local solve only; SBR+, mesh assemblies and circuit model generation unavailable; import limited to DXF and STEP; no Workbench integration; Windows only."},
+        {"name": "Optimetrics distribution", "description": "Solving parametric variations in parallel multiplies the required solver/HPC licenses per concurrent variation."}
+      ],
+      "example": "# Choose pool licensing for a many-small-jobs pipeline\nhfss.set_license_type(\"Pool\")\n# or per batch run\n# ansysedt -ng -BatchSolve -batchoptions \"'HFSS/HPCLicenseType'='Pool' 'HFSS/NumCoresPerDistributedTask'=4\" project.aedt\n\n# Student edition check in PyAEDT\nhfss = Hfss(student_version=True, version=\"2025.1\")\nprint(hfss.desktop_class.student_version)",
+      "notes": "Feature names and bundle contents change between releases; verify with the license administrator. GPU acceleration consumes HPC capacity like cores. The Student edition writes projects readable by the full version but not vice versa when limits are exceeded.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Content/GettingStarted/HFSSStudentLimitations.htm"
+    },
+    {
+      "name": "File types: .lock, .aedtplt / .fldplt / .case, .fld, .ffd, .eig, .prof / .conv / .ms, .rpt, .areg, .acf, .sarr, .aedbcomp, .nas / .stl / .ply, .tab dataset, .gds + control .xml, .tgz ODB++, .brd / .anf",
+      "kind": "format",
+      "description": "The remaining files an HFSS workflow produces or consumes: the .lock file that marks an open project (stale locks block reopening), field-plot exports (.aedtplt for PyAEDT/PyVista, .fldplt, EnSight .case), Fields Calculator exports (.fld), far-field data (.ffd), eigenmode tables (.eig), solver profile/convergence/mesh statistics (.prof, .conv, .ms), report templates (.rpt), job-submission settings (.areg), analysis configurations (.acf), SBR+ custom array layouts (.sarr), layout components (.aedbcomp), mesh/CAD imports (.nas Nastran, .stl, .ply), dataset tables (.tab), GDSII with its XML control file, ODB++ archives (.tgz/.zip) and Cadence .brd with the ANF translator format.",
+      "usage": "Project folder: project.aedt, project.aedt.lock (while open), project.aedtresults/ (solutions), project.pyaedt/ (PyAEDT working dir)\nExports: hfss.post.export_field_plot -> .aedtplt/.case ; export_field_file -> .fld ; get_antenna_data / ExportRadiationFieldsToFile -> .ffd ; ExportEigenmodes -> .eig ; export_profile -> .prof ; export_convergence -> .conv ; export_mesh_stats -> .ms ; SaveReportAsTemplate -> .rpt\nHPC: Submit Job > Save Settings -> .areg ; HPC and Analysis Options > Export -> .acf\nImports: import_nastran (.nas), import_3d_cad (.stl/.ply/.step), import_dataset1d (.tab/.csv), import_gds (+ .xml control), import_odb (.tgz), import_brd (.brd -> .anf)",
+      "parameters": [
+        {"name": ".lock", "description": "Created next to the .aedt while a session owns it; remove only when no AEDT process holds the project (PyAEDT remove_lock=True)."},
+        {"name": ".aedtplt / .case / .fldplt", "description": "Field plot geometry+values; .case is the EnSight Gold format readable by ParaView."},
+        {"name": ".fld", "description": "Text field export (x y z value(s)) on mesh nodes or grids; SI units when requested."},
+        {"name": ".ffd", "description": "Far-field data per frequency (theta, phi, rE components) used by array tools, SBR+ file-based antennas and far_field_wave."},
+        {"name": ".areg / .acf", "description": "Registry fragments: job submission settings and analysis configurations."},
+        {"name": ".sarr", "description": "SBR+ custom array description (element positions/weights) for create_sbr_antenna(custom_array=...)."},
+        {"name": ".aedbcomp", "description": "Layout component exported from PyEDB (export_layout_component) and placed in 3D Layout designs."}
+      ],
+      "example": "import os, glob\nproj = hfss.project_file\nif os.path.exists(proj + \".lock\"):\n    print(\"project is open elsewhere\")\nhfss.analyze()\nprint(hfss.export_profile(\"Setup1\"), hfss.export_convergence(\"Setup1\"))\nffd = hfss.get_antenna_data(setup=hfss.nominal_adaptive, sphere=\"3D\")\nprint(glob.glob(os.path.join(os.path.dirname(ffd.metadata_file), \"*.ffd\")))",
+      "notes": "Results folders (.aedtresults) are not portable between AEDT versions; archive with results only for the same release. .aedt files are text (readable/diffable) and store references to external files (Touchstone, datasets) by path.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/User_guide/files.html"
+    },
+    {
+      "name": "Record Script To File options: IronPython vs VBScript output, Open Command Window, External Tools, Run Script with Arguments",
+      "kind": "menu",
+      "description": "Details of the scripting menu: Tools > Record Script To File writes either IronPython (.py) or VBScript (.vbs) depending on the chosen extension and captures every GUI action with the exact argument arrays; Tools > Open Command Window gives an interactive IronPython console bound to the desktop for trying calls; Tools > External Tools registers scripts as menu entries; Tools > Run Script with Arguments passes a string as ScriptArgument. Recorded scripts are the reference for any dialog PyAEDT does not wrap, and paste unchanged into PyAEDT through hfss.odesign / hfss.oeditor.",
+      "usage": "Tools > Record Script To File... (choose .py or .vbs) > perform actions > Tools > Stop Script Recording\nTools > Run Script... | Run Script with Arguments...\nTools > Open Command Window (IronPython) ; Tools > External Tools... (add script as menu item)\nAutomation ribbon tab: the same commands plus PyAEDT entries",
+      "parameters": [
+        {"name": "IronPython recording", "description": "Python 2.7 syntax with lists for arrays and True/False booleans; runnable under -RunScript and convertible to PyAEDT native calls."},
+        {"name": "VBScript recording", "description": "Array(...) syntax and Set statements; runs under -RunScript as .vbs; legacy but still complete."},
+        {"name": "Command Window", "description": "Interactive IronPython with oDesktop predefined; good for probing GetProperties / GetChildNames."},
+        {"name": "External Tools", "description": "Menu shortcuts to frequently used scripts with fixed arguments."}
+      ],
+      "example": "# Recorded IronPython snippet (Tools > Record Script To File) for assigning a Perfect E:\noProject = oDesktop.SetActiveProject(\"patch\")\noDesign = oProject.SetActiveDesign(\"Patch\")\noModule = oDesign.GetModule(\"BoundarySetup\")\noModule.AssignPerfectE([\"NAME:PerfE1\", \"Faces:=\", [12], \"InfGroundPlane:=\", False])\n\n# Reused in PyAEDT with a computed face id\nface = hfss.modeler[\"Patch\"].top_face_z.id\nhfss.get_module(\"BoundarySetup\").AssignPerfectE([\"NAME:PerfE1\", \"Faces:=\", [face], \"InfGroundPlane:=\", False])",
+      "notes": "Recordings contain absolute face IDs and object names of the session; parameterise them before reuse. CPython scripts (numpy, PyAEDT) cannot run under Tools > Run Script - use Automation > Run PyAEDT Script or an external interpreter.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v251/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/IronPythonScriptExecutionEnvironment.htm"
+    },
+    {
+      "name": "Report quantity functions: dB / dB10 / dB20, mag, ang_deg / ang_rad / cang_deg, re / im, normalize, deriv, abs, max / min (report expression syntax)",
+      "kind": "result",
+      "description": "The functions that wrap report quantities in expressions and output variables: dB (20 log for field/S quantities, 10 log for power quantities - dB10 and dB20 force the choice), mag, ang_deg/ang_rad (wrapped phase), cang_deg/cang_rad (continuous/unwrapped phase), re/im, normalize (divide by the maximum), deriv (derivative along the sweep), abs, and aggregations max/min over the sweep; plus arithmetic between quantities and design variables. Expression syntax is the same in reports, output variables and Optimetrics goals.",
+      "usage": "dB(S(1,1))  dB20(S(2,1))  dB10(GainTotal)  mag(S(1,1))  ang_deg(S(2,1))  cang_deg(S(2,1))  re(Z(1,1))  im(Z(1,1))\nnormalize(dB(rETotal))  deriv(ang_rad(S(2,1)))/(2*pi)   (group delay by hand)  abs(Y(1,2))  max(dB(GainTotal))\n1/(1-mag(S(1,1))^2)   (arithmetic)   VSWR(1)  GroupDelay(2,1)  Zo(P1)  Gamma(P1)  ActiveS(1:1)  ActiveZ(1:1)  ActiveVSWR(1:1)",
+      "parameters": [
+        {"name": "dB", "description": "Context-dependent: 20*log10 for S/field quantities, 10*log10 for power-type quantities (gain, RCS); use dB10/dB20 to be explicit."},
+        {"name": "ang_deg vs cang_deg", "description": "Wrapped (-180..180) versus continuous unwrapped phase - use cang for delay/phase-slope work."},
+        {"name": "normalize", "description": "Divides the trace by its maximum (patterns normalised to 0 dB)."},
+        {"name": "Active quantities", "description": "ActiveS/ActiveZ/ActiveVSWR use the Edit Sources weights (array active impedance)."}
+      ],
+      "example": "hfss.post.create_report([\"dB(S(1,1))\", \"cang_deg(S(2,1))\", \"GroupDelay(2,1)\"], hfss.nominal_sweep)\nhfss.post.create_report(\"normalize(dB(GainTotal))\", hfss.nominal_adaptive, report_category=\"Far Fields\", context=\"3D\",\n                        primary_sweep_variable=\"Theta\", variations={\"Freq\": [\"2.45GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"0deg\"]}, plot_type=\"Radiation Pattern\")\nhfss.create_output_variable(\"BW_10dB\", \"max(dB(S(1,1)))\", solution=\"Setup1 : Sweep1\")   # example of an aggregation",
+      "notes": "Available quantities and functions per category are listed by hfss.post.available_report_quantities and the Modify Report dialog's Function list; Trace Characteristics (Ctrl-click in the plot or add_trace_characteristics) add bandwidth, X at Y, max/min markers as table entries.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.post_common_3d.PostProcessor3D.available_report_quantities.html"
+    },
+    {
+      "name": "report category: Antenna Parameters (Peak Gain, Peak Directivity, Peak Realized Gain, Radiated Power, Accepted Power, Incident Power, Radiation Efficiency, Total Efficiency, Front to Back Ratio, Beam Area, Max U, Decay Factor)",
+      "kind": "result",
+      "description": "The scalar antenna figures available as a Data Table (or versus frequency/variables) in the Antenna Parameters report category for an infinite-sphere context and the current Edit Sources weights: peak gain/directivity/realized gain, the power budget (incident, accepted, radiated), radiation and total efficiencies, front-to-back ratio, beam area, maximum radiation intensity and the decay factor, plus polarisation-specific peaks (PeakGainL3X etc. depending on the sphere polarisation). Right-click the sphere > Compute Antenna Parameters shows the same table in the GUI.",
+      "usage": "Results > Create Antenna Parameters Report > Data Table / Rectangular Plot (versus Freq or a variable); or Radiation > <sphere> > Compute Antenna Parameters\nPyAEDT: hfss.post.reports_by_category.antenna_parameters(\"PeakRealizedGain\", hfss.nominal_adaptive, infinite_sphere=\"3D\").create()\nhfss.post.get_solution_data([\"PeakRealizedGain\", \"RadiationEfficiency\", \"RadiatedPower\"], hfss.nominal_adaptive, report_category=\"Antenna Parameters\", context=\"3D\")",
+      "parameters": [
+        {"name": "PeakGain / PeakDirectivity / PeakRealizedGain", "description": "Maxima over the sphere; realized gain includes mismatch loss (uses accepted vs incident power)."},
+        {"name": "IncidentPower / AcceptedPower / RadiatedPower", "description": "Source power, power entering the structure (1-|Gamma|^2 weighted) and power crossing the radiation surface."},
+        {"name": "RadiationEfficiency / TotalEfficiency", "description": "Radiated/Accepted and Radiated/Incident."},
+        {"name": "FrontToBackRatio / BeamArea / MaxU / DecayFactor", "description": "Pattern shape metrics; decay factor relates to the sphere's field decay check."}
+      ],
+      "example": "hfss.insert_infinite_sphere(name=\"3D\", x_step=1, y_step=1)\nhfss.analyze()\nhfss.edit_sources({\"P1:1\": (\"1W\", \"0deg\")})\ndata = hfss.post.get_solution_data([\"PeakRealizedGain\", \"RadiationEfficiency\", \"TotalEfficiency\", \"FrontToBackRatio\"],\n                                   hfss.nominal_adaptive, report_category=\"Antenna Parameters\", context=\"3D\",\n                                   variations={\"Freq\": [\"2.45GHz\"]})\nfor q in data.expressions:\n    print(q, data.get_expression_data(q)[1])",
+      "notes": "Antenna parameters depend on the radiated-power calculation method (Design Settings) and on saved radiated fields for sweep frequencies (SaveRadFields). Native: CreateReport with \"Antenna Parameters\" report type and [\"Context:=\", \"3D\"].",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.report.field.AntennaParameters.html"
+    },
+    {
+      "name": "report category: Far Fields quantities (GainTotal/Theta/Phi/LHCP/RHCP/X/Y/L3X/L3Y, RealizedGain*, DirTotal*, rETotal/rETheta/rEPhi, AxialRatioValue, Polarization ratios, RCSTotal/Theta/Phi, NormalizedDirectivity)",
+      "kind": "result",
+      "description": "The angular quantities of the Far Fields category on an infinite sphere: gain, realized gain and directivity in total and per polarisation component (theta/phi, LHCP/RHCP circular, X/Y Ludwig-2, L3X/L3Y Ludwig-3 co/cross, slant when the sphere polarisation is Slant), radiated field magnitudes rE (V), axial ratio, polarisation ratios, RCS quantities for plane-wave excitations, and normalised directivity. They plot versus Theta/Phi (cuts, 3D polar), versus frequency at fixed angles, or versus incident-wave angles for RCS.",
+      "usage": "Results > Create Far Fields Report > Rectangular / Radiation Pattern / 3D Polar Plot > Category: Gain | Realized Gain | Directivity | rE | Axial Ratio | Polarization Ratio | RCS ...\nExpressions: dB(GainTotal), dB(RealizedGainLHCP), dB(DirTotal), mag(rETotal), dB(AxialRatioValue), dB(RCSTotal), GainL3X, GainL3Y, NormalizedDirectivity?",
+      "parameters": [
+        {"name": "Gain vs Realized Gain vs Directivity", "description": "Gain = directivity x radiation efficiency; realized gain also includes mismatch; directivity ignores losses."},
+        {"name": "Polarisation components", "description": "Theta/Phi spherical, LHCP/RHCP circular, X/Y (Ludwig-2) and L3X/L3Y (Ludwig-3 co/cross-pol)."},
+        {"name": "rE quantities", "description": "Radiated electric field scaled by distance (V), useful for absolute field levels and EMC."},
+        {"name": "RCS quantities", "description": "RCSTotal/RCSTheta/RCSPhi (m^2, dB gives dBsm) for scattering problems."},
+        {"name": "Sweeps", "description": "Theta, Phi, Freq, IWaveTheta/IWavePhi (incident angles), and design variables as families."}
+      ],
+      "example": "rep = hfss.post.reports_by_category.far_field([\"dB(RealizedGainL3X)\", \"dB(RealizedGainL3Y)\"], hfss.nominal_adaptive, sphere_name=\"3D\")\nrep.variations = {\"Freq\": [\"10GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"0deg\", \"90deg\"]}\nrep.primary_sweep = \"Theta\"\nrep.report_type = \"Radiation Pattern\"\nrep.create(\"Co/cross-pol cuts\")\nar = hfss.post.get_solution_data(\"dB(AxialRatioValue)\", hfss.nominal_adaptive, report_category=\"Far Fields\", context=\"3D\",\n                                 primary_sweep_variable=\"Theta\", variations={\"Freq\": [\"10GHz\"], \"Theta\": [\"All\"], \"Phi\": [\"0deg\"]})",
+      "notes": "Far-field quantities exist only for solutions with saved radiated fields (LastAdaptive always; sweeps need SaveRadFields). The sphere's coordinate system and polarisation setting determine theta=0 and the slant reference. The exact quantity list for the installed release comes from hfss.post.available_report_quantities(\"Far Fields\", context=\"3D\").",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.report.field.FarField.html"
+    },
+    {
+      "name": "Fields Calculator recipes: radiated power, Q factor, voltage/current/impedance from fields, SAR, loss in an object (Add > Fields library expressions)",
+      "kind": "reference",
+      "description": "Standard calculator sequences that the Fields Calculator's Add > Fields library and PyAEDT's expression catalog encapsulate: radiated power (real Poynting normal-integrated over a surface), stored electric/magnetic energy and unloaded Q of an eigenmode (omega*W/P_loss), voltage along a line (E tangential integral), current around a loop (H tangential integral) and their ratio for a field-based impedance, SAR maxima, and ohmic/dielectric loss integrated over an object. Each becomes a named expression usable in plots, reports, output variables and Optimetrics goals.",
+      "usage": "Fields Calculator (Results > Fields > Calculator): Add... > library of expressions; or build on the stack: Quantity > operations > Geometry > Integrate > Add... (name)\nPyAEDT catalog keys (fields_calculator.add_expression): e.g. \"voltage_line\", \"current_line\", \"radiated_power\"? - list them with fields_calculator.expression_names / the expression_catalog.toml\nStack recipes:\n  Prad:  Poynting > Real > Surface(Region) > Normal > Integrate\n  We:    E > ComplexMag > Pow 2 > * eps0/4 (scalar) > Volume(Cavity) > Integrate\n  Ploss: Ohmic_Loss > Volume(Conductor) > Integrate  (or Surface loss density on a surface)\n  Q:     2*pi*f*(We+Wm)/Ploss (as an output variable combining named expressions)\n  V:     E > Real > Tangent > Dot > Line(L) > LineValue > Integrate\n  I:     H > Real > Tangent > Dot > Line(Loop) > LineValue > Integrate\n  SAR:   Average_SAR > Volume(Tissue) > Maximum",
+      "parameters": [
+        {"name": "Named expressions", "description": "Saved with the design, plottable as field overlays (scalar fields) or reported in the Fields category (integrated values)."},
+        {"name": "Geometry entries", "description": "Objects, face lists, polylines and points drawn in the modeler; sheets inside the volume for power flow cuts."},
+        {"name": "Intrinsics", "description": "Frequency and phase (or time) at which the expression is evaluated; complex magnitudes are phase-independent."}
+      ],
+      "example": "ofr = hfss.post.ofieldsreporter\nofr.CalcStack(\"clear\")\nofr.EnterQty(\"Poynting\"); ofr.CalcOp(\"Real\"); ofr.EnterSurf(\"Region\"); ofr.CalcOp(\"Normal\"); ofr.CalcOp(\"Integrate\")\nofr.AddNamedExpression(\"Prad\", \"Fields\")\nofr.CalcStack(\"clear\")\nofr.EnterQty(\"Ohmic_Loss\"); ofr.EnterVol(\"Coil\"); ofr.CalcOp(\"Integrate\")\nofr.AddNamedExpression(\"Pcoil\", \"Fields\")\nhfss.post.create_report([\"Prad\", \"Pcoil\"], hfss.nominal_sweep, report_category=\"Fields\")\nhfss.create_output_variable(\"eff\", \"Prad/(Prad+Pcoil)\", solution=hfss.nominal_sweep)",
+      "notes": "Quantity names differ between solution types (Ohmic_Loss vs Volume_Loss_Density, Surface_Loss_Density); the calculator's Quantity list shows what the current design offers. Eigenmode designs report Q directly (Q(1)) without the calculator.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/visualization/_autosummary/ansys.aedt.core.visualization.post.fields_calculator.FieldsCalculator.html"
+    }
+  ]
+}

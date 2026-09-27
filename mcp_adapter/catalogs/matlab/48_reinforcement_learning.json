@@ -1,0 +1,617 @@
+{
+  "category": "Reinforcement Learning Toolbox > Environments, Agents, Training & Deployment",
+  "description": "Functions and objects of Reinforcement Learning Toolbox for defining environments (predefined, MATLAB function-based, Simulink and MDP/grid-world), building actors and critics, creating DQN/PPO/DDPG/TD3/SAC agents, training and simulating them, and generating deployable policies.",
+  "tools": [
+    {
+      "name": "rlPredefinedEnv",
+      "kind": "function",
+      "description": "Creates one of the ready-made reinforcement learning environments shipped with the toolbox, such as cart-pole, double integrator, simple pendulum and grid worlds. It is the fastest way to try an agent, benchmark hyperparameters or learn the training workflow before writing a custom environment.",
+      "usage": "env = rlPredefinedEnv(keyword)",
+      "parameters": [
+        {"name": "keyword", "description": "Environment name, e.g. \"BasicGridWorld\", \"WaterFallGridWorld-Stochastic\", \"CartPole-Discrete\", \"CartPole-Continuous\", \"DoubleIntegrator-Discrete\", \"DoubleIntegrator-Continuous\", \"SimplePendulumWithImage-Discrete\", \"SimplePendulumModel-Continuous\", \"CartPoleSimscapeModel-Continuous\"."}
+      ],
+      "example": "env = rlPredefinedEnv(\"CartPole-Discrete\");\nobsInfo = getObservationInfo(env);\nactInfo = getActionInfo(env);\nplot(env)   % visualize the cart-pole",
+      "notes": "Keywords ending in -Discrete use an rlFiniteSetSpec action channel, -Continuous use rlNumericSpec. The *Model-* keywords create Simulink environments (require Simulink, and Simscape for the Simscape variants). Use validateEnvironment after modifying one.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rlpredefinedenv.html"
+    },
+    {
+      "name": "rlFunctionEnv",
+      "kind": "function",
+      "description": "Creates a custom MATLAB environment from observation/action specifications plus a step function and a reset function. It is the lightweight way to wrap your own dynamics, simulator or game without writing a full environment class.",
+      "usage": "env = rlFunctionEnv(observationInfo, actionInfo, stepFcn, resetFcn)",
+      "parameters": [
+        {"name": "observationInfo", "description": "rlNumericSpec/rlFiniteSetSpec (or array of them) describing the observation channels."},
+        {"name": "actionInfo", "description": "Specification of the action channel."},
+        {"name": "stepFcn", "description": "Function name or handle with signature [NextObs,Reward,IsDone,UpdatedInfo] = stepFcn(Action,Info)."},
+        {"name": "resetFcn", "description": "Function name or handle with signature [InitialObservation,Info] = resetFcn()."}
+      ],
+      "example": "obsInfo = rlNumericSpec([2 1]);\nactInfo = rlFiniteSetSpec([-1 0 1]);\nenv = rlFunctionEnv(obsInfo, actInfo, @myStep, @myReset);\nvalidateEnvironment(env)\n\nfunction [obs,info] = myReset()\n  info = [0;0]; obs = info;\nend\nfunction [obs,r,done,info] = myStep(a,info)\n  info = info + [info(2); 0.1*a];\n  obs = info; r = -sum(info.^2); done = abs(info(1)) > 5;\nend",
+      "notes": "Info carries state between calls (formerly called LoggedSignals). Use anonymous functions to pass extra parameters: @(a,info) myStep(a,info,params). For richer environments (rendering, custom properties) create a class with rlCreateEnvTemplate.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.env.rlfunctionenv.html"
+    },
+    {
+      "name": "rlCreateEnvTemplate",
+      "kind": "function",
+      "description": "Generates and opens a MATLAB class file that subclasses rl.env.MATLABEnvironment, pre-populated with a cart-pole style implementation of the constructor, step, reset and plot methods. Edit the template to implement a custom environment with its own properties and visualization.",
+      "usage": "rlCreateEnvTemplate(className)",
+      "parameters": [
+        {"name": "className", "description": "Name of the environment class; the file className.m is created in the current folder."}
+      ],
+      "example": "rlCreateEnvTemplate(\"MyGridEnv\")\n% ... edit MyGridEnv.m, then:\nenv = MyGridEnv;\nvalidateEnvironment(env)",
+      "notes": "The generated step method must return [Observation,Reward,IsDone,Info]. Call notifyEnvUpdated(this) in the template to refresh plots. Prefer rlFunctionEnv when no class state or visualization is needed.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rlcreateenvtemplate.html"
+    },
+    {
+      "name": "rlSimulinkEnv",
+      "kind": "function",
+      "description": "Creates a reinforcement learning environment from a Simulink model that already contains one or more RL Agent blocks. The model supplies observations, reward and the is-done signal; the environment object is then used with train and sim like any MATLAB environment.",
+      "usage": "env = rlSimulinkEnv(mdl, agentBlocks, observationInfo, actionInfo)\nenv = rlSimulinkEnv(___, 'UseFastRestart', fastRestartToggle)",
+      "parameters": [
+        {"name": "mdl", "description": "Simulink model name (string/char)."},
+        {"name": "agentBlocks", "description": "Block path(s) of the RL Agent block(s), e.g. \"rlwatertank/RL Agent\"."},
+        {"name": "observationInfo, actionInfo", "description": "Specifications matching the signals connected to the agent block."},
+        {"name": "UseFastRestart", "description": "'on' (default) or 'off'; fast restart avoids recompiling the model each episode."}
+      ],
+      "example": "mdl = \"rlwatertank\";\nopen_system(mdl)\nobsInfo = rlNumericSpec([3 1]);\nactInfo = rlNumericSpec([1 1]);\nenv = rlSimulinkEnv(mdl, mdl + \"/RL Agent\", obsInfo, actInfo);\nenv.ResetFcn = @(in) setVariable(in, \"H0\", 5 + randn, \"Workspace\", mdl);",
+      "notes": "Set env.ResetFcn to randomize initial conditions via Simulink.SimulationInput. Requires Simulink. Use createIntegratedEnv when the model has no agent block yet. The agent sample time must match the RL Agent block sample time.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rlsimulinkenv.html"
+    },
+    {
+      "name": "createIntegratedEnv",
+      "kind": "function",
+      "description": "Builds a new Simulink model that wraps an existing environment (plant) model with an RL Agent block and returns the corresponding environment object. Use it when your plant model has observation, action, reward and is-done ports but no agent block yet.",
+      "usage": "env = createIntegratedEnv(refModel, newModel)\n[env, agentBlock, obsInfo, actInfo] = createIntegratedEnv(___, Name=Value)",
+      "parameters": [
+        {"name": "refModel", "description": "Name of the environment Simulink model to reference."},
+        {"name": "newModel", "description": "Name of the integrated model to create."},
+        {"name": "ObservationPortName / ActionPortName / RewardPortName / IsDonePortName", "description": "Port names in the reference model (defaults \"observation\", \"action\", \"reward\", \"isdone\")."},
+        {"name": "ActionDiscretization / ObservationDiscretization", "description": "Discrete value sets to create rlFiniteSetSpec channels instead of numeric ones."}
+      ],
+      "example": "[env, agentBlk, obsInfo, actInfo] = createIntegratedEnv( ...\n    \"myPlantEnv\", \"myIntegratedEnv\");\nagent = rlDDPGAgent(obsInfo, actInfo);",
+      "notes": "Requires Simulink. The generated model contains a Model block referencing the plant plus an RL Agent block; save it before training.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/createintegratedenv.html"
+    },
+    {
+      "name": "createGridWorld",
+      "kind": "function",
+      "description": "Creates a two-dimensional grid world model (GridWorld object) with states named \"[row,col]\", standard or king's moves, and editable transition (T) and reward (R) matrices. Combined with rlMDPEnv it gives a small discrete environment for tabular Q-learning and SARSA.",
+      "usage": "GW = createGridWorld(m, n)\nGW = createGridWorld(m, n, moves)",
+      "parameters": [
+        {"name": "m, n", "description": "Number of rows and columns."},
+        {"name": "moves", "description": "\"Standard\" (N, S, E, W, default) or \"Kings\" (8 moves including diagonals)."}
+      ],
+      "example": "GW = createGridWorld(5,5);\nGW.CurrentState = \"[2,1]\";\nGW.TerminalStates = \"[5,5]\";\nGW.ObstacleStates = [\"[3,3]\";\"[3,4]\"];\nupdateStateTranstionForObstacles(GW)\nnS = numel(GW.States); nA = numel(GW.Actions);\nGW.R = -1*ones(nS,nS,nA);\nGW.R(:,state2idx(GW,GW.TerminalStates),:) = 10;\nenv = rlMDPEnv(GW);",
+      "notes": "The obstacle helper is really spelled updateStateTranstionForObstacles (MathWorks typo). T and R are nS-by-nS-by-nA arrays indexed [from,to,action].",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/creategridworld.html"
+    },
+    {
+      "name": "createMDP",
+      "kind": "function",
+      "description": "Creates a generic Markov decision process (GenericMDP object) with a given number or list of states and actions. You then fill the transition probability matrix T, reward matrix R and terminal states, and wrap it with rlMDPEnv for training tabular agents.",
+      "usage": "MDP = createMDP(states, actions)",
+      "parameters": [
+        {"name": "states", "description": "Number of states or string vector of state names."},
+        {"name": "actions", "description": "Number of actions or string vector of action names."}
+      ],
+      "example": "MDP = createMDP(3, [\"up\";\"down\"]);\nMDP.T(1,2,1) = 1;  MDP.R(1,2,1) = 3;\nMDP.T(1,3,2) = 1;  MDP.R(1,3,2) = 1;\nMDP.T(2,2,:) = 1;  MDP.T(3,3,:) = 1;\nMDP.TerminalStates = [\"s2\";\"s3\"];\nenv = rlMDPEnv(MDP);",
+      "notes": "Default state names are \"s1\",\"s2\",...; actions \"a1\",... Each T(s,:,a) slice must sum to 1. Use state2idx/idx2state to convert names.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/createmdp.html"
+    },
+    {
+      "name": "rlMDPEnv",
+      "kind": "function",
+      "description": "Creates a reinforcement learning environment from a GridWorld or GenericMDP model. The environment has a single discrete observation (state index) and a discrete action channel, suitable for rlQAgent, rlSARSAAgent and DQN on small problems.",
+      "usage": "env = rlMDPEnv(MDP)",
+      "parameters": [
+        {"name": "MDP", "description": "GridWorld object from createGridWorld or GenericMDP from createMDP."}
+      ],
+      "example": "env = rlMDPEnv(createGridWorld(4,4));\nenv.ResetFcn = @() 1;   % always start in state 1\nplot(env)",
+      "notes": "Set env.ResetFcn to a handle returning the initial state index to randomize starts. plot(env) displays grid worlds.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.env.rlmdpenv.html"
+    },
+    {
+      "name": "rlNumericSpec",
+      "kind": "function",
+      "description": "Creates a specification object for a continuous (numeric) observation or action channel: its dimension, optional lower/upper limits, name and description. Agents use these specs to size networks and to clip or scale actions.",
+      "usage": "spec = rlNumericSpec(dimension)\nspec = rlNumericSpec(dimension, LowerLimit=lo, UpperLimit=hi)",
+      "parameters": [
+        {"name": "dimension", "description": "Size of the data, e.g. [4 1] or [64 64 1] for images."},
+        {"name": "LowerLimit / UpperLimit", "description": "Scalar or array bounds (default -Inf/Inf); important for continuous actions."}
+      ],
+      "example": "obsInfo = rlNumericSpec([4 1]);\nobsInfo.Name = \"cart states\";\nactInfo = rlNumericSpec([1 1], LowerLimit=-10, UpperLimit=10);",
+      "notes": "Default agents scale the actor output to the action limits. Observation limits are informational unless you use a normalizer. For discrete channels use rlFiniteSetSpec.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.util.rlnumericspec.html"
+    },
+    {
+      "name": "rlFiniteSetSpec",
+      "kind": "function",
+      "description": "Creates a specification for a discrete observation or action channel whose values come from a finite set. Each element can be a scalar or an array (for multi-dimensional discrete actions).",
+      "usage": "spec = rlFiniteSetSpec(elements)",
+      "parameters": [
+        {"name": "elements", "description": "Vector of allowed values, or a cell array of equally sized arrays for vector-valued actions."}
+      ],
+      "example": "actInfo = rlFiniteSetSpec([-10 10]);          % two force values\nactInfo2 = rlFiniteSetSpec({[1;1],[1;-1],[-1;1],[-1;-1]});",
+      "notes": "Agents such as DQN, Q and SARSA require a finite-set action space. PPO/PG/AC support both. Use rlNumericSpec for continuous channels.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.util.rlfinitesetspec.html"
+    },
+    {
+      "name": "getObservationInfo",
+      "kind": "function",
+      "description": "Returns the observation specification(s) of an environment, agent or experience buffer. It is the standard first step when creating an agent or approximator that must match the environment.",
+      "usage": "obsInfo = getObservationInfo(env)\nobsInfo = getObservationInfo(agent)",
+      "parameters": [
+        {"name": "env / agent / buffer", "description": "Environment, agent or replay memory object."}
+      ],
+      "example": "env = rlPredefinedEnv(\"DoubleIntegrator-Continuous\");\nobsInfo = getObservationInfo(env)\nactInfo = getActionInfo(env)",
+      "notes": "Multi-channel observations return an array of specs, and approximators then need one input layer per channel (ObservationInputNames).",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.env.basicgridworld.getobservationinfo.html"
+    },
+    {
+      "name": "getActionInfo",
+      "kind": "function",
+      "description": "Returns the action specification of an environment, agent or experience buffer (rlNumericSpec or rlFiniteSetSpec). Use it together with getObservationInfo to create agents, critics and actors.",
+      "usage": "actInfo = getActionInfo(env)\nactInfo = getActionInfo(agent)",
+      "parameters": [
+        {"name": "env / agent / buffer", "description": "Environment, agent or replay memory object."}
+      ],
+      "example": "env = rlPredefinedEnv(\"CartPole-Discrete\");\nactInfo = getActionInfo(env);\nactInfo.Elements   % [-10 10]",
+      "notes": "For discrete specs, Elements lists the allowed actions; for numeric specs check LowerLimit/UpperLimit.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.env.basicgridworld.getactioninfo.html"
+    },
+    {
+      "name": "validateEnvironment",
+      "kind": "function",
+      "description": "Validates a custom environment by calling its reset and step functions and checking that observations and actions match the declared specifications. Run it before training to catch dimension or data-type errors early.",
+      "usage": "validateEnvironment(env)",
+      "parameters": [
+        {"name": "env", "description": "Environment object (rlFunctionEnv, custom class, Simulink environment)."}
+      ],
+      "example": "env = rlFunctionEnv(obsInfo, actInfo, @myStep, @myReset);\nvalidateEnvironment(env)   % errors if something is inconsistent",
+      "notes": "For Simulink environments it runs a short simulation, so it also checks model compilation. Returns nothing when successful.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.env.basicgridworld.validateenvironment.html"
+    },
+    {
+      "name": "rlTable",
+      "kind": "function",
+      "description": "Creates a value table or Q table for discrete observation and action spaces. The table is used as the model of a tabular critic (rlValueFunction or rlQValueFunction) for Q-learning, SARSA and similar agents.",
+      "usage": "T = rlTable(obsInfo)\nT = rlTable(obsInfo, actInfo)",
+      "parameters": [
+        {"name": "obsInfo", "description": "rlFiniteSetSpec observation specification."},
+        {"name": "actInfo", "description": "rlFiniteSetSpec action specification (omit for a value table)."}
+      ],
+      "example": "env = rlPredefinedEnv(\"BasicGridWorld\");\nqTable = rlTable(getObservationInfo(env), getActionInfo(env));\nqTable.Table(:) = 0;\ncritic = rlQValueFunction(qTable, getObservationInfo(env), getActionInfo(env));",
+      "notes": "The Table property holds numObs-by-numAct values. Only for finite-set specs; use neural networks for continuous or large spaces.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rltable.html"
+    },
+    {
+      "name": "rlValueFunction",
+      "kind": "function",
+      "description": "Creates a state-value function critic V(s) from a neural network, table or custom basis function. Value critics are used by PG (as baseline), AC, PPO and TRPO agents.",
+      "usage": "critic = rlValueFunction(net, observationInfo)\ncritic = rlValueFunction(net, observationInfo, ObservationInputNames=names)\ncritic = rlValueFunction(tab, observationInfo)",
+      "parameters": [
+        {"name": "net", "description": "dlnetwork or layer array with observation input(s) and one scalar output."},
+        {"name": "ObservationInputNames", "description": "Input layer names mapped to observation channels, in order."},
+        {"name": "UseDevice", "description": "\"cpu\" (default) or \"gpu\"."}
+      ],
+      "example": "obsInfo = rlNumericSpec([4 1]);\nnet = dlnetwork([featureInputLayer(4)\n    fullyConnectedLayer(64)\n    reluLayer\n    fullyConnectedLayer(1)]);\ncritic = rlValueFunction(net, obsInfo);\nv = getValue(critic, {rand(4,1)})",
+      "notes": "Introduced in R2022a (replaces rlValueRepresentation). Use rlQValueFunction for Q(s,a) critics.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.function.rlvaluefunction.html"
+    },
+    {
+      "name": "rlQValueFunction",
+      "kind": "function",
+      "description": "Creates a Q-value critic Q(s,a) that takes both observation and action as inputs and returns a scalar value. It is used by DQN (single-output form), DDPG, TD3 and SAC agents and supports continuous or discrete actions.",
+      "usage": "critic = rlQValueFunction(net, observationInfo, actionInfo)\ncritic = rlQValueFunction(net, observationInfo, actionInfo, ObservationInputNames=obsNames, ActionInputNames=actName)\ncritic = rlQValueFunction(tab, observationInfo, actionInfo)",
+      "parameters": [
+        {"name": "net", "description": "Network with observation and action input layers and a scalar output."},
+        {"name": "ObservationInputNames / ActionInputNames", "description": "Names of the input layers receiving observations and the action."},
+        {"name": "tab", "description": "rlTable Q table for tabular agents."}
+      ],
+      "example": "obsPath = [featureInputLayer(3,Name=\"obs\") fullyConnectedLayer(32,Name=\"fo\")];\nactPath = [featureInputLayer(1,Name=\"act\") fullyConnectedLayer(32,Name=\"fa\")];\ncom = [additionLayer(2,Name=\"add\") reluLayer fullyConnectedLayer(1)];\nlg = layerGraph(obsPath); lg = addLayers(lg,actPath); lg = addLayers(lg,com);\nlg = connectLayers(lg,\"fo\",\"add/in1\"); lg = connectLayers(lg,\"fa\",\"add/in2\");\ncritic = rlQValueFunction(dlnetwork(lg), rlNumericSpec([3 1]), rlNumericSpec([1 1]), ...\n    ObservationInputNames=\"obs\", ActionInputNames=\"act\");",
+      "notes": "SAC and TD3 typically use two Q critics. For discrete actions a vector-output critic (rlVectorQValueFunction) is usually more efficient.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.function.rlqvaluefunction.html"
+    },
+    {
+      "name": "rlVectorQValueFunction",
+      "kind": "function",
+      "description": "Creates a vector Q-value critic that takes only observations as input and outputs one Q value per discrete action. This is the standard critic architecture for DQN agents with finite action sets.",
+      "usage": "critic = rlVectorQValueFunction(net, observationInfo, actionInfo)\ncritic = rlVectorQValueFunction(___, ObservationInputNames=names)",
+      "parameters": [
+        {"name": "net", "description": "Network with observation input(s) and an output layer of size numel(actionInfo.Elements)."},
+        {"name": "actionInfo", "description": "rlFiniteSetSpec action specification (hybrid spaces also supported in newer releases)."}
+      ],
+      "example": "env = rlPredefinedEnv(\"CartPole-Discrete\");\nobsInfo = getObservationInfo(env); actInfo = getActionInfo(env);\nnet = dlnetwork([featureInputLayer(4)\n    fullyConnectedLayer(32) reluLayer\n    fullyConnectedLayer(numel(actInfo.Elements))]);\ncritic = rlVectorQValueFunction(net, obsInfo, actInfo);\nagent = rlDQNAgent(critic);",
+      "notes": "Use getMaxQValue(critic, obs) to get the greedy value and action index.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.function.rlvectorqvaluefunction.html"
+    },
+    {
+      "name": "rlDiscreteCategoricalActor",
+      "kind": "function",
+      "description": "Creates a stochastic actor for a discrete action space: the network outputs one logit/probability per action and the actor samples from the resulting categorical distribution. Used by PG, AC, PPO, TRPO and discrete SAC agents.",
+      "usage": "actor = rlDiscreteCategoricalActor(net, observationInfo, actionInfo)\nactor = rlDiscreteCategoricalActor(___, ObservationInputNames=names)",
+      "parameters": [
+        {"name": "net", "description": "Network whose output size equals the number of discrete actions (softmax is applied internally)."},
+        {"name": "actionInfo", "description": "rlFiniteSetSpec action specification."}
+      ],
+      "example": "net = dlnetwork([featureInputLayer(4)\n    fullyConnectedLayer(64) reluLayer\n    fullyConnectedLayer(2)]);\nactor = rlDiscreteCategoricalActor(net, obsInfo, actInfo);\na = getAction(actor, {rand(4,1)})",
+      "notes": "Introduced R2022a (replaces rlStochasticActorRepresentation for discrete actions). Pair with rlValueFunction for PPO/AC.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.function.rldiscretecategoricalactor.html"
+    },
+    {
+      "name": "rlContinuousGaussianActor",
+      "kind": "function",
+      "description": "Creates a stochastic actor for continuous actions whose network outputs the mean and standard deviation of a Gaussian policy. It is the actor type for PPO, TRPO and SAC agents with continuous action spaces.",
+      "usage": "actor = rlContinuousGaussianActor(net, observationInfo, actionInfo, ActionMeanOutputNames=meanName, ActionStandardDeviationOutputNames=stdName)",
+      "parameters": [
+        {"name": "ActionMeanOutputNames", "description": "Name of the network layer that outputs the action mean."},
+        {"name": "ActionStandardDeviationOutputNames", "description": "Name of the layer outputting the (non-negative) standard deviation, e.g. after softplusLayer."},
+        {"name": "ObservationInputNames", "description": "Observation input layer names."}
+      ],
+      "example": "common = [featureInputLayer(3,Name=\"obs\") fullyConnectedLayer(64) reluLayer(Name=\"c\")];\nmeanP = [fullyConnectedLayer(1,Name=\"fcMean\") tanhLayer scalingLayer(Scale=2,Name=\"mean\")];\nstdP  = [fullyConnectedLayer(1,Name=\"fcStd\") softplusLayer(Name=\"std\")];\nlg = layerGraph(common); lg = addLayers(lg,meanP); lg = addLayers(lg,stdP);\nlg = connectLayers(lg,\"c\",\"fcMean\"); lg = connectLayers(lg,\"c\",\"fcStd\");\nactor = rlContinuousGaussianActor(dlnetwork(lg), rlNumericSpec([3 1]), ...\n   rlNumericSpec([1 1],LowerLimit=-2,UpperLimit=2), ...\n   ActionMeanOutputNames=\"mean\", ActionStandardDeviationOutputNames=\"std\");",
+      "notes": "Give the fully connected layers explicit names if you connect by name. The std path must be non-negative (softplusLayer or reluLayer). SAC applies tanh squashing internally, so its mean output should be unbounded.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.function.rlcontinuousgaussianactor.html"
+    },
+    {
+      "name": "rlContinuousDeterministicActor",
+      "kind": "function",
+      "description": "Creates a deterministic actor that maps observations directly to a continuous action vector. It is the actor type used by DDPG and TD3 agents.",
+      "usage": "actor = rlContinuousDeterministicActor(net, observationInfo, actionInfo)\nactor = rlContinuousDeterministicActor(___, ObservationInputNames=names)",
+      "parameters": [
+        {"name": "net", "description": "Network whose output size equals the action dimension; use tanhLayer + scalingLayer to respect action limits."}
+      ],
+      "example": "net = dlnetwork([featureInputLayer(3)\n    fullyConnectedLayer(64) reluLayer\n    fullyConnectedLayer(1) tanhLayer scalingLayer(Scale=2)]);\nactor = rlContinuousDeterministicActor(net, rlNumericSpec([3 1]), ...\n    rlNumericSpec([1 1],LowerLimit=-2,UpperLimit=2));",
+      "notes": "Exploration comes from the agent's noise model (Ornstein-Uhlenbeck for DDPG, Gaussian for TD3), not from the actor.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.function.rlcontinuousdeterministicactor.html"
+    },
+    {
+      "name": "rlOptimizerOptions",
+      "kind": "function",
+      "description": "Specifies optimizer settings (learning rate, gradient clipping, L2 regularization, algorithm) for training an actor or critic. Assign it to agent options such as ActorOptimizerOptions and CriticOptimizerOptions.",
+      "usage": "opts = rlOptimizerOptions(Name=Value)",
+      "parameters": [
+        {"name": "LearnRate", "description": "Learning rate (default 0.01)."},
+        {"name": "GradientThreshold", "description": "Gradient clipping threshold (default Inf)."},
+        {"name": "L2RegularizationFactor", "description": "Weight decay factor (default 1e-4)."},
+        {"name": "Algorithm", "description": "\"adam\" (default), \"sgdm\" or \"rmsprop\"."}
+      ],
+      "example": "criticOpts = rlOptimizerOptions(LearnRate=1e-3, GradientThreshold=1);\nactorOpts  = rlOptimizerOptions(LearnRate=1e-4, GradientThreshold=1);\nagentOpts = rlDDPGAgentOptions(CriticOptimizerOptions=criticOpts, ...\n                               ActorOptimizerOptions=actorOpts);",
+      "notes": "Introduced R2022a, replacing rlRepresentationOptions. Algorithm-specific settings go in OptimizerParameters (e.g. Momentum, GradientDecayFactor).",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.option.rloptimizeroptions.html"
+    },
+    {
+      "name": "rlQAgent",
+      "kind": "function",
+      "description": "Creates a tabular Q-learning agent: a model-free, off-policy, value-based agent with epsilon-greedy exploration. Suitable for small discrete problems such as grid worlds and MDPs.",
+      "usage": "agent = rlQAgent(critic)\nagent = rlQAgent(critic, agentOptions)",
+      "parameters": [
+        {"name": "critic", "description": "rlQValueFunction built on an rlTable (or a custom basis)."},
+        {"name": "agentOptions", "description": "rlQAgentOptions with DiscountFactor, EpsilonGreedyExploration, CriticOptimizerOptions."}
+      ],
+      "example": "env = rlPredefinedEnv(\"BasicGridWorld\");\noi = getObservationInfo(env); ai = getActionInfo(env);\ncritic = rlQValueFunction(rlTable(oi,ai), oi, ai);\nopts = rlQAgentOptions;\nopts.EpsilonGreedyExploration.Epsilon = 0.04;\nopts.CriticOptimizerOptions.LearnRate = 1;\nagent = rlQAgent(critic, opts);",
+      "notes": "rlSARSAAgent is the on-policy counterpart with the same construction. Requires finite observation and action specs.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rlqagent.html"
+    },
+    {
+      "name": "rlDQNAgent",
+      "kind": "function",
+      "description": "Creates a deep Q-network agent (off-policy, value-based) for discrete action spaces, with experience replay, target network and double DQN enabled by default. You can let the toolbox build a default critic from the specifications or pass your own critic.",
+      "usage": "agent = rlDQNAgent(observationInfo, actionInfo)\nagent = rlDQNAgent(observationInfo, actionInfo, initOpts)\nagent = rlDQNAgent(critic)\nagent = rlDQNAgent(critic, agentOptions)",
+      "parameters": [
+        {"name": "observationInfo, actionInfo", "description": "Specs; actionInfo must be rlFiniteSetSpec."},
+        {"name": "initOpts", "description": "rlAgentInitializationOptions for the default network (hidden units, RNN)."},
+        {"name": "critic", "description": "rlVectorQValueFunction or rlQValueFunction."},
+        {"name": "agentOptions", "description": "rlDQNAgentOptions object."}
+      ],
+      "example": "env = rlPredefinedEnv(\"CartPole-Discrete\");\nagent = rlDQNAgent(getObservationInfo(env), getActionInfo(env));\nagent.AgentOptions.EpsilonGreedyExploration.EpsilonDecay = 1e-3;\nstats = train(agent, env, rlTrainingOptions(MaxEpisodes=300, ...\n    StopTrainingCriteria=\"AverageReward\", StopTrainingValue=480));",
+      "notes": "For continuous actions use DDPG, TD3, SAC or PPO. Recurrent critics require SequenceLength > 1 in the agent options.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rldqnagent.html"
+    },
+    {
+      "name": "rlDQNAgentOptions",
+      "kind": "function",
+      "description": "Options object for DQN agents: discount factor, replay buffer length, mini-batch size, target network update, double DQN, epsilon-greedy exploration schedule and critic optimizer settings.",
+      "usage": "opts = rlDQNAgentOptions\nopts = rlDQNAgentOptions(Name=Value)",
+      "parameters": [
+        {"name": "SampleTime", "description": "Agent sample time (default 1); must match Simulink agent block."},
+        {"name": "DiscountFactor", "description": "Reward discount gamma (default 0.99)."},
+        {"name": "ExperienceBufferLength", "description": "Replay memory size (default 10000)."},
+        {"name": "MiniBatchSize", "description": "Experiences sampled per update (default 64)."},
+        {"name": "UseDoubleDQN", "description": "Use double DQN target (default true)."},
+        {"name": "TargetSmoothFactor / TargetUpdateFrequency", "description": "Soft/periodic target critic update settings."},
+        {"name": "EpsilonGreedyExploration", "description": "Struct-like object with Epsilon, EpsilonMin, EpsilonDecay."}
+      ],
+      "example": "opts = rlDQNAgentOptions(DiscountFactor=0.95, MiniBatchSize=128, ...\n    ExperienceBufferLength=1e5);\nopts.EpsilonGreedyExploration.EpsilonMin = 0.02;\nopts.CriticOptimizerOptions.LearnRate = 1e-3;\nagent = rlDQNAgent(critic, opts);",
+      "notes": "Each agent type has its own options object (rlPPOAgentOptions, rlDDPGAgentOptions, rlTD3AgentOptions, rlSACAgentOptions, rlQAgentOptions...).",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.option.rldqnagentoptions.html"
+    },
+    {
+      "name": "rlPPOAgent",
+      "kind": "function",
+      "description": "Creates a proximal policy optimization agent: an on-policy actor-critic method with clipped surrogate objective that works for discrete or continuous actions. PPO is a robust default choice for many control and robotics problems.",
+      "usage": "agent = rlPPOAgent(observationInfo, actionInfo)\nagent = rlPPOAgent(observationInfo, actionInfo, initOpts)\nagent = rlPPOAgent(actor, critic)\nagent = rlPPOAgent(actor, critic, agentOptions)",
+      "parameters": [
+        {"name": "actor", "description": "rlDiscreteCategoricalActor or rlContinuousGaussianActor."},
+        {"name": "critic", "description": "rlValueFunction critic."},
+        {"name": "agentOptions", "description": "rlPPOAgentOptions object."}
+      ],
+      "example": "env = rlPredefinedEnv(\"CartPole-Continuous\");\ninitOpts = rlAgentInitializationOptions(NumHiddenUnit=64);\nagent = rlPPOAgent(getObservationInfo(env), getActionInfo(env), initOpts);\nagent.AgentOptions.ExperienceHorizon = 1024;\nagent.AgentOptions.ClipFactor = 0.2;",
+      "notes": "rlTRPOAgent is the trust-region variant; rlACAgent and rlPGAgent are simpler on-policy alternatives. PPO benefits from parallel training (rlTrainingOptions UseParallel=true).",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rlppoagent.html"
+    },
+    {
+      "name": "rlPPOAgentOptions",
+      "kind": "function",
+      "description": "Options for PPO agents, including experience horizon, clip factor, entropy loss weight, number of epochs, mini-batch size, advantage estimation method and actor/critic optimizer settings.",
+      "usage": "opts = rlPPOAgentOptions\nopts = rlPPOAgentOptions(Name=Value)",
+      "parameters": [
+        {"name": "ExperienceHorizon", "description": "Steps collected before each learning phase."},
+        {"name": "ClipFactor", "description": "Clipping epsilon of the surrogate objective (default 0.2)."},
+        {"name": "EntropyLossWeight", "description": "Entropy bonus encouraging exploration."},
+        {"name": "NumEpoch / MiniBatchSize", "description": "Passes over, and batch size for, the collected experience."},
+        {"name": "AdvantageEstimateMethod / GAEFactor", "description": "\"gae\" or \"finite-horizon\" and the GAE lambda."}
+      ],
+      "example": "opts = rlPPOAgentOptions(ExperienceHorizon=512, ClipFactor=0.2, ...\n    EntropyLossWeight=0.01, MiniBatchSize=128, NumEpoch=3, ...\n    AdvantageEstimateMethod=\"gae\", GAEFactor=0.95, DiscountFactor=0.99);\nagent = rlPPOAgent(actor, critic, opts);",
+      "notes": "Normalizing advantages (NormalizedAdvantageMethod) often stabilizes training.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.option.rlppoagentoptions.html"
+    },
+    {
+      "name": "rlDDPGAgent",
+      "kind": "function",
+      "description": "Creates a deep deterministic policy gradient agent: off-policy actor-critic for continuous action spaces with a deterministic actor, Q critic, target networks, replay buffer and Ornstein-Uhlenbeck exploration noise.",
+      "usage": "agent = rlDDPGAgent(observationInfo, actionInfo)\nagent = rlDDPGAgent(observationInfo, actionInfo, initOpts)\nagent = rlDDPGAgent(actor, critic, agentOptions)",
+      "parameters": [
+        {"name": "actor", "description": "rlContinuousDeterministicActor."},
+        {"name": "critic", "description": "rlQValueFunction."},
+        {"name": "agentOptions", "description": "rlDDPGAgentOptions (NoiseOptions, TargetSmoothFactor, MiniBatchSize, ExperienceBufferLength...)."}
+      ],
+      "example": "env = rlPredefinedEnv(\"DoubleIntegrator-Continuous\");\nagent = rlDDPGAgent(getObservationInfo(env), getActionInfo(env));\nagent.AgentOptions.NoiseOptions.StandardDeviation = 0.3;\nagent.AgentOptions.NoiseOptions.StandardDeviationDecayRate = 1e-5;",
+      "notes": "TD3 (rlTD3Agent) usually trains more reliably thanks to twin critics and delayed policy updates. Tune noise relative to the action range.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rlddpgagent.html"
+    },
+    {
+      "name": "rlTD3Agent",
+      "kind": "function",
+      "description": "Creates a twin-delayed deep deterministic policy gradient agent for continuous actions. It improves on DDPG with two Q critics (minimum used for targets), delayed actor updates and target policy smoothing.",
+      "usage": "agent = rlTD3Agent(observationInfo, actionInfo)\nagent = rlTD3Agent(observationInfo, actionInfo, initOpts)\nagent = rlTD3Agent(actor, critics, agentOptions)",
+      "parameters": [
+        {"name": "critics", "description": "One or two rlQValueFunction critics, e.g. [critic1 critic2]."},
+        {"name": "agentOptions", "description": "rlTD3AgentOptions (ExplorationModel, TargetPolicySmoothModel, PolicyUpdateFrequency...)."}
+      ],
+      "example": "env = rlPredefinedEnv(\"DoubleIntegrator-Continuous\");\nagent = rlTD3Agent(getObservationInfo(env), getActionInfo(env), ...\n    rlAgentInitializationOptions(NumHiddenUnit=128));\nagent.AgentOptions.ExplorationModel.StandardDeviation = 0.2;",
+      "notes": "Initialize the two critics with different random weights when building them manually.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rltd3agent.html"
+    },
+    {
+      "name": "rlSACAgent",
+      "kind": "function",
+      "description": "Creates a soft actor-critic agent: an off-policy, maximum-entropy actor-critic with a stochastic Gaussian actor and two Q critics. SAC tunes its entropy weight automatically and is sample-efficient for continuous control; discrete and hybrid actions are supported in newer releases.",
+      "usage": "agent = rlSACAgent(observationInfo, actionInfo)\nagent = rlSACAgent(observationInfo, actionInfo, initOpts)\nagent = rlSACAgent(actor, critics, agentOptions)",
+      "parameters": [
+        {"name": "actor", "description": "rlContinuousGaussianActor (unbounded mean; tanh squashing applied by the agent)."},
+        {"name": "critics", "description": "One or two rlQValueFunction critics."},
+        {"name": "agentOptions", "description": "rlSACAgentOptions (EntropyWeightOptions, TargetSmoothFactor, MiniBatchSize...)."}
+      ],
+      "example": "env = rlPredefinedEnv(\"CartPole-Continuous\");\nagent = rlSACAgent(getObservationInfo(env), getActionInfo(env));\nagent.AgentOptions.EntropyWeightOptions.TargetEntropy = -1;\nagent.AgentOptions.MiniBatchSize = 256;",
+      "notes": "Use trainWithEvolutionStrategy (R2023b+) or offline trainFromData for alternative training schemes with SAC/TD3/DDPG.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rlsacagent.html"
+    },
+    {
+      "name": "rlAgentInitializationOptions",
+      "kind": "function",
+      "description": "Options for the default actor and critic networks that the toolbox creates when you build an agent from observation and action specifications. Controls the hidden layer width and whether recurrent (LSTM) networks are used.",
+      "usage": "initOpts = rlAgentInitializationOptions(Name=Value)",
+      "parameters": [
+        {"name": "NumHiddenUnit", "description": "Neurons per hidden fully connected layer (default 256)."},
+        {"name": "UseRNN", "description": "true to include an LSTM layer (default false)."}
+      ],
+      "example": "initOpts = rlAgentInitializationOptions(NumHiddenUnit=64, UseRNN=false);\nagent = rlSACAgent(obsInfo, actInfo, initOpts);\ncriticNet = getModel(getCritic(agent));   % inspect the default network",
+      "notes": "Inspect or customize the generated networks with getActor/getCritic and getModel/setModel.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.option.rlagentinitializationoptions.html"
+    },
+    {
+      "name": "rlTrainingOptions",
+      "kind": "function",
+      "description": "Specifies how train runs: maximum episodes and steps, stopping and agent-saving criteria, averaging window, progress display and parallel training options. Pass it as the third argument to train.",
+      "usage": "trainOpts = rlTrainingOptions\ntrainOpts = rlTrainingOptions(Name=Value)",
+      "parameters": [
+        {"name": "MaxEpisodes / MaxStepsPerEpisode", "description": "Training length limits (default 500 each)."},
+        {"name": "StopTrainingCriteria / StopTrainingValue", "description": "\"AverageSteps\" (default), \"AverageReward\", \"EpisodeReward\", \"GlobalStepCount\", \"EpisodeCount\", \"EvaluationStatistic\", \"Custom\", \"None\" and its threshold."},
+        {"name": "ScoreAveragingWindowLength", "description": "Episodes used for running averages (default 5)."},
+        {"name": "SaveAgentCriteria / SaveAgentValue / SaveAgentDirectory", "description": "Save agent snapshots when a criterion is met."},
+        {"name": "Plots / Verbose", "description": "\"training-progress\" or \"none\"; command-line progress."},
+        {"name": "UseParallel / ParallelizationOptions", "description": "Train with parallel workers (Parallel Computing Toolbox)."}
+      ],
+      "example": "trainOpts = rlTrainingOptions( ...\n    MaxEpisodes=1000, MaxStepsPerEpisode=500, ...\n    StopTrainingCriteria=\"AverageReward\", StopTrainingValue=480, ...\n    ScoreAveragingWindowLength=20, Verbose=true, Plots=\"training-progress\");",
+      "notes": "Use rlMultiAgentTrainingOptions for multiple agents. Set Plots=\"none\" for headless batch runs (matlab -batch).",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.option.rltrainingoptions.html"
+    },
+    {
+      "name": "train",
+      "kind": "function",
+      "description": "Trains one or more reinforcement learning agents in an environment according to training options, optionally with a data logger and evaluator. Agents are handle objects, so they are updated in place; the function returns an rlTrainingResult with episode rewards, steps and averages.",
+      "usage": "trainStats = train(agent, env)\ntrainStats = train(agent, env, trainOpts)\ntrainStats = train(___, prevTrainStats)\ntrainStats = train(___, Logger=logger, Evaluator=evaluator)",
+      "parameters": [
+        {"name": "agent", "description": "Agent object or array of agents (multi-agent)."},
+        {"name": "env", "description": "Environment object."},
+        {"name": "trainOpts", "description": "rlTrainingOptions or rlMultiAgentTrainingOptions."},
+        {"name": "prevTrainStats", "description": "Result from a previous call to resume training."},
+        {"name": "Logger / Evaluator", "description": "rlDataLogger and rlEvaluator objects."}
+      ],
+      "example": "env = rlPredefinedEnv(\"CartPole-Discrete\");\nagent = rlDQNAgent(getObservationInfo(env), getActionInfo(env));\nstats = train(agent, env, rlTrainingOptions(MaxEpisodes=500, Plots=\"none\"));\nplot(stats.EpisodeIndex, stats.EpisodeReward)\nsave trainedAgent.mat agent",
+      "notes": "Fix rng before training for reproducibility. show(stats) reopens the Training Monitor (R2024a+). Distinct from Deep Learning Toolbox trainnet.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rllspiagent.train.html"
+    },
+    {
+      "name": "rlSimulationOptions",
+      "kind": "function",
+      "description": "Options for simulating agents in an environment with sim: maximum steps per simulation, number of simulations, error handling and parallel simulation.",
+      "usage": "simOpts = rlSimulationOptions(Name=Value)",
+      "parameters": [
+        {"name": "MaxSteps", "description": "Maximum steps per simulation (default 500)."},
+        {"name": "NumSimulations", "description": "Number of simulations to run (default 1)."},
+        {"name": "UseParallel / ParallelizationOptions", "description": "Run simulations on parallel workers."},
+        {"name": "StopOnError", "description": "\"on\" (default) or \"off\"."}
+      ],
+      "example": "simOpts = rlSimulationOptions(MaxSteps=1000, NumSimulations=5);\nexperiences = sim(env, agent, simOpts);",
+      "notes": "Simulation uses the greedy (exploitation) policy of the agent by default.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.option.rlsimulationoptions.html"
+    },
+    {
+      "name": "sim",
+      "kind": "function",
+      "description": "Simulates trained agents in an environment without learning and returns the logged experiences (observations, actions, rewards, is-done flags). Use it to evaluate a policy after training.",
+      "usage": "experience = sim(env, agent)\nexperience = sim(env, agent, simOpts)\nexperience = sim(agent, env, simOpts)",
+      "parameters": [
+        {"name": "env", "description": "Environment object."},
+        {"name": "agent", "description": "Agent, array of agents or policy object."},
+        {"name": "simOpts", "description": "rlSimulationOptions object."}
+      ],
+      "example": "experience = sim(env, agent, rlSimulationOptions(MaxSteps=500));\ntotalReward = sum(experience.Reward.Data)\nch = fieldnames(experience.Observation);\nplot(experience.Observation.(ch{1}))   % timeseries per observation channel",
+      "notes": "Fields of the output are timeseries objects named after the channels. For Simulink environments the model is simulated; SimulationInfo holds logged signals. Not the same as Simulink's sim(model).",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.env.rlfunctionenv.sim.html"
+    },
+    {
+      "name": "getAction",
+      "kind": "function",
+      "description": "Returns the action that an agent, actor or policy object produces for given observations. Observations are passed as a cell array with one element per observation channel, and the action is returned as a cell array.",
+      "usage": "action = getAction(agent, obs)\naction = getAction(actor, obs)\n[action, nextState] = getAction(___)",
+      "parameters": [
+        {"name": "agent / actor / policy", "description": "Object to evaluate."},
+        {"name": "obs", "description": "Cell array of observation arrays (batch dimension allowed)."}
+      ],
+      "example": "a = getAction(agent, {[0.1; 0; -0.05; 0]});\nforce = a{1}",
+      "notes": "For stochastic agents the action is sampled; use getGreedyPolicy to get deterministic behavior. Recurrent actors also return the updated hidden state.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.policy.rlmaxqpolicy.getaction.html"
+    },
+    {
+      "name": "getValue",
+      "kind": "function",
+      "description": "Evaluates a critic: the state value V(s) of a value function, Q(s,a) of a Q-value function, or the vector of Q values of a vector Q critic for given observations (and actions).",
+      "usage": "value = getValue(valueCritic, obs)\nvalue = getValue(qCritic, obs, act)\nvalues = getValue(vectorQCritic, obs)",
+      "parameters": [
+        {"name": "obs", "description": "Cell array of observations."},
+        {"name": "act", "description": "Cell array containing the action (Q critics only)."}
+      ],
+      "example": "critic = getCritic(agent);\nq = getValue(critic, {rand(4,1)})   % vector of Q(s,a) for each action",
+      "notes": "Use getMaxQValue for the greedy value/action of a Q critic. Useful to plot learned value landscapes.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.function.rlvaluefunction.getvalue.html"
+    },
+    {
+      "name": "getActor",
+      "kind": "function",
+      "description": "Extracts the actor function approximator from an agent so you can inspect, modify or reuse it. Pair it with setActor to put a modified actor back into the agent (and getCritic/setCritic for critics).",
+      "usage": "actor = getActor(agent)\nagent = setActor(agent, actor)",
+      "parameters": [
+        {"name": "agent", "description": "Agent that has an actor (PG, AC, PPO, TRPO, DDPG, TD3, SAC)."}
+      ],
+      "example": "actor = getActor(agent);\nnet = getModel(actor);           % dlnetwork\nparams = getLearnableParameters(actor);\nagent = setActor(agent, actor);",
+      "notes": "Value-based agents (Q, SARSA, DQN) have no actor; use getCritic. getModel/setModel access the underlying network.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rlqagent.getactor.html"
+    },
+    {
+      "name": "getGreedyPolicy",
+      "kind": "function",
+      "description": "Extracts a greedy (deterministic, no exploration) policy object from an agent, e.g. rlMaxQPolicy for DQN or rlStochasticActorPolicy with UseMaxLikelihoodAction for PPO. Policy objects are lightweight for evaluation, custom loops and code generation.",
+      "usage": "policy = getGreedyPolicy(agent)\npolicy = getExplorationPolicy(agent)",
+      "parameters": [
+        {"name": "agent", "description": "Trained agent."}
+      ],
+      "example": "policy = getGreedyPolicy(agent);\na = getAction(policy, {obs});\ngeneratePolicyFunction(policy);",
+      "notes": "getExplorationPolicy (R2023a+) returns the exploratory counterpart. Introduced R2022a.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.agent.rlmbpoagent.getgreedypolicy.html"
+    },
+    {
+      "name": "generatePolicyFunction",
+      "kind": "function",
+      "description": "Generates a standalone MATLAB function (default evaluatePolicy.m) plus a MAT-file with the policy data that computes actions from observations. The generated function is compatible with MATLAB Coder / GPU Coder for deploying a trained policy to embedded targets.",
+      "usage": "generatePolicyFunction(agent)\ngeneratePolicyFunction(agent, Name=Value)",
+      "parameters": [
+        {"name": "agent", "description": "Agent or policy object."},
+        {"name": "FunctionName", "description": "Name of the generated function (default \"evaluatePolicy\")."},
+        {"name": "MATFileName", "description": "Name of the data file (default \"agentData\")."}
+      ],
+      "example": "generatePolicyFunction(agent);\na = evaluatePolicy([0.1; 0; 0; 0]);\ncfg = coder.config(\"lib\");\ncodegen -config cfg evaluatePolicy -args {ones(4,1)}",
+      "notes": "Observations are passed as plain arrays (not cells) to the generated function. Use generatePolicyBlock for a Simulink Policy block instead.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.policy.rlmaxqpolicy.generatepolicyfunction.html"
+    },
+    {
+      "name": "generatePolicyBlock",
+      "kind": "function",
+      "description": "Creates a Simulink model containing a Policy block that evaluates the greedy policy of an agent or policy object, with the policy data saved to a MAT-file. Use it to embed a trained policy in a Simulink controller for simulation or code generation.",
+      "usage": "generatePolicyBlock(agent)\ngeneratePolicyBlock(agent, MATFileName=fileName)",
+      "parameters": [
+        {"name": "agent", "description": "Agent or policy object."},
+        {"name": "MATFileName", "description": "Name of the MAT-file holding the policy data (default \"blockAgentData\")."}
+      ],
+      "example": "generatePolicyBlock(agent, MATFileName=\"cartPolePolicy.mat\");\n% copy the Policy block from the new model into your controller model",
+      "notes": "Requires Simulink. The Policy block can also be added from the library and configured manually.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.policy.rlmaxqpolicy.generatepolicyblock.html"
+    },
+    {
+      "name": "rlReplayMemory",
+      "kind": "function",
+      "description": "Creates a circular experience buffer for off-policy learning. Use it in custom training loops, to pre-fill an agent's buffer with demonstration data, or to inspect stored experiences with append, sample and allExperiences.",
+      "usage": "buffer = rlReplayMemory(obsInfo, actInfo)\nbuffer = rlReplayMemory(obsInfo, actInfo, maxLength)",
+      "parameters": [
+        {"name": "obsInfo, actInfo", "description": "Observation and action specifications."},
+        {"name": "maxLength", "description": "Capacity (default 10000)."}
+      ],
+      "example": "buffer = rlReplayMemory(obsInfo, actInfo, 1e5);\nexp.Observation = {rand(4,1)}; exp.Action = {10};\nexp.Reward = 1; exp.NextObservation = {rand(4,1)}; exp.IsDone = 0;\nappend(buffer, exp);\nminiBatch = sample(buffer, 1);",
+      "notes": "rlPrioritizedReplayMemory and rlHindsightReplayMemory provide prioritized and hindsight sampling. Assign to agent.ExperienceBuffer for DQN/DDPG/TD3/SAC.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.replay.rlreplaymemory.html"
+    },
+    {
+      "name": "rlDataLogger",
+      "kind": "function",
+      "description": "Creates a file logger (or a monitor logger around a trainingProgressMonitor) that records data such as episode rewards, losses and custom values during training. Callbacks like EpisodeFinishedFcn and AgentLearnFinishedFcn decide what is logged.",
+      "usage": "logger = rlDataLogger()\nlogger = rlDataLogger(monitor)",
+      "parameters": [
+        {"name": "monitor", "description": "trainingProgressMonitor object for live custom plots."},
+        {"name": "LoggingOptions.LoggingDirectory", "description": "Folder for the MAT-files written by a file logger."},
+        {"name": "EpisodeFinishedFcn / AgentStepFinishedFcn / AgentLearnFinishedFcn", "description": "Callbacks returning a struct of data to log."}
+      ],
+      "example": "logger = rlDataLogger();\nlogger.LoggingOptions.LoggingDirectory = \"rlLogs\";\nlogger.EpisodeFinishedFcn = @(d) struct(\"Reward\", d.EpisodeInfo.CumulativeReward);\nstats = train(agent, env, trainOpts, Logger=logger);\nrlDataViewer(\"rlLogs\")   % browse logged data (R2023a+)",
+      "notes": "Introduced R2022b. Logged files can be large for per-step logging; prefer episode-level logging.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rldatalogger.html"
+    },
+    {
+      "name": "rlEvaluator",
+      "kind": "function",
+      "description": "Configures periodic evaluation of agents during training: every N episodes, the greedy policy is run for a number of evaluation episodes and a statistic is recorded. The statistic can drive stopping or saving (\"EvaluationStatistic\" criteria).",
+      "usage": "evaluator = rlEvaluator(Name=Value)",
+      "parameters": [
+        {"name": "EvaluationFrequency", "description": "Training episodes between evaluations."},
+        {"name": "NumEpisodes", "description": "Episodes per evaluation."},
+        {"name": "EvaluationStatisticType", "description": "E.g. \"MeanEpisodeReward\", \"MedianEpisodeReward\", \"MaxEpisodeReward\"."},
+        {"name": "RandomSeeds", "description": "Seeds used for evaluation episodes."}
+      ],
+      "example": "evl = rlEvaluator(EvaluationFrequency=50, NumEpisodes=5);\ntrainOpts = rlTrainingOptions(MaxEpisodes=2000, ...\n    StopTrainingCriteria=\"EvaluationStatistic\", StopTrainingValue=450);\nstats = train(agent, env, trainOpts, Evaluator=evl);",
+      "notes": "Introduced R2023b. rlCustomEvaluator lets you supply your own evaluation function.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rl.evaluation.rlevaulator.html"
+    },
+    {
+      "name": "rlMultiAgentTrainingOptions",
+      "kind": "function",
+      "description": "Training options for multiple agents trained simultaneously in a multi-agent environment, including agent groups and centralized or decentralized learning strategies, in addition to the usual episode and stopping settings.",
+      "usage": "opts = rlMultiAgentTrainingOptions(Name=Value)",
+      "parameters": [
+        {"name": "AgentGroups", "description": "\"auto\" or cell array of agent index groups, e.g. {[1 2], 3}."},
+        {"name": "LearningStrategy", "description": "\"decentralized\" or \"centralized\" (per group)."},
+        {"name": "MaxEpisodes / MaxStepsPerEpisode / StopTrainingCriteria", "description": "Same meaning as in rlTrainingOptions, per agent where applicable."}
+      ],
+      "example": "opts = rlMultiAgentTrainingOptions(AgentGroups={[1 2]}, ...\n    LearningStrategy=\"centralized\", MaxEpisodes=2000);\nstats = train([agentA agentB], env, opts);",
+      "notes": "Introduced R2022a. Use with rlMultiAgentFunctionEnv, rlTurnBasedFunctionEnv or Simulink models with several RL Agent blocks. Centralized learning requires agents of the same type (e.g. PPO).",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/rlmultiagenttrainingoptions.html"
+    },
+    {
+      "name": "reinforcementLearningDesigner",
+      "kind": "tool",
+      "description": "Opens the Reinforcement Learning Designer app for interactively importing or creating environments, creating agents with default or imported networks, training them with live plots, simulating trained agents and exporting agents and networks to the workspace.",
+      "usage": "reinforcementLearningDesigner",
+      "parameters": [],
+      "example": "env = rlPredefinedEnv(\"CartPole-Discrete\");\nreinforcementLearningDesigner   % import env from the workspace in the app",
+      "notes": "Environments must exist in the MATLAB workspace to be imported. Sessions can be saved and reopened; generated MATLAB code can be exported for scripting.",
+      "docs": "https://www.mathworks.com/help/reinforcement-learning/ref/reinforcementlearningdesigner-app.html"
+    }
+  ]
+}

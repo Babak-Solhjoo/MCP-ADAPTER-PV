@@ -1,0 +1,655 @@
+{
+  "category": "Xilinx Parameterized Macros (XPM) & Device Primitives",
+  "description": "Instantiable building blocks from the device libraries: the XPM macros for clock-domain crossing, memories and FIFOs (parameterised, synthesizable and simulatable without IP generation), and the family primitives for clocking, I/O, SerDes, DSP, block/ultra RAM, CLB elements, configuration/JTAG access and transceivers. Each entry names the primitive as spelled in the libraries guides (UG953 7 series, UG974 UltraScale, UG1344 Versal) with its key parameters and ports.",
+  "tools": [
+    {
+      "name": "XPM_CDC_SINGLE",
+      "kind": "block",
+      "description": "Single-bit clock-domain-crossing synchronizer: a chain of DEST_SYNC_FF flip-flops (2-10) in the destination clock domain with ASYNC_REG attributes and the correct timing constraints applied automatically (the macro carries embedded XDC), optionally with a source register. Use it for level signals such as enables, flags or slow status bits; pulses need XPM_CDC_PULSE and multi-bit values XPM_CDC_GRAY/HANDSHAKE.",
+      "usage": "xpm_cdc_single #(.DEST_SYNC_FF(4), .INIT_SYNC_FF(0), .SIM_ASSERT_CHK(0), .SRC_INPUT_REG(1)) inst (.dest_out(dest_out), .dest_clk(dest_clk), .src_clk(src_clk), .src_in(src_in));",
+      "parameters": [
+        {"name": "DEST_SYNC_FF", "description": "Number of synchronizer stages (2-10, default 4); higher for faster destination clocks / higher MTBF."},
+        {"name": "SRC_INPUT_REG", "description": "1 registers src_in on src_clk (recommended), 0 passes it combinationally (src_clk unused)."},
+        {"name": "INIT_SYNC_FF", "description": "1 initialises the chain in simulation to 0 (no X propagation)."},
+        {"name": "SIM_ASSERT_CHK", "description": "1 enables simulation-time assertions on source-signal behaviour."}
+      ],
+      "example": "// Verilog\nxpm_cdc_single #(.DEST_SYNC_FF(3), .SRC_INPUT_REG(1)) u_sync_en (\n  .src_clk(clk_a), .src_in(enable_a),\n  .dest_clk(clk_b), .dest_out(enable_b));\n-- VHDL: library xpm; use xpm.vcomponents.all; then instantiate xpm_cdc_single generic map (DEST_SYNC_FF => 3, ...)",
+      "notes": "XPM libraries are available in synthesis without any IP generation; for simulation add the xpm library (Vivado does this in project mode; standalone flows compile <install>/data/ip/xpm/xpm_cdc/hdl/xpm_cdc.sv). report_cdc recognises the macro as a safe crossing.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_CDC_SINGLE"
+    },
+    {
+      "name": "XPM_CDC_ARRAY_SINGLE",
+      "kind": "block",
+      "description": "Vector of independent single-bit synchronizers (WIDTH bits, each its own flip-flop chain) for buses whose bits are unrelated, such as a set of status flags. It must not be used for values whose bits change together (counters, data words), because the bits may arrive in different cycles; use XPM_CDC_GRAY or XPM_CDC_HANDSHAKE for those.",
+      "usage": "xpm_cdc_array_single #(.DEST_SYNC_FF(4), .INIT_SYNC_FF(0), .SIM_ASSERT_CHK(0), .SRC_INPUT_REG(1), .WIDTH(8)) inst (.dest_out(dest_out), .dest_clk(dest_clk), .src_clk(src_clk), .src_in(src_in));",
+      "parameters": [
+        {"name": "WIDTH", "description": "Bus width (1-1024)."},
+        {"name": "DEST_SYNC_FF / SRC_INPUT_REG / INIT_SYNC_FF / SIM_ASSERT_CHK", "description": "As for XPM_CDC_SINGLE."}
+      ],
+      "example": "xpm_cdc_array_single #(.WIDTH(4), .DEST_SYNC_FF(3)) u_flags (\n  .src_clk(clk_pcie), .src_in({link_up, err, busy, ready}),\n  .dest_clk(clk_user), .dest_out(flags_user));",
+      "notes": "Each bit gets ASYNC_REG and a set_false_path/set_max_delay -datapath_only from the embedded constraints.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_CDC_ARRAY_SINGLE"
+    },
+    {
+      "name": "XPM_CDC_GRAY",
+      "kind": "block",
+      "description": "Synchronizes a binary counter value across clock domains by converting it to Gray code in the source domain, synchronizing the Gray vector (only one bit changes per increment) and converting back to binary in the destination. The source value must change by at most +/-1 per source clock cycle; it is the standard structure inside asynchronous FIFOs for pointer exchange.",
+      "usage": "xpm_cdc_gray #(.DEST_SYNC_FF(4), .INIT_SYNC_FF(0), .REG_OUTPUT(0), .SIM_ASSERT_CHK(0), .SIM_LOSSLESS_GRAY_CHK(0), .WIDTH(8)) inst (.dest_out_bin(dest_out_bin), .dest_clk(dest_clk), .src_clk(src_clk), .src_in_bin(src_in_bin));",
+      "parameters": [
+        {"name": "WIDTH", "description": "Binary width (2-32)."},
+        {"name": "REG_OUTPUT", "description": "1 registers the binary output in the destination domain (adds a cycle, improves timing)."},
+        {"name": "SIM_LOSSLESS_GRAY_CHK", "description": "Simulation check that the source changes by at most one per cycle."}
+      ],
+      "example": "xpm_cdc_gray #(.WIDTH(10), .DEST_SYNC_FF(3), .REG_OUTPUT(1)) u_wrptr_sync (\n  .src_clk(wr_clk), .src_in_bin(wr_ptr),\n  .dest_clk(rd_clk), .dest_out_bin(wr_ptr_rd));",
+      "notes": "The destination sees each source value with latency and may skip none but may see a value late; fine for FIFO pointers, not for sampling an arbitrary bus.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_CDC_GRAY"
+    },
+    {
+      "name": "XPM_CDC_HANDSHAKE",
+      "kind": "block",
+      "description": "Transfers an arbitrary multi-bit value across clock domains with a full request/acknowledge handshake: the source presents data and asserts src_send, the destination receives dest_out with dest_req after the bus is stable, and src_rcv tells the source when it may send again (optionally the destination acknowledges explicitly with DEST_EXT_HSK). It is the safe way to move configuration words or sampled counters between unrelated clocks at low rate.",
+      "usage": "xpm_cdc_handshake #(.DEST_EXT_HSK(1), .DEST_SYNC_FF(4), .INIT_SYNC_FF(0), .SIM_ASSERT_CHK(0), .SRC_SYNC_FF(4), .WIDTH(32)) inst (.dest_out(dest_out), .dest_req(dest_req), .src_rcv(src_rcv), .dest_ack(dest_ack), .dest_clk(dest_clk), .src_clk(src_clk), .src_in(src_in), .src_send(src_send));",
+      "parameters": [
+        {"name": "WIDTH", "description": "Data width (1-1024)."},
+        {"name": "DEST_EXT_HSK", "description": "1: destination must pulse dest_ack; 0: internal acknowledge."},
+        {"name": "SRC_SYNC_FF / DEST_SYNC_FF", "description": "Synchronizer depths of the two control paths."}
+      ],
+      "example": "xpm_cdc_handshake #(.WIDTH(16), .DEST_EXT_HSK(0)) u_cfg_xfer (\n  .src_clk(clk_axi), .src_in(cfg_word), .src_send(cfg_valid), .src_rcv(cfg_taken),\n  .dest_clk(clk_pix), .dest_out(cfg_word_pix), .dest_req(cfg_new_pix), .dest_ack(1'b0));",
+      "notes": "Throughput is one transfer per several cycles of both clocks; for continuous data use XPM_FIFO_ASYNC. The source must hold src_in stable while src_send is high until src_rcv returns.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_CDC_HANDSHAKE"
+    },
+    {
+      "name": "XPM_CDC_PULSE",
+      "kind": "block",
+      "description": "Transfers a single-cycle pulse from one clock domain to another, producing one pulse in the destination domain regardless of the clock ratio (toggle-synchronizer scheme). Optional resets on both sides (RST_USED) and a registered output. Pulses must be spaced far enough apart (at least the synchronizer latency in destination cycles) or they merge.",
+      "usage": "xpm_cdc_pulse #(.DEST_SYNC_FF(4), .INIT_SYNC_FF(0), .REG_OUTPUT(0), .RST_USED(1), .SIM_ASSERT_CHK(0)) inst (.dest_pulse(dest_pulse), .dest_clk(dest_clk), .dest_rst(dest_rst), .src_clk(src_clk), .src_pulse(src_pulse), .src_rst(src_rst));",
+      "parameters": [
+        {"name": "RST_USED", "description": "1 uses src_rst/dest_rst (active high); 0 ties them off."},
+        {"name": "REG_OUTPUT", "description": "Register dest_pulse."},
+        {"name": "DEST_SYNC_FF", "description": "Synchronizer depth."}
+      ],
+      "example": "xpm_cdc_pulse #(.RST_USED(0), .REG_OUTPUT(1)) u_irq_xfer (\n  .src_clk(clk_fast), .src_pulse(irq_fast), .src_rst(1'b0),\n  .dest_clk(clk_slow), .dest_pulse(irq_slow), .dest_rst(1'b0));",
+      "notes": "A src_pulse wider than one cycle is treated as one event. For pulses that must not be lost at high rate use a FIFO or a handshake instead.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_CDC_PULSE"
+    },
+    {
+      "name": "XPM_CDC_ASYNC_RST",
+      "kind": "block",
+      "description": "Asynchronous reset synchronizer: asserts the destination reset asynchronously as soon as the source reset asserts (so logic is reset even without a clock) and de-asserts it synchronously to dest_clk after DEST_SYNC_FF stages, avoiding reset-recovery/removal violations. Use it for every asynchronous reset that feeds FDCE/FDPE flip-flops; RST_ACTIVE_HIGH selects polarity.",
+      "usage": "xpm_cdc_async_rst #(.DEST_SYNC_FF(4), .INIT_SYNC_FF(0), .RST_ACTIVE_HIGH(0)) inst (.dest_arst(dest_arst), .dest_clk(dest_clk), .src_arst(src_arst));",
+      "parameters": [
+        {"name": "RST_ACTIVE_HIGH", "description": "0 for active-low resets (e.g. aresetn), 1 for active-high."},
+        {"name": "DEST_SYNC_FF", "description": "Stages for synchronous de-assertion (2-10)."}
+      ],
+      "example": "xpm_cdc_async_rst #(.DEST_SYNC_FF(3), .RST_ACTIVE_HIGH(0)) u_rst_sync (\n  .src_arst(ext_rst_n), .dest_clk(clk_100), .dest_arst(rst_n_100));",
+      "notes": "For synchronous-reset designs (recommended on UltraScale+) use XPM_CDC_SYNC_RST instead. The Processor System Reset IP provides the same function with additional sequencing in block designs.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_CDC_ASYNC_RST"
+    },
+    {
+      "name": "XPM_CDC_SYNC_RST",
+      "kind": "block",
+      "description": "Synchronizes a reset signal to the destination clock so both assertion and de-assertion are synchronous, the correct structure for synchronous resets (FDRE/FDSE) which are preferred for timing and control-set efficiency. It is a single-bit synchronizer with the option to set the initial value of the chain (INIT) so the reset is asserted from power-up until the first clock edges.",
+      "usage": "xpm_cdc_sync_rst #(.DEST_SYNC_FF(4), .INIT(1), .INIT_SYNC_FF(0), .SIM_ASSERT_CHK(0)) inst (.dest_rst(dest_rst), .dest_clk(dest_clk), .src_rst(src_rst));",
+      "parameters": [
+        {"name": "INIT", "description": "Initial value of the synchronizer flops (1 = reset asserted at configuration)."},
+        {"name": "DEST_SYNC_FF", "description": "Stages (2-10)."}
+      ],
+      "example": "xpm_cdc_sync_rst #(.DEST_SYNC_FF(3), .INIT(1)) u_srst (\n  .src_rst(rst_axi), .dest_clk(clk_dsp), .dest_rst(rst_dsp));",
+      "notes": "Reset polarity is passed through unchanged (no inversion parameter): synchronize the signal as it is and invert at the load if needed.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_CDC_SYNC_RST"
+    },
+    {
+      "name": "XPM_MEMORY_SPRAM",
+      "kind": "block",
+      "description": "Single-port RAM macro that maps to block RAM, UltraRAM, distributed RAM or auto (MEMORY_PRIMITIVE) with configurable width, depth, byte-write enables, read latency (output registers), write mode (read_first/write_first/no_change), optional ECC and initialisation from a .mem file. It replaces blk_mem_gen for the common cases and is fully parameterisable from RTL, so width/depth can follow module parameters.",
+      "usage": "xpm_memory_spram #(.ADDR_WIDTH_A(10), .AUTO_SLEEP_TIME(0), .BYTE_WRITE_WIDTH_A(32), .CASCADE_HEIGHT(0), .ECC_MODE(\"no_ecc\"), .MEMORY_INIT_FILE(\"none\"), .MEMORY_INIT_PARAM(\"0\"), .MEMORY_OPTIMIZATION(\"true\"), .MEMORY_PRIMITIVE(\"auto\"), .MEMORY_SIZE(32768), .MESSAGE_CONTROL(0), .READ_DATA_WIDTH_A(32), .READ_LATENCY_A(2), .READ_RESET_VALUE_A(\"0\"), .RST_MODE_A(\"SYNC\"), .SIM_ASSERT_CHK(0), .USE_MEM_INIT(1), .WAKEUP_TIME(\"disable_sleep\"), .WRITE_DATA_WIDTH_A(32), .WRITE_MODE_A(\"read_first\")) inst (.dbiterra(), .douta(douta), .sbiterra(), .addra(addra), .clka(clka), .dina(dina), .ena(ena), .injectdbiterra(1'b0), .injectsbiterra(1'b0), .regcea(1'b1), .rsta(rsta), .sleep(1'b0), .wea(wea));",
+      "parameters": [
+        {"name": "MEMORY_SIZE", "description": "Total bits (WIDTH x DEPTH)."},
+        {"name": "MEMORY_PRIMITIVE", "description": "auto, block, distributed, ultra (URAM), or mixed."},
+        {"name": "READ_LATENCY_A", "description": "0 (distributed only), 1 (no output register), 2+ (registered output; required for BRAM timing)."},
+        {"name": "BYTE_WRITE_WIDTH_A", "description": "8/9 for byte enables (wea becomes a vector), or equal to WRITE_DATA_WIDTH_A for a single enable."},
+        {"name": "WRITE_MODE_A", "description": "read_first, write_first, no_change."},
+        {"name": "MEMORY_INIT_FILE / MEMORY_INIT_PARAM", "description": "Initial contents from a .mem file ($readmemh format) or an inline hex string."},
+        {"name": "ECC_MODE", "description": "no_ecc, encode_only, decode_only, both_encode_and_decode (64-bit data)."}
+      ],
+      "example": "xpm_memory_spram #(\n  .ADDR_WIDTH_A(12), .MEMORY_SIZE(4096*36), .WRITE_DATA_WIDTH_A(36), .READ_DATA_WIDTH_A(36),\n  .BYTE_WRITE_WIDTH_A(36), .READ_LATENCY_A(2), .MEMORY_PRIMITIVE(\"block\"), .MEMORY_INIT_FILE(\"coeffs.mem\"))\nu_ram (.clka(clk), .ena(1'b1), .wea(we), .addra(addr), .dina(din), .douta(dout), .rsta(1'b0), .regcea(1'b1),\n       .sleep(1'b0), .injectsbiterra(1'b0), .injectdbiterra(1'b0));",
+      "notes": "Unused ports must still be connected (tie injectsbiterra etc. to 0). The .mem file path is relative to the project or must be added as a source (add_files) so synthesis finds it. Related: XPM_MEMORY_SDPRAM, TDPRAM, SPROM, DPROM, DPDISTRAM.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_MEMORY_SPRAM"
+    },
+    {
+      "name": "XPM_MEMORY_SDPRAM",
+      "kind": "block",
+      "description": "Simple dual-port RAM (port A write-only, port B read-only) with independent or common clocks (CLOCKING_MODE), asymmetric widths, byte enables, output registers and ECC, mapping to BRAM/URAM/LUTRAM. It is the natural memory for FIFOs, line buffers and any producer/consumer structure where one side writes and the other reads.",
+      "usage": "xpm_memory_sdpram #(.ADDR_WIDTH_A(10), .ADDR_WIDTH_B(10), .AUTO_SLEEP_TIME(0), .BYTE_WRITE_WIDTH_A(32), .CLOCKING_MODE(\"common_clock\"), .ECC_MODE(\"no_ecc\"), .MEMORY_INIT_FILE(\"none\"), .MEMORY_OPTIMIZATION(\"true\"), .MEMORY_PRIMITIVE(\"auto\"), .MEMORY_SIZE(32768), .READ_DATA_WIDTH_B(32), .READ_LATENCY_B(2), .READ_RESET_VALUE_B(\"0\"), .RST_MODE_A(\"SYNC\"), .RST_MODE_B(\"SYNC\"), .USE_EMBEDDED_CONSTRAINT(0), .USE_MEM_INIT(1), .WRITE_DATA_WIDTH_A(32), .WRITE_MODE_B(\"no_change\")) inst (.doutb(doutb), .addra(addra), .addrb(addrb), .clka(clka), .clkb(clkb), .dina(dina), .ena(ena), .enb(enb), .regceb(regceb), .rstb(rstb), .wea(wea), .sleep(1'b0), .injectsbiterra(1'b0), .injectdbiterra(1'b0), .sbiterrb(), .dbiterrb());",
+      "parameters": [
+        {"name": "CLOCKING_MODE", "description": "common_clock (clkb ignored) or independent_clock (true async ports)."},
+        {"name": "WRITE_DATA_WIDTH_A / READ_DATA_WIDTH_B", "description": "May differ by powers of two for width conversion."},
+        {"name": "USE_EMBEDDED_CONSTRAINT", "description": "1 adds a set_false_path style constraint on the LUTRAM write-to-read crossing in independent-clock distributed mode."},
+        {"name": "WRITE_MODE_B", "description": "Read-during-write behaviour on port B: no_change or read_first."}
+      ],
+      "example": "xpm_memory_sdpram #(.ADDR_WIDTH_A(11), .ADDR_WIDTH_B(9), .MEMORY_SIZE(2048*8),\n  .WRITE_DATA_WIDTH_A(8), .BYTE_WRITE_WIDTH_A(8), .READ_DATA_WIDTH_B(32), .READ_LATENCY_B(1),\n  .CLOCKING_MODE(\"independent_clock\"), .MEMORY_PRIMITIVE(\"block\"))\nu_linebuf (.clka(pix_clk), .ena(1'b1), .wea(pix_valid), .addra(wr_addr), .dina(pix),\n           .clkb(axi_clk), .enb(1'b1), .addrb(rd_addr), .doutb(word), .rstb(1'b0), .regceb(1'b1),\n           .sleep(1'b0), .injectsbiterra(1'b0), .injectdbiterra(1'b0));",
+      "notes": "Address widths must match log2(depth) on each side after width conversion. Independent-clock mode does not synchronize anything except the memory itself; pointers still need XPM_CDC_GRAY or a FIFO macro.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_MEMORY_SDPRAM"
+    },
+    {
+      "name": "XPM_MEMORY_TDPRAM",
+      "kind": "block",
+      "description": "True dual-port RAM with two fully independent read/write ports (each with its own clock, enable, write enable, write mode and read latency), the most flexible memory macro and the one that maps directly onto a RAMB36 or URAM288 in TDP mode. Used for shared memories between two masters (e.g. processor and accelerator), ping-pong buffers accessed from both sides, and CPU-visible register files.",
+      "usage": "xpm_memory_tdpram #(.ADDR_WIDTH_A(10), .ADDR_WIDTH_B(10), .BYTE_WRITE_WIDTH_A(32), .BYTE_WRITE_WIDTH_B(32), .CLOCKING_MODE(\"independent_clock\"), .MEMORY_PRIMITIVE(\"block\"), .MEMORY_SIZE(32768), .READ_DATA_WIDTH_A(32), .READ_DATA_WIDTH_B(32), .READ_LATENCY_A(1), .READ_LATENCY_B(1), .WRITE_DATA_WIDTH_A(32), .WRITE_DATA_WIDTH_B(32), .WRITE_MODE_A(\"no_change\"), .WRITE_MODE_B(\"no_change\")) inst (.douta(douta), .doutb(doutb), .addra(addra), .addrb(addrb), .clka(clka), .clkb(clkb), .dina(dina), .dinb(dinb), .ena(ena), .enb(enb), .regcea(1'b1), .regceb(1'b1), .rsta(rsta), .rstb(rstb), .wea(wea), .web(web), .sleep(1'b0), .injectsbiterra(1'b0), .injectdbiterra(1'b0), .injectsbiterrb(1'b0), .injectdbiterrb(1'b0), .sbiterra(), .dbiterra(), .sbiterrb(), .dbiterrb());",
+      "parameters": [
+        {"name": "WRITE_MODE_A / WRITE_MODE_B", "description": "read_first, write_first, no_change (collision behaviour when both ports hit the same address)."},
+        {"name": "READ_LATENCY_A / READ_LATENCY_B", "description": "Per-port output pipeline depth."},
+        {"name": "MEMORY_PRIMITIVE", "description": "block or ultra (distributed RAM has no true dual port)."}
+      ],
+      "example": "xpm_memory_tdpram #(.ADDR_WIDTH_A(12), .ADDR_WIDTH_B(12), .MEMORY_SIZE(4096*32),\n  .WRITE_DATA_WIDTH_A(32), .READ_DATA_WIDTH_A(32), .BYTE_WRITE_WIDTH_A(8),\n  .WRITE_DATA_WIDTH_B(32), .READ_DATA_WIDTH_B(32), .BYTE_WRITE_WIDTH_B(8),\n  .READ_LATENCY_A(2), .READ_LATENCY_B(2), .CLOCKING_MODE(\"independent_clock\"))\nu_shared (/* port A: AXI BRAM controller side, port B: accelerator side */ ...);",
+      "notes": "Simultaneous write to the same address from both ports is undefined unless the write modes and clocking allow it (see the collision rules in UG573/UG474). URAM (ultra) supports only common clock for both ports on some families.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_MEMORY_TDPRAM"
+    },
+    {
+      "name": "XPM_MEMORY_SPROM / XPM_MEMORY_DPROM",
+      "kind": "block",
+      "description": "Single-port and dual-port ROM macros initialised from a .mem file or MEMORY_INIT_PARAM string, mapping to block RAM (with registered outputs) or distributed LUT ROM, for lookup tables, microcode, sine tables and boot code. The dual-port version gives two independent read ports on the same contents.",
+      "usage": "xpm_memory_sprom #(.ADDR_WIDTH_A(10), .MEMORY_INIT_FILE(\"table.mem\"), .MEMORY_PRIMITIVE(\"block\"), .MEMORY_SIZE(10240), .READ_DATA_WIDTH_A(10), .READ_LATENCY_A(2)) inst (.douta(douta), .addra(addra), .clka(clka), .ena(ena), .regcea(1'b1), .rsta(rsta), .sleep(1'b0), .injectsbiterra(1'b0), .injectdbiterra(1'b0), .sbiterra(), .dbiterra());\nxpm_memory_dprom #(.ADDR_WIDTH_A(10), .ADDR_WIDTH_B(10), .CLOCKING_MODE(\"common_clock\"), .MEMORY_INIT_FILE(\"table.mem\"), .MEMORY_SIZE(10240), .READ_DATA_WIDTH_A(10), .READ_DATA_WIDTH_B(10), .READ_LATENCY_A(2), .READ_LATENCY_B(2)) inst2 (...);",
+      "parameters": [
+        {"name": "MEMORY_INIT_FILE", "description": ".mem file with one hex word per line (optionally @addr directives)."},
+        {"name": "MEMORY_PRIMITIVE", "description": "auto, block, distributed."},
+        {"name": "READ_LATENCY_*", "description": "Output pipeline depth; 0 gives asynchronous distributed ROM."}
+      ],
+      "example": "// sine.mem: 1024 lines of 12-bit hex values\nxpm_memory_sprom #(.ADDR_WIDTH_A(10), .MEMORY_SIZE(1024*12), .READ_DATA_WIDTH_A(12),\n  .READ_LATENCY_A(2), .MEMORY_INIT_FILE(\"sine.mem\"), .MEMORY_PRIMITIVE(\"block\"))\nu_sine (.clka(clk), .ena(1'b1), .addra(phase), .douta(sine), .rsta(1'b0), .regcea(1'b1),\n        .sleep(1'b0), .injectsbiterra(1'b0), .injectdbiterra(1'b0));",
+      "notes": "Contents can be updated in the bitstream without re-implementation via updatemem when the ROM is in block RAM and described in an .mmi file.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_MEMORY_SPROM"
+    },
+    {
+      "name": "XPM_MEMORY_DPDISTRAM",
+      "kind": "block",
+      "description": "Dual-port distributed (LUT) RAM macro: port A read/write, port B read-only, with optional registered outputs and independent clocks, mapping onto SLICEM LUTRAM. Used for small register files, coefficient stores and FIFOs below a few kilobits where block RAM would be wasteful and asynchronous (0-latency) read is desired.",
+      "usage": "xpm_memory_dpdistram #(.ADDR_WIDTH_A(6), .ADDR_WIDTH_B(6), .BYTE_WRITE_WIDTH_A(32), .CLOCKING_MODE(\"common_clock\"), .MEMORY_INIT_FILE(\"none\"), .MEMORY_OPTIMIZATION(\"true\"), .MEMORY_SIZE(2048), .READ_DATA_WIDTH_A(32), .READ_DATA_WIDTH_B(32), .READ_LATENCY_A(1), .READ_LATENCY_B(1), .READ_RESET_VALUE_A(\"0\"), .READ_RESET_VALUE_B(\"0\"), .RST_MODE_A(\"SYNC\"), .RST_MODE_B(\"SYNC\"), .USE_EMBEDDED_CONSTRAINT(0), .USE_MEM_INIT(1), .WRITE_DATA_WIDTH_A(32)) inst (.douta(douta), .doutb(doutb), .addra(addra), .addrb(addrb), .clka(clka), .clkb(clkb), .dina(dina), .ena(ena), .enb(enb), .regcea(1'b1), .regceb(1'b1), .rsta(rsta), .rstb(rstb), .wea(wea));",
+      "parameters": [
+        {"name": "READ_LATENCY_A / READ_LATENCY_B", "description": "0 for asynchronous read, 1+ registered."},
+        {"name": "MEMORY_SIZE", "description": "Total bits; keep small (LUTRAM cost is 64 bits per LUT6)."}
+      ],
+      "example": "xpm_memory_dpdistram #(.ADDR_WIDTH_A(5), .ADDR_WIDTH_B(5), .MEMORY_SIZE(32*16), .WRITE_DATA_WIDTH_A(16),\n  .READ_DATA_WIDTH_A(16), .READ_DATA_WIDTH_B(16), .BYTE_WRITE_WIDTH_A(16), .READ_LATENCY_A(0), .READ_LATENCY_B(0))\nu_regfile (...);",
+      "notes": "For a true dual-port LUTRAM with two write ports use two instances or the RAM64M/RAM32M primitives directly.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_MEMORY_DPDISTRAM"
+    },
+    {
+      "name": "XPM_FIFO_SYNC",
+      "kind": "block",
+      "description": "Single-clock FIFO macro in block RAM, distributed RAM, UltraRAM or auto with standard or first-word-fall-through read mode, independent write/read widths, programmable full/empty thresholds, data count outputs, ECC and optional advanced features enabled through the USE_ADV_FEATURES bit-string. It replaces fifo_generator for most non-AXI uses and can be sized from RTL parameters.",
+      "usage": "xpm_fifo_sync #(.DOUT_RESET_VALUE(\"0\"), .ECC_MODE(\"no_ecc\"), .FIFO_MEMORY_TYPE(\"auto\"), .FIFO_READ_LATENCY(1), .FIFO_WRITE_DEPTH(2048), .FULL_RESET_VALUE(0), .PROG_EMPTY_THRESH(10), .PROG_FULL_THRESH(10), .RD_DATA_COUNT_WIDTH(12), .READ_DATA_WIDTH(32), .READ_MODE(\"std\"), .SIM_ASSERT_CHK(0), .USE_ADV_FEATURES(\"0707\"), .WAKEUP_TIME(0), .WRITE_DATA_WIDTH(32), .WR_DATA_COUNT_WIDTH(12)) inst (.almost_empty(), .almost_full(), .data_valid(), .dbiterr(), .dout(dout), .empty(empty), .full(full), .overflow(), .prog_empty(), .prog_full(), .rd_data_count(), .rd_rst_busy(), .sbiterr(), .underflow(), .wr_ack(), .wr_data_count(), .wr_rst_busy(), .din(din), .injectdbiterr(1'b0), .injectsbiterr(1'b0), .rd_en(rd_en), .rst(rst), .sleep(1'b0), .wr_clk(clk), .wr_en(wr_en));",
+      "parameters": [
+        {"name": "FIFO_WRITE_DEPTH", "description": "Depth in write words (power of two, 16-4194304)."},
+        {"name": "READ_MODE", "description": "std (data appears one cycle after rd_en) or fwft (first word fall through, data_valid useful)."},
+        {"name": "FIFO_MEMORY_TYPE", "description": "auto, block, distributed, ultra."},
+        {"name": "USE_ADV_FEATURES", "description": "Hex string enabling overflow(0), prog_full(1), wr_data_count(2), almost_full(3), wr_ack(4), underflow(8), prog_empty(9), rd_data_count(10), almost_empty(11), data_valid(12); 0707 is the default."},
+        {"name": "PROG_FULL_THRESH / PROG_EMPTY_THRESH", "description": "Thresholds for the programmable flags."},
+        {"name": "FIFO_READ_LATENCY", "description": "Output register stages in std mode (0 for fwft)."}
+      ],
+      "example": "xpm_fifo_sync #(.FIFO_WRITE_DEPTH(512), .WRITE_DATA_WIDTH(64), .READ_DATA_WIDTH(64),\n  .READ_MODE(\"fwft\"), .FIFO_READ_LATENCY(0), .FIFO_MEMORY_TYPE(\"block\"), .USE_ADV_FEATURES(\"1707\"),\n  .PROG_FULL_THRESH(480), .RD_DATA_COUNT_WIDTH(10), .WR_DATA_COUNT_WIDTH(10))\nu_fifo (.wr_clk(clk), .rst(rst), .wr_en(wr_en), .din(din), .full(full), .prog_full(afull),\n        .rd_en(rd_en), .dout(dout), .empty(empty), .data_valid(dvalid),\n        .sleep(1'b0), .injectsbiterr(1'b0), .injectdbiterr(1'b0));",
+      "notes": "rst is synchronous to wr_clk and must be held for several cycles; wr_rst_busy/rd_rst_busy indicate when the FIFO is usable. Writes during full are ignored (overflow flag) unless USE_ADV_FEATURES enables wr_ack checking.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_FIFO_SYNC"
+    },
+    {
+      "name": "XPM_FIFO_ASYNC",
+      "kind": "block",
+      "description": "Dual-clock FIFO macro with independent write and read clocks, Gray-coded pointer synchronization (CDC_SYNC_STAGES), the same feature set as XPM_FIFO_SYNC (width conversion, fwft, thresholds, ECC, data counts) and a RELATED_CLOCKS option for clocks with a known ratio. It is the standard structure for crossing data between unrelated clock domains with buffering.",
+      "usage": "xpm_fifo_async #(.CDC_SYNC_STAGES(2), .DOUT_RESET_VALUE(\"0\"), .ECC_MODE(\"no_ecc\"), .FIFO_MEMORY_TYPE(\"auto\"), .FIFO_READ_LATENCY(1), .FIFO_WRITE_DEPTH(2048), .FULL_RESET_VALUE(0), .PROG_EMPTY_THRESH(10), .PROG_FULL_THRESH(10), .RD_DATA_COUNT_WIDTH(12), .READ_DATA_WIDTH(32), .READ_MODE(\"std\"), .RELATED_CLOCKS(0), .SIM_ASSERT_CHK(0), .USE_ADV_FEATURES(\"0707\"), .WAKEUP_TIME(0), .WRITE_DATA_WIDTH(32), .WR_DATA_COUNT_WIDTH(12)) inst (.dout(dout), .empty(empty), .full(full), .rd_clk(rd_clk), .rd_en(rd_en), .rst(rst), .wr_clk(wr_clk), .wr_en(wr_en), .din(din), .sleep(1'b0), .injectdbiterr(1'b0), .injectsbiterr(1'b0), /* other flags */ );",
+      "parameters": [
+        {"name": "CDC_SYNC_STAGES", "description": "Synchronizer depth for the pointer crossings (2-8)."},
+        {"name": "RELATED_CLOCKS", "description": "1 when wr_clk and rd_clk are related (skips synchronizers, requires timing between them)."},
+        {"name": "FIFO_WRITE_DEPTH / WRITE_DATA_WIDTH / READ_DATA_WIDTH / READ_MODE / USE_ADV_FEATURES", "description": "As for XPM_FIFO_SYNC."}
+      ],
+      "example": "xpm_fifo_async #(.FIFO_WRITE_DEPTH(1024), .WRITE_DATA_WIDTH(32), .READ_DATA_WIDTH(128),\n  .READ_MODE(\"fwft\"), .FIFO_READ_LATENCY(0), .CDC_SYNC_STAGES(3), .USE_ADV_FEATURES(\"0707\"))\nu_cdc_fifo (.wr_clk(clk_adc), .rst(rst_adc), .wr_en(sample_valid), .din(sample), .full(full),\n            .rd_clk(clk_axi), .rd_en(rd_en), .dout(word), .empty(empty),\n            .sleep(1'b0), .injectsbiterr(1'b0), .injectdbiterr(1'b0));",
+      "notes": "rst is synchronous to wr_clk; both rd_rst_busy and wr_rst_busy must be low before use. Full/empty flags are pessimistic by a few cycles due to synchronization latency; size the FIFO accordingly. The embedded constraints cover the Gray-code crossings.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_FIFO_ASYNC"
+    },
+    {
+      "name": "XPM_FIFO_AXIS",
+      "kind": "block",
+      "description": "AXI4-Stream FIFO macro (always first-word-fall-through) with common or independent clocks, TDATA/TKEEP/TSTRB/TLAST/TUSER/TID/TDEST signals, optional packet mode (a packet is only released once TLAST has been written), programmable thresholds and data counts, ECC and the USE_ADV_FEATURES bit-string. It is the RTL equivalent of the axis_data_fifo IP for buffering and clock crossing of streams.",
+      "usage": "xpm_fifo_axis #(.CDC_SYNC_STAGES(2), .CLOCKING_MODE(\"common_clock\"), .ECC_MODE(\"no_ecc\"), .FIFO_DEPTH(2048), .FIFO_MEMORY_TYPE(\"auto\"), .PACKET_FIFO(\"false\"), .PROG_EMPTY_THRESH(10), .PROG_FULL_THRESH(10), .RD_DATA_COUNT_WIDTH(1), .RELATED_CLOCKS(0), .SIM_ASSERT_CHK(0), .TDATA_WIDTH(32), .TDEST_WIDTH(1), .TID_WIDTH(1), .TUSER_WIDTH(1), .USE_ADV_FEATURES(\"1000\"), .WR_DATA_COUNT_WIDTH(1)) inst (.m_axis_tdata(m_axis_tdata), .m_axis_tvalid(m_axis_tvalid), .m_axis_tready(m_axis_tready), .m_axis_tlast(m_axis_tlast), .m_axis_tkeep(m_axis_tkeep), .m_axis_tstrb(), .m_axis_tuser(), .m_axis_tid(), .m_axis_tdest(), .s_axis_tdata(s_axis_tdata), .s_axis_tvalid(s_axis_tvalid), .s_axis_tready(s_axis_tready), .s_axis_tlast(s_axis_tlast), .s_axis_tkeep(s_axis_tkeep), .s_axis_tstrb('1), .s_axis_tuser('0), .s_axis_tid('0), .s_axis_tdest('0), .s_aclk(s_aclk), .s_aresetn(s_aresetn), .m_aclk(m_aclk), .almost_empty_axis(), .almost_full_axis(), .prog_empty_axis(), .prog_full_axis(), .rd_data_count_axis(), .wr_data_count_axis(), .sbiterr_axis(), .dbiterr_axis(), .injectsbiterr_axis(1'b0), .injectdbiterr_axis(1'b0));",
+      "parameters": [
+        {"name": "TDATA_WIDTH", "description": "Bits (8-2048, multiples of 8)."},
+        {"name": "FIFO_DEPTH", "description": "Entries (16-4194304, power of two)."},
+        {"name": "CLOCKING_MODE", "description": "common_clock or independent_clock (uses s_aclk/m_aclk and CDC_SYNC_STAGES)."},
+        {"name": "PACKET_FIFO", "description": "true to hold data until a whole packet (TLAST) is present."},
+        {"name": "USE_ADV_FEATURES", "description": "Bit-string as for the other FIFO macros (data counts, prog flags, almost flags)."}
+      ],
+      "example": "xpm_fifo_axis #(.FIFO_DEPTH(4096), .TDATA_WIDTH(64), .CLOCKING_MODE(\"independent_clock\"), .PACKET_FIFO(\"true\"), .USE_ADV_FEATURES(\"1000\"))\nu_pkt_fifo (.s_aclk(clk_mac), .s_aresetn(rstn_mac), .s_axis_tdata(rx_tdata), .s_axis_tkeep(rx_tkeep), .s_axis_tlast(rx_tlast),\n            .s_axis_tvalid(rx_tvalid), .s_axis_tready(rx_tready),\n            .m_aclk(clk_user), .m_axis_tdata(tdata), .m_axis_tkeep(tkeep), .m_axis_tlast(tlast), .m_axis_tvalid(tvalid), .m_axis_tready(tready),\n            .s_axis_tstrb(8'hFF), .s_axis_tuser(1'b0), .s_axis_tid(1'b0), .s_axis_tdest(1'b0), .injectsbiterr_axis(1'b0), .injectdbiterr_axis(1'b0));",
+      "notes": "Reset is s_aresetn, synchronous to s_aclk, and must be held for several cycles. Packet mode requires the FIFO to be deeper than the largest packet.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/XPM_FIFO_AXIS"
+    },
+    {
+      "name": "BUFG / BUFGCE / BUFGCTRL / BUFGMUX",
+      "kind": "block",
+      "description": "Global clock buffers driving the low-skew global clock network: BUFG (plain), BUFGCE (with clock-enable for glitch-free gating), BUFGMUX / BUFGMUX_CTRL (glitch-free 2:1 clock multiplexer) and BUFGCTRL (the underlying primitive with two inputs, enables, selects and ignore controls that the others are derived from). Synthesis infers BUFG on clock ports automatically; explicit instantiation is needed for clock gating, muxing and for BUFGCE-based clock division control (7 series: 32 BUFGs; UltraScale: BUFGCE per clock region, 24 tracks).",
+      "usage": "BUFG    u0 (.I(clk_in), .O(clk));\nBUFGCE  u1 (.I(clk_in), .CE(clk_en), .O(clk_gated));          // UltraScale: BUFGCE #(.CE_TYPE(\"SYNC\"), .IS_CE_INVERTED(1'b0))\nBUFGMUX u2 (.I0(clk_a), .I1(clk_b), .S(sel), .O(clk_out));   // BUFGMUX_CTRL on UltraScale\nBUFGCTRL #(.INIT_OUT(0), .PRESELECT_I0(\"TRUE\"), .PRESELECT_I1(\"FALSE\")) u3 (.I0(a), .I1(b), .CE0(1'b1), .CE1(1'b1), .S0(~sel), .S1(sel), .IGNORE0(1'b0), .IGNORE1(1'b0), .O(clk_out));",
+      "parameters": [
+        {"name": "CE (BUFGCE)", "description": "Synchronous, glitch-free clock enable; on UltraScale CE_TYPE ASYNC disables the sync stage."},
+        {"name": "S / S0,S1 (mux)", "description": "Select input; the switch happens only when both clocks are low (glitch-free)."},
+        {"name": "PRESELECT_I0/I1 / INIT_OUT (BUFGCTRL)", "description": "Initial selection and output level after configuration."}
+      ],
+      "example": "// Clock gating for power: stop a peripheral clock while idle\nBUFGCE u_gate (.I(clk_200), .CE(periph_active), .O(clk_periph));\n// XDC: create_generated_clock is NOT needed for a BUFGCE (same period); for a mux with two clocks use\nset_clock_groups -physically_exclusive -group clk_a -group clk_b",
+      "notes": "Clock muxing or gating in fabric LUTs is flagged by report_methodology (clock-related TIMING checks) and must use BUFGMUX/BUFGCTRL or BUFGCE instead. On UltraScale a BUFGCE_DIV additionally divides.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/BUFGCE"
+    },
+    {
+      "name": "BUFR / BUFH / BUFIO / BUFMR (7 series regional clocking)",
+      "kind": "block",
+      "description": "7 series regional clock buffers: BUFIO drives the I/O clock network of one bank for ISERDES/OSERDES at the highest rate, BUFR drives the regional clock of a bank with optional divide-by-1..8 (BUFR_DIVIDE) to make the divided parallel clock, BUFMR (multi-region) spans three vertically adjacent banks, and BUFH is a horizontal (clock-region) buffer used for local clocks and clock-region-limited enables. They implement source-synchronous receivers/transmitters without spending global buffers.",
+      "usage": "BUFIO u_bufio (.I(clk_ibufds), .O(clk_io));\nBUFR #(.BUFR_DIVIDE(\"4\"), .SIM_DEVICE(\"7SERIES\")) u_bufr (.I(clk_ibufds), .CE(1'b1), .CLR(1'b0), .O(clk_div4));\nBUFMR u_bufmr (.I(clk_mrcc), .O(clk_mr));\nBUFH u_bufh (.I(clk_local), .O(clk_h));",
+      "parameters": [
+        {"name": "BUFR_DIVIDE", "description": "BYPASS, 1-8: division ratio for the regional parallel clock."},
+        {"name": "CE / CLR (BUFR)", "description": "Enable and reset of the divider (align to the serial clock's edge)."},
+        {"name": "SIM_DEVICE", "description": "7SERIES for BUFR models."}
+      ],
+      "example": "// LVDS source-synchronous receiver, 7 series: clock on a CC pin\nIBUFDS u_clk (.I(rx_clk_p), .IB(rx_clk_n), .O(rx_clk));\nBUFIO  u_io  (.I(rx_clk), .O(rx_clk_io));\nBUFR #(.BUFR_DIVIDE(\"4\")) u_div (.I(rx_clk), .CE(1'b1), .CLR(1'b0), .O(rx_clk_div));\nISERDESE2 #(.DATA_RATE(\"DDR\"), .DATA_WIDTH(8), .INTERFACE_TYPE(\"NETWORKING\"), .IOBDELAY(\"IFD\")) u_des (.CLK(rx_clk_io), .CLKB(~rx_clk_io), .CLKDIV(rx_clk_div), ...);",
+      "notes": "UltraScale replaces this scheme with BUFGCE_DIV and the bitslice/native I/O; BUFIO/BUFR do not exist there. Clock-capable (CC/MRCC) pins are required for the input clock.",
+      "docs": "https://docs.amd.com/r/en-US/ug953-vivado-7series-libraries/BUFR"
+    },
+    {
+      "name": "BUFGCE_DIV (UltraScale/UltraScale+)",
+      "kind": "block",
+      "description": "Global clock buffer with an integrated divider (1-8) and clock enable, producing a divided clock that stays phase-aligned with the undivided one from a sibling BUFGCE in the same clock region, so serial/parallel clock pairs for SerDes and DDR interfaces need no MMCM. Vivado auto-derives the divided clock's timing (no create_generated_clock needed) and uses CLOCK_DELAY_GROUP to keep the pair balanced.",
+      "usage": "BUFGCE_DIV #(.BUFGCE_DIVIDE(4), .IS_CE_INVERTED(1'b0), .IS_CLR_INVERTED(1'b0), .IS_I_INVERTED(1'b0)) u_div (.I(clk_fast), .CE(1'b1), .CLR(1'b0), .O(clk_div4));\nBUFGCE u_full (.I(clk_fast), .CE(1'b1), .O(clk_full));\n# XDC to keep them skew-matched\nset_property CLOCK_DELAY_GROUP ddr_grp [get_nets {clk_full clk_div4}]",
+      "parameters": [
+        {"name": "BUFGCE_DIVIDE", "description": "1-8 integer division."},
+        {"name": "CE / CLR", "description": "Enable and divider reset (synchronous)."}
+      ],
+      "example": "// 1:4 DDR interface: 500 MHz serial clock and 125 MHz parallel clock from one MMCM output\nBUFGCE      u_ck  (.I(mmcm_clk500), .CE(1'b1), .O(clk_serial));\nBUFGCE_DIV #(.BUFGCE_DIVIDE(4)) u_ckd (.I(mmcm_clk500), .CE(1'b1), .CLR(1'b0), .O(clk_parallel));",
+      "notes": "Both buffers must be in the same clock region for the deskew to apply; the placer enforces this when CLOCK_DELAY_GROUP is set. Versal has an equivalent BUFGCE_DIV as well.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/BUFGCE_DIV"
+    },
+    {
+      "name": "MMCME2_ADV / MMCME4_ADV (MMCM primitives)",
+      "kind": "block",
+      "description": "Mixed-Mode Clock Manager primitive (MMCME2 on 7 series, MMCME3 UltraScale, MMCME4 UltraScale+, MMCME5 Versal) with a VCO fed by CLKIN1/CLKIN2 through DIVCLK_DIVIDE and CLKFBOUT_MULT_F, seven outputs (CLKOUT0 with fractional divide, CLKOUT1-6 integer) each with phase and duty-cycle control, dynamic reconfiguration (DRP) and fine phase shift (PSEN/PSINCDEC), feedback modes (ZHOLD/BUF_IN/BUFOUT/INTERNAL) and LOCKED output. Normally configured through the Clocking Wizard, which computes legal VCO ranges; direct instantiation is for hand-tuned or dynamically reconfigured clocking.",
+      "usage": "MMCME4_ADV #(.BANDWIDTH(\"OPTIMIZED\"), .CLKFBOUT_MULT_F(10.0), .CLKFBOUT_PHASE(0.0), .CLKIN1_PERIOD(10.0), .CLKOUT0_DIVIDE_F(5.0), .CLKOUT1_DIVIDE(10), .CLKOUT0_PHASE(0.0), .CLKOUT0_DUTY_CYCLE(0.5), .COMPENSATION(\"AUTO\"), .DIVCLK_DIVIDE(1), .STARTUP_WAIT(\"FALSE\")) u_mmcm (.CLKIN1(clk_in), .CLKIN2(1'b0), .CLKINSEL(1'b1), .CLKFBIN(clkfb), .CLKFBOUT(clkfb), .CLKOUT0(clk200), .CLKOUT1(clk100), .LOCKED(locked), .RST(rst), .PWRDWN(1'b0), .DADDR(7'd0), .DCLK(1'b0), .DEN(1'b0), .DI(16'd0), .DWE(1'b0), .PSCLK(1'b0), .PSEN(1'b0), .PSINCDEC(1'b0), .CDDCREQ(1'b0));",
+      "parameters": [
+        {"name": "CLKIN1_PERIOD", "description": "Input period in ns (required for timing derivation)."},
+        {"name": "DIVCLK_DIVIDE / CLKFBOUT_MULT_F", "description": "Set F_VCO = F_IN * M / D; VCO range is family/speed-grade specific (e.g. 800-1600 MHz on UltraScale+ -2)."},
+        {"name": "CLKOUTn_DIVIDE(_F) / CLKOUTn_PHASE / CLKOUTn_DUTY_CYCLE", "description": "Per-output frequency, phase in degrees and duty cycle; CLKOUT0 supports fractional (x.125 steps)."},
+        {"name": "COMPENSATION / CLKFBOUT feedback", "description": "ZHOLD (deskew to input), BUF_IN, EXTERNAL, INTERNAL."},
+        {"name": "DRP ports (DADDR/DI/DO/DEN/DWE/DCLK)", "description": "Dynamic reconfiguration (see the clocking wizard's dynamic reconfiguration option and XAPP888)."}
+      ],
+      "example": "# Auto-derived clocks after instantiation: report_clocks shows CLKOUT0 as e.g. clk200 with period 5.0;\n# rename them for readable constraints:\ncreate_generated_clock -name clk_200 [get_pins u_mmcm/CLKOUT0]\ncreate_generated_clock -name clk_100 [get_pins u_mmcm/CLKOUT1]\nset_input_delay -clock clk_100 ...",
+      "notes": "Use BUFG on CLKFBOUT->CLKFBIN when the outputs are buffered and deskew to the input is required; internal feedback is fine when only the outputs' mutual relationship matters. LOCKED must gate downstream resets. The wizard checks the VCO/PFD legality, direct instantiation does not until DRC.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/MMCME4_ADV"
+    },
+    {
+      "name": "PLLE2_ADV / PLLE4_ADV (PLL primitives)",
+      "kind": "block",
+      "description": "Phase-locked loop primitive (PLLE2 7 series, PLLE3 UltraScale, PLLE4 UltraScale+), a simpler sibling of the MMCM with integer-only multiplication/division, fewer outputs (6 on 7 series, 2 plus CLKOUTPHY on UltraScale for the I/O bitslice clocks), no fine phase shift and lower jitter. Used when the MMCM's fractional/phase-shift features are not needed, and on UltraScale specifically to drive the native I/O (CLKOUTPHY) clock of high-speed SelectIO interfaces.",
+      "usage": "PLLE2_ADV #(.BANDWIDTH(\"OPTIMIZED\"), .CLKFBOUT_MULT(10), .CLKIN1_PERIOD(10.0), .CLKOUT0_DIVIDE(5), .CLKOUT1_DIVIDE(20), .DIVCLK_DIVIDE(1), .COMPENSATION(\"ZHOLD\")) u_pll (.CLKIN1(clk_in), .CLKIN2(1'b0), .CLKINSEL(1'b1), .CLKFBIN(fb), .CLKFBOUT(fb), .CLKOUT0(clk200), .CLKOUT1(clk50), .LOCKED(locked), .RST(rst), .PWRDWN(1'b0), .DADDR(7'd0), .DCLK(1'b0), .DEN(1'b0), .DI(16'd0), .DWE(1'b0));\nPLLE4_ADV #(.CLKFBOUT_MULT(8), .CLKIN_PERIOD(6.4), .CLKOUT0_DIVIDE(2), .CLKOUTPHY_MODE(\"VCO_2X\"), .DIVCLK_DIVIDE(1)) u_pll4 (.CLKIN(clk_in), .CLKFBIN(fb), .CLKFBOUT(fb), .CLKOUT0(clk), .CLKOUTPHY(clk_phy), .CLKOUTPHYEN(phy_en), .LOCKED(locked), .RST(rst), .PWRDWN(1'b0), ...);",
+      "parameters": [
+        {"name": "CLKFBOUT_MULT / DIVCLK_DIVIDE / CLKOUTn_DIVIDE", "description": "Integer M, D and O values."},
+        {"name": "CLKOUTPHY_MODE (PLLE3/PLLE4)", "description": "VCO, VCO_2X, VCO_HALF: the I/O clock frequency for BITSLICE_CONTROL."},
+        {"name": "BANDWIDTH", "description": "OPTIMIZED, HIGH, LOW (jitter filtering)."}
+      ],
+      "example": "# Clocking Wizard equivalent: set_property CONFIG.PRIMITIVE PLL [get_ips clk_wiz_0]\n# In UltraScale memory/SelectIO IP the PLL is placed per bank (one PLL per I/O bank pair) to drive CLKOUTPHY",
+      "notes": "PLL VCO range differs from the MMCM's (typically higher minimum). On UltraScale the PLLs sit in the I/O columns (two per bank) and are consumed by DDR4/High Speed SelectIO wizards, leaving MMCMs for general use.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/PLLE4_ADV"
+    },
+    {
+      "name": "IBUF / OBUF / OBUFT / IOBUF",
+      "kind": "block",
+      "description": "Single-ended I/O buffer primitives inserted automatically by synthesis on top-level ports (unless IO_BUFFER_TYPE NONE): IBUF (input), OBUF (output), OBUFT (tri-state output with active-low T), IOBUF (bidirectional with T and separate I/O/IO ports). Explicit instantiation is used for bidirectional pins whose tri-state control must be exact (I2C, SDRAM DQ), for IBUF_IBUFDISABLE/IBUFE3 variants with power-down or VREF control on UltraScale, and in RTL that is meant to be technology-explicit. Electrical attributes (IOSTANDARD, DRIVE, SLEW) are set on the port in XDC, not as generics, except in OOC/IP flows.",
+      "usage": "IBUF  u_in  (.I(pad_in), .O(sig));\nOBUF  u_out (.I(sig), .O(pad_out));\nOBUFT u_tri (.I(sig), .T(~oe), .O(pad_out));\nIOBUF u_bidir (.I(dout), .T(~oe), .O(din), .IO(pad));   // IOBUF #(.DRIVE(12), .SLEW(\"FAST\")) attributes possible but XDC is preferred",
+      "parameters": [
+        {"name": "T", "description": "Tri-state control: 1 = high impedance (active-low output enable)."},
+        {"name": "IOSTANDARD / DRIVE / SLEW / IBUF_LOW_PWR", "description": "Instance attributes accepted for compatibility; set them with set_property on the port instead."}
+      ],
+      "example": "// I2C open-drain: drive low or release\nIOBUF u_sda (.I(1'b0), .T(sda_release), .O(sda_in), .IO(sda_pad));\nIOBUF u_scl (.I(1'b0), .T(scl_release), .O(scl_in), .IO(scl_pad));\n# XDC\nset_property IOSTANDARD LVCMOS33 [get_ports {sda_pad scl_pad}]\nset_property PULLTYPE PULLUP [get_ports {sda_pad scl_pad}]",
+      "notes": "Synthesis infers OBUFT/IOBUF from 'assign pad = oe ? d : 1'bz;' patterns; explicit instances are only needed when inference gives the wrong structure. A port with IOB TRUE packs its register into the same I/O tile as the buffer.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/IOBUF"
+    },
+    {
+      "name": "IBUFDS / OBUFDS / IBUFGDS / IOBUFDS / IBUFDS_DIFF_OUT",
+      "kind": "block",
+      "description": "Differential I/O buffers: IBUFDS receives a differential pair into a single-ended signal (IBUFGDS is the same, historically for clocks), OBUFDS transmits, OBUFTDS adds tri-state, IOBUFDS is bidirectional, and IBUFDS_DIFF_OUT provides both true and complement outputs (used for ISERDES CLK/CLKB). The I/O standard (LVDS, LVDS_25, TMDS_33, DIFF_SSTL12, DIFF_HSTL_I ...) is set on the ports; DIFF_TERM selects on-chip termination.",
+      "usage": "IBUFDS  u_clk (.I(clk_p), .IB(clk_n), .O(clk));\nOBUFDS  u_tx  (.I(tx), .O(tx_p), .OB(tx_n));\nIOBUFDS u_bd  (.I(d), .T(t), .O(q), .IO(pad_p), .IOB(pad_n));\nIBUFDS_DIFF_OUT u_dd (.I(clk_p), .IB(clk_n), .O(clk), .OB(clk_b));",
+      "parameters": [
+        {"name": "DIFF_TERM / DIFF_TERM_ADV", "description": "Internal 100 ohm termination (set on the port in XDC)."},
+        {"name": "IBUF_LOW_PWR", "description": "TRUE for low-power mode at reduced performance."},
+        {"name": "DQS_BIAS (UltraScale)", "description": "Bias for DDR DQS-style inputs."}
+      ],
+      "example": "IBUFDS u_refclk (.I(sys_clk_p), .IB(sys_clk_n), .O(sys_clk_ibuf));\nBUFG   u_bufg   (.I(sys_clk_ibuf), .O(sys_clk));\n# XDC\nset_property IOSTANDARD LVDS [get_ports {sys_clk_p sys_clk_n}]\nset_property DIFF_TERM_ADV TERM_100 [get_ports {sys_clk_p sys_clk_n}]\ncreate_clock -period 5.000 [get_ports sys_clk_p]",
+      "notes": "Only the P port of a pair needs PACKAGE_PIN; Vivado infers the N pin. Transceiver reference clocks use IBUFDS_GTE2/3/4/5, not IBUFDS. TMDS (HDMI) on 7 series HR banks requires TMDS_33 with a 3.3 V VCCO.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/IBUFDS"
+    },
+    {
+      "name": "IDDR / ODDR (7 series) and IDDRE1 / ODDRE1 (UltraScale)",
+      "kind": "block",
+      "description": "Double-data-rate I/O registers in the ILOGIC/OLOGIC: IDDR captures a DDR input into two single-rate outputs (Q1 on rising, Q2 on falling edge) with OPPOSITE_EDGE, SAME_EDGE or SAME_EDGE_PIPELINED alignment; ODDR multiplexes two data bits onto rising and falling edges, and with D1=1/D2=0 forwards a clock to an output pin (the standard way to output a clock, since routing a clock net directly to an OBUF is illegal). UltraScale versions are IDDRE1/ODDRE1 with slightly different attributes (DDR_CLK_EDGE, SRVAL) and inverted-clock inputs.",
+      "usage": "ODDR #(.DDR_CLK_EDGE(\"SAME_EDGE\"), .INIT(1'b0), .SRTYPE(\"SYNC\")) u_clkfwd (.Q(clk_out), .C(clk), .CE(1'b1), .D1(1'b1), .D2(1'b0), .R(1'b0), .S(1'b0));\nIDDR #(.DDR_CLK_EDGE(\"SAME_EDGE_PIPELINED\"), .INIT_Q1(1'b0), .INIT_Q2(1'b0), .SRTYPE(\"SYNC\")) u_in (.Q1(d_rise), .Q2(d_fall), .C(clk), .CE(1'b1), .D(pad_in), .R(1'b0), .S(1'b0));\nODDRE1 #(.IS_C_INVERTED(1'b0), .SRVAL(1'b0)) u_oddr_us (.Q(q), .C(clk), .D1(d1), .D2(d2), .SR(rst));\nIDDRE1 #(.DDR_CLK_EDGE(\"SAME_EDGE_PIPELINED\"), .IS_CB_INVERTED(1'b1)) u_iddr_us (.Q1(q1), .Q2(q2), .C(clk), .CB(clk), .D(d), .R(rst));",
+      "parameters": [
+        {"name": "DDR_CLK_EDGE", "description": "OPPOSITE_EDGE (raw), SAME_EDGE (Q2 delayed half cycle so both change on rising edge), SAME_EDGE_PIPELINED (one extra cycle, both aligned)."},
+        {"name": "D1 / D2", "description": "Data for rising and falling edge; D1=1,D2=0 forwards the clock, D1=0,D2=1 inverted clock."},
+        {"name": "SRTYPE / INIT / SRVAL", "description": "Reset behaviour and initial value."},
+        {"name": "IS_CB_INVERTED (IDDRE1)", "description": "Set to 1 and connect CB to the same clock to emulate the 7 series single-clock behaviour."}
+      ],
+      "example": "// Forward a 125 MHz clock to a PHY (RGMII TXC)\nODDR #(.DDR_CLK_EDGE(\"SAME_EDGE\")) u_txc (.Q(rgmii_txc), .C(clk125_90), .CE(1'b1), .D1(1'b1), .D2(1'b0), .R(1'b0), .S(1'b0));\n# XDC generated clock on the forwarded output\ncreate_generated_clock -name rgmii_txc -source [get_pins u_txc/C] -multiply_by 1 [get_ports rgmii_txc]\nset_output_delay -clock rgmii_txc -max 1.0 [get_ports {rgmii_txd[*] rgmii_tx_ctl}]\nset_output_delay -clock rgmii_txc -max 1.0 -clock_fall -add_delay [get_ports {rgmii_txd[*] rgmii_tx_ctl}]",
+      "notes": "Synthesis infers ODDR/IDDR from RTL only in limited patterns; instantiate explicitly for interface code. On UltraScale the ILOGIC/OLOGIC DDR registers are a subset of the native (bitslice) I/O; for rates above ~600 Mb/s use the High Speed SelectIO Wizard.",
+      "docs": "https://docs.amd.com/r/en-US/ug953-vivado-7series-libraries/ODDR"
+    },
+    {
+      "name": "IDELAYE2 / ODELAYE2 / IDELAYE3 / ODELAYE3 & IDELAYCTRL",
+      "kind": "block",
+      "description": "Programmable input/output delay elements in the I/O tiles: 7 series IDELAYE2/ODELAYE2 have 32 taps of ~78 ps (at 200 MHz reference) in FIXED, VARIABLE or VAR_LOAD modes; UltraScale IDELAYE3/ODELAYE3 offer TIME mode with delays specified in ps (DELAY_VALUE up to ~1.25 ns) or COUNT mode with 512 taps, cascadable for longer delays. Both need one IDELAYCTRL per bank (or clock region) driven by a 200/300 MHz reference clock (REFCLK_FREQUENCY) to calibrate tap delay against PVT; Vivado replicates IDELAYCTRL automatically when its LOC is left free. They align data to clock in source-synchronous interfaces (DDR2/3 DQS centering, LVDS deskew).",
+      "usage": "IDELAYCTRL u_dlyctrl (.REFCLK(clk_200), .RST(rst), .RDY(dly_rdy));   // UltraScale: IDELAYCTRL #(.SIM_DEVICE(\"ULTRASCALE\"))\nIDELAYE2 #(.IDELAY_TYPE(\"VAR_LOAD\"), .DELAY_SRC(\"IDATAIN\"), .IDELAY_VALUE(0), .REFCLK_FREQUENCY(200.0), .SIGNAL_PATTERN(\"DATA\"), .HIGH_PERFORMANCE_MODE(\"TRUE\")) u_dly (.IDATAIN(pad), .DATAOUT(delayed), .C(clk_div), .CE(1'b0), .INC(1'b0), .LD(load), .CNTVALUEIN(tap), .CNTVALUEOUT(), .LDPIPEEN(1'b0), .REGRST(1'b0), .DATAIN(1'b0), .CINVCTRL(1'b0));\nIDELAYE3 #(.DELAY_FORMAT(\"TIME\"), .DELAY_TYPE(\"VAR_LOAD\"), .DELAY_VALUE(300), .REFCLK_FREQUENCY(300.0), .DELAY_SRC(\"IDATAIN\"), .UPDATE_MODE(\"ASYNC\")) u_dly3 (.IDATAIN(pad), .DATAOUT(delayed), .CLK(clk), .CE(1'b0), .INC(1'b0), .LOAD(load), .CNTVALUEIN(cnt), .CNTVALUEOUT(), .EN_VTC(en_vtc), .RST(rst), .CASC_IN(1'b0), .CASC_RETURN(1'b0), .CASC_OUT(), .DATAIN(1'b0));",
+      "parameters": [
+        {"name": "IDELAY_TYPE / DELAY_TYPE", "description": "FIXED (static IDELAY_VALUE), VARIABLE (INC/CE stepping), VAR_LOAD (load CNTVALUEIN)."},
+        {"name": "DELAY_FORMAT (E3)", "description": "TIME (DELAY_VALUE in ps, calibrated) or COUNT (raw taps)."},
+        {"name": "REFCLK_FREQUENCY", "description": "IDELAYCTRL reference: 200 MHz (7 series; 300/400 also allowed) or 300 MHz typical on UltraScale."},
+        {"name": "EN_VTC (E3)", "description": "Voltage/temperature compensation enable; must be low while updating the delay value."},
+        {"name": "IDELAYCTRL RDY", "description": "Calibration done; gate the interface reset on it."}
+      ],
+      "example": "# Constrain IDELAYCTRL per bank with the group attribute so Vivado can replicate it\nset_property IODELAY_GROUP rx_grp [get_cells u_dlyctrl]\nset_property IODELAY_GROUP rx_grp [get_cells -hier -filter {REF_NAME == IDELAYE2 && NAME =~ *rx*}]",
+      "notes": "Missing IDELAYCTRL is a DRC error whenever a non-fixed IDELAY exists. On UltraScale HP banks the bitslice-based IDELAYE3 is part of the native I/O and is normally generated by the High Speed SelectIO / DDR4 wizards.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/IDELAYE3"
+    },
+    {
+      "name": "ISERDESE2 / OSERDESE2 (7 series) and ISERDESE3 / OSERDESE3 (UltraScale)",
+      "kind": "block",
+      "description": "Input and output serializer/deserializer blocks in the I/O logic: 7 series ISERDESE2/OSERDESE2 support SDR/DDR at 2:1 to 8:1 (10:1 and 14:1 with cascading two blocks, MASTER/SLAVE) with bitslip for word alignment, NETWORKING/MEMORY interface types and a CLK/CLKDIV clock pair from BUFIO/BUFR; UltraScale ISERDESE3/OSERDESE3 are 4:1 or 8:1 DDR components of the native I/O bitslice, clocked from BUFGCE/BUFGCE_DIV pairs, with the more capable RX_BITSLICE/TX_BITSLICE/BITSLICE_CONTROL primitives (used by the High Speed SelectIO Wizard) for calibrated, higher-rate interfaces. They implement LVDS camera/ADC/display links, RGMII-1000, memory PHYs and custom serial buses up to ~1.25 Gb/s per pin.",
+      "usage": "OSERDESE2 #(.DATA_RATE_OQ(\"DDR\"), .DATA_RATE_TQ(\"SDR\"), .DATA_WIDTH(8), .SERDES_MODE(\"MASTER\"), .TRISTATE_WIDTH(1)) u_ser (.OQ(pad), .CLK(clk_serial), .CLKDIV(clk_parallel), .D1(d[0]), .D2(d[1]), .D3(d[2]), .D4(d[3]), .D5(d[4]), .D6(d[5]), .D7(d[6]), .D8(d[7]), .OCE(1'b1), .RST(rst), .TCE(1'b0), .T1(1'b0), .T2(1'b0), .T3(1'b0), .T4(1'b0), .SHIFTIN1(1'b0), .SHIFTIN2(1'b0), .TBYTEIN(1'b0));\nISERDESE2 #(.DATA_RATE(\"DDR\"), .DATA_WIDTH(8), .INTERFACE_TYPE(\"NETWORKING\"), .IOBDELAY(\"IFD\"), .NUM_CE(1), .SERDES_MODE(\"MASTER\")) u_des (.Q1(q[7]), .Q2(q[6]), .Q3(q[5]), .Q4(q[4]), .Q5(q[3]), .Q6(q[2]), .Q7(q[1]), .Q8(q[0]), .BITSLIP(bitslip), .CE1(1'b1), .CE2(1'b1), .CLK(clk_io), .CLKB(~clk_io), .CLKDIV(clk_div), .CLKDIVP(1'b0), .D(1'b0), .DDLY(pad_delayed), .RST(rst), .OCLK(1'b0), .OCLKB(1'b0), .DYNCLKDIVSEL(1'b0), .DYNCLKSEL(1'b0), .OFB(1'b0), .SHIFTIN1(1'b0), .SHIFTIN2(1'b0));\nISERDESE3 #(.DATA_WIDTH(8), .FIFO_ENABLE(\"FALSE\"), .FIFO_SYNC_MODE(\"FALSE\"), .IS_CLK_B_INVERTED(1'b1)) u_des3 (.Q(q), .CLK(clk_serial), .CLK_B(clk_serial), .CLKDIV(clk_div), .D(d), .RST(rst), .FIFO_RD_CLK(1'b0), .FIFO_RD_EN(1'b0), .FIFO_EMPTY(), .INTERNAL_DIVCLK());\nOSERDESE3 #(.DATA_WIDTH(8), .INIT(1'b0), .IS_CLK_INVERTED(1'b0), .IS_CLKDIV_INVERTED(1'b0), .IS_RST_INVERTED(1'b0)) u_ser3 (.OQ(pad), .T_OUT(), .CLK(clk_serial), .CLKDIV(clk_div), .D(d), .RST(rst), .T(1'b0));",
+      "parameters": [
+        {"name": "DATA_WIDTH / DATA_RATE", "description": "Serialization factor and SDR/DDR; the CLK:CLKDIV ratio must equal DATA_WIDTH/(2 for DDR)."},
+        {"name": "SERDES_MODE (E2)", "description": "MASTER or SLAVE for cascaded widths above 8."},
+        {"name": "INTERFACE_TYPE (ISERDESE2)", "description": "NETWORKING (general), MEMORY/MEMORY_DDR3/MEMORY_QDR (strobe-based), OVERSAMPLE."},
+        {"name": "BITSLIP (ISERDESE2)", "description": "Pulse to rotate the parallel word by one bit for alignment training."},
+        {"name": "IOBDELAY", "description": "NONE, IBUF, IFD, BOTH: whether the input passes through the IDELAY."}
+      ],
+      "example": "// 7:1 LVDS (camera link / FPD-Link) style receiver uses DATA_WIDTH 7 SDR at 7x pixel clock with BUFIO/BUFR;\n// see XAPP585 (7 series) and the High Speed SelectIO Wizard (UltraScale) reference designs for the full clocking and training logic.",
+      "notes": "SerDes reset must be asserted while CLKDIV is running and released synchronously to CLKDIV. Timing of the serial input pin is constrained with set_input_delay against the forwarded clock; the IDELAY value or bitslip training handles the rest. UltraScale native I/O requires the bitslice structure (BITSLICE_CONTROL + RX_BITSLICE) for DDR data rates above what ISERDESE3 supports.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/ISERDESE3"
+    },
+    {
+      "name": "DSP48E1 (7 series)",
+      "kind": "block",
+      "description": "The 7 series DSP slice: 25x18 two's-complement multiplier, 48-bit ALU/accumulator with add/subtract/logic ops (ALUMODE), pre-adder on the A/D inputs, pattern detector, 17-bit shift for wide multiplication and cascade paths (ACIN/BCIN/PCIN) between vertically adjacent slices, with optional pipeline registers on every stage (AREG, BREG, MREG, PREG ...) controlled by attributes. Synthesis infers it from multiply/add/accumulate RTL (USE_DSP); direct instantiation gives full control of OPMODE/ALUMODE for filters, MACs and wide arithmetic.",
+      "usage": "DSP48E1 #(.A_INPUT(\"DIRECT\"), .B_INPUT(\"DIRECT\"), .USE_DPORT(\"FALSE\"), .USE_MULT(\"MULTIPLY\"), .AREG(1), .BREG(1), .MREG(1), .PREG(1), .ADREG(0), .DREG(0), .CREG(1), .ALUMODEREG(1), .OPMODEREG(1), .CARRYINREG(1), .CARRYINSELREG(1), .INMODEREG(1), .USE_PATTERN_DETECT(\"NO_PATDET\"), .USE_SIMD(\"ONE48\")) u_dsp (.P(p), .A(a), .B(b), .C(c), .D(25'd0), .OPMODE(7'b0110101), .ALUMODE(4'b0000), .INMODE(5'b00000), .CARRYINSEL(3'b000), .CARRYIN(1'b0), .CLK(clk), .CEA1(1'b0), .CEA2(1'b1), .CEB1(1'b0), .CEB2(1'b1), .CEC(1'b1), .CED(1'b0), .CEAD(1'b0), .CEM(1'b1), .CEP(1'b1), .CEALUMODE(1'b1), .CECTRL(1'b1), .CECARRYIN(1'b1), .CEINMODE(1'b1), .RSTA(rst), .RSTB(rst), .RSTC(rst), .RSTD(rst), .RSTM(rst), .RSTP(rst), .RSTALUMODE(rst), .RSTCTRL(rst), .RSTALLCARRYIN(rst), .RSTINMODE(rst), .ACIN(30'd0), .BCIN(18'd0), .PCIN(48'd0), .CARRYCASCIN(1'b0), .MULTSIGNIN(1'b0), .ACOUT(), .BCOUT(), .PCOUT(), .CARRYCASCOUT(), .MULTSIGNOUT(), .OVERFLOW(), .UNDERFLOW(), .PATTERNDETECT(), .PATTERNBDETECT(), .CARRYOUT());",
+      "parameters": [
+        {"name": "OPMODE[6:0]", "description": "Selects the Z, Y and X multiplexer inputs to the ALU (Z[6:4], Y[3:2], X[1:0]): 0110101 = C + A*B, 0010101 = P + A*B (accumulate), 0000101 = A*B."},
+        {"name": "ALUMODE[3:0]", "description": "0000 Z+X+Y+CIN, 0011 Z-(X+Y+CIN), plus logic modes when USE_MULT NONE."},
+        {"name": "AREG/BREG/MREG/PREG", "description": "Pipeline register counts (0-2 for A/B, 0-1 others); fully pipelined reaches the datasheet Fmax (~500-740 MHz)."},
+        {"name": "USE_SIMD", "description": "ONE48, TWO24, FOUR12 SIMD add/sub modes."},
+        {"name": "USE_PATTERN_DETECT / PATTERN / MASK", "description": "Detect P == pattern under mask (overflow/underflow, convergent rounding)."}
+      ],
+      "example": "// Inferred instead (preferred): synthesis maps this to one DSP48E1 with MREG/PREG when registered\nalways @(posedge clk) begin\n  a_r <= a; b_r <= b;                 // AREG/BREG\n  m_r <= $signed(a_r) * $signed(b_r); // MREG\n  p_r <= p_r + m_r;                   // PREG accumulate\nend",
+      "notes": "OPMODE encodings are in UG479. Cascade with PCIN/PCOUT for systolic FIR filters rather than fabric adders. Reset and CE pins are per-register; unused inputs must be tied off. Use report_utilization and the DSP timing arcs (report_timing -through [get_pins */P*]) to verify pipelining.",
+      "docs": "https://docs.amd.com/r/en-US/ug953-vivado-7series-libraries/DSP48E1"
+    },
+    {
+      "name": "DSP48E2 (UltraScale/UltraScale+)",
+      "kind": "block",
+      "description": "The UltraScale DSP slice: 27x18 multiplier (one bit wider than DSP48E1), 48-bit ALU with wide XOR (XORSIMD), a fourth C-input adder path, pre-adder with D input, 96-bit SIMD dual-multiplier support through cascades, pattern detector and the same register/cascade structure as DSP48E1 plus the AMULTSEL/BMULTSEL/PREADDINSEL attributes replacing INMODE bits. Inference covers most uses; instantiation is for exact control in DSP-heavy pipelines (FIR, FFT butterflies, complex MACs) and for the wide XOR used in CRC/ECC.",
+      "usage": "DSP48E2 #(.AMULTSEL(\"A\"), .A_INPUT(\"DIRECT\"), .BMULTSEL(\"B\"), .B_INPUT(\"DIRECT\"), .PREADDINSEL(\"A\"), .RND(48'h0), .USE_MULT(\"MULTIPLY\"), .USE_SIMD(\"ONE48\"), .USE_WIDEXOR(\"FALSE\"), .XORSIMD(\"XOR24_48_96\"), .AUTORESET_PATDET(\"NO_RESET\"), .USE_PATTERN_DETECT(\"NO_PATDET\"), .AREG(2), .BREG(2), .MREG(1), .PREG(1), .CREG(1), .OPMODEREG(1), .ALUMODEREG(1), .INMODEREG(1), .CARRYINREG(1), .CARRYINSELREG(1), .ADREG(1), .DREG(1)) u_dsp (.P(p), .A(a), .B(b), .C(c), .D(27'd0), .OPMODE(9'b000110101), .ALUMODE(4'b0000), .INMODE(5'b00000), .CARRYINSEL(3'b000), .CARRYIN(1'b0), .CLK(clk), /* CE*, RST*, cascade ports as DSP48E1 plus XOROUT */ ...);",
+      "parameters": [
+        {"name": "OPMODE[8:0]", "description": "9 bits on E2: W-mux bits [8:7] added for the extra C/RND/P input path."},
+        {"name": "AMULTSEL / BMULTSEL / PREADDINSEL", "description": "Route A or AD (pre-adder output) and B/AD into the multiplier."},
+        {"name": "USE_WIDEXOR / XORSIMD", "description": "12/24/48/96-bit XOR trees for parity/CRC."},
+        {"name": "RND", "description": "Rounding constant added via the W-mux."},
+        {"name": "AREG/BREG (0-2), MREG, PREG, ADREG, DREG", "description": "Pipeline depth; full pipelining reaches ~891 MHz on UltraScale+ -3."}
+      ],
+      "example": "# Check which DSP registers are used after synthesis\nreport_property [get_cells -hier -filter {REF_NAME == DSP48E2}] {AREG BREG MREG PREG}\n# Force DSP mapping on an inferred adder chain\nset_property USE_DSP yes [get_cells u_filter/acc_reg]",
+      "notes": "DSP48E2 columns are grouped by cascade; long systolic chains must stay in one column (Pblock height). Versal replaces it with DSP58 (27x24, floating-point and complex modes). Detailed OPMODE tables are in UG579.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/DSP48E2"
+    },
+    {
+      "name": "DSP58 (Versal)",
+      "kind": "block",
+      "description": "The Versal DSP Engine primitive: 27x24 multiplier with 58-bit accumulator (hence DSP58), native complex multiply mode (DSPCPLX, two engines paired for 18x18 complex), INT8 vector dot-product mode (DSPFP32 / three 8x8 MACs), IEEE-754 single-precision floating-point add/multiply mode (DSPFP32), wide XOR and the familiar cascade/SIMD structure. In RTL the family-neutral way to use it is inference (or the DSP58 wrapper primitives DSP58, DSPCPLX, DSPFP32); Vitis HLS and AI Engine flows target it automatically.",
+      "usage": "DSP58 #(.AMULTSEL(\"A\"), .BMULTSEL(\"B\"), .DSP_MODE(\"INT24\"), .USE_MULT(\"MULTIPLY\"), .AREG(2), .BREG(2), .MREG(1), .PREG(1), ...) u_dsp (.P(p), .A(a), .B(b), .C(c), .OPMODE(9'b000110101), .ALUMODE(4'b0000), .CLK(clk), ...);\nDSPFP32 #(.A_FPTYPE(\"B32\"), .B_D_FPTYPE(\"B32\"), .ALUMODE(...), ...) u_fp (.FPA_OUT(sum), .FPM_OUT(prod), .A(a_fp32), .B(b_fp32), .D(d_fp32), .CLK(clk), ...);\nDSPCPLX u_cmac (...);",
+      "parameters": [
+        {"name": "DSP_MODE", "description": "INT24 (default 27x24), INT8 (dot product of three 8-bit pairs), FP32 (floating point) via the wrapper primitives."},
+        {"name": "A_FPTYPE / B_D_FPTYPE (DSPFP32)", "description": "B32 (binary32) or B16 (bfloat16) inputs."},
+        {"name": "Cascade ports", "description": "ACIN/BCIN/PCIN plus CONJUGATE_A/B in complex mode."}
+      ],
+      "example": "// Inference example for DSP58: a 27x24 signed MAC with registered stages maps to one DSP58\nalways @(posedge clk) begin a_r <= a; b_r <= b; m_r <= a_r * b_r; acc <= acc + m_r; end\n# report_utilization shows 'DSP Engines' on Versal; DSP58 supports 58-bit accumulation without saturation logic",
+      "notes": "Versal AI Engines (AIE/AIE-ML) are separate vector processors compiled with aiecompiler; DSP58 is the PL fabric DSP. Attribute names differ from DSP48E2 (e.g. no XORSIMD string, DSP_MODE added); consult UG1344/AM004.",
+      "docs": "https://docs.amd.com/r/en-US/am004-versal-dsp-engine"
+    },
+    {
+      "name": "RAMB18E1 / RAMB36E1 (7 series) and RAMB18E2 / RAMB36E2 (UltraScale)",
+      "kind": "block",
+      "description": "Block RAM primitives: 18 Kb (RAMB18) and 36 Kb (RAMB36) true-dual-port memories with configurable port widths (1 to 36/72 bits including parity), independent clocks, write modes (WRITE_FIRST/READ_FIRST/NO_CHANGE), optional output registers (DOA_REG/DOB_REG), byte-write enables, ECC on the 64-bit-wide RAMB36 (SDP mode) and INIT_xx/INITP_xx attributes for contents; the E2 versions add cascade ports (CASCADE_ORDER), sleep mode and RDADDRCHANGE. Also available as RAMB36 FIFO mode (FIFO18E1/FIFO36E1, FIFO18E2/FIFO36E2). Direct instantiation is rare: inference, XPM_MEMORY_* or blk_mem_gen are preferred, but the primitives appear in netlists, in .mmi files for updatemem and in ECO work.",
+      "usage": "RAMB36E2 #(.DOA_REG(1), .DOB_REG(1), .READ_WIDTH_A(36), .WRITE_WIDTH_A(36), .READ_WIDTH_B(36), .WRITE_WIDTH_B(36), .WRITE_MODE_A(\"READ_FIRST\"), .WRITE_MODE_B(\"READ_FIRST\"), .CLOCK_DOMAINS(\"INDEPENDENT\"), .CASCADE_ORDER_A(\"NONE\"), .SLEEP_ASYNC(\"FALSE\"), .INIT_00(256'h0), ...) u_bram (.DOUTADOUT(doa), .DOUTPADOUTP(dopa), .ADDRARDADDR(addra), .CLKARDCLK(clka), .ENARDEN(ena), .REGCEAREGCE(1'b1), .RSTRAMARSTRAM(1'b0), .RSTREGARSTREG(1'b0), .WEA(wea), .DINADIN(dina), .DINPADINP(dinpa), /* port B: DOUTBDOUT, ADDRBWRADDR, CLKBWRCLK, ENBWREN, WEBWE ... */ .CASDIMUXA(1'b0), .CASDIMUXB(1'b0), .CASDINA(32'd0), ...);",
+      "parameters": [
+        {"name": "READ_WIDTH_x / WRITE_WIDTH_x", "description": "1,2,4,9,18,36 (72 in SDP mode on RAMB36)."},
+        {"name": "DOA_REG / DOB_REG", "description": "1 enables the output pipeline register (needed for Fmax > ~300-400 MHz)."},
+        {"name": "WRITE_MODE_x", "description": "WRITE_FIRST, READ_FIRST, NO_CHANGE."},
+        {"name": "INIT_00..INIT_7F / INITP_00..0F", "description": "256-bit hex initial contents (data/parity)."},
+        {"name": "RAM_MODE", "description": "TDP or SDP (simple dual port, doubles width)."}
+      ],
+      "example": "# Netlist queries on inferred block RAM\nget_cells -hier -filter {PRIMITIVE_TYPE =~ BLOCKRAM.BRAM.*}\nreport_property [get_cells u_buf/mem_reg_0] {READ_WIDTH_A WRITE_MODE_A DOA_REG}\n# Force output register use in inference: add a second register stage after the read and set\nset_property RAM_STYLE block [get_cells u_buf/mem_reg]",
+      "notes": "Block RAM address collisions and read-during-write behaviour depend on WRITE_MODE and CLOCK_DOMAINS (see UG573/UG473). Two RAMB18 share one RAMB36 site; report_utilization counts both. Cascading (E2) and the FIFO wrappers are usually generated by IP.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/RAMB36E2"
+    },
+    {
+      "name": "URAM288",
+      "kind": "block",
+      "description": "UltraRAM primitive on UltraScale+ (and Versal): a 288 Kb (4096 x 72) dual-port synchronous SRAM with a single clock for both ports, fixed 72-bit width, byte enables, optional ECC, sleep/power-gating, and dedicated cascade ports (CAS_IN/CAS_OUT with CASCADE_ORDER) that chain up to a full column into deep memories without fabric logic. Used for large buffers (packet memory, frame stores, deep FIFOs) where BRAM capacity is insufficient; inferred with RAM_STYLE ultra or XPM_MEMORY_* MEMORY_PRIMITIVE ultra.",
+      "usage": "URAM288 #(.AUTO_SLEEP_LATENCY(8), .AVG_CONS_INACTIVE_CYCLES(10), .BWE_MODE_A(\"PARITY_INTERLEAVED\"), .BWE_MODE_B(\"PARITY_INTERLEAVED\"), .CASCADE_ORDER_A(\"NONE\"), .CASCADE_ORDER_B(\"NONE\"), .EN_AUTO_SLEEP_MODE(\"FALSE\"), .EN_ECC_RD_A(\"FALSE\"), .EN_ECC_WR_A(\"FALSE\"), .IREG_PRE_A(\"FALSE\"), .OREG_A(\"TRUE\"), .OREG_B(\"TRUE\"), .REG_CAS_A(\"FALSE\"), .REG_CAS_B(\"FALSE\"), .RST_MODE_A(\"SYNC\"), .RST_MODE_B(\"SYNC\")) u_uram (.CLK(clk), .ADDR_A(addr_a), .DIN_A(din_a), .DOUT_A(dout_a), .EN_A(en_a), .RDB_WR_A(we_a), .BWE_A(9'h1FF), .OREG_CE_A(1'b1), .RST_A(rst), .ADDR_B(addr_b), .DIN_B(din_b), .DOUT_B(dout_b), .EN_B(en_b), .RDB_WR_B(we_b), .BWE_B(9'h1FF), .OREG_CE_B(1'b1), .RST_B(rst), .SLEEP(1'b0), .INJECT_SBITERR_A(1'b0), .INJECT_DBITERR_A(1'b0), .INJECT_SBITERR_B(1'b0), .INJECT_DBITERR_B(1'b0), .CAS_IN_ADDR_A(23'd0), .CAS_IN_DIN_A(72'd0), .CAS_IN_EN_A(1'b0), .CAS_IN_RDB_WR_A(1'b0), .CAS_IN_BWE_A(9'd0), .CAS_IN_SBITERR_A(1'b0), .CAS_IN_DBITERR_A(1'b0), .CAS_IN_RDACCESS_A(1'b0), .CAS_IN_DOUT_A(72'd0), /* same for B, CAS_OUT_* left open */ .OREG_ECC_CE_A(1'b1), .OREG_ECC_CE_B(1'b1), .RST_A(rst), .RST_B(rst));",
+      "parameters": [
+        {"name": "OREG_A / OREG_B / IREG_PRE_A", "description": "Output (and optional input) pipeline registers; required for full speed (latency 2-3)."},
+        {"name": "CASCADE_ORDER_A/B", "description": "NONE, FIRST, MIDDLE, LAST when chaining blocks in a column."},
+        {"name": "EN_ECC_RD/WR", "description": "64-bit data + 8-bit ECC mode."},
+        {"name": "EN_AUTO_SLEEP_MODE / SLEEP", "description": "Power management."}
+      ],
+      "example": "(* ram_style = \"ultra\" *) reg [71:0] pkt_mem [0:32767];   // inferred as 8 cascaded URAM288\nalways @(posedge clk) begin\n  if (we) pkt_mem[waddr] <= wdata;\n  rd_pipe <= pkt_mem[raddr];   // plus extra output register stages for URAM timing\n  rdata <= rd_pipe;\nend\n# synthesis controls: CASCADE_HEIGHT attribute, synth_design -max_uram_cascade_height",
+      "notes": "Only one clock for both ports; no initialisation from bitstream (contents undefined at power-up). Cascade chains longer than ~8 need additional pipeline registers (REG_CAS) for timing. Not available on Kintex UltraScale (UltraScale+ only) and only in certain UltraScale+ devices/columns.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/URAM288"
+    },
+    {
+      "name": "SRL16E / SRLC32E",
+      "kind": "block",
+      "description": "Shift-register LUT primitives in SLICEM: a LUT configured as a 16-bit (SRL16E, 4-bit address) or 32-bit (SRLC32E, 5-bit address, with Q31 cascade output) addressable shift register with clock enable, giving compact fixed or variable-length delay lines (1-16/1-32 cycles per LUT) without flip-flops. Inferred automatically from reset-less register chains (SHREG_EXTRACT) and used explicitly for delay lines, pipeline balancing in DSP datapaths and small FIFOs.",
+      "usage": "SRLC32E #(.INIT(32'h00000000), .IS_CLK_INVERTED(1'b0)) u_srl (.Q(q), .Q31(q31), .A(addr[4:0]), .CE(ce), .CLK(clk), .D(d));\nSRL16E #(.INIT(16'h0000)) u_srl16 (.Q(q), .A0(a[0]), .A1(a[1]), .A2(a[2]), .A3(a[3]), .CE(ce), .CLK(clk), .D(d));",
+      "parameters": [
+        {"name": "A / A0..A3", "description": "Tap address: output is the (A+1)-th most recent input."},
+        {"name": "Q31", "description": "Cascade output of the 32nd stage for chaining SRLC32Es."},
+        {"name": "INIT", "description": "Initial shift-register contents."}
+      ],
+      "example": "// Inferred variable delay (1-32 cycles): synthesis maps to one SRLC32E per bit\nreg [31:0] dly [0:7];\nalways @(posedge clk) if (ce) begin dly[0] <= din; for (i=1;i<32;i=i+1) dly[i] <= dly[i-1]; end\nassign dout = dly[sel];\n// To keep a chain as flip-flops instead: (* shreg_extract = \"no\" *)",
+      "notes": "SRLs have no reset and the last stage's timing (LUT delay + routing) is slower than a flip-flop, so synthesis adds a register after long chains (SRL_STYLE reg_srl_reg). SRLs cannot be placed in SLICEL; heavy SRL use can exhaust SLICEM capacity in a region.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/SRLC32E"
+    },
+    {
+      "name": "LUT1 ... LUT6 / LUT6_2",
+      "kind": "block",
+      "description": "The look-up-table primitives of the CLB: LUTn implements any n-input Boolean function given by its INIT truth table (2^n bits), and LUT6_2 exposes the dual-output mode of the 6-input LUT (two 5-input functions sharing inputs, outputs O5 and O6). Synthesis maps all combinational logic to these; explicit instantiation is used in hand-optimised structures, in ECO netlist edits (create_cell -reference LUT2) and in technology-specific tricks such as guaranteed non-optimised delay elements.",
+      "usage": "LUT2 #(.INIT(4'h6)) u_xor (.O(y), .I0(a), .I1(b));                // INIT bit k = output for input combination k (I1,I0)\nLUT6_2 #(.INIT(64'h...)) u_dual (.O6(o6), .O5(o5), .I0(i0), .I1(i1), .I2(i2), .I3(i3), .I4(i4), .I5(1'b1));\n# ECO in Vivado\ncreate_cell -reference LUT2 eco_and\nset_property INIT 4'h8 [get_cells eco_and]",
+      "parameters": [
+        {"name": "INIT", "description": "Truth table: bit index = binary value of {I5..I0}; e.g. LUT2 AND = 4'h8, OR = 4'hE, XOR = 4'h6."},
+        {"name": "I5 (LUT6_2)", "description": "Must be 1 for O5 to be the lower 5-input function while O6 uses all six."}
+      ],
+      "example": "# Read back the function of a synthesized LUT\nget_property INIT [get_cells u_ctrl/state_i_1]     ;# e.g. 64'hF0F0FF00F0F0F000\nreport_property [get_cells u_ctrl/state_i_1] {INIT REF_NAME LOC BEL}\n# LOCK_PINS controls the mapping of I0..I5 to physical pins A1..A6",
+      "notes": "Instantiated LUTs are still subject to optimization unless DONT_TOUCH is set. CLB structure: 7 series slice = 4 LUT6 + 8 FF; UltraScale CLB = 8 LUT6 + 16 FF, with LUTs in SLICEM usable as RAM/SRL.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/LUT6_2"
+    },
+    {
+      "name": "FDRE / FDCE / FDPE / FDSE (and LDCE latch)",
+      "kind": "block",
+      "description": "The four flip-flop primitives of the CLB, distinguished by their set/reset type: FDRE (synchronous reset, clock enable), FDSE (synchronous set), FDCE (asynchronous clear), FDPE (asynchronous preset); all have INIT (power-up value), IS_*_INVERTED attributes for clock/CE/reset polarity, and map onto the slice registers. LDCE/LDPE are the transparent latches (a warning sign in synchronous designs). RTL reset style determines which primitive is inferred: synchronous resets give FDRE/FDSE and are recommended on UltraScale for timing and control-set efficiency.",
+      "usage": "FDRE #(.INIT(1'b0), .IS_C_INVERTED(1'b0), .IS_D_INVERTED(1'b0), .IS_R_INVERTED(1'b0)) u_ff (.Q(q), .C(clk), .CE(ce), .D(d), .R(rst));\nFDCE #(.INIT(1'b0)) u_ffa (.Q(q), .C(clk), .CE(ce), .D(d), .CLR(arst));\nFDPE #(.INIT(1'b1)) u_ffp (.Q(q), .C(clk), .CE(ce), .D(d), .PRE(apre));\nFDSE #(.INIT(1'b1)) u_ffs (.Q(q), .C(clk), .CE(ce), .D(d), .S(sset));",
+      "parameters": [
+        {"name": "INIT", "description": "Value after configuration (GSR), independent of the reset pin."},
+        {"name": "IS_C_INVERTED / IS_R_INVERTED / IS_CLR_INVERTED ...", "description": "Free inversions absorbed into the flop instead of a LUT."},
+        {"name": "R / S / CLR / PRE / CE", "description": "Control pins; every distinct combination of (C, CE, R/S) forms a control set."}
+      ],
+      "example": "# Find asynchronous-reset flops (candidates for methodology warnings on UltraScale)\nget_cells -hier -filter {REF_NAME == FDCE || REF_NAME == FDPE}\n# Latches inferred by incomplete if/case statements\nall_latches\n# ECO: insert a pipeline register\ncreate_cell -reference FDRE u_eco/pipe_reg\nconnect_net -net [get_nets u_eco/clk] -objects [get_pins u_eco/pipe_reg/C]",
+      "notes": "A flip-flop cannot have both synchronous and asynchronous reset; RTL that mixes them uses extra LUTs. Set/reset value and INIT should agree to avoid simulation/hardware mismatches at GSR release. ASYNC_REG on FDRE/FDCE cells marks synchronizer chains.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/FDRE"
+    },
+    {
+      "name": "CARRY4 / CARRY8",
+      "kind": "block",
+      "description": "Fast carry-chain primitives of the CLB: CARRY4 (7 series, four bits per slice) and CARRY8 (UltraScale, eight bits per CLB, splittable into two CARRY4-like halves with CARRY_TYPE DUAL_CY4) implement the dedicated carry lookahead used for adders, subtractors, comparators, counters and wide AND/OR reductions. Synthesis infers them; direct instantiation appears in hand-built arithmetic (e.g. TDC delay lines, bit-serial tricks) and in netlists inspected during timing closure.",
+      "usage": "CARRY4 u_c4 (.CO(co[3:0]), .O(sum[3:0]), .CI(cin), .CYINIT(1'b0), .DI(di[3:0]), .S(s[3:0]));\nCARRY8 #(.CARRY_TYPE(\"SINGLE_CY8\")) u_c8 (.CO(co[7:0]), .O(sum[7:0]), .CI(cin), .CI_TOP(1'b0), .DI(di[7:0]), .S(s[7:0]));",
+      "parameters": [
+        {"name": "S (propagate) / DI (generate)", "description": "Per-bit inputs from LUTs: S = a XOR b, DI = a (or b)."},
+        {"name": "CI / CYINIT / CI_TOP", "description": "Carry input from the previous chain element or an initial value."},
+        {"name": "CARRY_TYPE (CARRY8)", "description": "SINGLE_CY8 or DUAL_CY4."}
+      ],
+      "example": "# Locate the longest carry chains after synthesis (candidates for pipelining)\nreport_carry_chains -max_chains 10\n# A 64-bit adder = 16 CARRY4 (7 series) or 8 CARRY8 (UltraScale) stacked vertically in one column",
+      "notes": "Carry chains run vertically and must be in one column of slices, which constrains placement of wide arithmetic; a Pblock too short for the chain is a placement error. Time-to-digital converters exploit the uniform per-bit carry delay.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/CARRY8"
+    },
+    {
+      "name": "MUXF7 / MUXF8 / MUXF9",
+      "kind": "block",
+      "description": "Dedicated wide-function multiplexers in the CLB that combine LUT outputs without extra routing: MUXF7 selects between two LUT6 outputs (7-input function / 4:1 mux), MUXF8 between two MUXF7s (8-input / 8:1 mux), and MUXF9 (UltraScale) between two MUXF8s, so a 16:1 mux fits in one CLB. Synthesis uses them automatically for large muxes and functions, and they show up in timing paths as MUXF7/MUXF8 delays.",
+      "usage": "MUXF7 u_f7 (.O(o), .I0(lut_a), .I1(lut_b), .S(sel0));\nMUXF8 u_f8 (.O(o), .I0(f7_a), .I1(f7_b), .S(sel1));\nMUXF9 u_f9 (.O(o), .I0(f8_a), .I1(f8_b), .S(sel2));   // UltraScale only",
+      "parameters": [
+        {"name": "I0 / I1 / S", "description": "Two inputs from the LUT/MUX level below and the select."}
+      ],
+      "example": "# Count wide-mux usage in the synthesized netlist\nllength [get_cells -hier -filter {REF_NAME =~ MUXF*}]\n# Report a path through them\nreport_timing -through [get_pins -hier -filter {REF_PIN_NAME == O && REF_NAME == MUXF8}] -max_paths 3",
+      "notes": "MUXF usage is decided by synthesis; when placement flexibility matters more than density, restructure the mux (e.g. one-hot AND-OR or pipelined stages) or consult UG901 for the synthesis attributes of your release.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/MUXF8"
+    },
+    {
+      "name": "STARTUPE2 / STARTUPE3",
+      "kind": "block",
+      "description": "Access to the configuration start-up block: user control of the configuration clock CCLK (USRCCLKO/USRCCLKTS), the DONE and PROGRAM_B pins, the global set/reset and tri-state nets (GSR, GTS), end-of-startup (EOS) and configuration-clock outputs (CFGCLK, CFGMCLK), plus on STARTUPE3 (UltraScale) the dedicated SPI flash data pins (DI/DO/DTS/FCSBO) and PREQ/PACK for the SPI bus. It is instantiated by the AXI Quad SPI IP in 'STARTUP primitive' mode so user logic can drive the configuration flash after configuration, and by designs that need to trigger reconfiguration or sample EOS.",
+      "usage": "STARTUPE2 #(.PROG_USR(\"FALSE\"), .SIM_CCLK_FREQ(10.0)) u_startup (.CFGCLK(), .CFGMCLK(cfg_mclk), .EOS(eos), .PREQ(), .CLK(1'b0), .GSR(1'b0), .GTS(1'b0), .KEYCLEARB(1'b1), .PACK(1'b0), .USRCCLKO(spi_sck), .USRCCLKTS(1'b0), .USRDONEO(1'b1), .USRDONETS(1'b1));\nSTARTUPE3 #(.PROG_USR(\"FALSE\"), .SIM_CCLK_FREQ(0.0)) u_startup3 (.CFGCLK(), .CFGMCLK(cfg_mclk), .DI(spi_di), .EOS(eos), .PREQ(), .DO(spi_do), .DTS(spi_dts), .FCSBO(spi_cs_n), .FCSBTS(1'b0), .GSR(1'b0), .GTS(1'b0), .KEYCLEARB(1'b1), .PACK(1'b0), .USRCCLKO(spi_sck), .USRCCLKTS(1'b0), .USRDONEO(1'b1), .USRDONETS(1'b1));",
+      "parameters": [
+        {"name": "USRCCLKO / USRCCLKTS", "description": "Drive CCLK from user logic (after EOS); the first three edges are swallowed on 7 series."},
+        {"name": "EOS", "description": "End Of Startup: high once configuration is complete; handy as a 'design alive' indicator."},
+        {"name": "CFGMCLK", "description": "Internal ~65 MHz configuration oscillator, usable as a free-running clock (not precise)."},
+        {"name": "GSR / GTS", "description": "Assert the global set/reset or global tri-state from user logic (rarely used)."},
+        {"name": "DO/DI/DTS/FCSBO (E3)", "description": "SPI data/chip-select pins of the configuration flash on UltraScale."}
+      ],
+      "example": "# AXI Quad SPI in block design for flash access on the configuration pins\nset_property -dict [list CONFIG.C_USE_STARTUP {1} CONFIG.C_USE_STARTUP_INT {1} CONFIG.C_SPI_MEMORY {2} CONFIG.C_SPI_MODE {2}] [get_bd_cells axi_quad_spi_0]\n# 7 series: FCS/MOSI/MISO are normal user pins in bank 14 (constrain them); only CCLK comes through STARTUPE2",
+      "notes": "Only one STARTUP instance per design. On 7 series the SPI data pins are ordinary I/O in the configuration bank (bank 14, 65 on UltraScale for BPI) and must be constrained with PACKAGE_PIN; on UltraScale they are dedicated and reached only through STARTUPE3. Versal has no STARTUP primitive (the PMC/PLM owns configuration).",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/STARTUPE3"
+    },
+    {
+      "name": "ICAPE2 / ICAPE3",
+      "kind": "block",
+      "description": "Internal Configuration Access Port primitive: a 32-bit (ICAPE2, 7 series, also 8/16-bit width) or 32-bit (ICAPE3, UltraScale) SelectMAP-like interface from fabric to the configuration engine, used to load partial bitstreams (Dynamic Function eXchange), read back configuration frames, access the configuration registers (e.g. IPROG for multiboot fallback, WBSTAR, BOOTSTS) and by the SEM controller for error scanning. User logic drives CSIB/RDWRB and the data bus with the bitstream words in the bit-swapped order expected by the device.",
+      "usage": "ICAPE2 #(.DEVICE_ID(32'h03651093), .ICAP_WIDTH(\"X32\"), .SIM_CFG_FILE_NAME(\"NONE\")) u_icap (.O(icap_o), .CLK(icap_clk), .CSIB(icap_csib), .I(icap_i), .RDWRB(icap_rdwrb));\nICAPE3 #(.DEVICE_ID(32'h03628093), .ICAP_AUTO_SWITCH(\"DISABLE\"), .SIM_CFG_FILE_NAME(\"NONE\")) u_icap3 (.AVAIL(avail), .O(icap_o), .PRDONE(prdone), .PRERROR(prerror), .CLK(icap_clk), .CSIB(csib), .I(icap_i), .RDWRB(rdwrb));",
+      "parameters": [
+        {"name": "ICAP_WIDTH (E2)", "description": "X8, X16, X32."},
+        {"name": "CLK", "description": "ICAP clock, max ~100 MHz (7 series) / 200 MHz (UltraScale); see the data sheet."},
+        {"name": "AVAIL / PRDONE / PRERROR (E3)", "description": "Status outputs for DFX: ICAP available, partial reconfiguration done / error."},
+        {"name": "ICAP_AUTO_SWITCH (E3)", "description": "Allow the primitive to take over from the external configuration port automatically."}
+      ],
+      "example": "// IPROG multiboot: write the warm-boot start address then IPROG via ICAP (XAPP1247 style)\n// sequence: FFFFFFFF, AA995566, 20000000, 30020001, <WBSTAR>, 30008001, 0000000F, 20000000\n// Data must be bit-swapped within each byte for ICAP (see UG470/UG570 'Bit Swapping').",
+      "notes": "Use the DFX Controller IP (dfx_controller) or AXI HWICAP instead of hand-driven ICAP where possible. Only one entity may use the ICAP at a time (SEM vs DFX). Zynq/ZynqMP normally reconfigure through the PCAP from the PS, and Versal through the PMC (PDI via PLM), not the ICAP.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/ICAPE3"
+    },
+    {
+      "name": "BSCANE2",
+      "kind": "block",
+      "description": "Boundary-scan (JTAG) user-access primitive giving fabric logic a connection to one of the four USER JTAG instructions (JTAG_CHAIN 1-4): TDI/TDO data, TCK, the TAP state decodes (CAPTURE, SHIFT, UPDATE, RESET, SEL, RUNTEST) and DRCK. It is what the debug hub (dbg_hub), MicroBlaze Debug Module, JTAG-to-AXI and IBERT use to talk to Vivado over the same cable, and it lets user designs implement custom JTAG registers, soft-core debug or a JTAG UART.",
+      "usage": "BSCANE2 #(.JTAG_CHAIN(1)) u_bscan (.CAPTURE(capture), .DRCK(drck), .RESET(reset), .RUNTEST(runtest), .SEL(sel), .SHIFT(shift), .TCK(tck), .TDI(tdi), .TMS(tms), .UPDATE(update), .TDO(tdo));",
+      "parameters": [
+        {"name": "JTAG_CHAIN", "description": "USER1..USER4 instruction (1-4); the debug hub uses USER1 by default (hub property C_USER_SCAN_CHAIN)."},
+        {"name": "SEL / SHIFT / UPDATE / CAPTURE", "description": "TAP controller decodes for the selected instruction."},
+        {"name": "DRCK", "description": "Gated TCK active during CAPTURE/SHIFT of this chain."}
+      ],
+      "example": "# Move the debug hub to USER3 so USER1 is free for a custom BSCANE2 user\nset_property C_USER_SCAN_CHAIN 3 [get_debug_cores dbg_hub]\n# Hardware Manager: connect to the hub on that chain\nset_property PROBES.FILE ... ; refresh_hw_device\n# Versal/UltraScale+ also provide BSCANE2 (Versal: BSCANE2 in the PL with the PMC JTAG)",
+      "notes": "Each JTAG_CHAIN value may be used by one instance only. The MDM and dbg_hub conflict if both default to USER1 unless the MDM is set to use the BSCAN of the debug hub (C_USE_BSCAN / 'external' mode) in block designs.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/BSCANE2"
+    },
+    {
+      "name": "DNA_PORTE2 / DNA_PORT",
+      "kind": "block",
+      "description": "Reads the factory-programmed unique device identifier (Device DNA, 57 bits on 7 series via DNA_PORT, 96 bits on UltraScale/UltraScale+ via DNA_PORTE2, 128 bits on Versal through the PMC) as a serial shift register: pulse READ to load, then clock SHIFT to serialise out on DOUT, optionally shifting DIN in to wrap. It is used for per-device licensing, keying and identification in user designs.",
+      "usage": "DNA_PORTE2 #(.SIM_DNA_VALUE(96'h0)) u_dna (.DOUT(dna_bit), .CLK(clk), .DIN(1'b0), .READ(dna_read), .SHIFT(dna_shift));\nDNA_PORT #(.SIM_DNA_VALUE(57'h0)) u_dna7 (.DOUT(dna_bit), .CLK(clk), .DIN(1'b0), .READ(dna_read), .SHIFT(dna_shift));",
+      "parameters": [
+        {"name": "READ", "description": "Load the DNA into the shift register (one clock, with SHIFT low)."},
+        {"name": "SHIFT", "description": "Shift one bit per CLK onto DOUT (MSB first)."},
+        {"name": "SIM_DNA_VALUE", "description": "Value used in simulation."},
+        {"name": "CLK max", "description": "Around 100 MHz (see data sheet DNA_CLK spec)."}
+      ],
+      "example": "# Read the same value from the Hardware Manager without any logic\nget_property REGISTER.EFUSE.FUSE_DNA [current_hw_device]   ;# UltraScale+\n# 7 series: the DNA is displayed in the Hardware Device Properties (DNA_PORT register)",
+      "notes": "The DNA is not cryptographically protected (readable via JTAG); for secure keying use the eFUSE/BBRAM key with bitstream encryption and the KEY-related EFUSE_USR bits. Versal: use the PLM/XilSecure or the DNA readable through the PMC registers.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/DNA_PORTE2"
+    },
+    {
+      "name": "XADC / SYSMONE1 / SYSMONE4 (analog monitor primitives) and IBUF_ANALOG",
+      "kind": "block",
+      "description": "The raw analog-monitor primitives behind the XADC Wizard and System Management Wizard: XADC (7 series dual 12-bit 1 MSPS ADC), SYSMONE1 (UltraScale, 10-bit 200 kSPS) and SYSMONE4 (UltraScale+, adds I2C/PMBus slave access and more alarms), each with a DRP (DADDR/DI/DO/DEN/DWE/DRDY/DCLK) for register access, VP/VN dedicated analog input, VAUXP/VAUXN[15:0] auxiliary inputs, ALM/OT alarm outputs, EOC/EOS end-of-conversion flags, CHANNEL[5:0] and configuration attributes INIT_40..INIT_5F (and INIT_60+ on SYSMONE4) that set sequencer channels, averaging and alarm limits. Analog input pins use IBUF_ANALOG (UltraScale) or are simply left without a buffer (7 series VAUX pins declared with no IOSTANDARD).",
+      "usage": "SYSMONE4 #(.INIT_40(16'h1000), .INIT_41(16'h2FDF), .INIT_42(16'h0400), .INIT_48(16'h4701), .INIT_49(16'h0000), .INIT_4A(16'h0000), .INIT_4B(16'h0000), .INIT_4C(16'h0000), .INIT_4D(16'h0000), .INIT_4E(16'h0000), .INIT_4F(16'h0000), .INIT_50(16'hB5ED), .INIT_51(16'h5999), .INIT_52(16'hA147), .INIT_53(16'hCB9F), .INIT_54(16'hA93A), .INIT_55(16'h5111), .INIT_56(16'h91EB), .INIT_57(16'hAE4E), .SIM_MONITOR_FILE(\"design.txt\")) u_sysmon (.DADDR(daddr), .DCLK(dclk), .DEN(den), .DI(di), .DWE(dwe), .DO(do), .DRDY(drdy), .RESET(rst), .VP(vp), .VN(vn), .VAUXP(vauxp), .VAUXN(vauxn), .ALM(alm), .OT(ot), .EOC(eoc), .EOS(eos), .BUSY(busy), .CHANNEL(channel), .JTAGBUSY(), .JTAGLOCKED(), .JTAGMODIFIED(), .CONVST(1'b0), .CONVSTCLK(1'b0), .I2C_SCLK(scl), .I2C_SDA(sda), .I2C_SCLK_TS(), .I2C_SDA_TS(), .MUXADDR(), .ADC_DATA());\nIBUF_ANALOG u_ana (.I(vaux0_p_pad), .O(vauxp[0]));",
+      "parameters": [
+        {"name": "INIT_40 / INIT_41 / INIT_42", "description": "Configuration registers 0-2: channel/averaging, sequencer mode and alarm enables, DCLK divider."},
+        {"name": "INIT_48..4F", "description": "Sequencer channel selection, averaging and bipolar/acquisition settings."},
+        {"name": "INIT_50..5F", "description": "Alarm upper/lower limits (temperature, VCCINT, VCCAUX, VCCBRAM ...)."},
+        {"name": "SIM_MONITOR_FILE", "description": "Text file of time-stamped analog values for simulation."},
+        {"name": "DRP", "description": "Dynamic reconfiguration port to read measurements (0x00 temperature, 0x01 VCCINT ...) and write config."}
+      ],
+      "example": "# Same sensors from Tcl without any instantiation\nrefresh_hw_sysmon [lindex [get_hw_sysmons] 0]\nget_property TEMPERATURE [lindex [get_hw_sysmons] 0]\n# Temperature formula (7 series XADC): T = ADC_code * 503.975 / 4096 - 273.15",
+      "notes": "Use the wizards rather than raw INIT values whenever possible; they compute the register contents and add the AXI4-Lite/DRP wrapper. Versal has the SYSMON integrated in the CIPS (accessed through the PMC/AMS driver).",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/SYSMONE4"
+    },
+    {
+      "name": "GTXE2_CHANNEL / GTHE3_CHANNEL / GTHE4_CHANNEL / GTYE4_CHANNEL (and *_COMMON)",
+      "kind": "block",
+      "description": "Transceiver channel primitives (7 series GTPE2/GTXE2/GTHE2, UltraScale GTHE3/GTYE3, UltraScale+ GTHE4/GTYE4, Versal GTYE5/GTYP via gt_quad_base) with several hundred attributes (PMA/PCS settings, CDR, equaliser, 8B/10B, comma alignment, buffers, line-rate dividers) and the matching quad-level *_COMMON primitive holding the QPLL(s). They are never written by hand: the Transceiver Wizard and protocol IP generate the instance with the right attribute set and a wrapper, and users interact through the wizard's wrapper ports (userdata, rxbyteisaligned, txresetdone, drp, loopback, prbs). The primitive names matter for LOC constraints, DRC messages and report_utilization, and the DRP address map (UG476/UG576/UG578) is used for dynamic rate changes.",
+      "usage": "# constraints\nset_property LOC GTHE4_CHANNEL_X0Y12 [get_cells -hier -filter {NAME =~ *gen_channel_container[*].*gthe4_channel_inst && NAME =~ *lane0*}]\nset_property LOC GTHE4_COMMON_X0Y3   [get_cells -hier -filter {REF_NAME == GTHE4_COMMON}]\n# queries\nget_cells -hier -filter {PRIMITIVE_TYPE =~ ADVANCED.GT.*}\nget_sites -filter {SITE_TYPE =~ GTYE4_CHANNEL}",
+      "parameters": [
+        {"name": "Channel attributes (examples)", "description": "TXOUT_DIV/RXOUT_DIV, RX_DATA_WIDTH/TX_DATA_WIDTH, RXCDR_CFG*, RX_DFE_*/RXLPM_*, TXBUF_EN/RXBUF_EN, ALIGN_COMMA_*, RXPMARESET_TIME ..."},
+        {"name": "COMMON attributes", "description": "QPLL0_FBDIV, QPLL0_REFCLK_DIV, QPLL0_CFG*, QPLL0_INIT_CFG*, BIAS_CFG*; the QPLL feeds up to four channels."},
+        {"name": "DRP ports", "description": "DRPCLK, DRPADDR[9:0], DRPDI, DRPDO, DRPEN, DRPWE, DRPRDY on both channel and common primitives."}
+      ],
+      "example": "# Site/pin queries when planning transceivers\nget_package_pins -filter {IS_GT} -of_objects [get_iobanks 226]\nget_sites -of_objects [get_slrs SLR0] -filter {SITE_TYPE == GTYE4_CHANNEL}\n# Serial I/O Analyzer / IBERT uses the same primitives with the eye-scan DRP registers (ES_*) enabled",
+      "notes": "Reference clock inputs go through IBUFDS_GTE2/3/4/5 into the COMMON/channel; user clocks come from TXOUTCLK/RXOUTCLK through BUFG_GT (UltraScale) or BUFG/BUFH (7 series). Attribute changes in a generated wrapper should be made by regenerating the wizard, not by editing the netlist, except for DRP-time changes.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/GTHE4_CHANNEL"
+    },
+    {
+      "name": "IBUFDS_GTE2 / IBUFDS_GTE3 / IBUFDS_GTE4 / IBUFDS_GTE5 and BUFG_GT",
+      "kind": "block",
+      "description": "Dedicated differential input buffers for transceiver reference clocks (MGTREFCLK pins) on 7 series (GTE2), UltraScale (GTE3), UltraScale+ (GTE4) and Versal (GTE5): the O output feeds the GT common/channel reference-clock inputs and ODIV2 provides a (optionally divided) copy usable in fabric through BUFG_GT (UltraScale) or BUFG (7 series). BUFG_GT is the UltraScale global buffer driven only from transceiver clocks (TXOUTCLK/RXOUTCLK/ODIV2) with an integrated divider (DIV) and clear/enable, used for all GT user clocks.",
+      "usage": "IBUFDS_GTE4 #(.REFCLK_EN_TX_PATH(1'b0), .REFCLK_HROW_CK_SEL(2'b00), .REFCLK_ICNTL_RX(2'b00)) u_refclk (.I(mgtrefclk_p), .IB(mgtrefclk_n), .CEB(1'b0), .O(gtrefclk), .ODIV2(gtrefclk_odiv2));\nBUFG_GT u_bufg_gt (.I(gtrefclk_odiv2), .CE(1'b1), .CEMASK(1'b0), .CLR(1'b0), .CLRMASK(1'b0), .DIV(3'b000), .O(refclk_fabric));\nIBUFDS_GTE2 #(.CLKCM_CFG(\"TRUE\"), .CLKRCV_TRST(\"TRUE\"), .CLKSWING_CFG(2'b11)) u_refclk7 (.I(p), .IB(n), .CEB(1'b0), .O(gtrefclk), .ODIV2(odiv2));",
+      "parameters": [
+        {"name": "REFCLK_HROW_CK_SEL (GTE3/4)", "description": "00: ODIV2 = O (full rate), 01: ODIV2 = O/2; the remaining encodings are listed in the UG576 IBUFDS_GTE3/4 table."},
+        {"name": "CEB", "description": "Active-low enable of the buffer."},
+        {"name": "DIV (BUFG_GT)", "description": "Divide by 1-8 (000 = 1)."}
+      ],
+      "example": "# XDC for a 156.25 MHz reference clock\nset_property PACKAGE_PIN K7 [get_ports mgtrefclk_p]\ncreate_clock -period 6.400 -name mgtrefclk [get_ports mgtrefclk_p]\n# No IOSTANDARD on MGTREFCLK pins; do not put an IBUFDS or IO_BUFFER_TYPE on them",
+      "notes": "Reference clock pins are specific to a quad (and can serve adjacent quads on UltraScale via the clock distribution rows); the wizard's example XDC shows the legal choices. A GT reference clock cannot drive fabric directly without ODIV2 + BUFG_GT.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/IBUFDS_GTE4"
+    },
+    {
+      "name": "PCIE_2_1 / PCIE_3_0 / PCIE_3_1 / PCIE40E4 / PCIE4CE4 (integrated PCIe blocks)",
+      "kind": "block",
+      "description": "The hard PCI Express block primitives: PCIE_2_1 (7 series Gen2), PCIE_3_0 (Virtex-7 XT Gen3), PCIE_3_1 (UltraScale Gen3), PCIE40E4 (UltraScale+ Gen3/Gen4 x16) and PCIE4CE4 (UltraScale+ with CCIX). They are instantiated only by the PCIe IP wrappers (pcie_7x, pcie3_ultrascale, pcie4_uscale_plus, xdma, qdma) and appear to the user through the LOC constraint that selects which block/lanes are used (matched to the board's connector) and through DRC/utilization reports. Versal integrates PCIe in the CPM (CPM4/CPM5) or as PCIE40E5 blocks in the PL.",
+      "usage": "set_property LOC PCIE40E4_X0Y1 [get_cells -hier -filter {PRIMITIVE_TYPE =~ *PCIE40E4*}]\nget_sites -filter {SITE_TYPE =~ PCIE*}\nreport_utilization -file util.rpt   ;# section 'Specific Feature' lists PCIE blocks",
+      "parameters": [
+        {"name": "CONFIG.pcie_blk_locn (in the IP)", "description": "The wizard parameter that generates the LOC; must match the transceiver quads wired to the connector."},
+        {"name": "Tandem / PR-over-PCIe", "description": "Attributes for Tandem configuration (CONFIG.tandem_mode in the IP) that let the block configure first to meet the 100 ms enumeration window."}
+      ],
+      "example": "# Verify the block and its transceiver channels are colocated (from the IP example design XDC)\nset_property LOC GTYE4_CHANNEL_X1Y8  [get_cells -hier -filter {NAME =~ *gt_channel*[0].*}]\nset_property LOC PCIE40E4_X1Y0        [get_cells -hier -filter {REF_NAME == PCIE40E4}]",
+      "notes": "Each device has a fixed number of blocks (e.g. XCKU5P: 1, XCVU9P: 6); the wizard lists valid locations. The CCIX-capable PCIE4CE4 and the PCIE40E4 share sites in some devices.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/PCIE40E4"
+    },
+    {
+      "name": "KEEPER / PULLUP / PULLDOWN (weak driver primitives)",
+      "kind": "block",
+      "description": "Instantiable weak-driver primitives that attach to a net: PULLUP and PULLDOWN add a weak pull-up/pull-down on an I/O pad or (on some families) an internal net, and KEEPER is a weak bus-hold that retains the last value. They are the primitive equivalents of set_property PULLTYPE on ports and are seen in vendor example designs and in netlists targeting bidirectional pins; in new code the XDC property is preferred.",
+      "usage": "PULLUP   u_pu (.O(sda_pad));\nPULLDOWN u_pd (.O(mode_pad));\nKEEPER   u_kp (.O(bus_pad));\n# equivalent, preferred\nset_property PULLTYPE PULLUP [get_ports sda_pad]",
+      "parameters": [
+        {"name": "O", "description": "The net/pad the weak driver is attached to."}
+      ],
+      "example": "# Check what the netlist ended up with\nget_cells -hier -filter {REF_NAME == PULLUP || REF_NAME == KEEPER}\nget_property PULLTYPE [get_ports sda_pad]",
+      "notes": "Pull resistors on configuration pins during configuration are set with BITSTREAM.CONFIG.UNUSEDPIN / the pin-specific properties, not with these primitives.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/KEEPER"
+    },
+    {
+      "name": "USR_ACCESSE2 / EFUSE_USR / MASTER_JTAG",
+      "kind": "block",
+      "description": "Small configuration-related access primitives: USR_ACCESSE2 exposes the 32-bit USR_ACCESS configuration register, which write_bitstream can fill with a timestamp or user value (BITSTREAM.CONFIG.USR_ACCESS TIMESTAMP|0x...), giving the design a build ID readable in hardware; EFUSE_USR outputs the 32 user eFUSE bits programmed via the Hardware Manager or XSDB; MASTER_JTAG (UltraScale/UltraScale+) lets fabric logic take over the device's JTAG TAP as a master (for programming other JTAG devices on the board from the FPGA). All are single-instance primitives with no configuration parameters.",
+      "usage": "USR_ACCESSE2 u_usr (.CFGCLK(), .DATA(build_id[31:0]), .DATAVALID(build_id_valid));\nEFUSE_USR #(.SIM_EFUSE_VALUE(32'h0)) u_efuse (.EFUSEUSR(efuse_bits[31:0]));\nMASTER_JTAG u_mjtag (.TDO(tdo), .TCK(tck), .TDI(tdi), .TMS(tms));\n# XDC to stamp the build\nset_property BITSTREAM.CONFIG.USR_ACCESS TIMESTAMP [current_design]\nset_property BITSTREAM.CONFIG.USR_ACCESS 0x20250927 [current_design]",
+      "parameters": [
+        {"name": "DATA / DATAVALID (USR_ACCESSE2)", "description": "Register value and valid strobe."},
+        {"name": "BITSTREAM.CONFIG.USR_ACCESS", "description": "TIMESTAMP (ddddd hhhhh mmmmmm ssssss yyyyyy mmmm) or a 32-bit hex constant, written at bitstream generation."},
+        {"name": "EFUSEUSR", "description": "The 32 FUSE_USER bits (read-only in fabric; programmed through the Hardware Manager eFUSE wizard)."}
+      ],
+      "example": "# Read the same register from Hardware Manager\nget_property REGISTER.USR_ACCESS [current_hw_device]\n# Read user eFUSEs\nget_property REGISTER.EFUSE.FUSE_USER [current_hw_device]",
+      "notes": "USR_ACCESS is a cheap way to verify that the bitstream on the board matches the build; the timestamp format is decoded in UG908. eFUSE programming is irreversible; the Hardware Manager 'Program eFUSE' wizard (or XSDB efuse commands on Versal) performs it.",
+      "docs": "https://docs.amd.com/r/en-US/ug974-vivado-ultrascale-libraries/USR_ACCESSE2"
+    }
+  ]
+}

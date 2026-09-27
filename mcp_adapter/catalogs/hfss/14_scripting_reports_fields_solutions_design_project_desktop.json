@@ -1,0 +1,418 @@
+{
+  "category": "Scripting: ReportSetup, FieldsReporter, Solutions, oDesign, oProject & oDesktop Commands",
+  "description": "The post-processing and housekeeping side of the native object model: ReportSetup commands for traces, output variables, templates and report data, the stack-based FieldsReporter calculator and field-overlay commands, Solutions-module exports (network data, eigenmodes, source editing), and the oDesign / oProject / oDesktop methods for solving, variations, solution types, variables, datasets, design settings, the ChildObject API, directories, registry, autosave, job submission, messages and the ScriptEnv/ScriptArgument entry points of IronPython scripts.",
+  "tools": [
+    {
+      "name": "oModule(\"ReportSetup\").CreateReport - report types, display types, context and families arrays",
+      "kind": "script-object",
+      "description": "The full argument structure of CreateReport: report name, report type (\"Modal Solution Data\", \"Terminal Solution Data\", \"Eigenmode Parameters\", \"Fields\", \"Far Fields\", \"Near Fields\", \"Antenna Parameters\", \"Emission Test\"), display type (\"Rectangular Plot\", \"Polar Plot\", \"Radiation Pattern\", \"Smith Chart\", \"Data Table\", \"3D Rectangular Plot\", \"3D Polar Plot\", \"Rectangular Contour Plot\", \"Rectangular Stacked Plot\", \"3D Rectangular Bar Plot\"), solution, context array (Domain, Context for spheres/polylines/arrays), families array (sweep variable values) and the report data array (X and Y components). The basic call is catalogued with ExportToFile; this entry lists the option vocabulary.",
+      "usage": "oModule = oDesign.GetModule(\"ReportSetup\")\noModule.CreateReport(<ReportName>, <ReportType>, <DisplayType>, <SolutionName>, <ContextArray>, <FamiliesArray>, <ReportDataArray>, <ExtendedInfo>)\n# context examples\n[\"Domain:=\", \"Sweep\"]                                   # frequency-domain S-parameters\n[\"Context:=\", \"3D\"]                                     # far fields on infinite sphere '3D'\n[\"Context:=\", \"Polyline1\", \"PointCount:=\", 1001]        # fields along a polyline\n[\"Domain:=\", \"Time\", \"HoldTime:=\", 1, \"RiseTime:=\", 0, \"StepTime:=\", 6.25e-12, \"Step:=\", False, \"WindowWidth:=\", 1, \"WindowType:=\", 0, \"KaiserParameter:=\", 1, \"MaximumTime:=\", 6.24e-9]   # TDR\n# families\n[\"Freq:=\", [\"All\"], \"patch_l:=\", [\"27mm\", \"29mm\"]]\n[\"Freq:=\", [\"2.45GHz\"], \"Theta:=\", [\"All\"], \"Phi:=\", [\"0deg\", \"90deg\"]]\n# data\n[\"X Component:=\", \"Freq\", \"Y Component:=\", [\"dB(S(1,1))\", \"dB(S(2,1))\"]]\n[\"Theta Component:=\", \"Theta\", \"Phi Component:=\", \"Phi\", \"Mag Component:=\", [\"dB(GainTotal)\"]]   # 3D polar\n[\"X Component:=\", \"Freq\", \"Y Component:=\", [\"S(1,1)\"]]   # Smith chart takes the complex quantity",
+      "parameters": [
+        {"name": "ReportType", "description": "Category; must match the solution type (Modal vs Terminal) and the context (Far Fields need a sphere)."},
+        {"name": "DisplayType", "description": "Plot kind; Radiation Pattern and 3D Polar are for angular data, Smith Chart for complex S/Gamma."},
+        {"name": "SolutionName", "description": "\"Setup1 : Sweep1\", \"Setup1 : LastAdaptive\", \"Setup1 : AdaptivePass\" (convergence), or \"Setup1 : Transient\"."},
+        {"name": "ContextArray", "description": "Domain and/or Context (sphere name, polyline with PointCount, array/source context, differential pairs, matrix)."},
+        {"name": "FamiliesArray", "description": "Sweep variable -> values; the primary sweep variable normally gets [\"All\"]."},
+        {"name": "ReportDataArray", "description": "X Component and Y Component (list), or the Theta/Phi/Mag components for 3D polar plots."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"ReportSetup\")\noModule.CreateReport(\"Gain 3D\", \"Far Fields\", \"3D Polar Plot\", \"Setup1 : LastAdaptive\", [\"Context:=\", \"3D\"],\n    [\"Freq:=\", [\"2.45GHz\"], \"Theta:=\", [\"All\"], \"Phi:=\", [\"All\"]],\n    [\"Theta Component:=\", \"Theta\", \"Phi Component:=\", \"Phi\", \"Mag Component:=\", [\"dB(GainTotal)\"]], [])\noModule.CreateReport(\"E along probe\", \"Fields\", \"Rectangular Plot\", \"Setup1 : LastAdaptive\", [\"Context:=\", \"Probe\", \"PointCount:=\", 1001],\n    [\"Distance:=\", [\"All\"], \"Freq:=\", [\"2.45GHz\"], \"Phase:=\", [\"0deg\"]],\n    [\"X Component:=\", \"Distance\", \"Y Component:=\", [\"Mag_E\"]], [])\noModule.CreateReport(\"Smith\", \"Modal Solution Data\", \"Smith Chart\", \"Setup1 : Sweep1\", [\"Domain:=\", \"Sweep\"],\n    [\"Freq:=\", [\"All\"]], [\"Polar Component:=\", [\"S(1,1)\"]], [])",
+      "notes": "PyAEDT: hfss.post.create_report(expressions, setup_sweep_name, domain, variations, primary_sweep_variable, secondary_sweep_variable, report_category, plot_type, context). Recording a report from the GUI reveals the exact component key names for each display type (e.g. Polar Component for Smith charts).",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/CreateReport.htm"
+    },
+    {
+      "name": "oModule(\"ReportSetup\").AddTraces / UpdateTraces / DeleteTraces / UpdateReports / UpdateAllReports",
+      "kind": "script-object",
+      "description": "Trace-level report commands: add traces to an existing report with their own solution, context, families and data arrays, update the definition of existing traces, delete traces by name, and force reports to refresh from the latest solution data (one list of reports, or all). They mirror Modify Report > Add Trace / Update and are used to build multi-solution comparison plots.",
+      "usage": "oModule.AddTraces(<ReportName>, <SolutionName>, <ContextArray>, <FamiliesArray>, <ReportDataArray>, [])\noModule.UpdateTraces(<ReportName>, [<TraceNames>], <SolutionName>, <ContextArray>, <FamiliesArray>, <ReportDataArray>, [])\noModule.DeleteTraces([<ReportName>], [<TraceNames>])\noModule.UpdateReports([\"XY Plot 1\", \"XY Plot 4\"])\noModule.UpdateAllReports()",
+      "parameters": [
+        {"name": "TraceNames", "description": "As listed in the report's Traces tab, typically the expression plus variation suffix; list them through the ChildObject API (oDesign.GetChildObject(\"Results\").GetChildObject(<plot>).GetChildNames())."},
+        {"name": "arrays", "description": "Same structure as in CreateReport."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"ReportSetup\")\noModule.AddTraces(\"S11 compare\", \"Setup2 : Sweep1\", [\"Domain:=\", \"Sweep\"], [\"Freq:=\", [\"All\"]],\n    [\"X Component:=\", \"Freq\", \"Y Component:=\", [\"dB(S(1,1))\"]], [])\noModule.UpdateReports([\"S11 compare\"])\noModule.UpdateAllReports()",
+      "notes": "PyAEDT: report.add_trace_to_report / update_trace_in_report / delete_traces, hfss.post.update_report_dynamically. With 'Update reports dynamically on edits' disabled (Tools > Options), UpdateReports is needed after a re-solve before exporting.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/AddTraces.htm"
+    },
+    {
+      "name": "oModule(\"ReportSetup\").DeleteReports / DeleteAllReports / RenameReport / GetAllReportNames / CopyReportsData / PasteReports / ImportIntoReport",
+      "kind": "script-object",
+      "description": "Report inventory commands: delete named reports or all reports, rename a report, list report names, copy the data of reports to the clipboard and paste them as static (imported) traces into a design, and import a CSV/TAB/DAT file into an existing report as traces (e.g. measurements over simulation).",
+      "usage": "oModule.DeleteReports([\"XY Plot 1\"])\noModule.DeleteAllReports()\noModule.RenameReport(\"XY Plot 1\", \"S11_baseline\")\nnames = oModule.GetAllReportNames()\noModule.CopyReportsData([\"Transmission\", \"Reflection\"])\noModule.PasteReports()\noModule.ImportIntoReport(\"Plot1\", \"C:/meas/vna.csv\")",
+      "parameters": [
+        {"name": "report names", "description": "Names as shown under Results in the project tree."},
+        {"name": "file for ImportIntoReport", "description": ".csv, .tab or .dat with a header row; columns become traces."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"ReportSetup\")\nfor r in oModule.GetAllReportNames():\n    if r.startswith(\"tmp\"):\n        oModule.DeleteReports([r])\noModule.CopyReportsData([\"S11\"])       # freeze before re-solve\noModule.PasteReports()\noModule.ImportIntoReport(\"S11\", \"C:/meas/vna_s11.csv\")",
+      "notes": "PyAEDT: hfss.post.delete_report, rename_report, all_report_names, copy_report_data, paste_report_data, report.import_traces. Pasted reports are named with an 'Imported' suffix and are independent of the solution.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ImportIntoReport.htm"
+    },
+    {
+      "name": "oModule(\"ReportSetup\").CreateReportFromTemplate / SaveReportAsTemplate / ExportImageToFile / ExportUniformPointsToFile",
+      "kind": "script-object",
+      "description": "Report templates and exports: create a report from an .rpt template saved earlier (Save As Report Template), save a report as a template, export a report image at a given size, and export report data resampled on a uniform grid. Templates carry expressions, context and formatting, so a validated set of plots can be reproduced on any design with the same port names.",
+      "usage": "oModule.CreateReportFromTemplate(\"C:/MyHFSSProjects/PersonalLib/ReportTemplates/TestTemplate.rpt\")\noModule.SaveReportAsTemplate(\"XY Plot 1\", \"C:/templates/s_params.rpt\")\noModule.ExportImageToFile(\"XY Plot 1\", \"C:/work/xy1.png\", 1600, 900)\noModule.ExportUniformPointsToFile(\"XY Plot 1\", \"C:/work/xy1_uniform.csv\", \"1GHz\", \"6GHz\", \"10MHz\", False)",
+      "parameters": [
+        {"name": "template path", "description": ".rpt file; templates saved under PersonalLib/ReportTemplates appear in the Results > Create Report From Template menu."},
+        {"name": "ExportImageToFile arguments", "description": "Report name, file (extension picks the format), width, height in pixels."},
+        {"name": "ExportUniformPointsToFile arguments", "description": "Report, file, start, stop, step, and a flag for trace-number formatting."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"ReportSetup\")\noModule.SaveReportAsTemplate(\"S params\", \"C:/templates/sparams.rpt\")\n# in another design\noModule.CreateReportFromTemplate(\"C:/templates/sparams.rpt\")\noModule.ExportImageToFile(\"S params\", \"C:/work/sparams.png\", 1920, 1080)",
+      "notes": "PyAEDT: report.apply_report_template, hfss.post.create_report_from_configuration(\".rpt\"), export_report_to_jpg, export_report_to_file(uniform=True). Templates reference solution names; when they differ, edit the report's solution afterwards.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/CreateReportFromTemplate.htm"
+    },
+    {
+      "name": "oModule(\"OutputVariable\").CreateOutputVariable / oDesign.GetOutputVariableValue / DeleteOutputVariable / GetOutputVariables",
+      "kind": "script-object",
+      "description": "Output variables in the native model: create a named report expression bound to a solution, report type and context, evaluate it for an intrinsic variation from the design, delete it, and list existing ones. Output variables are the quantities Optimetrics goals and other expressions reference by name.",
+      "usage": "oModule = oDesign.GetModule(\"OutputVariable\")\noModule.CreateOutputVariable(\"PeakGain\", \"max(dB(GainTotal))\", \"Setup1 : LastAdaptive\", \"Far Fields\", [\"Context:=\", \"3D\", \"Domain:=\", \"Sweep\"])\noModule.CreateOutputVariable(\"RL\", \"dB(S(1,1))\", \"Setup1 : Sweep1\", \"Modal Solution Data\", [\"Domain:=\", \"Sweep\"])\nval = oDesign.GetOutputVariableValue(\"RL\", \"Freq='2.45GHz'\", \"Setup1 : Sweep1\", \"Modal Solution Data\", [\"Domain:=\", \"Sweep\"])\noModule.DeleteOutputVariable(\"RL\")\nnames = oModule.GetOutputVariables()",
+      "parameters": [
+        {"name": "expression", "description": "Any report expression valid for the report type."},
+        {"name": "solution / report type / context", "description": "As in CreateReport; far-field expressions need the sphere context."},
+        {"name": "intrinsic variation (GetOutputVariableValue)", "description": "\"Freq='2.45GHz' Theta='0deg' Phi='0deg'\" style string fixing the intrinsics; returns a double."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"OutputVariable\")\noModule.CreateOutputVariable(\"RL_2p45\", \"dB(S(1,1))\", \"Setup1 : Sweep1\", \"Modal Solution Data\", [\"Domain:=\", \"Sweep\"])\noDesign.Analyze(\"Setup1\")\nrl = oDesign.GetOutputVariableValue(\"RL_2p45\", \"Freq='2.45GHz'\", \"Setup1 : Sweep1\", \"Modal Solution Data\", [\"Domain:=\", \"Sweep\"])\noDesktop.AddMessage(oProject.GetName(), oDesign.GetName(), 0, \"RL at 2.45 GHz = %.2f dB\" % rl)",
+      "notes": "PyAEDT: hfss.create_output_variable / get_output_variable / output_variables. In older releases CreateOutputVariable lives on the ReportSetup module; the OutputVariable module is the current location.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/CreateOutputVariable.htm"
+    },
+    {
+      "name": "oModule(\"ReportSetup\").ChangeProperty (report formatting: axes, legend, traces, markers, limit lines)",
+      "kind": "script-object",
+      "description": "Report appearance is edited with ChangeProperty on the ReportSetup module using tab names such as Axis, Legend, Trace, General, Header, Grid and Marker with PropServers like \"<plot>:AxisX\", \"<plot>:AxisY1\", \"<plot>:Legend\", \"<plot>:<trace name>\" or \"<plot>:Header\". Everything the Properties window of a report offers (scaling, fonts, labels, colours, line styles, symbol markers, log axes) is reachable this way.",
+      "usage": "oModule = oDesign.GetModule(\"ReportSetup\")\noModule.ChangeProperty([\"NAME:AllTabs\", [\"NAME:Axis\", [\"NAME:PropServers\", \"S11:AxisY1\"],\n    [\"NAME:ChangedProps\", [\"NAME:Auto Scale\", \"Value:=\", False], [\"NAME:Min\", \"Value:=\", \"-40\"], [\"NAME:Max\", \"Value:=\", \"0\"], [\"NAME:Name\", \"Value:=\", \"S-parameters (dB)\"]]]])\noModule.ChangeProperty([\"NAME:AllTabs\", [\"NAME:Axis\", [\"NAME:PropServers\", \"S11:AxisX\"], [\"NAME:ChangedProps\", [\"NAME:Axis Scaling\", \"Value:=\", \"Log\"], [\"NAME:Auto Units\", \"Value:=\", False], [\"NAME:Units\", \"Value:=\", \"GHz\"]]]])\noModule.ChangeProperty([\"NAME:AllTabs\", [\"NAME:Legend\", [\"NAME:PropServers\", \"S11:Legend\"], [\"NAME:ChangedProps\", [\"NAME:Show Variation Key\", \"Value:=\", False], [\"NAME:Show Solution Name\", \"Value:=\", False]]]])\noModule.ChangeProperty([\"NAME:AllTabs\", [\"NAME:Trace\", [\"NAME:PropServers\", \"S11:dB(S(1,1)):Curve1\"], [\"NAME:ChangedProps\", [\"NAME:Line Width\", \"Value:=\", 3], [\"NAME:Color\", \"R:=\", 255, \"G:=\", 0, \"B:=\", 0], [\"NAME:Line Style\", \"Value:=\", \"Dash\"]]]])",
+      "parameters": [
+        {"name": "tab", "description": "\"Axis\", \"Legend\", \"Trace\", \"General\", \"Header\", \"Grid\", \"Marker\", \"Cartesian Limit Line\", \"Note\"."},
+        {"name": "PropServers", "description": "\"<plot>:AxisX\", \"<plot>:AxisY1\" (Y2..), \"<plot>:Legend\", \"<plot>:<trace>:Curve1\", \"<plot>:Header\", \"<plot>:Grid\"."},
+        {"name": "properties", "description": "GUI labels: Auto Scale, Min, Max, Axis Scaling (Linear/Log), Name, Units, Text Font, Line Width, Line Style, Color, Symbol Style, Show Trace Name ..."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"ReportSetup\")\nplot = \"S params\"\noModule.ChangeProperty([\"NAME:AllTabs\", [\"NAME:Axis\", [\"NAME:PropServers\", plot + \":AxisY1\"],\n    [\"NAME:ChangedProps\", [\"NAME:Auto Scale\", \"Value:=\", False], [\"NAME:Min\", \"Value:=\", \"-50\"], [\"NAME:Max\", \"Value:=\", \"0\"]]]])\noModule.ChangeProperty([\"NAME:AllTabs\", [\"NAME:General\", [\"NAME:PropServers\", plot + \":General\"],\n    [\"NAME:ChangedProps\", [\"NAME:Back Color\", \"R:=\", 255, \"G:=\", 255, \"B:=\", 255]]]])\noModule.ExportImageToFile(plot, \"C:/work/sparams.png\", 1600, 900)",
+      "notes": "PyAEDT: report.edit_x_axis / edit_y_axis / edit_x_axis_scaling / edit_y_axis_scaling / edit_grid / edit_legend / edit_general_settings / edit_header. Trace PropServer names include the trace's internal name; record a colour change once to see them.",
+      "docs": "https://ansyshelp.ansys.com/"
+    },
+    {
+      "name": "oModule(\"Solutions\").EditSources (post-processing source magnitudes, phases, field type)",
+      "kind": "script-object",
+      "description": "Set excitation weights for post-processing: a first sub-array with the non-source settings (FieldType Scattered/Incident/Total for incident waves, UseIncidentVoltage, IncludePortPostProcessing, SpecifySystemPower with the power value) followed by one sub-array per source with its name (\"Port:mode\" in Modal, terminal name in Terminal, incident wave name) and magnitude/phase (plus Terminated flag in Terminal designs). Field plots, far fields and antenna parameters use these weights without re-solving.",
+      "usage": "oModule = oDesign.GetModule(\"Solutions\")\noModule.EditSources([\n    [\"FieldType:=\", \"ScatteredFields\", \"UseIncidentVoltage:=\", False, \"IncludePortPostProcessing:=\", True, \"SpecifySystemPower:=\", False],\n    [\"Name:=\", \"P1:1\", \"Magnitude:=\", \"1W\", \"Phase:=\", \"0deg\"],\n    [\"Name:=\", \"P2:1\", \"Magnitude:=\", \"1W\", \"Phase:=\", \"90deg\"],\n    [\"Name:=\", \"IncPWave1\", \"Magnitude:=\", \"1V_per_meter\", \"Phase:=\", \"0deg\"]])\n# Terminal design entries\n[\"Name:=\", \"Trace_T1\", \"Terminated:=\", False, \"Magnitude:=\", \"1V\", \"Phase:=\", \"0deg\"]",
+      "parameters": [
+        {"name": "FieldType", "description": "\"ScatteredFields\", \"IncidentFields\" or \"TotalFields\" when incident waves exist."},
+        {"name": "IncludePortPostProcessing", "description": "Apply renormalisation/de-embedding in the weighting."},
+        {"name": "SpecifySystemPower / SystemPower", "description": "Reference power for gain instead of maximum available power."},
+        {"name": "Magnitude", "description": "W for port power, V for incident voltage/terminal, V_per_meter for plane waves, A_per_meter for magnetic sources."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"Solutions\")\nsources = [[\"FieldType:=\", \"TotalFields\", \"UseIncidentVoltage:=\", False, \"IncludePortPostProcessing:=\", True, \"SpecifySystemPower:=\", False]]\nfor i in range(4):\n    sources.append([\"Name:=\", \"P%d:1\" % (i + 1), \"Magnitude:=\", \"1W\", \"Phase:=\", \"%ddeg\" % (90 * i)])\noModule.EditSources(sources)\noDesign.GetModule(\"FieldsReporter\").UpdateAllFieldsPlots()",
+      "notes": "PyAEDT: hfss.edit_sources(dict, include_port_post_processing, max_available_power, use_incident_voltage, incident_wave). Every source must be listed; omitted ones keep their previous values only in some releases - list all to be safe.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/EditSources.htm"
+    },
+    {
+      "name": "oModule(\"Solutions\").ExportNetworkData (Touchstone / CSV / MATLAB / CITI network export)",
+      "kind": "script-object",
+      "description": "Export S/Y/Z network data of solved setups/sweeps: design variation key, solution selection array, file format code (2 tab-delimited spreadsheet, 3 Touchstone .sNp, 4 CITIfile, 7 MATLAB .m, 8 terminal Z0 spreadsheet), output file, frequencies (\"all\" or a list), renormalisation flag and impedance, matrix type (\"S\"/\"Y\"/\"Z\"), and trailing options for precision, format (MA/RI/DB) and comments. It is the native routine behind hfss.export_touchstone.",
+      "usage": "oModule = oDesign.GetModule(\"Solutions\")\noModule.ExportNetworkData(<DesignVariationKey>, [<\"Setup:Sweep\">], <FileFormat>, <OutFile>, <FreqsArray>, <DoRenorm>, <RenormImped>, <DataType>, <Pass>, <ComplexFormat>, <Precision>, <IncludeGammaImped>, <SupportNonStandardExt>, <ExportDirectionalMatrix?>)\noModule.ExportNetworkData(\"\", [\"Setup1:Sweep1\"], 3, \"C:/work/filter.s2p\", [\"all\"], True, 50, \"S\", -1, 0, 15, True, True, True)",
+      "parameters": [
+        {"name": "DesignVariationKey", "description": "\"\" for the nominal variation or \"patch_l='29mm' patch_w='38mm'\"."},
+        {"name": "solution array", "description": "[\"Setup1:Sweep1\"] (note: no spaces around the colon in this command)."},
+        {"name": "FileFormat", "description": "2 = .tab, 3 = Touchstone, 4 = CITI, 7 = MATLAB .m, 8 = terminal Z0 table."},
+        {"name": "FreqsArray", "description": "[\"all\"] or explicit frequencies with units."},
+        {"name": "DoRenorm / RenormImped", "description": "Renormalise to a real impedance (Touchstone only)."},
+        {"name": "DataType / Pass / ComplexFormat / Precision", "description": "\"S\"/\"Y\"/\"Z\"; -1 for the final pass; 0 = MA, 1 = RI, 2 = DB; significant digits."},
+        {"name": "IncludeGammaImped / SupportNonStandardExt", "description": "Write gamma/impedance comments; allow non-standard extensions for mixed impedances."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"Solutions\")\nfor l in [\"27mm\", \"29mm\", \"31mm\"]:\n    oModule.ExportNetworkData(\"patch_l='%s'\" % l, [\"Setup1:Sweep1\"], 3, \"C:/work/patch_%s.s1p\" % l, [\"all\"], True, 50, \"S\", -1, 0, 15, True, True, True)\noModule.ExportNetworkData(\"\", [\"Setup1:Sweep1\"], 2, \"C:/work/filter_S.tab\", [\"all\"], False, 50, \"S\", -1, 0, 15, True, True, True)",
+      "notes": "PyAEDT: hfss.export_touchstone(setup, sweep, output_file, variations, variations_value, renormalization, impedance, gamma_impedance_comments) and hfss.export_results. The trailing argument list grew over releases; extra trailing booleans are ignored by older versions.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ExportNetworkData.htm"
+    },
+    {
+      "name": "oModule(\"Solutions\").ExportEigenmodes / ListVariations / GetValidISolutionList / ExportTransientData",
+      "kind": "script-object",
+      "description": "Other Solutions-module commands: export the eigenmode table (frequency, Q per mode) for a solution and variation to a tab-delimited .eig file, list solved variations of a solution, query which solutions carry data (GetValidISolutionList), and export transient port signals. Together with ExportNetworkData they cover Results > Solution Data exports.",
+      "usage": "oModule = oDesign.GetModule(\"Solutions\")\noModule.ExportEigenmodes(\"Setup1 : LastAdaptive\", \"\", \"C:/mydir/myeigenmode.eig\")\nvariations = oModule.ListVariations(\"Setup1 : Sweep1\")\nvalid = oModule.GetValidISolutionList()\noModule.ExportTransientData(\"Setup1 : Transient\", \"\", \"C:/work/transient.csv\")",
+      "parameters": [
+        {"name": "solution", "description": "\"Setup : LastAdaptive\" (eigenmodes) or \"Setup : Sweep\"."},
+        {"name": "variation", "description": "Variation key string or empty for nominal."},
+        {"name": "file", "description": "Output path; .eig is a tab-delimited text table."}
+      ],
+      "example": "oModule = oDesign.GetModule(\"Solutions\")\nfor v in oModule.ListVariations(\"Modes : LastAdaptive\"):\n    safe = v.replace(\"'\", \"\").replace(\"=\", \"_\").replace(\" \", \"_\") or \"nominal\"\n    oModule.ExportEigenmodes(\"Modes : LastAdaptive\", v, \"C:/work/modes_%s.eig\" % safe)",
+      "notes": "PyAEDT: hfss.create_q_factor_report exports the Q table; hfss.available_variations.variations wraps ListVariations. ExportEigenmodes is unavailable for HFSS-IE designs; the exact spelling of the valid-solution query varies by release - check the scripting guide of the installed version.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ExportEigenmodes.htm"
+    },
+    {
+      "name": "oModule(\"FieldsReporter\").EnterVol / EnterSurf / EnterLine / EnterPoint / EnterScalar / EnterVector / EnterComplex / EnterScalarFunc",
+      "kind": "script-object",
+      "description": "Push operands onto the Fields Calculator stack: geometry (a volume object, a surface/sheet or face list, a polyline, a point object) for integrations and value extraction, and constants (real scalar, vector, complex) or scalar functions (design variables, coordinate functions like X, Y, Z, Phase) for arithmetic with field quantities. They complement EnterQty (field quantities) and CalcOp (operations) already catalogued.",
+      "usage": "oModule = oDesign.GetModule(\"FieldsReporter\")\noModule.EnterVol(\"Box1\")\noModule.EnterSurf(\"Sheet1\")            # object, face-list or a named selection\noModule.EnterLine(\"Polyline1\")\noModule.EnterPoint(\"Point1\")\noModule.EnterScalar(3.14159265358979)\noModule.EnterVector(1.0, 0.0, 0.0)\noModule.EnterComplex(1.0, 0.5)\noModule.EnterScalarFunc(\"Phase\")       # or a variable name such as \"patch_w\"",
+      "parameters": [
+        {"name": "name", "description": "Object / list / polyline / point name as in the modeler."},
+        {"name": "scalar / vector / complex values", "description": "Numbers in SI units."},
+        {"name": "EnterScalarFunc", "description": "Function name: X, Y, Z, Phase, Freq, Time, Distance, or any design variable."}
+      ],
+      "example": "ofr = oDesign.GetModule(\"FieldsReporter\")\nofr.CalcStack(\"clear\")\n# voltage along a line: integrate E dot tangent along Polyline1\nofr.EnterQty(\"E\"); ofr.CalcOp(\"Real\"); ofr.CalcOp(\"Tangent\"); ofr.CalcOp(\"Dot\")\nofr.EnterLine(\"VLine\"); ofr.CalcOp(\"LineValue\"); ofr.CalcOp(\"Integrate\")\nofr.AddNamedExpression(\"V_line\", \"Fields\")\n# radiated power through the region surface\nofr.CalcStack(\"clear\")\nofr.EnterQty(\"Poynting\"); ofr.CalcOp(\"Real\"); ofr.EnterSurf(\"Region\"); ofr.CalcOp(\"Normal\"); ofr.CalcOp(\"Integrate\")\nofr.AddNamedExpression(\"Prad\", \"Fields\")",
+      "notes": "PyAEDT: hfss.post.ofieldsreporter for raw access, hfss.post.fields_calculator.add_expression for catalogued expressions. The calculator is stateful - clear the stack at the start of each sequence and keep the operand order the GUI would use.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/EnterVol.htm"
+    },
+    {
+      "name": "oModule(\"FieldsReporter\").CalcOp operation names (Mag, ComplexMag, Real, Imag, Phase, Conj, Dot, Cross, Normal, Tangent, Integrate, Maximum, Minimum, Mean, Value, dB, Grad, Div, Curl, Smooth, ...)",
+      "kind": "reference",
+      "description": "The operation vocabulary accepted by CalcOp, matching the Fields Calculator buttons: scalar/complex functions (Mag, ComplexMag, Real, Imag, Phase, Conj, Smooth, dB, Abs, Sqrt, Pow, Exp, Ln, Log, Sin/Cos/Tan, Asin..., 1/x, +, -, *, /), vector operations (Dot, Cross, Normal, Tangent, ScalarX/Y/Z, VecX/Y/Z, Grad, Div, Curl, Unit Vec), geometry evaluators (Value, LineValue, SurfaceValue, VolumeValue, Integrate, Maximum, Minimum, Mean, MaxPos, MinPos), and context operations (AtPhase, AtTime, Domain, Derivative). Each consumes the top stack entries and pushes the result.",
+      "usage": "oModule.CalcOp(\"<operation>\")\n# common sequences\nEnterQty(\"E\"); CalcOp(\"ComplexMag\")                                  # |E|\nEnterQty(\"E\"); CalcOp(\"Mag\"); EnterVol(\"Sub\"); CalcOp(\"Maximum\")    # max |E| in an object\nEnterQty(\"Poynting\"); CalcOp(\"Real\"); EnterSurf(\"S\"); CalcOp(\"Normal\"); CalcOp(\"Integrate\")   # power through S\nEnterQty(\"E\"); CalcOp(\"Real\"); CalcOp(\"Tangent\"); CalcOp(\"Dot\"); EnterLine(\"L\"); CalcOp(\"LineValue\"); CalcOp(\"Integrate\")   # voltage\nEnterQty(\"H\"); CalcOp(\"Real\"); CalcOp(\"Tangent\"); CalcOp(\"Dot\"); EnterLine(\"Loop\"); CalcOp(\"LineValue\"); CalcOp(\"Integrate\")  # current\nEnterQty(\"Ohmic_Loss\"); EnterVol(\"Conductor\"); CalcOp(\"Integrate\")    # volume loss\nEnterQty(\"E\"); CalcOp(\"Mag\"); EnterScalar(2); CalcOp(\"Pow\")           # |E|^2",
+      "parameters": [
+        {"name": "Scalar functions", "description": "Mag, ComplexMag, Real, Imag, Phase, Conj, Smooth, dB, Abs, Sqrt, Pow, Exp, Ln, Log, Sin, Cos, Tan, Asin, Acos, Atan, Atan2, 1/x, Neg, +, -, *, /, Max, Min (pairwise)."},
+        {"name": "Vector functions", "description": "Dot, Cross, Normal, Tangent, ScalarX, ScalarY, ScalarZ, VecX, VecY, VecZ, Vec, Grad, Div, Curl, Unit Vec, Matl (material property scaling), XForm."},
+        {"name": "Geometry / output", "description": "Value, LineValue, SurfaceValue, VolumeValue, PointValue, Integrate, Maximum, Minimum, Mean, MaxPos, MinPos, Export."},
+        {"name": "Context", "description": "AtPhase, AtTime, Domain (restrict to a region), Derivative, Time Average (via Smooth/AtPhase combinations)."}
+      ],
+      "example": "ofr = oDesign.GetModule(\"FieldsReporter\")\nofr.CalcStack(\"clear\")\nofr.EnterQty(\"E\"); ofr.CalcOp(\"ComplexMag\"); ofr.EnterScalar(2); ofr.CalcOp(\"Pow\")\nofr.EnterScalar(8.854e-12)\nofr.CalcOp(\"*\"); ofr.EnterScalar(0.25); ofr.CalcOp(\"*\")          # time-averaged electric energy density (vacuum permittivity)\nofr.EnterVol(\"Cavity\"); ofr.CalcOp(\"Integrate\")\nofr.AddNamedExpression(\"We_cavity\", \"Fields\")\nprint(ofr.GetTopEntryValue(\"Modes : LastAdaptive\", [\"Freq:=\", \"2GHz\", \"Phase:=\", \"0deg\"]))",
+      "notes": "Operation names are the button captions; some releases accept synonyms (\"Mag\" vs \"ComplexMag\" differ: Mag is the magnitude at the current phase, ComplexMag the peak). Named expressions can be inspected in the calculator's expression list and reused in plots and reports (Fields category).",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/CalcOp.htm"
+    },
+    {
+      "name": "oModule(\"FieldsReporter\").CopyNamedExprToStack / DeleteNamedExpr / ClearAllNamedExpr / ClcEval / GetTopEntryValue / CalcStack / ExportToFile (calculator stack and evaluation)",
+      "kind": "script-object",
+      "description": "Stack management and evaluation of the Fields Calculator: push a saved named expression, delete named expressions, evaluate the top of the stack for a solution and intrinsic values (ClcEval) and read the resulting number (GetTopEntryValue), manipulate the stack (push, pop, clear, exch, rlup, rldn), and export the top expression's values on the mesh or at points to a .fld file. These are the calls behind PyAEDT's get_scalar_field_value, export_field_file and FieldsCalculator.evaluate.",
+      "usage": "oModule = oDesign.GetModule(\"FieldsReporter\")\noModule.CopyNamedExprToStack(\"Prad\")\noModule.ClcEval(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"10GHz\", \"Phase:=\", \"0deg\"])\nvalue = oModule.GetTopEntryValue(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"10GHz\", \"Phase:=\", \"0deg\"])   # list of strings\noModule.CalcStack(\"push\") / \"pop\" / \"clear\" / \"exch\" / \"rlup\" / \"rldn\"\noModule.DeleteNamedExpr(\"Prad\") / oModule.ClearAllNamedExpr()\noModule.ExportToFile(\"C:/work/E_sub.fld\", \"Setup1 : LastAdaptive\", \"\", [\"Freq:=\", \"10GHz\", \"Phase:=\", \"0deg\"], [\"NAME:ExportOption\", \"IncludePtInOutput:=\", True, \"RefCSName:=\", \"Global\", \"PtInSI:=\", True, \"FieldInRefCS:=\", False])",
+      "parameters": [
+        {"name": "solution / variation array", "description": "\"Setup : LastAdaptive\" or a sweep, and the intrinsic values (Freq, Phase or Time) plus design variables when parametric."},
+        {"name": "GetTopEntryValue", "description": "Returns the evaluated value(s) as strings (scalar -> one element; vector -> three)."},
+        {"name": "ExportToFile arguments", "description": "File, solution, sample-points file (\"\" for the mesh), variation array, export options (points included, reference CS, SI units, field in reference CS)."}
+      ],
+      "example": "ofr = oDesign.GetModule(\"FieldsReporter\")\nofr.CalcStack(\"clear\")\nofr.CopyNamedExprToStack(\"Prad\")\nofr.ClcEval(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])\nprad = float(ofr.GetTopEntryValue(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])[0])\nofr.CalcStack(\"clear\")\nofr.EnterQty(\"E\"); ofr.CalcOp(\"ComplexMag\"); ofr.EnterVol(\"Sub\"); ofr.CalcOp(\"Maximum\")\nofr.ClcEval(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])\nemax = float(ofr.GetTopEntryValue(\"Setup1 : LastAdaptive\", [\"Freq:=\", \"2.45GHz\", \"Phase:=\", \"0deg\"])[0])\nprint(prad, emax)",
+      "notes": "PyAEDT: hfss.post.get_scalar_field_value, hfss.post.export_field_file, hfss.post.fields_calculator.evaluate. ClcEval on a large volume can take minutes; export on a grid (ExportOnGrid) when only sampled values are needed.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ClcEval.htm"
+    },
+    {
+      "name": "oModule(\"FieldsReporter\").CreateFieldPlot (surface / volume / cut-plane / line plots of Mag_E, Vector_E, Mag_Jsurf, ...)",
+      "kind": "script-object",
+      "description": "Create a field overlay plot: solution name, quantity (Mag_E, ComplexMag_E, Vector_E, Mag_H, Vector_H, Mag_Jsurf, Vector_Jsurf, Mag_Jvol, Vector_Jvol, Poynting, Mag_RealPoynting, Local_SAR, Average_SAR, Ohmic_Loss, Volume_Loss_Density, Surface_Loss_Density, Mesh, or a named expression), plot folder, intrinsic variation, the geometry array (objects, faces, cut planes or lines with a type keyword) and the surface/volume settings (iso-value style Fringe/Tone/Line/Gourard, arrows, grid colour). The second argument \"Field\" (or \"VRT\" for ray plots) selects the plot kind.",
+      "usage": "oModule = oDesign.GetModule(\"FieldsReporter\")\noModule.CreateFieldPlot([\"NAME:Mag_E1\", \"SolutionName:=\", \"Setup1 : LastAdaptive\", \"UserSpecifyName:=\", 0, \"UserSpecifyFolder:=\", 0, \"QuantityName:=\", \"Mag_E\", \"PlotFolder:=\", \"E Field\",\n    \"StreamlinePlot:=\", False, \"AdjacentSidePlot:=\", False, \"FullModelPlot:=\", False, \"IntrinsicVar:=\", \"Freq='2.45GHz' Phase='0deg'\",\n    \"PlotGeomInfo:=\", [1, \"Surface\", \"FacesList\", 2, \"12\", \"13\"], \"FilterBoxes:=\", [0],\n    [\"NAME:PlotOnSurfaceSettings\", \"Filled:=\", False, \"IsoValType:=\", \"Fringe\", \"SmoothShade:=\", True, \"AddGrid:=\", False, \"MapTransparency:=\", True, \"Refinement:=\", 0, \"Transparency:=\", 0, \"SmoothingLevel:=\", 0, \"ShadingType:=\", 0,\n     [\"NAME:Arrow3DSpacingSettings\", \"ArrowUniform:=\", True, \"ArrowSpacing:=\", 0, \"MinArrowSpacing:=\", 0, \"MaxArrowSpacing:=\", 0], \"GridColor:=\", [255, 255, 255]], \"EnableGaussianSmoothing:=\", False, \"SurfaceOnly:=\", False], \"Field\")\n# geometry variants: [1, \"Volume\", \"ObjList\", 1, \"Sub\"]  |  [1, \"Surface\", \"CutPlane\", 1, \"Global:XZ\"]  |  [1, \"Line\", \"Line\", 1, \"Polyline1\"]  |  [1, \"Surface\", \"ObjList\", 1, \"Patch\"]",
+      "parameters": [
+        {"name": "SolutionName", "description": "\"Setup : LastAdaptive\", \"Setup : Sweep\" (needs saved fields) or \"Setup : Transient\"."},
+        {"name": "QuantityName / PlotFolder", "description": "Field quantity and the folder that groups plots with shared scale (E Field, H Field, J Field, Other, or custom)."},
+        {"name": "IntrinsicVar", "description": "\"Freq='...' Phase='...'\" or \"Time='...'\"."},
+        {"name": "PlotGeomInfo", "description": "[count, type, kind, n, names...]: type Surface/Volume/Line; kind FacesList/ObjList/CutPlane/Line."},
+        {"name": "PlotOnSurfaceSettings / PlotOnVolumeSettings / PlotOnLineSettings", "description": "Appearance block matching the geometry type (IsoValType Fringe/Tone/Line/Gourard, arrows for vector plots, line width for line plots)."}
+      ],
+      "example": "ofr = oDesign.GetModule(\"FieldsReporter\")\nofr.CreateFieldPlot([\"NAME:E_xz\", \"SolutionName:=\", \"Setup1 : LastAdaptive\", \"UserSpecifyName:=\", 1, \"UserSpecifyFolder:=\", 0,\n    \"QuantityName:=\", \"Mag_E\", \"PlotFolder:=\", \"E Field\", \"StreamlinePlot:=\", False, \"AdjacentSidePlot:=\", False, \"FullModelPlot:=\", False,\n    \"IntrinsicVar:=\", \"Freq='2.45GHz' Phase='0deg'\", \"PlotGeomInfo:=\", [1, \"Surface\", \"CutPlane\", 1, \"Global:XZ\"], \"FilterBoxes:=\", [2, \"Sub\", \"Region\"],\n    [\"NAME:PlotOnSurfaceSettings\", \"Filled:=\", False, \"IsoValType:=\", \"Fringe\", \"SmoothShade:=\", True, \"AddGrid:=\", False, \"MapTransparency:=\", True,\n     \"Refinement:=\", 0, \"Transparency:=\", 0, \"SmoothingLevel:=\", 0, \"ShadingType:=\", 0,\n     [\"NAME:Arrow3DSpacingSettings\", \"ArrowUniform:=\", True, \"ArrowSpacing:=\", 0, \"MinArrowSpacing:=\", 0, \"MaxArrowSpacing:=\", 0],\n     \"GridColor:=\", [255, 255, 255]], \"EnableGaussianSmoothing:=\", False, \"SurfaceOnly:=\", False], \"Field\")",
+      "notes": "PyAEDT: hfss.post.create_fieldplot_surface / volume / cutplane / line, plot_field. The settings block changes between releases; record a plot once and reuse its array. Vector plots (Vector_E) use the Arrow settings; Mesh as QuantityName plots the mesh.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS3DLayout/Subsystems/HFSS3DLayout%20Scripting/Content/CreateFieldPlot.htm"
+    },
+    {
+      "name": "oModule(\"FieldsReporter\").ModifyFieldPlot / DeleteFieldPlot / RenamePlot / GetFieldPlotNames / UpdateAllFieldsPlots / SetPlotsViewSolutionContext / SetPlotFolderSettings",
+      "kind": "script-object",
+      "description": "Manage existing field overlays: modify a plot's definition (same array as CreateFieldPlot, with a possibly new name), delete plots, rename one, list plot names, regenerate all plots after a re-solve, set the time context of plots for transient solutions, and change a plot folder's scale/colour-map settings (min/max, log/dB, number of levels, colour map, marker and arrow settings) that all plots in the folder share.",
+      "usage": "oModule = oDesign.GetModule(\"FieldsReporter\")\noModule.ModifyFieldPlot(\"Mag_E1\", [\"NAME:Mag_E1\", \"SolutionName:=\", \"Setup1 : LastAdaptive\", ..., \"IntrinsicVar:=\", \"Freq='2.5GHz' Phase='90deg'\", ...])\noModule.DeleteFieldPlot([\"Mag_E1\", \"Vector_E1\"])\noModule.RenamePlot(\"Mag_E1\", \"E_patch\")\nnames = oModule.GetFieldPlotNames()\noModule.UpdateAllFieldsPlots()\noModule.SetPlotsViewSolutionContext([\"Flux_Lines1\", \"Mag_H1\"], \"Setup1 : Transient\", \"Time=-1\")\noModule.SetPlotFolderSettings(\"E Field\", [\"NAME:FieldsPlotSettings\", \"Real time mode:=\", True,\n    [\"NAME:ColorMapSettings\", \"ColorMapType:=\", \"Spectrum\", \"SpectrumType:=\", \"Rainbow\", \"UniformColor:=\", [127, 255, 255], \"RampColor:=\", [255, 127, 127]],\n    [\"NAME:Scale3DSettings\", \"minvalue:=\", 0, \"maxvalue:=\", 500, \"log:=\", False, \"dB:=\", False, \"ScaleType:=\", 1, \"m_nLevels:=\", 10, \"IntrinsicMin:=\", 0, \"IntrinsicMax:=\", 1, \"LimitFieldValuePrecision:=\", False, \"FieldValuePrecisionDigits:=\", 3],\n    [\"NAME:Marker3DSettings\", \"MarkerType:=\", 1, \"MarkerMapSize:=\", True, \"MarkerMapColor:=\", True, \"MarkerSize:=\", 0.25],\n    [\"NAME:Arrow3DSettings\", \"ArrowType:=\", 1, \"ArrowMapSize:=\", True, \"ArrowMapColor:=\", True, \"ShowArrowTail:=\", False, \"ArrowSize:=\", 0.25, \"ArrowMinMagnitude:=\", 0, \"ArrowMaxMagnitude:=\", 1, \"UseAutoLimits:=\", True]])",
+      "parameters": [
+        {"name": "ScaleType", "description": "0 = auto, 1 = specified min/max (with minvalue/maxvalue), 2 = use limits of the intrinsics."},
+        {"name": "log / dB / m_nLevels", "description": "Logarithmic or dB scale and number of colour levels."},
+        {"name": "ColorMapType / SpectrumType", "description": "\"Spectrum\" with Rainbow/Temperature/Magenta/Gray, or \"Uniform\"/\"Ramp\" colours."},
+        {"name": "SetPlotsViewSolutionContext", "description": "Plot names, transient solution, and \"Time=<value>\" (-1 = last)."}
+      ],
+      "example": "ofr = oDesign.GetModule(\"FieldsReporter\")\nprint(ofr.GetFieldPlotNames())\nofr.SetPlotFolderSettings(\"E Field\", [\"NAME:FieldsPlotSettings\", \"Real time mode:=\", True,\n    [\"NAME:ColorMapSettings\", \"ColorMapType:=\", \"Spectrum\", \"SpectrumType:=\", \"Rainbow\", \"UniformColor:=\", [127, 255, 255], \"RampColor:=\", [255, 127, 127]],\n    [\"NAME:Scale3DSettings\", \"minvalue:=\", 1, \"maxvalue:=\", 1000, \"log:=\", True, \"dB:=\", False, \"ScaleType:=\", 1, \"m_nLevels:=\", 20,\n     \"IntrinsicMin:=\", 0, \"IntrinsicMax:=\", 1, \"LimitFieldValuePrecision:=\", False, \"FieldValuePrecisionDigits:=\", 3],\n    [\"NAME:Marker3DSettings\", \"MarkerType:=\", 1, \"MarkerMapSize:=\", True, \"MarkerMapColor:=\", True, \"MarkerSize:=\", 0.25],\n    [\"NAME:Arrow3DSettings\", \"ArrowType:=\", 1, \"ArrowMapSize:=\", True, \"ArrowMapColor:=\", True, \"ShowArrowTail:=\", False, \"ArrowSize:=\", 0.25,\n     \"ArrowMinMagnitude:=\", 0, \"ArrowMaxMagnitude:=\", 1, \"UseAutoLimits:=\", True]])\nofr.UpdateAllFieldsPlots()\nofr.DeleteFieldPlot([\"Vector_E1\"])",
+      "notes": "PyAEDT: FieldPlot.update(), delete(), change_plot_scale(), folder_settings, hfss.post.field_plot_names, delete_field_plot. Folder settings apply to every plot in the folder; put plots that need different scales in different folders.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ModifyFieldPlot.htm"
+    },
+    {
+      "name": "oModule(\"FieldsReporter\").ExportFieldPlot / ExportPlotImageToFile / ExportModelImageToFile (plot data and picture export)",
+      "kind": "script-object",
+      "description": "Export a field plot's data (.aedtplt/.dsp/.case style file with optional header) for external viewers such as PyAEDT's PyVista plotter or EnSight, export an image of a specific plot with orientation and size, and export a model image including chosen plots. These support headless report generation and archiving of field results.",
+      "usage": "oModule = oDesign.GetModule(\"FieldsReporter\")\noModule.ExportFieldPlot(\"Mag_E1\", True, \"C:/work/Mag_E1.aedtplt\")     # (plot, showHeader, file)\noModule.ExportPlotImageToFile(\"C:/work/Mag_E1.jpg\", \"E Field\", \"Mag_E1\", 3)    # (file, folder, plot, orientation code)\noEditor.ExportModelImageToFile(\"C:/work/model_with_E.png\", 1600, 1200, [\"NAME:SaveImageParams\", \"ShowAxis:=\", \"False\", \"ShowGrid:=\", \"False\", \"ShowRuler:=\", \"False\", \"ShowRegion:=\", \"Default\", \"Selections:=\", \"Patch,Sub\", \"FieldPlotSelections:=\", \"Mag_E1\", \"Orientation:=\", \"isometric\"])",
+      "parameters": [
+        {"name": "showHeader", "description": "True writes the header with solution, quantity and units into the exported data."},
+        {"name": "orientation code", "description": "Integer view code for ExportPlotImageToFile (isometric and standard views); recorded from the GUI."},
+        {"name": "FieldPlotSelections", "description": "Comma-separated plot names to render in the model image."}
+      ],
+      "example": "ofr = oDesign.GetModule(\"FieldsReporter\")\nofr.UpdateAllFieldsPlots()\nfor p in ofr.GetFieldPlotNames():\n    ofr.ExportFieldPlot(p, True, \"C:/work/plots/%s.aedtplt\" % p)\noEditor.ExportModelImageToFile(\"C:/work/plots/E_iso.png\", 1920, 1080,\n    [\"NAME:SaveImageParams\", \"ShowAxis:=\", \"False\", \"ShowGrid:=\", \"False\", \"ShowRuler:=\", \"False\", \"ShowRegion:=\", \"False\",\n     \"Selections:=\", \"\", \"FieldPlotSelections:=\", \"Mag_E1\", \"Orientation:=\", \"isometric\"])",
+      "notes": "PyAEDT: hfss.post.export_field_plot(plot, dir, file_format=\"aedtplt\"/\"case\"), FieldPlot.export_image, hfss.post.export_model_picture(field_selections=...). Animations (GIF/AVI) are only produced by the Animate dialog or by PyAEDT's plot_animated_field.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ExportFieldPlot.htm"
+    },
+    {
+      "name": "oDesign.ExportMeshStats / ExportProfile / ExportConvergence / GetNominalVariation / GetVariationVariableValue",
+      "kind": "script-object",
+      "description": "Solver diagnostics and variation queries on the design object: write mesh statistics (.ms), the solve profile (.prof) and the convergence table for a setup and variation, read the current nominal variation string, and read the value of a variable inside a variation string. These run without checking out GUI licenses and are used by batch post-processing scripts.",
+      "usage": "oDesign.ExportMeshStats(\"Setup1\", \"radius=3mm\", \"C:/mydir/meshstats.ms\", True)\noDesign.ExportProfile(\"Setup1\", \"radius=3mm\", \"C:/Files/Profile.prof\", True)\noDesign.ExportConvergence(\"Setup1\", \"radius=3mm\", \"C:/Files/conv.conv\", True)\nnominal = oDesign.GetNominalVariation()                 # \"patch_l='29mm' patch_w='38mm'\"\nval = oDesign.GetVariationVariableValue(\"patch_l='29mm' patch_w='38mm'\", \"patch_l\")",
+      "parameters": [
+        {"name": "setup", "description": "Setup name."},
+        {"name": "variation", "description": "Variation key (\"\" = current nominal)."},
+        {"name": "file / overwrite", "description": "Output path and whether to overwrite (True default)."}
+      ],
+      "example": "nom = oDesign.GetNominalVariation()\noDesign.Analyze(\"Setup1\")\noDesign.ExportProfile(\"Setup1\", nom, \"C:/work/Setup1.prof\", True)\noDesign.ExportConvergence(\"Setup1\", nom, \"C:/work/Setup1.conv\", True)\noDesign.ExportMeshStats(\"Setup1\", nom, \"C:/work/Setup1.ms\", True)\nprint(open(\"C:/work/Setup1.conv\").read())",
+      "notes": "PyAEDT: hfss.export_profile / export_convergence / export_mesh_stats / get_profile / get_nominal_variation. The convergence file lists Delta S per pass and the converged flag - parse it to decide on more passes.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ExportMeshStats.htm"
+    },
+    {
+      "name": "oDesign.SetSolutionType / GetSolutionType (solution type strings and Options array)",
+      "kind": "script-object",
+      "description": "Change or read the solver of a design: \"HFSS Modal Network\", \"HFSS Terminal Network\", \"HFSS Modal Composite\", \"HFSS Terminal Composite\", \"Transient Network\", \"Transient Composite\", \"Eigenmode\", \"Characteristic\" (characteristic mode analysis) and \"SBR+\", with an Options array that enables Auto Open Region and selects its truncation (Radiation, FEBI, PML) and, where applicable, the hybrid flag. The native counterpart of hfss.solution_type and hfss.set_auto_open.",
+      "usage": "oDesign.SetSolutionType(\"HFSS Modal Network\", [\"NAME:Options\", \"EnableAutoOpen:=\", False])\noDesign.SetSolutionType(\"HFSS Terminal Network\", [\"NAME:Options\", \"EnableAutoOpen:=\", True, \"ModelExteriorAsIE:=\", \"PML\"])\noDesign.SetSolutionType(\"SBR+\", [\"NAME:Options\"])\nst = oDesign.GetSolutionType()",
+      "parameters": [
+        {"name": "solution type", "description": "One of the strings above; Composite variants are the auto-open/composite-excitation forms."},
+        {"name": "EnableAutoOpen / ModelExteriorAsIE", "description": "Automatic open region and its termination: \"Radiation\", \"FEBI\", \"PML\"."}
+      ],
+      "example": "print(oDesign.GetSolutionType())\noDesign.SetSolutionType(\"HFSS Terminal Network\", [\"NAME:Options\", \"EnableAutoOpen:=\", True, \"ModelExteriorAsIE:=\", \"Radiation\"])\noModule = oDesign.GetModule(\"BoundarySetup\")\noModule.AutoIdentifyTerminals()",
+      "notes": "PyAEDT: hfss.solution_type = \"Terminal\"; hfss.set_auto_open(True, \"Radiation\"); hfss.hybrid = True. Changing the type drops incompatible setups and converts ports; do it before creating boundaries.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/SetSolutionType.htm"
+    },
+    {
+      "name": "oDesign.GetVariables / GetVariableValue / oProject.GetVariables / GetVariableValue / oProject.ChangeProperty (ProjectVariableTab)",
+      "kind": "script-object",
+      "description": "Variable access on design and project objects: list variable names, read a variable's expression string, and add or change project ($) variables through ChangeProperty on the ProjectVariableTab (the design-level LocalVariableTab form is catalogued under oDesign.ChangeProperty). New variables use NewProps with a VariableProp type; existing ones use ChangedProps; PostProcessingVariableProp creates post-processing variables that do not invalidate solutions.",
+      "usage": "names = oDesign.GetVariables(); expr = oDesign.GetVariableValue(\"patch_l\")\npnames = oProject.GetVariables(); pexpr = oProject.GetVariableValue(\"$sub_h\")\noProject.ChangeProperty([\"NAME:AllTabs\", [\"NAME:ProjectVariableTab\", [\"NAME:PropServers\", \"ProjectVariables\"],\n    [\"NAME:NewProps\", [\"NAME:$sub_h\", \"PropType:=\", \"VariableProp\", \"UserDef:=\", True, \"Value:=\", \"1.575mm\"]]]])\noProject.ChangeProperty([\"NAME:AllTabs\", [\"NAME:ProjectVariableTab\", [\"NAME:PropServers\", \"ProjectVariables\"],\n    [\"NAME:ChangedProps\", [\"NAME:$sub_h\", \"Value:=\", \"3.175mm\"]]]])\noDesign.ChangeProperty([\"NAME:AllTabs\", [\"NAME:LocalVariableTab\", [\"NAME:PropServers\", \"LocalVariables\"],\n    [\"NAME:NewProps\", [\"NAME:scan_phase\", \"PropType:=\", \"PostProcessingVariableProp\", \"UserDef:=\", True, \"Value:=\", \"0deg\"]]]])",
+      "parameters": [
+        {"name": "PropType", "description": "\"VariableProp\" (normal), \"PostProcessingVariableProp\" (post-processing), \"SeparatorProp\"."},
+        {"name": "Value", "description": "Expression string with units."},
+        {"name": "DeletedProps", "description": "[\"NAME:DeletedProps\", \"var1\", \"var2\"] removes variables in the same ChangeProperty form."}
+      ],
+      "example": "if \"$sub_h\" not in oProject.GetVariables():\n    oProject.ChangeProperty([\"NAME:AllTabs\", [\"NAME:ProjectVariableTab\", [\"NAME:PropServers\", \"ProjectVariables\"],\n        [\"NAME:NewProps\", [\"NAME:$sub_h\", \"PropType:=\", \"VariableProp\", \"UserDef:=\", True, \"Value:=\", \"1.575mm\"]]]])\nfor v in oDesign.GetVariables():\n    print(v, oDesign.GetVariableValue(v))",
+      "notes": "PyAEDT: hfss[\"$sub_h\"] = \"1.575mm\", hfss.variable_manager.set_variable(..., is_post_processing=True), delete_variable. GetVariableValue returns the expression, not the evaluated number - PyAEDT's evaluate_expression gives the value.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/GetVariables.htm"
+    },
+    {
+      "name": "oDesign.DeleteFullVariation / DeleteFieldVariation / DeleteLinkedDataVariation (clean up solutions)",
+      "kind": "script-object",
+      "description": "Delete solution data from a design: everything for all or selected variations (matrix data, fields, mesh), only the field data (optionally keeping the mesh and radiated fields), or the data linked from other designs. Scripts call these before archiving, to free disk space, or to force a fresh adaptive solve without touching the model.",
+      "usage": "oDesign.DeleteFullVariation([\"All\"], False)                 # (variationKeys, deleteLinkedData)\noDesign.DeleteFieldVariation([\"All\"], True, False, False)   # (variationKeys, deleteMesh, deleteLinkedData, preserveRadFields)\noDesign.DeleteLinkedDataVariation([\"All\"])",
+      "parameters": [
+        {"name": "variationKeys", "description": "[\"All\"] or a list of variation strings (\"patch_l='29mm'\")."},
+        {"name": "deleteMesh", "description": "Also delete the adapted mesh (forces re-adaptation next solve)."},
+        {"name": "preserveRadFields", "description": "Keep saved radiated fields when deleting volume fields."}
+      ],
+      "example": "oDesign.DeleteFieldVariation([\"All\"], False, False, True)   # drop fields, keep mesh and far fields\noProject.Save()\n# start over completely\noDesign.DeleteFullVariation([\"All\"], True)",
+      "notes": "PyAEDT: hfss.cleanup_solution(variations, entire_solution, field, mesh, linked_data). The GUI equivalent is Results > Clean Up Solutions. Reports remain defined but show no data until re-solved.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/DeleteFullVariation.htm"
+    },
+    {
+      "name": "oDesign.SetDesignSettings (Design Settings Data and Model Validation Settings)",
+      "kind": "script-object",
+      "description": "Apply the HFSS > Design Settings dialog from a script: advanced DC extrapolation, power S-parameters, export after simulation, material override, lossy dielectric calculation, minimal validation, port validation level, broadband adapt frequency count and, in the second array, the model validation entity check level and whether unclassified objects or intersection checks are skipped. It is the native form of hfss.change_design_settings and change_validation_settings.",
+      "usage": "oDesign.SetDesignSettings(\n    [\"NAME:Design Settings Data\", \"Use Advanced DC Extrapolation:=\", True, \"Use Power S:=\", False, \"Export After Simulation:=\", False,\n     \"Allow Material Override:=\", True, \"Calculate Lossy Dielectrics:=\", True, \"Perform Minimal validation:=\", False, \"EnabledObjects:=\", [],\n     \"Port Validation Settings:=\", \"Standard\", \"Maximum Number of Frequencies for Broadband Adapt:=\", 5],\n    [\"NAME:Model Validation Settings\", \"EntityCheckLevel:=\", \"Strict\", \"IgnoreUnclassifiedObjects:=\", False, \"SkipIntersectionChecks:=\", False])",
+      "parameters": [
+        {"name": "Allow Material Override", "description": "Let later objects in the history override overlapping ones instead of failing validation."},
+        {"name": "Calculate Lossy Dielectrics", "description": "Include dielectric loss in the solve (default True)."},
+        {"name": "Export After Simulation", "description": "Write Touchstone automatically after each solve (with the export options set elsewhere)."},
+        {"name": "Port Validation Settings", "description": "\"Standard\" or \"Extended\" port checks."},
+        {"name": "EntityCheckLevel", "description": "\"Strict\", \"Basic\" or \"None\" for model validation."}
+      ],
+      "example": "oDesign.SetDesignSettings(\n    [\"NAME:Design Settings Data\", \"Use Advanced DC Extrapolation:=\", True, \"Use Power S:=\", False, \"Export After Simulation:=\", True,\n     \"Allow Material Override:=\", True, \"Calculate Lossy Dielectrics:=\", True, \"Perform Minimal validation:=\", False, \"EnabledObjects:=\", [],\n     \"Port Validation Settings:=\", \"Extended\", \"Maximum Number of Frequencies for Broadband Adapt:=\", 5],\n    [\"NAME:Model Validation Settings\", \"EntityCheckLevel:=\", \"Strict\", \"IgnoreUnclassifiedObjects:=\", True, \"SkipIntersectionChecks:=\", False])",
+      "notes": "PyAEDT: hfss.change_design_settings({...}), hfss.change_material_override(True), hfss.change_validation_settings(...). Key names are the dialog labels and differ slightly between releases; record once.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/SetDesignSettings.htm"
+    },
+    {
+      "name": "ChildObject API: oDesign.GetChildObject / GetChildNames / GetPropNames / GetPropValue / SetPropValue / GetPropEvaluatedValue",
+      "kind": "script-object",
+      "description": "The object-oriented navigation API (AEDT 2020 R2+): every project-tree node (Boundaries, Excitations, Mesh, AnalysisSetup, Results, Radiation, Optimetrics, 3D Modeler objects) is a ChildObject that lists its children and exposes its properties by their GUI names, readable and settable one at a time. It replaces re-sending full argument arrays for small edits and is what PyAEDT's get_oo_* / set_oo_property_value and BoundaryObject.properties use.",
+      "usage": "bnds = oDesign.GetChildObject(\"Boundaries\")\nnames = bnds.GetChildNames()\nport = bnds.GetChildObject(\"P1\")\nprops = port.GetPropNames()\nval = port.GetPropValue(\"Num Modes\")\nport.SetPropValue(\"Num Modes\", 2)\nev = port.GetPropEvaluatedValue(\"Deembed Dist\")\nsetup = oDesign.GetChildObject(\"AnalysisSetup\").GetChildObject(\"Setup1\")\nsetup.SetPropValue(\"Max Delta S\", \"0.01\")\nsweep = setup.GetChildObject(\"Sweep1\"); sweep.SetPropValue(\"Type\", \"Interpolating\")\nrep = oDesign.GetChildObject(\"Results\").GetChildObject(\"S11\")\nobj = oDesign.SetActiveEditor(\"3D Modeler\").GetChildObject(\"Box1\"); obj.GetPropValue(\"Material\")\noProject.GetChildObject(\"Definitions\").GetChildObject(\"Materials\").GetChildNames()",
+      "parameters": [
+        {"name": "top-level child names (design)", "description": "\"Boundaries\", \"Excitations\", \"Mesh\", \"AnalysisSetup\", \"Optimetrics\", \"Results\", \"Radiation\", \"Port Field Display\", \"Field Overlays\", \"Definitions\" (project)."},
+        {"name": "GetPropNames / GetPropValue / SetPropValue", "description": "Property labels as in the Properties window; values are strings with units, booleans or numbers."},
+        {"name": "GetPropEvaluatedValue", "description": "Evaluated numeric value of an expression property."}
+      ],
+      "example": "an = oDesign.GetChildObject(\"AnalysisSetup\")\nfor s in an.GetChildNames():\n    setup = an.GetChildObject(s)\n    print(s, setup.GetPropValue(\"Solution Freq\"), setup.GetPropValue(\"Max Delta S\"))\n    setup.SetPropValue(\"Max Delta S\", \"0.005\")\nports = oDesign.GetChildObject(\"Excitations\")\nfor p in ports.GetChildNames():\n    print(p, ports.GetChildObject(p).GetPropNames())",
+      "notes": "PyAEDT: hfss.get_oo_object(hfss.odesign, \"Boundaries/P1\"), get_oo_property_value, set_oo_property_value; setup.properties / bnd.properties. Property labels are release-dependent - print GetPropNames() first. Not all properties are settable (read-only ones raise an error).",
+      "docs": "https://ansyshelp.ansys.com/"
+    },
+    {
+      "name": "oDesign.Analyze / AnalyzeDistributed / AnalyzeAll / StopSimulations / GetName / RenameDesignInstance / Undo / Redo / SetActiveEditor(\"Layout\"|\"SchematicEditor\")",
+      "kind": "script-object",
+      "description": "Remaining design-object methods: solve a setup with the active HPC configuration or explicitly distributed, solve everything, stop running simulations, read or rename the design, undo/redo the last design-level operations, and select editors other than the 3D Modeler (\"Layout\" for HFSS 3D Layout, \"SchematicEditor\" for Circuit) - the way one script drives several design types.",
+      "usage": "oDesign.Analyze(\"Setup1\")                 # also accepts an Optimetrics setup name\noDesign.AnalyzeDistributed(\"Setup1\")\noDesign.AnalyzeAll()\noDesign.StopSimulations(True)              # clean stop\nname = oDesign.GetName()\noDesign.RenameDesignInstance(\"HFSSDesign1\", \"Patch\")\noDesign.Undo(); oDesign.Redo()\noLayoutEditor = oDesign.SetActiveEditor(\"Layout\")\noSchematic = oDesign.SetActiveEditor(\"SchematicEditor\")\noDesign.GetDesignType()   # \"HFSS\", \"HFSS 3D Layout Design\", \"Circuit Design\", ...",
+      "parameters": [
+        {"name": "setup", "description": "Analysis or Optimetrics setup name; Analyze blocks until done."},
+        {"name": "StopSimulations(cleanStop)", "description": "True finishes the current step and keeps partial results."},
+        {"name": "editor names", "description": "\"3D Modeler\" (HFSS/Maxwell/Q3D/Icepak), \"Layout\" (3D Layout), \"SchematicEditor\" (Circuit/Twin Builder)."}
+      ],
+      "example": "import ScriptEnv\nScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\")\noProject = oDesktop.GetActiveProject()\nfor d in oProject.GetTopDesignList():\n    oDesign = oProject.SetActiveDesign(d)\n    print(d, oDesign.GetDesignType())\n    if oDesign.GetDesignType() == \"HFSS\":\n        oDesign.AnalyzeAll()\noProject.Save()",
+      "notes": "PyAEDT: hfss.analyze / analyze_setup / stop_simulations / rename_design / design_type. AnalyzeDistributed uses the machine list of the active distributed configuration; -batchoptions override it for command-line runs.",
+      "docs": "https://ansyshelp.ansys.com/"
+    },
+    {
+      "name": "oProject.CopyDesign / Paste / DeleteDesign / GetActiveDesign / GetTopDesignList / Save / Close / GetPath / GetName",
+      "kind": "script-object",
+      "description": "Project-level design and file management: copy a design and paste it (duplicate, also across open projects), delete a design, get the active design object, list top-level designs, save or close the project and read its path and name. These complement InsertDesign / SetActiveDesign / SaveAs already catalogued.",
+      "usage": "oProject.CopyDesign(\"HFSSDesign1\")\nnew_design = oProject.Paste()          # returns the pasted design object in recent releases\noProject.DeleteDesign(\"Scratch\")\noDesign = oProject.GetActiveDesign()\nnames = oProject.GetTopDesignList()\noProject.Save()\noProject.Close()\npath = oProject.GetPath(); name = oProject.GetName()\noProject.GetDesign(\"Patch\")",
+      "parameters": [
+        {"name": "design name", "description": "Exact design name; Paste creates \"<name>1\" style unique names."},
+        {"name": "Close", "description": "Closes without saving unless Save was called; oDesktop.CloseProject(name) is the alternative."}
+      ],
+      "example": "oProject = oDesktop.GetActiveProject()\noProject.CopyDesign(\"Patch\")\noProject.Paste()\ncopy_name = [d for d in oProject.GetTopDesignList() if d.startswith(\"Patch\") and d != \"Patch\"][-1]\noProject.SetActiveDesign(copy_name).RenameDesignInstance(copy_name, \"Patch_v2\")\noProject.Save()\nprint(oProject.GetPath(), oProject.GetName())",
+      "notes": "PyAEDT: hfss.duplicate_design, delete_design, design_list, save_project, close_project, project_path/project_name. Cross-project paste: CopyDesign in the source project object, Paste in the target project object.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/CopyDesign.htm"
+    },
+    {
+      "name": "oProject.AddDataset / EditDataset / DeleteDataset / ImportDataset / ExportDataset (oDesign variants for design datasets)",
+      "kind": "script-object",
+      "description": "Dataset commands: add a dataset from coordinate arrays (project datasets on oProject with $ names, design datasets on oDesign), edit it in place under a possibly new name, delete it, import from a tab-delimited file and export to a file. Datasets feed pwl(dataset, x) expressions, frequency-dependent material properties and thermal modifiers.",
+      "usage": "oProject.AddDataset([\"NAME:$er_fr4\", [\"NAME:Coordinates\", [\"NAME:Coordinate\", \"X:=\", 1, \"Y:=\", 4.4], [\"NAME:Coordinate\", \"X:=\", 2, \"Y:=\", 4.35], [\"NAME:Coordinate\", \"X:=\", 4, \"Y:=\", 4.3]]])\noProject.EditDataset(\"$er_fr4\", [\"NAME:$er_fr4\", [\"NAME:Coordinates\", [\"NAME:Coordinate\", \"X:=\", 1, \"Y:=\", 4.5], [\"NAME:Coordinate\", \"X:=\", 4, \"Y:=\", 4.3]]])\noProject.DeleteDataset(\"$er_fr4\")\noProject.ImportDataset(\"C:/data/er.tab\")\noProject.ExportDataset(\"$er_fr4\", \"C:/data/er_export.tab\")\noDesign.AddDataset([\"NAME:ds1\", [\"NAME:Coordinates\", ...]])   # design dataset (no $)",
+      "parameters": [
+        {"name": "Coordinates", "description": "List of [\"NAME:Coordinate\", \"X:=\", x, \"Y:=\", y] points (3D datasets add \"Z:=\" and \"V:=\")."},
+        {"name": "ImportDataset file", "description": "Tab- or comma-separated columns; the file name becomes the dataset name."}
+      ],
+      "example": "pts = [(1, 4.4), (2, 4.35), (4, 4.3), (8, 4.22), (12, 4.15)]\ncoords = [\"NAME:Coordinates\"] + [[\"NAME:Coordinate\", \"X:=\", x, \"Y:=\", y] for x, y in pts]\noProject.AddDataset([\"NAME:$er_fr4\", coords])\noDesign.ChangeProperty([\"NAME:AllTabs\", [\"NAME:LocalVariableTab\", [\"NAME:PropServers\", \"LocalVariables\"],\n    [\"NAME:NewProps\", [\"NAME:er_f0\", \"PropType:=\", \"VariableProp\", \"UserDef:=\", True, \"Value:=\", \"pwl($er_fr4, 2.45)\"]]]])",
+      "notes": "PyAEDT: hfss.create_dataset / create_dataset1d_project / import_dataset1d, DataSet.update()/delete(). Dataset X values carry no units in the arrays - units are implied by how pwl() is used (here GHz because the expression passes 2.45).",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/EditDataset.htm"
+    },
+    {
+      "name": "oDesktop.EnableAutoSave / CloseAllWindows / ClearMessages / GetMessages / PauseScript / QuitApplication",
+      "kind": "script-object",
+      "description": "Desktop-level session control: toggle autosave, close all document windows, clear or read the Message Manager (per project/design and severity), pause the script with a dialog until the user clicks OK, and quit the application (releasing licenses). The messages functions are how a script checks for solver errors after Analyze in a headless run.",
+      "usage": "oDesktop.EnableAutoSave(False)\noDesktop.CloseAllWindows()\noDesktop.ClearMessages(\"\", \"\", 3)              # (project, design, severity level to clear up to)\nmsgs = oDesktop.GetMessages(\"\", \"\", 0)          # (project, design, minimum severity) -> list of strings\noDesktop.PauseScript(\"Check the model, then click OK\")\noDesktop.QuitApplication()",
+      "parameters": [
+        {"name": "severity", "description": "0 info, 1 warning, 2 error, 3 fatal; ClearMessages clears messages up to the given level, GetMessages returns messages at or above it."},
+        {"name": "project / design", "description": "Names or \"\" for all/global."}
+      ],
+      "example": "oDesktop.EnableAutoSave(False)\noDesign.Analyze(\"Setup1\")\nerrors = [m for m in oDesktop.GetMessages(oProject.GetName(), oDesign.GetName(), 2)]\nif errors:\n    for e in errors: print(e)\n    oDesktop.AddMessage(oProject.GetName(), oDesign.GetName(), 1, \"solve produced errors\")\noProject.Save()\noDesktop.QuitApplication()",
+      "notes": "PyAEDT: hfss.autosave_disable, hfss.logger.messages / clear_messages, hfss.close_desktop / release_desktop. PauseScript waits for a dialog and therefore must not be used in -ng batch scripts.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/EnableAutoSave.htm"
+    },
+    {
+      "name": "oDesktop.GetVersion / GetExeDir / GetLibraryDirectory / GetPersonalLibDirectory / GetUserLibDirectory / GetTempDirectory / GetProjectDirectory / SetProjectDirectory",
+      "kind": "script-object",
+      "description": "Environment queries on the desktop: the AEDT version string, installation and library directories (SysLib, UserLib, PersonalLib), the temporary directory and the default project directory (settable). Scripts use them to locate material libraries, UDPs and report templates, and to write results next to the installation-independent project folder.",
+      "usage": "ver = oDesktop.GetVersion()                 # e.g. \"2025.1\"\nexe = oDesktop.GetExeDir()\nsyslib = oDesktop.GetLibraryDirectory()\npersonal = oDesktop.GetPersonalLibDirectory()\nuserlib = oDesktop.GetUserLibDirectory()\ntmp = oDesktop.GetTempDirectory()\nprojdir = oDesktop.GetProjectDirectory()\noDesktop.SetProjectDirectory(\"D:/aedt_projects\")",
+      "parameters": [
+        {"name": "return", "description": "Strings; directory paths use the platform separator."}
+      ],
+      "example": "import os\nprint(oDesktop.GetVersion(), oDesktop.GetExeDir())\ntemplate = os.path.join(oDesktop.GetPersonalLibDirectory(), \"ReportTemplates\", \"sparams.rpt\")\nif os.path.exists(template):\n    oDesign.GetModule(\"ReportSetup\").CreateReportFromTemplate(template)\noDesktop.SetProjectDirectory(\"D:/aedt_projects\")\noProject = oDesktop.NewProject()",
+      "notes": "PyAEDT: hfss.desktop_class.aedt_version_id / install_path / syslib / userlib / personallib / temp_directory, Desktop.global_project_directory. SetProjectDirectory changes the registry-backed default for new projects.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/GetProjectDirectory.htm"
+    },
+    {
+      "name": "oDesktop.GetRegistryInt / GetRegistryString / SetRegistryInt / SetRegistryString / GetActiveDSOConfigName / SetActiveDSOConfigName / GetDistributedAnalysisEnvironment / SetDistributedAnalysisEnvironment",
+      "kind": "script-object",
+      "description": "Registry-backed preferences and HPC configuration from a script: read and write integer/string keys under Desktop/... and <Product>/... (the same keys -batchoptions overrides), select the active HPC and Analysis Options configuration for a product by name, and read or set the distributed analysis environment. They let a script configure a session like a batch job before solving.",
+      "usage": "num = oDesktop.GetRegistryInt(\"Desktop/Settings/ProjectOptions/HFSS/UpdateReportsDynamicallyOnEdits\")\ns = oDesktop.GetRegistryString(\"Desktop/ProjectDirectory\")\noDesktop.SetRegistryInt(\"Desktop/Settings/ProjectOptions/DoAutoSave\", 0)\noDesktop.SetRegistryString(\"HFSS/HPCLicenseType\", \"Pool\")\ncfg = oDesktop.GetActiveDSOConfigName(\"HFSS\")\noDesktop.SetActiveDSOConfigName(\"HFSS\", \"Local\")\nenv = oDesktop.GetDistributedAnalysisEnvironment()\noDesktop.SetDistributedAnalysisEnvironment(env)",
+      "parameters": [
+        {"name": "key", "description": "Full registry path, e.g. \"HFSS/NumCoresPerDistributedTask\", \"HFSS/MPIVendor\", \"HFSS/EnableGPU\", \"Desktop/Settings/ProjectOptions/DoAutoSave\", \"TempDirectory\"."},
+        {"name": "product / config name", "description": "\"HFSS\", \"HFSS 3D Layout Design\", \"Maxwell 3D\" ... and the name of a saved analysis configuration."}
+      ],
+      "example": "oDesktop.SetRegistryString(\"HFSS/HPCLicenseType\", \"Pool\")\noDesktop.SetRegistryInt(\"HFSS/NumCoresPerDistributedTask\", 8)\nprint(oDesktop.GetActiveDSOConfigName(\"HFSS\"))\noDesktop.SetActiveDSOConfigName(\"HFSS\", \"Cluster16\")\noDesign.AnalyzeDistributed(\"Setup1\")",
+      "notes": "PyAEDT: hfss.set_registry_key / get_registry_key_string / get_registry_key_int / set_license_type / set_active_dso_config_name / set_registry_from_file. Registry changes persist for the user; prefer -batchoptions for one-off runs.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/GetRegistryInt.htm"
+    },
+    {
+      "name": "oDesktop.SubmitJob / SelectScheduler / LaunchJobMonitor / RefreshJobMonitor",
+      "kind": "script-object",
+      "description": "Job submission scripting: choose the scheduler (LSF, PBS, SLURM, UGE, Windows HPC, RSM) and head node, submit a project (or one design/setup) using an .areg settings file exported from the Submit Job dialog, and open/refresh the Job Monitor. SubmitJob returns the job id strings so a script can track the run.",
+      "usage": "oDesktop.SelectScheduler(\"SLURM\", \"hpc-head\", \"user\", False)      # (scheduler, address, username, forcePasswordEntry) - argument set varies by release\njob_ids = oDesktop.SubmitJob(\"C:/hpc-settings/Submit_Job_Settings.areg\", \"C:/projects/basic.aedt\")\nmore_ids = oDesktop.SubmitJob(\"C:/hpc-settings/Submit_Job_Settings.areg\", \"C:/projects/basic.aedt\", \"Design1\", \"Setup1\")\noDesktop.LaunchJobMonitor()\noDesktop.RefreshJobMonitor()",
+      "parameters": [
+        {"name": "settingsPath", "description": ".areg file with scheduler, queue, product path, cores/nodes and batch options (Save Settings in the Submit Job dialog)."},
+        {"name": "projectPath", "description": ".aedt or .aedtz to solve on the cluster."},
+        {"name": "design / setup", "description": "Optional restriction of the batch solve."},
+        {"name": "return", "description": "Array of job id strings (empty if nothing was submitted)."}
+      ],
+      "example": "ids = oDesktop.SubmitJob(\"C:/hpc/slurm_hfss.areg\", oProject.GetPath() + \"/\" + oProject.GetName() + \".aedt\", oDesign.GetName(), \"Setup1\")\noDesktop.AddMessage(oProject.GetName(), oDesign.GetName(), 0, \"submitted jobs: \" + \",\".join(ids))\noDesktop.LaunchJobMonitor()",
+      "notes": "PyAEDT: hfss.submit_job(cluster_name, aedt_full_exe_path, nodes, cores, wait_for_license, setting_file), Desktop.select_scheduler / job_status / launch_job_monitor. The scheduler must be configured once in the GUI (Tools > Job Management) so the .areg can be exported.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/SubmitJob.htm"
+    },
+    {
+      "name": "ScriptEnv.Initialize / ScriptEnv.Release / ScriptArgument (IronPython script entry points)",
+      "kind": "script-object",
+      "description": "The preamble of every IronPython/CPython script run inside AEDT: ScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\") binds the oDesktop object (and oProject/oDesign when a project is open), ScriptEnv.Release() releases it at the end, and the predefined ScriptArgument variable holds the string passed with -ScriptArgs or the Run Script with Arguments dialog so one script can serve many parameter sets. Scripts run from Tools > Run Script, from the command line with -RunScript / -RunScriptAndExit, or from the IronPython command window.",
+      "usage": "import ScriptEnv\nScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\")\noDesktop.RestoreWindow()\noProject = oDesktop.GetActiveProject()\noDesign = oProject.GetActiveDesign()\noEditor = oDesign.SetActiveEditor(\"3D Modeler\")\nargs = ScriptArgument            # string from -ScriptArgs \"...\" (empty when none)\n...\nScriptEnv.Release()",
+      "parameters": [
+        {"name": "Initialize(\"Ansoft.ElectronicsDesktop\")", "description": "Connects to the hosting desktop; in old standalone-IronPython workflows a version string such as \"Ansoft.ElectronicsDesktop.2025.1\" targeted a specific release."},
+        {"name": "ScriptArgument", "description": "Raw argument string; split it yourself (e.g. comma-separated key=value pairs)."},
+        {"name": "Language", "description": "AEDT ships IronPython 2.7 for Tools > Run Script; CPython 3.x scripts run through the PyAEDT panels or externally. VBScript uses Set oAnsoftApp = CreateObject(\"Ansoft.ElectronicsDesktop\")."}
+      ],
+      "example": "# sweep.py - run with: ansysedt -RunScriptAndExit sweep.py -ScriptArgs \"f0=2.45GHz,passes=12\"\nimport ScriptEnv\nScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\")\nkv = dict(item.split(\"=\") for item in ScriptArgument.split(\",\")) if ScriptArgument else {}\noProject = oDesktop.OpenProject(\"C:/work/patch.aedt\")\noDesign = oProject.SetActiveDesign(\"Patch\")\noModule = oDesign.GetModule(\"AnalysisSetup\")\noModule.EditSetup(\"Setup1\", [\"NAME:Setup1\", \"Frequency:=\", kv.get(\"f0\", \"2.45GHz\"), \"MaximumPasses:=\", int(kv.get(\"passes\", 10))])\noDesign.Analyze(\"Setup1\")\noProject.Save()\nScriptEnv.Release()",
+      "notes": "In PyAEDT none of this is needed: from ansys.aedt.core import Hfss; hfss = Hfss() provides hfss.odesktop etc. Recorded scripts always start with the Initialize/RestoreWindow lines; keep them for scripts meant to run under Tools > Run Script.",
+      "docs": "https://ansyshelp.ansys.com/public/Views/Secured/Electronics/v252/en/Subsystems/HFSS/Subsystems/HFSS%20Scripting/Content/ScriptingwithIronPython.htm"
+    }
+  ]
+}

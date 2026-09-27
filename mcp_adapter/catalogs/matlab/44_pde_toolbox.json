@@ -1,0 +1,592 @@
+{
+  "category": "Partial Differential Equation Toolbox > Geometry, Mesh, Boundary Conditions & Solvers",
+  "description": "Finite-element solution of PDEs in 2-D and 3-D: the unified femodel workflow (R2023a+) for structural, thermal and electromagnetic analysis, the general createpde/PDEModel workflow with user-specified coefficients, geometry creation and import, meshing, and result post-processing.",
+  "tools": [
+    {
+      "name": "createpde",
+      "kind": "function",
+      "description": "Creates a PDE model container for the general (coefficient-based) workflow or for one of the legacy specialized models. With a scalar N it returns a PDEModel for a system of N equations of the form m*u_tt + d*u_t - div(c*grad(u)) + a*u = f; with a type string it returns a StructuralModel, ThermalModel or ElectromagneticModel. Use it before geometry import, applyBoundaryCondition, specifyCoefficients and solvepde.",
+      "usage": "model = createpde\nmodel = createpde(N)\nmodel = createpde(\"structural\", StructuralAnalysisType)\nmodel = createpde(\"thermal\", ThermalAnalysisType)\nmodel = createpde(\"electromagnetic\", ElectromagneticAnalysisType)",
+      "parameters": [
+        {"name": "N", "description": "Number of equations in the PDE system (default 1)."},
+        {"name": "StructuralAnalysisType", "description": "\"static-solid\", \"static-planestress\", \"static-planestrain\", \"static-axisymmetric\", \"transient-*\", \"modal-*\", \"frequency-*\"."},
+        {"name": "ThermalAnalysisType", "description": "\"steadystate\", \"transient\", \"steadystate-axisymmetric\", \"transient-axisymmetric\"."},
+        {"name": "ElectromagneticAnalysisType", "description": "\"electrostatic\", \"magnetostatic\", \"harmonic\", \"conduction\" (DC conduction)."}
+      ],
+      "example": "model = createpde(1);\ngeometryFromEdges(model, @lshapeg);\napplyBoundaryCondition(model, \"dirichlet\", Edge=1:model.Geometry.NumEdges, u=0);\nspecifyCoefficients(model, m=0, d=0, c=1, a=0, f=1);\ngenerateMesh(model, Hmax=0.1);\nresults = solvepde(model);\npdeplot(model, XYData=results.NodalSolution)",
+      "notes": "For new structural/thermal/electromagnetic work prefer femodel (R2023a+), which replaces the createpde(\"structural\"...) family. The general N-equation workflow remains createpde-based.",
+      "docs": "https://www.mathworks.com/help/pde/ug/createpde.html"
+    },
+    {
+      "name": "femodel",
+      "kind": "function",
+      "description": "Finite element analysis model object introduced in R2023a that unifies structural, thermal and electromagnetic analyses. It holds the geometry, an array of materialProperties, boundary conditions and loads assigned per vertex/edge/face/cell (faceBC, faceLoad, cellLoad, ...), initial conditions and solver options; generateMesh and solve operate directly on it. Use it instead of the older createpde(\"structural\"/\"thermal\"/\"electromagnetic\") models.",
+      "usage": "model = femodel(AnalysisType=type)\nmodel = femodel(AnalysisType=type, Geometry=gm)\nmodel = generateMesh(model)\nresults = solve(model)",
+      "parameters": [
+        {"name": "AnalysisType", "description": "\"structuralStatic\", \"structuralTransient\", \"structuralModal\", \"structuralFrequency\", \"thermalSteady\", \"thermalTransient\", \"thermalModal\", \"electrostatic\", \"magnetostatic\", \"electricHarmonic\", \"magneticHarmonic\", \"dcConduction\" (plus axisymmetric/planar variants via PlanarType)."},
+        {"name": "Geometry", "description": "fegeometry object (from a file, mesh, or multicuboid/multicylinder/multisphere)."},
+        {"name": "MaterialProperties", "description": "1-by-NumCells array of materialProperties objects."},
+        {"name": "FaceBC / EdgeBC / VertexBC", "description": "Arrays of faceBC/edgeBC/vertexBC objects indexed by geometry ID."},
+        {"name": "FaceLoad / EdgeLoad / VertexLoad / CellLoad", "description": "Arrays of load objects indexed by geometry ID."},
+        {"name": "FaceIC / CellIC", "description": "Initial conditions for transient problems."},
+        {"name": "PlanarType", "description": "\"planeStress\", \"planeStrain\" or \"axisymmetric\" for 2-D geometries."}
+      ],
+      "example": "gm = fegeometry(\"Bracket.stl\");\nmodel = femodel(AnalysisType=\"structuralStatic\", Geometry=gm);\nmodel.MaterialProperties = materialProperties(YoungsModulus=200e9, PoissonsRatio=0.3);\nmodel.FaceBC(3) = faceBC(Constraint=\"fixed\");\nmodel.FaceLoad(2) = faceLoad(SurfaceTraction=[0 0 -1e4]);\nmodel = generateMesh(model);\nR = solve(model);\npdeplot3D(R.Mesh, ColorMapData=R.VonMisesStress, Deformation=R.Displacement)",
+      "notes": "femodel is a value object: assign the output of generateMesh back (model = generateMesh(model)). solve returns typed results (StaticStructuralResults, SteadyStateThermalResults, ElectrostaticResults, ...). Requires Partial Differential Equation Toolbox.",
+      "docs": "https://www.mathworks.com/help/pde/ug/femodel.html"
+    },
+    {
+      "name": "fegeometry",
+      "kind": "function",
+      "description": "Geometry object for finite element analysis (R2023a+). It can be built from an STL/STEP file, from mesh nodes and elements, from a decomposed geometry matrix (decsg output) or from existing DiscreteGeometry objects, and it carries an optional Mesh. It is the geometry type expected by femodel and supports Boolean and transformation object functions (union, subtract, intersect, extrude, rotate, translate, scale, addVertex, addVoid).",
+      "usage": "gm = fegeometry(filename)\ngm = fegeometry(nodes, elements)\ngm = fegeometry(dl)\ngm = fegeometry(geom)\ngm = generateMesh(gm)",
+      "parameters": [
+        {"name": "filename", "description": "STL or STEP file (\".stl\", \".step\", \".stp\")."},
+        {"name": "nodes, elements", "description": "Node coordinates (2-by-N or 3-by-N) and element connectivity for a triangular/tetrahedral mesh."},
+        {"name": "NumVertices/NumEdges/NumFaces/NumCells", "description": "Read-only counts used when addressing regions by ID."},
+        {"name": "Mesh", "description": "FEMesh object populated by generateMesh."}
+      ],
+      "example": "gm = fegeometry(\"PlateHolePlanar.stl\");\npdegplot(gm, FaceLabels=\"on\", EdgeLabels=\"on\")\ngm = generateMesh(gm, Hmax=2);\npdemesh(gm)",
+      "notes": "Face, edge and vertex IDs can change after Boolean operations; re-plot with pdegplot to check labels before assigning boundary conditions.",
+      "docs": "https://www.mathworks.com/help/pde/ug/fegeometry.html"
+    },
+    {
+      "name": "importGeometry",
+      "kind": "function",
+      "description": "Imports a 2-D or 3-D geometry from an STL or STEP file into a PDE model (legacy workflow) or returns a standalone geometry object. STL files must be closed, watertight surfaces; STEP import (R2022b+) preserves CAD faces and supports feature-angle and mesh-deviation controls. After import, use pdegplot with labels to identify faces for boundary conditions.",
+      "usage": "gm = importGeometry(model, geometryfile)\ngm = importGeometry(geometryfile)\ngm = importGeometry(___, Name=Value)",
+      "parameters": [
+        {"name": "geometryfile", "description": "Path to a .stl, .step or .stp file."},
+        {"name": "MaxRelativeDeviation", "description": "STL surface refinement tolerance for STEP import (default 1)."},
+        {"name": "FeatureAngle", "description": "Minimum angle (degrees) between adjacent STL facets that defines a feature edge."},
+        {"name": "AllowSelfIntersections", "description": "Logical; skip the self-intersection check for STL."}
+      ],
+      "example": "model = createpde;\ngm = importGeometry(model, \"BracketWithHole.stl\");\npdegplot(model, FaceLabels=\"on\", FaceAlpha=0.5)",
+      "notes": "For femodel workflows use fegeometry(filename) instead. STL units are taken as-is; scale the geometry with scale() if the CAD file is in millimetres but your material data is SI.",
+      "docs": "https://www.mathworks.com/help/pde/ug/importgeometry.html"
+    },
+    {
+      "name": "geometryFromEdges",
+      "kind": "function",
+      "description": "Creates a 2-D AnalyticGeometry for a PDE model from a decomposed geometry matrix (output of decsg) or from a geometry function such as @circleg, @lshapeg or @squareg. This is the standard way to define planar domains for the general PDE workflow; edge IDs from pdegplot are then used in applyBoundaryCondition.",
+      "usage": "geometryFromEdges(model, g)\ngm = geometryFromEdges(g)",
+      "parameters": [
+        {"name": "g", "description": "Decomposed geometry matrix from decsg, or a geometry function handle / name."}
+      ],
+      "example": "R1 = [3 4 -1 1 1 -1 -1 -1 1 1]';\nC1 = [1 0 0 0.4 zeros(1,6)]';\ngd = [R1 C1]; sf = 'R1-C1'; ns = char('R1','C1')';\ndl = decsg(gd, sf, ns);\nmodel = createpde;\ngeometryFromEdges(model, dl);\npdegplot(model, EdgeLabels=\"on\")",
+      "notes": "Only for 2-D. For 3-D use importGeometry, multicuboid/multicylinder/multisphere, geometryFromMesh or extrude.",
+      "docs": "https://www.mathworks.com/help/pde/ug/geometryfromedges.html"
+    },
+    {
+      "name": "geometryFromMesh",
+      "kind": "function",
+      "description": "Builds a 2-D or 3-D geometry from an existing mesh given as node coordinates and element connectivity (linear or quadratic triangles/tetrahedra). Useful for geometries produced by other meshers, by delaunayTriangulation/alphaShape, or from segmented image volumes. The mesh becomes the model mesh and its boundary faces become geometry faces.",
+      "usage": "geometryFromMesh(model, nodes, elements)\ngeometryFromMesh(model, nodes, elements, ElementIDToRegionID)\n[G, mesh] = geometryFromMesh(model, ...)",
+      "parameters": [
+        {"name": "nodes", "description": "2-by-Nn or 3-by-Nn matrix of node coordinates."},
+        {"name": "elements", "description": "3/6-by-Ne (2-D) or 4/10-by-Ne (3-D) connectivity matrix."},
+        {"name": "ElementIDToRegionID", "description": "Vector assigning each element to a cell/face region for multi-domain problems."}
+      ],
+      "example": "load tetmesh\nnodes = X'; elements = tet';\nmodel = createpde;\ngeometryFromMesh(model, nodes, elements);\npdegplot(model, FaceLabels=\"on\", FaceAlpha=0.5)",
+      "notes": "For femodel workflows use fegeometry(nodes, elements). The mesh cannot be regenerated with generateMesh unless the boundary is re-meshable.",
+      "docs": "https://www.mathworks.com/help/pde/ug/geometryfrommesh.html"
+    },
+    {
+      "name": "decsg",
+      "kind": "function",
+      "description": "Decomposes constructive solid geometry (rectangles, circles, ellipses, polygons combined with a set formula) into a decomposed geometry matrix of minimal regions. It is the algebraic geometry engine behind the PDE Modeler app and is used with geometryFromEdges to create 2-D domains with holes and multiple subdomains.",
+      "usage": "dl = decsg(gd)\ndl = decsg(gd, sf, ns)\n[dl, bt] = decsg(___)",
+      "parameters": [
+        {"name": "gd", "description": "Geometry description matrix; each column is a shape (1 = circle, 2 = polygon, 3 = rectangle, 4 = ellipse) padded with zeros."},
+        {"name": "sf", "description": "Set formula using +, * and - on the shape names in ns."},
+        {"name": "ns", "description": "Name-space matrix (char columns) naming each column of gd."},
+        {"name": "bt", "description": "Boolean table relating minimal regions to the original shapes."}
+      ],
+      "example": "rect = [3 4 0 2 2 0 0 0 1 1]';\ncirc = [1 1 0.5 0.3 zeros(1,6)]';\ngd = [rect circ];\ndl = decsg(gd, 'R-C', char('R','C')');\nmodel = createpde; geometryFromEdges(model, dl);\npdegplot(model, EdgeLabels=\"on\", FaceLabels=\"on\")",
+      "notes": "Polygons must be listed counter-clockwise without self-intersection. The csgdel function removes internal edges after decomposition.",
+      "docs": "https://www.mathworks.com/help/pde/ug/decsg.html"
+    },
+    {
+      "name": "multicuboid",
+      "kind": "function",
+      "description": "Creates a 3-D geometry made of one or more stacked or nested cuboidal cells, optionally with voids. Together with multicylinder and multisphere it is the quickest way to build layered or coaxial test geometries without CAD; all cells share the same footprint centre and are addressed by cell ID for material assignment.",
+      "usage": "gm = multicuboid(W, D, H)\ngm = multicuboid(W, D, H, Name=Value)",
+      "parameters": [
+        {"name": "W, D, H", "description": "Width, depth and height; vectors create several cells (widths must be increasing for nested cells)."},
+        {"name": "ZOffset", "description": "Vector of vertical offsets for stacked cells."},
+        {"name": "Void", "description": "Logical vector marking cells that are empty."}
+      ],
+      "example": "gm = multicuboid([1 2], [1 2], [0.5 0.5]);\nmodel = femodel(AnalysisType=\"thermalSteady\", Geometry=gm);\npdegplot(model, CellLabels=\"on\", FaceAlpha=0.4)",
+      "notes": "Returns a DiscreteGeometry; in R2023a+ it can be assigned to femodel.Geometry directly or converted with fegeometry(gm).",
+      "docs": "https://www.mathworks.com/help/pde/ug/multicuboid.html"
+    },
+    {
+      "name": "multicylinder",
+      "kind": "function",
+      "description": "Creates a 3-D geometry of one or more coaxial cylindrical cells (stacked via ZOffset or nested via increasing radii), optionally with voids. Handy for pipes, shafts, coaxial cables and battery cells in structural, thermal and electromagnetic models.",
+      "usage": "gm = multicylinder(R, H)\ngm = multicylinder(R, H, Name=Value)",
+      "parameters": [
+        {"name": "R", "description": "Radius or vector of increasing radii."},
+        {"name": "H", "description": "Height (scalar or vector, one per cell)."},
+        {"name": "Offset", "description": "Vector of radial offsets for non-coaxial cylinders (all radii equal)."},
+        {"name": "ZOffset", "description": "Vertical offsets for stacked cells."},
+        {"name": "Void", "description": "Logical vector marking empty cells."}
+      ],
+      "example": "gm = multicylinder([5 10], 20, Void=[true false]);   % hollow tube\nmodel = femodel(AnalysisType=\"structuralStatic\", Geometry=gm);\npdegplot(model, FaceLabels=\"on\", FaceAlpha=0.5)",
+      "notes": "multisphere has the same interface for concentric spheres.",
+      "docs": "https://www.mathworks.com/help/pde/ug/multicylinder.html"
+    },
+    {
+      "name": "extrude",
+      "kind": "function",
+      "description": "Extrudes a 2-D geometry into a 3-D geometry along the z-axis, or extrudes selected faces of a 3-D geometry, producing new cells that inherit face structure from the base. Use it to turn decsg/pdegplot-defined planar sections into prisms, or to add layers to an existing solid.",
+      "usage": "gm3 = extrude(gm2, height)\ngm3 = extrude(gm3, faceIDs, height)",
+      "parameters": [
+        {"name": "gm2 / gm3", "description": "Source 2-D or 3-D geometry (AnalyticGeometry, DiscreteGeometry or fegeometry)."},
+        {"name": "height", "description": "Scalar or vector of layer thicknesses; a vector creates one cell per layer."},
+        {"name": "faceIDs", "description": "Faces of a 3-D geometry to extrude (must be planar)."}
+      ],
+      "example": "dl = decsg([3 4 0 1 1 0 0 0 1 1]');\ngm2 = fegeometry(dl);\ngm3 = extrude(gm2, [0.2 0.3]);\npdegplot(gm3, CellLabels=\"on\", FaceAlpha=0.5)",
+      "notes": "Related: revolve (R2024a+) for rotational extrusions, and the transformation functions rotate, translate and scale.",
+      "docs": "https://www.mathworks.com/help/pde/ug/extrude.html"
+    },
+    {
+      "name": "pdegplot",
+      "kind": "function",
+      "description": "Plots a PDE geometry with optional edge, face, vertex and cell labels so that you can identify region IDs before assigning boundary conditions, loads and materials. Works with PDEModel/femodel objects, geometry objects and decomposed geometry matrices, in 2-D and 3-D.",
+      "usage": "pdegplot(g)\npdegplot(g, Name=Value)\nh = pdegplot(___)",
+      "parameters": [
+        {"name": "EdgeLabels / FaceLabels / VertexLabels / CellLabels", "description": "\"on\" to display IDs of the corresponding entities."},
+        {"name": "FaceAlpha", "description": "Transparency of faces (0 to 1) so interior labels are visible in 3-D."},
+        {"name": "SubdomainLabels", "description": "Legacy name for FaceLabels in 2-D."}
+      ],
+      "example": "gm = multicuboid(1, 1, [0.5 0.5]);\npdegplot(gm, FaceLabels=\"on\", CellLabels=\"on\", FaceAlpha=0.3)",
+      "notes": "Labels can be hard to read on dense CAD geometries; rotate the axes or use nearestFace/nearestEdge to query IDs by coordinate.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pdegplot.html"
+    },
+    {
+      "name": "generateMesh",
+      "kind": "function",
+      "description": "Creates a triangular (2-D) or tetrahedral (3-D) finite element mesh for a PDE model or geometry, with global and local size controls and linear or quadratic element order. Element size drives accuracy and cost; use Hmax for the global target and Hface/Hedge/Hvertex for local refinement near stress concentrations or thin features.",
+      "usage": "generateMesh(model)\ngenerateMesh(model, Name=Value)\nmodel = generateMesh(model, ...)      % femodel / fegeometry (value objects)\nmesh = generateMesh(model, ...)",
+      "parameters": [
+        {"name": "Hmax", "description": "Target maximum element edge length (default derived from geometry)."},
+        {"name": "Hmin", "description": "Target minimum element edge length."},
+        {"name": "Hgrad", "description": "Mesh growth rate, 1 < Hgrad < 2 (default 1.5)."},
+        {"name": "GeometricOrder", "description": "\"quadratic\" (default) or \"linear\"."},
+        {"name": "Hface / Hedge / Hvertex", "description": "Cell arrays {IDs, size} of local element sizes."}
+      ],
+      "example": "model = createpde;\nimportGeometry(model, \"Block.stl\");\nmesh = generateMesh(model, Hmax=10, Hface={[1 3], 2}, GeometricOrder=\"linear\");\npdemesh(model)\nQ = meshQuality(mesh); fprintf(\"min quality %.2f\\n\", min(Q))",
+      "notes": "For handle-based PDEModel objects the mesh is stored in model.Mesh; for femodel/fegeometry you must capture the returned object. Quadratic elements are more accurate for stress but double the node count.",
+      "docs": "https://www.mathworks.com/help/pde/ug/generatemesh.html"
+    },
+    {
+      "name": "pdemesh",
+      "kind": "function",
+      "description": "Plots a PDE mesh (2-D or 3-D) from a model, a geometry with a mesh, or raw node/element arrays, with optional node and element labels and, in 2-D, a nodal solution as a 3-D surface. Use it to inspect element density and quality after generateMesh.",
+      "usage": "pdemesh(model)\npdemesh(mesh)\npdemesh(nodes, elements)\npdemesh(model, u)\npdemesh(___, Name=Value)",
+      "parameters": [
+        {"name": "NodeLabels / ElementLabels", "description": "\"on\" to annotate IDs (use only on small meshes)."},
+        {"name": "FaceAlpha", "description": "Transparency of 3-D elements."},
+        {"name": "u", "description": "Nodal solution to plot as height in 2-D."}
+      ],
+      "example": "model = createpde;\ngeometryFromEdges(model, @circleg);\ngenerateMesh(model, Hmax=0.2);\npdemesh(model, NodeLabels=\"off\")",
+      "notes": "For 3-D meshes only the surface is drawn; use findElements with pdemesh(nodes, elements(:,ids)) to look inside.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pdemesh.html"
+    },
+    {
+      "name": "findNodes",
+      "kind": "function",
+      "description": "Returns IDs of mesh nodes located in a geometric region, within a bounding box or radius, or nearest to query points. Use it to extract solution values on a particular face/edge, to apply point loads at existing nodes, or to post-process results along a line.",
+      "usage": "nodes = findNodes(mesh, \"region\", RegionType=RegionID)\nnodes = findNodes(mesh, \"box\", xlim, ylim)\nnodes = findNodes(mesh, \"box\", xlim, ylim, zlim)\nnodes = findNodes(mesh, \"radius\", center, radius)\nnodes = findNodes(mesh, \"nearest\", point)",
+      "parameters": [
+        {"name": "mesh", "description": "FEMesh object (model.Mesh or results.Mesh)."},
+        {"name": "RegionType=RegionID", "description": "Face=, Edge=, Vertex= or Cell= followed by IDs."},
+        {"name": "point", "description": "Query point(s) as a 2-by-N or 3-by-N matrix for \"nearest\"."}
+      ],
+      "example": "Nf = findNodes(model.Mesh, \"region\", Face=2);\nuFace = results.NodalSolution(Nf);\nNn = findNodes(model.Mesh, \"nearest\", [0.5; 0.5]);",
+      "notes": "Companion function findElements returns element IDs with the same region/box/radius syntax.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.femesh.findnodes.html"
+    },
+    {
+      "name": "findElements",
+      "kind": "function",
+      "description": "Returns IDs of mesh elements that belong to a geometric region (face/cell), lie within a box or a radius, or are attached to given nodes. Combine with the mesh area/volume functions and pdemesh to inspect or post-process a sub-region of the domain.",
+      "usage": "elems = findElements(mesh, \"region\", RegionType=RegionID)\nelems = findElements(mesh, \"box\", xlim, ylim, zlim)\nelems = findElements(mesh, \"radius\", center, radius)\nelems = findElements(mesh, \"attached\", nodeIDs)",
+      "parameters": [
+        {"name": "RegionType=RegionID", "description": "Face= (2-D) or Cell= (3-D) followed by IDs."},
+        {"name": "nodeIDs", "description": "Node IDs whose attached elements are returned."}
+      ],
+      "example": "Ec = findElements(model.Mesh, \"region\", Cell=1);\nV = volume(model.Mesh, Ec);\npdemesh(model.Mesh.Nodes, model.Mesh.Elements(:, Ec))",
+      "notes": "Use meshQuality(mesh, elems) to check the shape quality of the selected elements.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.femesh.findelements.html"
+    },
+    {
+      "name": "meshQuality",
+      "kind": "function",
+      "description": "Evaluates the shape quality of mesh elements on a 0-to-1 scale (1 = equilateral triangle / regular tetrahedron) using either the default quality metric or aspect ratio. Poor-quality elements (below about 0.3) degrade accuracy, so use it to decide whether to refine with Hmax/Hface or to adjust Hgrad.",
+      "usage": "Q = meshQuality(mesh)\nQ = meshQuality(mesh, elemIDs)\nQ = meshQuality(___, \"aspect-ratio\")",
+      "parameters": [
+        {"name": "elemIDs", "description": "Subset of element IDs to evaluate."},
+        {"name": "\"aspect-ratio\"", "description": "Use the aspect-ratio metric instead of the default quality measure."}
+      ],
+      "example": "mesh = generateMesh(model, Hmax=0.1);\nQ = meshQuality(mesh);\nbad = find(Q < 0.3);\npdemesh(mesh.Nodes, mesh.Elements(:, bad))",
+      "notes": "Introduced in R2018a. Quality can be plotted with histogram(Q).",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.femesh.meshquality.html"
+    },
+    {
+      "name": "applyBoundaryCondition",
+      "kind": "function",
+      "description": "Adds Dirichlet, Neumann or mixed boundary conditions to edges (2-D) or faces (3-D) of a general PDEModel. Values can be constants, matrices for systems of equations, or function handles of (location, state) for nonlinear or spatially varying conditions. Conditions added later override earlier ones on the same regions.",
+      "usage": "applyBoundaryCondition(model, \"dirichlet\", RegionType, RegionID, Name=Value)\napplyBoundaryCondition(model, \"neumann\", RegionType, RegionID, Name=Value)\napplyBoundaryCondition(model, \"mixed\", RegionType, RegionID, Name=Value)",
+      "parameters": [
+        {"name": "RegionType, RegionID", "description": "Edge= or Face= followed by a vector of IDs."},
+        {"name": "u / r, h", "description": "Dirichlet value u, or generalized form h*u = r."},
+        {"name": "g, q", "description": "Neumann coefficients in n·(c grad u) + q u = g."},
+        {"name": "EquationIndex", "description": "Which equations of a system the Dirichlet condition applies to."},
+        {"name": "Vectorized", "description": "\"on\" if a function-handle value accepts vector location inputs."}
+      ],
+      "example": "applyBoundaryCondition(model, \"dirichlet\", Edge=[1 3], u=0);\napplyBoundaryCondition(model, \"neumann\", Edge=2, g=@(location,state) sin(pi*location.y), q=0);",
+      "notes": "Edges/faces without an explicit condition get the natural zero-flux Neumann condition. For femodel use faceBC/edgeBC objects instead.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.pdemodel.applyboundarycondition.html"
+    },
+    {
+      "name": "specifyCoefficients",
+      "kind": "function",
+      "description": "Specifies the m, d, c, a and f coefficients of the general PDE m u_tt + d u_t - div(c grad u) + a u = f for the whole geometry or for selected faces/cells. Coefficients may be numeric (scalar, vector, or matrix forms for anisotropic c and systems of equations) or function handles @(location,state) enabling nonlinear and time-dependent problems.",
+      "usage": "specifyCoefficients(model, m=m, d=d, c=c, a=a, f=f)\nspecifyCoefficients(model, m=m, d=d, c=c, a=a, f=f, RegionType=RegionID)",
+      "parameters": [
+        {"name": "m", "description": "Second-order time coefficient (nonzero for wave-type problems)."},
+        {"name": "d", "description": "First-order time coefficient (nonzero for parabolic/transient problems)."},
+        {"name": "c", "description": "Diffusion coefficient; scalar, N-by-1 (isotropic per equation), or matrix forms for anisotropy."},
+        {"name": "a", "description": "Absorption/reaction coefficient."},
+        {"name": "f", "description": "Source term."},
+        {"name": "Face= / Cell=", "description": "Restrict the coefficients to a subdomain."}
+      ],
+      "example": "specifyCoefficients(model, m=0, d=1, c=0.01, a=0, f=0);\nspecifyCoefficients(model, m=0, d=0, c=@(location,state) 1 + state.u.^2, a=0, f=1, Face=2);",
+      "notes": "state fields available in function handles: u, ux, uy, uz, time. Nonlinear problems are solved with a Newton iteration configured via model.SolverOptions.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.pdemodel.specifycoefficients.html"
+    },
+    {
+      "name": "setInitialConditions",
+      "kind": "function",
+      "description": "Sets initial values (and initial time derivatives for hyperbolic problems) for time-dependent or nonlinear PDE models, either globally, per region, or from a previous solution to restart a simulation. Nonlinear stationary problems use the initial condition as the Newton starting guess.",
+      "usage": "setInitialConditions(model, u0)\nsetInitialConditions(model, u0, ut0)\nsetInitialConditions(model, u0, RegionType, RegionID)\nsetInitialConditions(model, results)\nsetInitialConditions(model, results, iT)",
+      "parameters": [
+        {"name": "u0", "description": "Initial value: scalar, N-by-1 vector for systems, or @(location) handle."},
+        {"name": "ut0", "description": "Initial time derivative (only when m is nonzero)."},
+        {"name": "results", "description": "Existing StationaryResults/TimeDependentResults used as the initial state."},
+        {"name": "iT", "description": "Time index of results to use."}
+      ],
+      "example": "setInitialConditions(model, 0);\nsetInitialConditions(model, @(location) exp(-((location.x-0.5).^2 + (location.y-0.5).^2)/0.01), Face=1);\nresults = solvepde(model, 0:0.01:1);",
+      "notes": "Initial conditions are required for any model whose d or m coefficient is nonzero, otherwise solvepde errors.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.pdemodel.setinitialconditions.html"
+    },
+    {
+      "name": "solvepde",
+      "kind": "function",
+      "description": "Solves a general PDEModel (stationary or time-dependent, linear or nonlinear) after geometry, coefficients, boundary conditions, initial conditions and mesh are set. It returns a StationaryResults or TimeDependentResults object holding NodalSolution, gradients (XGradients, YGradients, ZGradients) and the mesh, ready for pdeplot, interpolateSolution and evaluateGradient.",
+      "usage": "results = solvepde(model)\nresults = solvepde(model, tlist)",
+      "parameters": [
+        {"name": "tlist", "description": "Vector of output times for time-dependent problems (solved with ode15s internally)."},
+        {"name": "model.SolverOptions", "description": "PDESolverOptions: RelativeTolerance, AbsoluteTolerance, MaxIterations, ResidualNorm, ReportStatistics."}
+      ],
+      "example": "model.SolverOptions.ReportStatistics = \"on\";\nresults = solvepde(model, linspace(0, 2, 41));\nu = results.NodalSolution;   % nodes-by-times\npdeplot(model, XYData=u(:, end), Contour=\"on\")",
+      "notes": "For eigenvalue problems use solvepdeeig. For femodel objects use solve.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.pdemodel.solvepde.html"
+    },
+    {
+      "name": "solvepdeeig",
+      "kind": "function",
+      "description": "Solves the PDE eigenvalue problem -div(c grad u) + a u = lambda d u on a PDEModel, returning eigenvalues within a specified range and the corresponding eigenvectors (mode shapes). Used for vibration modes, waveguide modes and stability analysis in the general workflow.",
+      "usage": "results = solvepdeeig(model, evr)",
+      "parameters": [
+        {"name": "evr", "description": "Two-element vector [lower upper] bounding the eigenvalues to compute."},
+        {"name": "results", "description": "EigenResults with Eigenvalues, Eigenvectors and Mesh."}
+      ],
+      "example": "model = createpde; geometryFromEdges(model, @lshapeg);\napplyBoundaryCondition(model, \"dirichlet\", Edge=1:model.Geometry.NumEdges, u=0);\nspecifyCoefficients(model, m=0, d=1, c=1, a=0, f=0);\ngenerateMesh(model, Hmax=0.05);\nR = solvepdeeig(model, [-Inf 100]);\npdeplot(model, XYData=R.Eigenvectors(:,1))",
+      "notes": "Modal analysis of femodel structures is done with AnalysisType=\"structuralModal\" and solve(model, FrequencyRange=[...]).",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.pdemodel.solvepdeeig.html"
+    },
+    {
+      "name": "assembleFEMatrices",
+      "kind": "function",
+      "description": "Assembles the finite element matrices (stiffness K, mass M, damping A, load F, and the boundary-condition matrices Q, G, H, R) for a PDE model without solving. Use it to build reduced-order models, custom time integrators, or to couple the PDE discretization with other solvers; the bcmethod option controls how Dirichlet conditions are imposed.",
+      "usage": "FEM = assembleFEMatrices(model)\nFEM = assembleFEMatrices(model, bcmethod)\nFEM = assembleFEMatrices(model, matrices)\nFEM = assembleFEMatrices(model, state)",
+      "parameters": [
+        {"name": "bcmethod", "description": "\"none\" (default, returns H and R), \"nullspace\" (eliminates Dirichlet DOFs, returns Kc, Fc, B, ud) or \"stiff-spring\"."},
+        {"name": "matrices", "description": "Subset of matrix names to assemble, e.g. [\"K\" \"F\"]."},
+        {"name": "state", "description": "Struct with u and time for nonlinear/time-dependent coefficients."}
+      ],
+      "example": "FEM = assembleFEMatrices(model, \"nullspace\");\nu = FEM.B*(FEM.Kc \\ FEM.Fc) + FEM.ud;\npdeplot(model, XYData=u)",
+      "notes": "Matrices are sparse. The structure of the returned struct depends on bcmethod; see the doc page for the exact decomposition.",
+      "docs": "https://www.mathworks.com/help/pde/ug/assemblefematrices.html"
+    },
+    {
+      "name": "interpolateSolution",
+      "kind": "function",
+      "description": "Interpolates a PDE solution from mesh nodes to arbitrary query points (for line plots, probes or comparison with measured data). Works on StationaryResults, TimeDependentResults and EigenResults; for systems and time-dependent solutions you select the equation index and time/mode index.",
+      "usage": "uintrp = interpolateSolution(results, xq, yq)\nuintrp = interpolateSolution(results, xq, yq, zq)\nuintrp = interpolateSolution(results, querypoints)\nuintrp = interpolateSolution(___, iU)\nuintrp = interpolateSolution(___, iU, iT)",
+      "parameters": [
+        {"name": "xq, yq, zq", "description": "Query coordinates (any shape; outputs are column vectors)."},
+        {"name": "querypoints", "description": "2-by-N or 3-by-N matrix of points."},
+        {"name": "iU", "description": "Equation indices for systems of PDEs."},
+        {"name": "iT", "description": "Time or mode indices."}
+      ],
+      "example": "x = linspace(-1, 1, 101); y = zeros(size(x));\nu = interpolateSolution(results, x, y);\nplot(x, u); xlabel('x'); ylabel('u(x,0)')",
+      "notes": "Points outside the geometry return NaN. The gradient counterpart is evaluateGradient; for structural/thermal results use interpolateDisplacement, interpolateStress, interpolateTemperature.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.stationaryresults.interpolatesolution.html"
+    },
+    {
+      "name": "evaluateGradient",
+      "kind": "function",
+      "description": "Evaluates the spatial gradient of a PDE solution at arbitrary points by interpolating the element gradients. Used for fluxes, electric fields (E = -grad V) and error indicators in the general PDE workflow.",
+      "usage": "[gradx, grady] = evaluateGradient(results, xq, yq)\n[gradx, grady, gradz] = evaluateGradient(results, xq, yq, zq)\n[gradx, grady, gradz] = evaluateGradient(results, querypoints)\n[___] = evaluateGradient(___, iU, iT)",
+      "parameters": [
+        {"name": "xq, yq, zq / querypoints", "description": "Query locations."},
+        {"name": "iU, iT", "description": "Equation and time/mode indices for systems and transient results."}
+      ],
+      "example": "[gx, gy] = evaluateGradient(results, 0.25, 0.75);\nflux = -0.01*[gx gy];",
+      "notes": "evaluateCGradient returns c*grad(u), the flux weighted by the c coefficient, which is what physical boundary fluxes usually need.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.stationaryresults.evaluategradient.html"
+    },
+    {
+      "name": "pdeplot",
+      "kind": "function",
+      "description": "Plots 2-D PDE results or meshes: colored nodal data (XYData), height surfaces (ZData), contours, flow/gradient arrows (FlowData), deformed shapes (Deformation) and the mesh itself. It is the standard post-processing plot for planar problems from both the createpde and femodel workflows.",
+      "usage": "pdeplot(model)\npdeplot(mesh)\npdeplot(nodes, elements)\npdeplot(___, XYData=u, ZData=u, FlowData=[gx gy], Contour=\"on\", Mesh=\"on\", ColorMap=\"jet\", Deformation=d, DeformationScaleFactor=s)\nh = pdeplot(___)",
+      "parameters": [
+        {"name": "XYData", "description": "Nodal (or elemental) values to render as color."},
+        {"name": "ZData", "description": "Values plotted as height for a 3-D surface view."},
+        {"name": "FlowData", "description": "Vector field plotted as arrows (e.g., XGradients/YGradients)."},
+        {"name": "Contour / Mesh", "description": "\"on\" to overlay contour lines / element edges."},
+        {"name": "Deformation, DeformationScaleFactor", "description": "Displacement struct (ux, uy) for structural plots."}
+      ],
+      "example": "results = solvepde(model);\npdeplot(model, XYData=results.NodalSolution, ...\n        FlowData=[results.XGradients results.YGradients], Contour=\"on\")\ntitle(\"Solution and gradient\")",
+      "notes": "For 3-D geometries use pdeplot3D. pdeviz (R2023a+) gives an interactive visualization object with data tips and slice views.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pdeplot.html"
+    },
+    {
+      "name": "pdeplot3D",
+      "kind": "function",
+      "description": "Plots 3-D PDE results on the geometry surface as colored data (ColorMapData), optionally with deformation for structural results, arrows for vector fields (FlowData) and translucency to see interior faces. Also plots the surface mesh when no data is given.",
+      "usage": "pdeplot3D(model)\npdeplot3D(mesh)\npdeplot3D(nodes, elements)\npdeplot3D(___, ColorMapData=u, Mesh=\"on\", FaceAlpha=a, FlowData=[fx fy fz], Deformation=d, DeformationScaleFactor=s)\nh = pdeplot3D(___)",
+      "parameters": [
+        {"name": "ColorMapData", "description": "Nodal values to color the surface, e.g. R.Temperature or R.VonMisesStress."},
+        {"name": "FaceAlpha", "description": "Surface transparency (default 1)."},
+        {"name": "Deformation", "description": "Displacement struct/object from a structural result (R.Displacement)."},
+        {"name": "FlowData", "description": "Vector field drawn as arrows at nodes."}
+      ],
+      "example": "R = solve(model);\npdeplot3D(R.Mesh, ColorMapData=R.Temperature, FaceAlpha=0.6)\ncolormap(\"hot\"); colorbar",
+      "notes": "Interior values are not shown; use interpolateSolution/interpolateTemperature on a slice grid and plot with surf or slice.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pdeplot3d.html"
+    },
+    {
+      "name": "pdeviz",
+      "kind": "function",
+      "description": "Creates a PDEVisualization object (R2023a+) that renders a mesh with nodal data and offers interactive controls: 3-D slice planes, mesh display, colormap limits, deformation and data tips. It supersedes pdeplot/pdeplot3D for interactive inspection and can be updated by setting properties without replotting.",
+      "usage": "pdeviz(mesh)\npdeviz(mesh, nodalData)\nviz = pdeviz(___, Name=Value)",
+      "parameters": [
+        {"name": "mesh", "description": "FEMesh object (results.Mesh or model.Mesh)."},
+        {"name": "nodalData", "description": "Vector of values per node."},
+        {"name": "MeshVisible", "description": "true/false to draw element edges."},
+        {"name": "ColorLimits / ColorMap", "description": "Color scaling and map."},
+        {"name": "Deformation, DeformationScaleFactor", "description": "For structural results."}
+      ],
+      "example": "R = solve(model);\nviz = pdeviz(R.Mesh, R.Temperature);\nviz.MeshVisible = true;\nviz.ColorLimits = [290 350];",
+      "notes": "Requires R2023a or later. Use the Slice controls in the figure toolbar to cut through 3-D models.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pdeviz.html"
+    },
+    {
+      "name": "materialProperties",
+      "kind": "function",
+      "description": "Creates a material description for the femodel workflow: mechanical (YoungsModulus, PoissonsRatio, MassDensity, CTE), thermal (ThermalConductivity, SpecificHeat, MassDensity) and electromagnetic (RelativePermittivity, RelativePermeability, Conductivity) properties, plus damping and hyperelastic options. Assign one object per geometry cell in model.MaterialProperties.",
+      "usage": "mtl = materialProperties(Name=Value)\nmodel.MaterialProperties = mtl\nmodel.MaterialProperties(cellID) = mtl",
+      "parameters": [
+        {"name": "YoungsModulus, PoissonsRatio, MassDensity", "description": "Linear-elastic structural properties (SI units recommended)."},
+        {"name": "ThermalConductivity, SpecificHeat", "description": "Thermal properties; conductivity may be a scalar, vector or matrix for anisotropy, or a function handle of (location, state)."},
+        {"name": "CTE", "description": "Coefficient of thermal expansion for thermal stress."},
+        {"name": "RelativePermittivity, RelativePermeability, Conductivity", "description": "Electromagnetic properties."},
+        {"name": "HyperelasticModel, Mu, K", "description": "Neo-Hookean hyperelastic parameters (R2024b+)."}
+      ],
+      "example": "model.MaterialProperties = materialProperties(YoungsModulus=70e9, PoissonsRatio=0.33, MassDensity=2700);\nmodel.MaterialProperties(2) = materialProperties(ThermalConductivity=400, SpecificHeat=385, MassDensity=8960);",
+      "notes": "Replaces structuralProperties/thermalProperties/electromagneticProperties of the createpde workflow. Property values may be function handles for temperature- or space-dependent materials.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.materialproperties.html"
+    },
+    {
+      "name": "faceBC",
+      "kind": "function",
+      "description": "Boundary condition object for geometry faces in the femodel workflow (edgeBC and vertexBC are the analogues for edges and vertices). It carries structural constraints or displacements, thermal temperatures, and electromagnetic voltage/potential/field conditions; assign it to model.FaceBC(faceIDs).",
+      "usage": "bc = faceBC(Name=Value)\nmodel.FaceBC(faceIDs) = faceBC(Name=Value)",
+      "parameters": [
+        {"name": "Constraint", "description": "\"fixed\", \"free\", \"roller\", \"symmetric\", \"antisymmetric\", \"multipoint\"."},
+        {"name": "XDisplacement / YDisplacement / ZDisplacement", "description": "Prescribed displacement components (scalar or function handle)."},
+        {"name": "Temperature", "description": "Prescribed temperature for thermal analyses."},
+        {"name": "Voltage / MagneticPotential / ElectricField / MagneticField", "description": "Electromagnetic boundary conditions."},
+        {"name": "FarField", "description": "\"absorbing\" for harmonic electromagnetic analysis."}
+      ],
+      "example": "model.FaceBC(1) = faceBC(Constraint=\"fixed\");\nmodel.FaceBC([4 5]) = faceBC(ZDisplacement=0);\nmodel.FaceBC(6) = faceBC(Temperature=350);",
+      "notes": "In 2-D geometries boundary conditions go on edges, so use model.EdgeBC(edgeIDs) = edgeBC(...). Unassigned faces are free / insulated.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.facebc.html"
+    },
+    {
+      "name": "faceLoad",
+      "kind": "function",
+      "description": "Load object for geometry faces in the femodel workflow: pressure and surface traction for structural analyses; heat flux, convection and radiation for thermal analyses; surface charge or current density for electromagnetics. Assign to model.FaceLoad(faceIDs); edgeLoad and vertexLoad provide the edge and point equivalents.",
+      "usage": "load = faceLoad(Name=Value)\nmodel.FaceLoad(faceIDs) = faceLoad(Name=Value)",
+      "parameters": [
+        {"name": "Pressure", "description": "Normal pressure (positive into the surface); scalar or function handle."},
+        {"name": "SurfaceTraction", "description": "[tx ty tz] traction vector."},
+        {"name": "Translation", "description": "Translational displacement load for multipoint constraints."},
+        {"name": "Heat", "description": "Heat flux into the face."},
+        {"name": "ConvectionCoefficient, AmbientTemperature", "description": "Convective boundary condition."},
+        {"name": "Emissivity", "description": "Radiative loss (requires model.StefanBoltzmannConstant)."},
+        {"name": "SurfaceChargeDensity / SurfaceCurrentDensity", "description": "Electromagnetic surface sources."}
+      ],
+      "example": "model.FaceLoad(3) = faceLoad(Pressure=2e5);\nmodel.FaceLoad(2) = faceLoad(ConvectionCoefficient=25, AmbientTemperature=293);",
+      "notes": "Time-dependent loads use function handles of (location, state) reading state.time. Faces without a load carry zero traction / are adiabatic.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.faceload.html"
+    },
+    {
+      "name": "cellLoad",
+      "kind": "function",
+      "description": "Body load object for 3-D cells in the femodel workflow (faceLoad is used for 2-D domain loads): gravity, angular velocity (centrifugal), temperature fields for thermal stress, internal heat generation, and charge/current densities. Assign to model.CellLoad(cellIDs).",
+      "usage": "load = cellLoad(Name=Value)\nmodel.CellLoad(cellIDs) = cellLoad(Name=Value)",
+      "parameters": [
+        {"name": "Gravity", "description": "[gx gy gz] acceleration vector, e.g. [0 0 -9.81]."},
+        {"name": "AngularVelocity", "description": "Rotation about the z-axis for centrifugal loads."},
+        {"name": "Temperature", "description": "Temperature (scalar, function, or thermal results) for thermal stress; pair with ReferenceTemperature."},
+        {"name": "Heat", "description": "Volumetric heat generation rate."},
+        {"name": "ChargeDensity / CurrentDensity / Magnetization", "description": "Electromagnetic sources."}
+      ],
+      "example": "model.CellLoad = cellLoad(Gravity=[0 0 -9.81]);\nthermal = solve(thermalModel);\nmodel.CellLoad = cellLoad(Temperature=thermal, ReferenceTemperature=293);",
+      "notes": "Mass density must be set in materialProperties for gravity and centrifugal loads to have an effect.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.cellload.html"
+    },
+    {
+      "name": "structuralProperties",
+      "kind": "function",
+      "description": "Assigns Young's modulus, Poisson's ratio, mass density, CTE and hyperelastic parameters to a StructuralModel created with createpde(\"structural\", ...), for the whole geometry or per cell/face. Part of the legacy specialized workflow that femodel/materialProperties replaced in R2023a; still supported and common in existing code.",
+      "usage": "structuralProperties(model, YoungsModulus=E, PoissonsRatio=nu)\nstructuralProperties(model, ..., MassDensity=rho, CTE=alpha, Cell=ids)",
+      "parameters": [
+        {"name": "YoungsModulus, PoissonsRatio", "description": "Required for all structural analyses."},
+        {"name": "MassDensity", "description": "Required for modal, transient and frequency-response analyses and for gravity loads."},
+        {"name": "CTE", "description": "Coefficient of thermal expansion for thermal-stress problems."},
+        {"name": "Cell / Face", "description": "Restrict to specific regions of the geometry."}
+      ],
+      "example": "model = createpde(\"structural\", \"static-solid\");\nimportGeometry(model, \"Bracket.stl\");\nstructuralProperties(model, YoungsModulus=200e9, PoissonsRatio=0.3);\nstructuralBC(model, Face=4, Constraint=\"fixed\");\nstructuralBoundaryLoad(model, Face=8, SurfaceTraction=[0 0 -1e4]);\ngenerateMesh(model);\nR = solve(model);",
+      "notes": "Related legacy functions: structuralBC, structuralBoundaryLoad, structuralBodyLoad, structuralIC, structuralDamping, structuralSEInterface.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.structuralmodel.structuralproperties.html"
+    },
+    {
+      "name": "structuralBC",
+      "kind": "function",
+      "description": "Applies displacement boundary conditions and constraints (fixed, roller, symmetric, prescribed displacements, multipoint constraints) to faces, edges or vertices of a legacy StructuralModel. Displacements may be constants or function handles of (location, state) for time-varying excitation.",
+      "usage": "structuralBC(model, RegionType, RegionID, Constraint=\"fixed\")\nstructuralBC(model, RegionType, RegionID, XDisplacement=ux, YDisplacement=uy, ZDisplacement=uz)\nstructuralBC(model, RegionType, RegionID, Constraint=\"multipoint\", Reference=[x y z])",
+      "parameters": [
+        {"name": "RegionType, RegionID", "description": "Face=, Edge= or Vertex= plus IDs."},
+        {"name": "Constraint", "description": "\"fixed\", \"free\", \"roller\", \"symmetric\", \"multipoint\"."},
+        {"name": "Displacement", "description": "Vector [ux uy uz] or handle for a full prescribed displacement."},
+        {"name": "Frequency / Amplitude / StartTime / EndTime", "description": "Sinusoidal/step time profiles for transient analyses."}
+      ],
+      "example": "structuralBC(model, Face=1, Constraint=\"fixed\");\nstructuralBC(model, Face=3, YDisplacement=0.001);",
+      "notes": "In the femodel workflow the equivalent is model.FaceBC(id) = faceBC(...).",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.structuralmodel.structuralbc.html"
+    },
+    {
+      "name": "structuralBoundaryLoad",
+      "kind": "function",
+      "description": "Applies pressure, surface traction, translational stiffness (elastic foundation) or point/edge forces to boundaries of a legacy StructuralModel. Loads can be constant, function handles, or sinusoidal/step profiles for transient and frequency-response analyses.",
+      "usage": "structuralBoundaryLoad(model, RegionType, RegionID, Pressure=p)\nstructuralBoundaryLoad(model, RegionType, RegionID, SurfaceTraction=[tx ty tz])\nstructuralBoundaryLoad(model, Vertex=id, Force=[fx fy fz])\nstructuralBoundaryLoad(model, ..., TranslationalStiffness=[kx ky kz])",
+      "parameters": [
+        {"name": "Pressure", "description": "Normal pressure on faces/edges."},
+        {"name": "SurfaceTraction", "description": "Traction vector per unit area."},
+        {"name": "Force", "description": "Concentrated force at a vertex."},
+        {"name": "Frequency, Phase, StartTime, EndTime, RiseTime", "description": "Time-profile parameters for dynamic loads."}
+      ],
+      "example": "structuralBoundaryLoad(model, Face=6, Pressure=1e5);\nstructuralBoundaryLoad(model, Vertex=2, Force=[0 0 -500]);",
+      "notes": "Body loads (gravity, thermal expansion, angular velocity) use structuralBodyLoad. femodel equivalent: faceLoad / edgeLoad / vertexLoad.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.structuralmodel.structuralboundaryload.html"
+    },
+    {
+      "name": "thermalProperties",
+      "kind": "function",
+      "description": "Assigns thermal conductivity, mass density and specific heat to a legacy ThermalModel created with createpde(\"thermal\", ...). Conductivity may be scalar, anisotropic (vector or matrix) or a function handle for temperature-dependent materials; density and specific heat are required for transient analyses.",
+      "usage": "thermalProperties(model, ThermalConductivity=k)\nthermalProperties(model, ThermalConductivity=k, MassDensity=rho, SpecificHeat=cp, RegionType, RegionID)",
+      "parameters": [
+        {"name": "ThermalConductivity", "description": "Scalar, [kx ky kz], full matrix, or @(location,state) handle (state.u is temperature)."},
+        {"name": "MassDensity, SpecificHeat", "description": "Needed for transient problems."},
+        {"name": "Cell / Face", "description": "Region restriction for multi-material models."}
+      ],
+      "example": "model = createpde(\"thermal\", \"transient\");\ngeometryFromEdges(model, @squareg);\nthermalProperties(model, ThermalConductivity=80, MassDensity=7800, SpecificHeat=450);\nthermalBC(model, Edge=1, Temperature=100);\nthermalIC(model, 20);\ngenerateMesh(model);\nR = solve(model, 0:10:600);",
+      "notes": "Companion legacy functions: thermalBC, thermalIC, internalHeatSource. femodel equivalent: materialProperties.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.thermalmodel.thermalproperties.html"
+    },
+    {
+      "name": "thermalBC",
+      "kind": "function",
+      "description": "Applies temperature, heat flux, convection and radiation boundary conditions to edges/faces of a legacy ThermalModel. Convection needs a coefficient and ambient temperature; radiation needs emissivity, ambient temperature and model.StefanBoltzmannConstant.",
+      "usage": "thermalBC(model, RegionType, RegionID, Temperature=T)\nthermalBC(model, RegionType, RegionID, HeatFlux=q)\nthermalBC(model, RegionType, RegionID, ConvectionCoefficient=h, AmbientTemperature=Ta)\nthermalBC(model, RegionType, RegionID, Emissivity=e, AmbientTemperature=Ta)",
+      "parameters": [
+        {"name": "Temperature", "description": "Prescribed (Dirichlet) temperature."},
+        {"name": "HeatFlux", "description": "Prescribed flux into the domain (W/m^2)."},
+        {"name": "ConvectionCoefficient, AmbientTemperature", "description": "Newton cooling parameters."},
+        {"name": "Emissivity", "description": "Surface emissivity for radiation (nonlinear)."}
+      ],
+      "example": "thermalBC(model, Face=[2 3], ConvectionCoefficient=10, AmbientTemperature=300);\nthermalBC(model, Face=1, Temperature=400);",
+      "notes": "Boundaries without a condition are perfectly insulated. femodel equivalent: faceBC(Temperature=...) and faceLoad(Heat=..., ConvectionCoefficient=...).",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.thermalmodel.thermalbc.html"
+    },
+    {
+      "name": "evaluateStress",
+      "kind": "function",
+      "description": "Evaluates stress tensor components at mesh nodes for transient or frequency-response structural results (static results already expose Stress, Strain and VonMisesStress properties). Returns a struct of FEStruct arrays with xx, yy, zz, xy, yz, xz components per time step or frequency.",
+      "usage": "stress = evaluateStress(structuralresults)",
+      "parameters": [
+        {"name": "structuralresults", "description": "TransientStructuralResults or FrequencyStructuralResults from solve."}
+      ],
+      "example": "R = solve(model, 0:0.001:0.05);\ns = evaluateStress(R);\npdeplot3D(R.Mesh, ColorMapData=s.xx(:, end))",
+      "notes": "Related: evaluateStrain, evaluateVonMisesStress, evaluatePrincipalStress, evaluateReaction, interpolateStress/interpolateDisplacement for arbitrary points.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.transientstructuralresults.evaluatestress.html"
+    },
+    {
+      "name": "evaluateHeatFlux",
+      "kind": "function",
+      "description": "Evaluates the heat flux vector (-k grad T) at mesh nodes or at arbitrary query points from a steady-state or transient thermal result. Use it for energy balances, to plot flux arrows with pdeplot FlowData, or to compute heat transfer through a surface with evaluateHeatRate.",
+      "usage": "[qx, qy] = evaluateHeatFlux(thermalresults)\n[qx, qy, qz] = evaluateHeatFlux(thermalresults)\n[qx, qy, qz] = evaluateHeatFlux(thermalresults, xq, yq, zq)\n[___] = evaluateHeatFlux(thermalresults, querypoints, iT)",
+      "parameters": [
+        {"name": "xq, yq, zq / querypoints", "description": "Optional query coordinates; omitted means nodal values."},
+        {"name": "iT", "description": "Time-step indices for transient results."}
+      ],
+      "example": "R = solve(thermalModel);\n[qx, qy] = evaluateHeatFlux(R);\npdeplot(thermalModel, XYData=R.Temperature, FlowData=[qx qy])",
+      "notes": "evaluateHeatRate(results, Face=id) integrates the normal flux over a boundary.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.steadystatethermalresults.evaluateheatflux.html"
+    },
+    {
+      "name": "interpolateTemperature",
+      "kind": "function",
+      "description": "Interpolates the temperature field of a thermal result to arbitrary spatial points (and time indices for transient results), for probes, 1-D profiles, or coupling temperature into a structural model at specific locations.",
+      "usage": "Tintrp = interpolateTemperature(thermalresults, xq, yq)\nTintrp = interpolateTemperature(thermalresults, xq, yq, zq)\nTintrp = interpolateTemperature(thermalresults, querypoints)\nTintrp = interpolateTemperature(___, iT)",
+      "parameters": [
+        {"name": "xq, yq, zq / querypoints", "description": "Query points."},
+        {"name": "iT", "description": "Time-step indices (transient results)."}
+      ],
+      "example": "z = linspace(0, 0.1, 50);\nT = interpolateTemperature(R, zeros(size(z)), zeros(size(z)), z, numel(R.SolutionTimes));\nplot(z, T)",
+      "notes": "Structural analogues: interpolateDisplacement, interpolateStress, interpolateStrain, interpolateVonMisesStress.",
+      "docs": "https://www.mathworks.com/help/pde/ug/pde.steadystatethermalresults.interpolatetemperature.html"
+    },
+    {
+      "name": "pdeModeler",
+      "kind": "tool",
+      "description": "Interactive app for 2-D PDE problems: draw rectangles, circles, ellipses and polygons, combine them with a set formula, set boundary conditions and PDE coefficients from menus, mesh, solve and plot. It can export the geometry description (gd, sf, ns), boundary matrix and mesh to the workspace so the problem can be reproduced programmatically with decsg and geometryFromEdges.",
+      "usage": "pdeModeler\nDraw > shapes; Boundary > Specify Boundary Conditions; PDE > PDE Specification; Mesh > Initialize Mesh; Solve > Solve PDE",
+      "parameters": [
+        {"name": "pdecirc / pderect / pdeellip / pdepoly", "description": "Functions that draw shapes into the open app programmatically."},
+        {"name": "Draw > Export Geometry Description, Set Formula, Labels", "description": "Sends gd, sf, ns to the base workspace."}
+      ],
+      "example": "pdeModeler\npderect([-1 1 -1 1], 'R1')\npdecirc(0, 0, 0.4, 'C1')\n% set formula R1-C1 in the app, then Draw > Export Geometry Description",
+      "notes": "2-D only and limited to scalar or 2-equation systems; for scripted, 3-D or femodel workflows use the programmatic functions instead.",
+      "docs": "https://www.mathworks.com/help/pde/"
+    }
+  ]
+}

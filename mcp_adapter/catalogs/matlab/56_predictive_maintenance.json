@@ -1,0 +1,461 @@
+{
+  "category": "Predictive Maintenance Toolbox > Ensemble Data, Condition Indicators, Machinery Diagnostics & Remaining Useful Life",
+  "description": "Predictive Maintenance Toolbox functions (plus closely related Signal Processing Toolbox machinery-diagnostics functions) for managing run-to-failure ensembles, designing condition indicators from vibration and nonlinear signal features, ranking features, and estimating remaining useful life (RUL) with degradation, similarity and survival models.",
+  "tools": [
+    {
+      "name": "fileEnsembleDatastore",
+      "kind": "function",
+      "description": "Creates a datastore that manages an ensemble of machine data stored as one file per member (e.g. one MAT or CSV file per run), with a custom read function and data/condition/independent variable definitions. It is the standard container for condition-monitoring data in Predictive Maintenance Toolbox.",
+      "usage": "fensemble = fileEnsembleDatastore(location, fileExtension)\nfensemble = fileEnsembleDatastore(location, fileExtension, Name=Value)",
+      "parameters": [
+        {"name": "location / fileExtension", "description": "Folder (or files) and extension such as \".mat\" or \".csv\"."},
+        {"name": "ReadFcn / WriteToMemberFcn", "description": "Functions that read a member into a table and write new variables back."},
+        {"name": "DataVariables / ConditionVariables / IndependentVariables / SelectedVariables", "description": "Variable roles in the ensemble."}
+      ],
+      "example": "ens = fileEnsembleDatastore(\"data\", \".mat\");\nens.ReadFcn = @readBearingData;\nens.DataVariables = \"vibration\";\nens.ConditionVariables = \"faultCode\";\nens.SelectedVariables = [\"vibration\" \"faultCode\"];\nwhile hasdata(ens)\n    member = read(ens);\n    % compute features, then writeToLastMemberRead(ens, featureTable)\nend",
+      "notes": "Use subset and tall for large ensembles, and open the ensemble in Diagnostic Feature Designer to design features interactively.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/fileensembledatastore.html"
+    },
+    {
+      "name": "simulationEnsembleDatastore",
+      "kind": "function",
+      "description": "Manages an ensemble of Simulink simulation results (logged signals and parameters) stored in MAT-files, typically produced by generateSimulationEnsemble for fault-injection studies.",
+      "usage": "ensemble = simulationEnsembleDatastore(location)\nensemble = simulationEnsembleDatastore(location, Name=Value)",
+      "parameters": [
+        {"name": "location", "description": "Folder containing the simulation result files."},
+        {"name": "DataVariables / ConditionVariables / SelectedVariables", "description": "Variable roles, detected from logged data."}
+      ],
+      "example": "ens = simulationEnsembleDatastore(\"simResults\");\nens.SelectedVariables = [\"Vibration\" \"LeakFault\"];\nmember = read(ens);",
+      "notes": "Members are read as tables whose signal variables are timetables.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/simulationensembledatastore.html"
+    },
+    {
+      "name": "generateSimulationEnsemble",
+      "kind": "function",
+      "description": "Runs a Simulink model for each Simulink.SimulationInput (e.g. different fault parameters) and saves the logged results as ensemble members, optionally in parallel.",
+      "usage": "[status, E] = generateSimulationEnsemble(simin, location)\n[status, E] = generateSimulationEnsemble(simin, location, Name=Value)",
+      "parameters": [
+        {"name": "simin", "description": "Array of Simulink.SimulationInput objects."},
+        {"name": "location", "description": "Output folder for member files."},
+        {"name": "UseParallel", "description": "Run simulations with Parallel Computing Toolbox."}
+      ],
+      "example": "mdl = \"pumpModel\";\nleak = linspace(0, 1e-3, 20);\nfor k = numel(leak):-1:1\n    simin(k) = Simulink.SimulationInput(mdl);\n    simin(k) = setVariable(simin(k), \"leakArea\", leak(k));\nend\n[ok, E] = generateSimulationEnsemble(simin, \"simResults\", UseParallel=true);",
+      "notes": "Requires Simulink. Open results with simulationEnsembleDatastore.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/generatesimulationensemble.html"
+    },
+    {
+      "name": "workspaceEnsemble",
+      "kind": "function",
+      "description": "Manages ensemble data held in a MATLAB workspace table (one row per member) with data and condition variable roles, as used by code generated from Diagnostic Feature Designer.",
+      "usage": "wensemble = workspaceEnsemble(data)\nwensemble = workspaceEnsemble(data, Name=Value)",
+      "parameters": [
+        {"name": "data", "description": "Table whose rows are members and variables hold signals (timetables) and conditions."},
+        {"name": "DataVariables / ConditionVariables / IndependentVariables", "description": "Variable roles."}
+      ],
+      "example": "ens = workspaceEnsemble(memberTable, DataVariables=\"Vibration\", ConditionVariables=\"Health\");\nm = read(ens);",
+      "notes": "Suited to datasets that fit in memory; use fileEnsembleDatastore for large collections.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/workspaceensemble.html"
+    },
+    {
+      "name": "writeToLastMemberRead",
+      "kind": "function",
+      "description": "Writes new variables (e.g. computed condition indicators) back to the ensemble member most recently read, so features are stored alongside the raw data.",
+      "usage": "writeToLastMemberRead(ensemble, data)\nwriteToLastMemberRead(ensemble, Name, Value)",
+      "parameters": [
+        {"name": "data", "description": "Table (one row) of variables to write."}
+      ],
+      "example": "reset(ens)\nwhile hasdata(ens)\n    m = read(ens);\n    x = m.vibration{1}.Data;\n    feat = table(rms(x), kurtosis(x), VariableNames=[\"RMS\" \"Kurtosis\"]);\n    writeToLastMemberRead(ens, feat);\nend",
+      "notes": "For fileEnsembleDatastore, WriteToMemberFcn must be defined. Add the new names to DataVariables to read them later.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/fileensembledatastore.writetolastmemberread.html"
+    },
+    {
+      "name": "diagnosticFeatureDesigner",
+      "kind": "tool",
+      "description": "Opens the Diagnostic Feature Designer app for importing ensembles, preprocessing signals, extracting time/frequency/rotating-machinery features, ranking them for fault classification or prognostics, and generating MATLAB code for the pipeline.",
+      "usage": "diagnosticFeatureDesigner",
+      "parameters": [],
+      "example": "load(\"pumpEnsembleData.mat\")   % table ensemble in the workspace\ndiagnosticFeatureDesigner",
+      "notes": "Export ranked features to Classification Learner or generate a function that recomputes features on new data. Health Indicator Designer complements it for prognostics.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/diagnosticfeaturedesigner-app.html"
+    },
+    {
+      "name": "tsa",
+      "kind": "function",
+      "description": "Computes the time-synchronous average of a vibration signal using tachometer pulses, averaging over shaft rotations to suppress components that are not synchronous with the shaft (gear diagnostics foundation).",
+      "usage": "ta = tsa(x, fs, tPulse)\n[ta, t, rpm] = tsa(x, fs, tPulse, Name=Value)",
+      "parameters": [
+        {"name": "x / fs", "description": "Vibration signal and sample rate."},
+        {"name": "tPulse", "description": "Tachometer pulse times (s)."},
+        {"name": "NumRotations / Method", "description": "Rotations per segment and interpolation/averaging method."}
+      ],
+      "example": "ta = tsa(vib, fs, tachoTimes, NumRotations=1);\nd = tsadifference(ta, fs, rpm, [1 2 23]);",
+      "notes": "Part of Signal Processing Toolbox; the TSA signal feeds tsaregular, tsaresidual and tsadifference for gear condition metrics.",
+      "docs": "https://www.mathworks.com/help/signal/ref/tsa.html"
+    },
+    {
+      "name": "tsadifference",
+      "kind": "function",
+      "description": "Computes the difference signal of a time-synchronous averaged signal by removing the shaft orders, gear-mesh orders and their first-order sidebands, leaving components indicative of localized gear tooth faults.",
+      "usage": "Y = tsadifference(X, fs, rpm, orderList)\nY = tsadifference(___, Name=Value)",
+      "parameters": [
+        {"name": "X", "description": "TSA signal (vector or timetable)."},
+        {"name": "rpm", "description": "Shaft rotational speed (rpm)."},
+        {"name": "orderList", "description": "Shaft and gear-mesh orders to filter (e.g. [1 2 NTeeth])."},
+        {"name": "Domain", "description": "\"time\" (default) or \"frequency\" output."}
+      ],
+      "example": "D = tsadifference(ta, fs, 1800, [1 2 23 46]);\nFM4 = kurtosis(D);",
+      "notes": "tsaregular extracts only the regular (mesh) components, tsaresidual removes mesh orders but keeps sidebands. Metrics such as FM4, NA4 and M6A are computed from these signals.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/tsadifference.html"
+    },
+    {
+      "name": "tsaregular",
+      "kind": "function",
+      "description": "Extracts the regular signal of a time-synchronous averaged signal, i.e. the shaft and gear-mesh frequency components and their harmonics, representing healthy periodic gear behavior.",
+      "usage": "Y = tsaregular(X, fs, rpm, orderList)\nY = tsaregular(___, Name=Value)",
+      "parameters": [
+        {"name": "orderList", "description": "Orders to keep."},
+        {"name": "Domain", "description": "\"time\" or \"frequency\"."}
+      ],
+      "example": "R = tsaregular(ta, fs, 1800, [23 46 69]);\nplot(R)",
+      "notes": "Use with tsaresidual/tsadifference to separate periodic mesh content from fault content.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/tsaregular.html"
+    },
+    {
+      "name": "tsaresidual",
+      "kind": "function",
+      "description": "Computes the residual signal of a time-synchronous averaged signal by removing the shaft and gear-mesh components (but not sidebands), highlighting modulation caused by faults.",
+      "usage": "Y = tsaresidual(X, fs, rpm, orderList)\nY = tsaresidual(___, Name=Value)",
+      "parameters": [
+        {"name": "orderList", "description": "Orders to remove."}
+      ],
+      "example": "Rs = tsaresidual(ta, fs, 1800, [1 23 46]);\nNA4 = kurtosis(Rs);",
+      "notes": "Residual-based metrics trend as damage progresses.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/tsaresidual.html"
+    },
+    {
+      "name": "bearingFaultBands",
+      "kind": "function",
+      "description": "Generates frequency bands around the characteristic defect frequencies of a rolling-element bearing (ballpass outer/inner race, ball spin, cage) given its geometry and shaft speed, for spectral fault-band features.",
+      "usage": "[FB, info] = bearingFaultBands(FR, NB, DB, DP, beta)\n[FB, info] = bearingFaultBands(___, Name=Value)",
+      "parameters": [
+        {"name": "FR", "description": "Shaft rotation frequency (Hz or orders)."},
+        {"name": "NB / DB / DP / beta", "description": "Number of balls, ball diameter, pitch diameter and contact angle (deg)."},
+        {"name": "Harmonics / Sidebands / Width / Domain", "description": "Band construction options (\"frequency\" or \"order\")."}
+      ],
+      "example": "[FB, info] = bearingFaultBands(25, 8, 7.94, 34.55, 0, Harmonics=1:3);\n[pxx, f] = pspectrum(vib, fs);\nmetrics = faultBandMetrics(pxx, f, FB)",
+      "notes": "gearMeshFaultBands does the same for meshing gears; faultBands builds bands from arbitrary frequencies.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/bearingfaultbands.html"
+    },
+    {
+      "name": "faultBands",
+      "kind": "function",
+      "description": "Generates frequency bands around user-specified fundamental frequencies, their harmonics and sidebands, for extracting spectral features at known fault frequencies of any machine.",
+      "usage": "FB = faultBands(F0, N0)\nFB = faultBands(F0, N0, F1, N1)\n[FB, info] = faultBands(___, Name=Value)",
+      "parameters": [
+        {"name": "F0 / N0", "description": "Fundamental frequencies and harmonic numbers."},
+        {"name": "F1 / N1", "description": "Sideband spacing frequencies and sideband numbers."},
+        {"name": "Width / Folding", "description": "Band width and folding of negative bands."}
+      ],
+      "example": "FB = faultBands(60, 1:4, 5, 1:2, Width=2);\n[pxx, f] = pspectrum(x, fs);\nfaultBandMetrics(pxx, f, FB)",
+      "notes": "Output is an N-by-2 matrix of [low high] band edges.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/faultbands.html"
+    },
+    {
+      "name": "faultBandMetrics",
+      "kind": "function",
+      "description": "Computes spectral metrics (peak amplitude, peak frequency, band power, total band power) of a power spectral density within specified fault frequency bands, producing compact condition indicators.",
+      "usage": "spectralMetrics = faultBandMetrics(x, f, FB)\n[spectralMetrics, T] = faultBandMetrics(___, Name=Value)",
+      "parameters": [
+        {"name": "x, f", "description": "PSD values and frequencies (or a timetable/spectrum)."},
+        {"name": "FB", "description": "Bands from faultBands, bearingFaultBands or gearMeshFaultBands."}
+      ],
+      "example": "[pxx, f] = pspectrum(vib, fs);\n[m, T] = faultBandMetrics(pxx, f, FB);\nT",
+      "notes": "Compute on envelope spectra (envspectrum) for bearing faults.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/faultbandmetrics.html"
+    },
+    {
+      "name": "envspectrum",
+      "kind": "function",
+      "description": "Computes the envelope spectrum of a vibration signal (via Hilbert transform or complex demodulation within a band), revealing bearing defect frequencies that modulate high-frequency resonances.",
+      "usage": "[es, f] = envspectrum(x, fs)\n[es, f, env, t] = envspectrum(x, fs, Name=Value)\nenvspectrum(___)",
+      "parameters": [
+        {"name": "Method", "description": "\"hilbert\" (default) or \"demod\"."},
+        {"name": "Band", "description": "[fLow fHigh] band to envelope, e.g. chosen from a kurtogram."}
+      ],
+      "example": "[es, f] = envspectrum(vib, fs, Band=[2000 5000]);\nplot(f, es); xlim([0 500])",
+      "notes": "Signal Processing Toolbox function. Choose the band with kurtogram or spectralKurtosis.",
+      "docs": "https://www.mathworks.com/help/signal/ref/envspectrum.html"
+    },
+    {
+      "name": "kurtogram",
+      "kind": "function",
+      "description": "Computes and displays the fast kurtogram, i.e. spectral kurtosis over frequency and resolution levels, to find the frequency band where impulsive fault signatures are strongest.",
+      "usage": "kurtogram(x, fs)\nkurtogram(x, fs, level)\n[kgram, f, w, fc, wc, bw] = kurtogram(___)",
+      "parameters": [
+        {"name": "level", "description": "Maximum decomposition level."},
+        {"name": "fc / bw (outputs)", "description": "Center frequency and bandwidth of the band with maximum kurtosis."}
+      ],
+      "example": "[~, ~, ~, fc, ~, bw] = kurtogram(vib, fs, 6);\nes = envspectrum(vib, fs, Band=[fc-bw/2 fc+bw/2]);",
+      "notes": "Signal Processing Toolbox function; spectralKurtosis gives the kurtosis at a single resolution.",
+      "docs": "https://www.mathworks.com/help/signal/ref/kurtogram.html"
+    },
+    {
+      "name": "spectralKurtosis",
+      "kind": "function",
+      "description": "Computes spectral kurtosis of a signal or spectrogram, highlighting frequency bands with transient, non-Gaussian content such as bearing impacts, together with a confidence threshold.",
+      "usage": "sk = spectralKurtosis(x, fs)\n[sk, f, thresh] = spectralKurtosis(___, Name=Value)\nspectralKurtosis(___)",
+      "parameters": [
+        {"name": "Window / OverlapLength", "description": "STFT settings."},
+        {"name": "ConfidenceLevel", "description": "Confidence level for the stationary-Gaussian threshold (default 0.95)."}
+      ],
+      "example": "[sk, f, th] = spectralKurtosis(vib, fs, Window=256);\nplot(f, sk); yline(th)",
+      "notes": "Signal Processing Toolbox function (replaces pkurtosis).",
+      "docs": "https://www.mathworks.com/help/signal/ref/spectralkurtosis.html"
+    },
+    {
+      "name": "orderspectrum",
+      "kind": "function",
+      "description": "Computes the average spectrum versus shaft order of a vibration signal measured under varying speed, using an RPM profile to resample into the order domain. Order analysis keeps shaft-related peaks aligned during run-up/down.",
+      "usage": "[spec, order] = orderspectrum(x, fs, rpm)\n[spec, order] = orderspectrum(___, Name=Value)\norderspectrum(___)",
+      "parameters": [
+        {"name": "rpm", "description": "Rotational speed profile, same length as x."},
+        {"name": "OrderResolution / Amplitude / Window", "description": "Resolution and amplitude type."}
+      ],
+      "example": "rpm = rpmtrack(vib, fs, 1, [0 20; 10 60]);   % track 1st order ridge\n[spec, ord] = orderspectrum(vib, fs, rpm);\nplot(ord, spec)",
+      "notes": "Signal Processing Toolbox function; ordertrack and rpmtrack estimate order magnitudes and RPM.",
+      "docs": "https://www.mathworks.com/help/signal/ref/orderspectrum.html"
+    },
+    {
+      "name": "approximateEntropy",
+      "kind": "function",
+      "description": "Measures the regularity (unpredictability) of a nonlinear time series; lower values indicate more regular signals. Used as a condition indicator for machines whose vibration becomes more irregular with faults.",
+      "usage": "approxEnt = approximateEntropy(X)\napproxEnt = approximateEntropy(X, lag, dim)\napproxEnt = approximateEntropy(___, Radius=r)",
+      "parameters": [
+        {"name": "lag / dim", "description": "Time delay and embedding dimension (estimated automatically if omitted)."},
+        {"name": "Radius", "description": "Similarity radius (default 0.2*std(X))."}
+      ],
+      "example": "x = sin(2*pi*(0:0.01:10)) + 0.1*randn(1,1001);\napproximateEntropy(x)",
+      "notes": "Related nonlinear features: correlationDimension, lyapunovExponent, phaseSpaceReconstruction.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/approximateentropy.html"
+    },
+    {
+      "name": "correlationDimension",
+      "kind": "function",
+      "description": "Estimates the correlation dimension of a time series, a measure of chaotic signal complexity (dimensionality of the attractor) useful for tracking changes in system dynamics.",
+      "usage": "corDim = correlationDimension(X)\ncorDim = correlationDimension(X, lag, dim)\n[corDim, r, C] = correlationDimension(___, Name=Value)",
+      "parameters": [
+        {"name": "MinRadius / MaxRadius / NumPoints", "description": "Radius range and number of points for the correlation integral."}
+      ],
+      "example": "cd = correlationDimension(vib(1:4000), 10, 3)",
+      "notes": "Plot C versus r (log-log) to verify the linear scaling region.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/correlationdimension.html"
+    },
+    {
+      "name": "lyapunovExponent",
+      "kind": "function",
+      "description": "Estimates the largest Lyapunov exponent of a uniformly sampled time series, characterizing the rate at which nearby trajectories diverge; positive values indicate chaos.",
+      "usage": "lyapExp = lyapunovExponent(X, fs)\nlyapExp = lyapunovExponent(X, fs, lag, dim)\n[lyapExp, estLag, estDim] = lyapunovExponent(___, Name=Value)",
+      "parameters": [
+        {"name": "fs", "description": "Sample rate."},
+        {"name": "ExpansionRange / MinSeparation", "description": "Range of expansion steps for the linear fit and minimum temporal separation."}
+      ],
+      "example": "le = lyapunovExponent(x, 100, ExpansionRange=[1 30])",
+      "notes": "Requires reasonably long, stationary records.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/lyapunovexponent.html"
+    },
+    {
+      "name": "phaseSpaceReconstruction",
+      "kind": "function",
+      "description": "Reconstructs the phase space (delay-coordinate embedding) of a time series, estimating the embedding lag and dimension. The reconstructed states feed nonlinear features and visualization of dynamics.",
+      "usage": "[XR, eLag, eDim] = phaseSpaceReconstruction(X)\nXR = phaseSpaceReconstruction(X, lag, dim)\nphaseSpaceReconstruction(___)",
+      "parameters": [
+        {"name": "lag / dim", "description": "Delay and embedding dimension (estimated with mutual information and false nearest neighbors if omitted)."}
+      ],
+      "example": "[XR, lag, dim] = phaseSpaceReconstruction(x);\nplot3(XR(:,1), XR(:,2), XR(:,3))",
+      "notes": "Reuse eLag and eDim in approximateEntropy, correlationDimension and lyapunovExponent.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/phasespacereconstruction.html"
+    },
+    {
+      "name": "tfmoment",
+      "kind": "function",
+      "description": "Computes the joint time-frequency moment of a signal's time-frequency distribution, a compact feature capturing nonstationary behavior. tfsmoment and tftmoment give conditional spectral and temporal moments.",
+      "usage": "moment = tfmoment(x, fs, order)\nmoment = tfmoment(xt, order)\nmoment = tfmoment(p, fp, tp, order)",
+      "parameters": [
+        {"name": "order", "description": "Two-element [timeOrder freqOrder] vector."},
+        {"name": "p, fp, tp", "description": "Precomputed time-frequency distribution, frequencies and times."}
+      ],
+      "example": "m = tfmoment(vib, fs, [1 2]);\nsm = tfsmoment(vib, fs, 2);     % instantaneous spectral variance",
+      "notes": "Useful for machines under transient operating conditions.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/tfmoment.html"
+    },
+    {
+      "name": "bhattacharyyaDistance",
+      "kind": "function",
+      "description": "Computes the one-dimensional Bhattacharyya distance between two groups of feature values (e.g. healthy vs. faulty), assuming normal distributions. Used to rank condition indicators by class separability.",
+      "usage": "d = bhattacharyyaDistance(x1, x2)",
+      "parameters": [
+        {"name": "x1, x2", "description": "Feature values of the two groups."}
+      ],
+      "example": "d = bhattacharyyaDistance(featHealthy, featFaulty)",
+      "notes": "relativeEntropy (KL divergence) is an alternative ranking measure; Diagnostic Feature Designer offers both.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/bhattacharyyadistance.html"
+    },
+    {
+      "name": "monotonicity",
+      "kind": "function",
+      "description": "Quantifies how monotonic the trend of a condition indicator is over the lifetime of multiple run-to-failure members, from 0 (no trend) to 1 (perfectly monotonic). A key criterion for selecting prognostic health indicators.",
+      "usage": "Y = monotonicity(X)\nY = monotonicity(X, lifetimeVar, dataVar)\nY = monotonicity(___, Name=Value)",
+      "parameters": [
+        {"name": "X", "description": "Cell array of feature histories, table/timetable, or ensemble."},
+        {"name": "Method", "description": "\"rank\" (default) or \"sign\"."},
+        {"name": "WindowSize", "description": "Smoothing window before computing monotonicity."}
+      ],
+      "example": "Y = monotonicity(featureHistories, WindowSize=5)",
+      "notes": "Combine with prognosability and trendability; features scoring high on all three make good RUL inputs.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/monotonicity.html"
+    },
+    {
+      "name": "prognosability",
+      "kind": "function",
+      "description": "Measures the variability of condition indicator values at failure across members relative to their range; values near 1 mean all members fail at a similar indicator value, making a failure threshold meaningful.",
+      "usage": "Y = prognosability(X)\nY = prognosability(X, lifetimeVar, dataVar)",
+      "parameters": [
+        {"name": "X", "description": "Feature histories (cell array, table, ensemble)."}
+      ],
+      "example": "p = prognosability(featureHistories)",
+      "notes": "trendability measures similarity of trajectories across members.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/prognosability.html"
+    },
+    {
+      "name": "trendability",
+      "kind": "function",
+      "description": "Measures the similarity between the trajectories of a condition indicator across run-to-failure members (minimum absolute correlation); high trendability means members degrade along similar paths.",
+      "usage": "Y = trendability(X)\nY = trendability(X, lifetimeVar, dataVar)",
+      "parameters": [
+        {"name": "X", "description": "Feature histories."}
+      ],
+      "example": "t = trendability(featureHistories)",
+      "notes": "Members of different lengths are resampled for comparison.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/trendability.html"
+    },
+    {
+      "name": "exponentialDegradationModel",
+      "kind": "function",
+      "description": "Creates an exponential degradation RUL model h(t) = phi + theta*exp(beta*t + eps) with Bayesian prior on parameters. It is fit to historical run-to-failure data, updated online with new measurements and predicts time to reach a failure threshold with confidence bounds.",
+      "usage": "mdl = exponentialDegradationModel\nmdl = exponentialDegradationModel(Name=Value)\nfit(mdl, data)\nupdate(mdl, data)\n[estRUL, ciRUL, pdfRUL] = predictRUL(mdl, threshold)",
+      "parameters": [
+        {"name": "Theta / Beta / Phi / Rho", "description": "Prior parameters (set via fit from historical data)."},
+        {"name": "LifeTimeVariable / DataVariables / LifeTimeUnit", "description": "Variable names and time units."},
+        {"name": "NoiseVariance / SlopeDetectionLevel", "description": "Noise and degradation onset detection."}
+      ],
+      "example": "mdl = exponentialDegradationModel(LifeTimeUnit=\"hours\");\nfit(mdl, trainHistories, \"Time\", \"Condition\");\nfor k = 1:height(testData)\n    update(mdl, testData(k,:));\nend\n[rul, ci] = predictRUL(mdl, 0.9)",
+      "notes": "linearDegradationModel is the linear variant. Use plot(mdl) to view the degradation fit. Deploy with saveRULModelForCoder.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/exponentialdegradationmodel.html"
+    },
+    {
+      "name": "linearDegradationModel",
+      "kind": "function",
+      "description": "Creates a linear degradation RUL model h(t) = phi + theta*t + eps with Bayesian parameter updates, for condition indicators that degrade roughly linearly over time.",
+      "usage": "mdl = linearDegradationModel\nmdl = linearDegradationModel(Name=Value)\nfit(mdl, data)\nupdate(mdl, data)\n[estRUL, ciRUL, pdfRUL] = predictRUL(mdl, threshold)",
+      "parameters": [
+        {"name": "Theta / ThetaVariance / Phi", "description": "Slope prior and intercept."},
+        {"name": "LifeTimeVariable / DataVariables", "description": "Variable roles."}
+      ],
+      "example": "mdl = linearDegradationModel;\nfit(mdl, trainHistories, \"Time\", \"Wear\");\nupdate(mdl, [150 0.62]);\nestRUL = predictRUL(mdl, [150 0.62], 1.0)",
+      "notes": "restart(mdl) resets the posterior to the prior for a new component.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/lineardegradationmodel.html"
+    },
+    {
+      "name": "residualSimilarityModel",
+      "kind": "function",
+      "description": "Creates a residual-based similarity RUL model that fits a dynamic (ARX-type) model to each historical run-to-failure member and estimates RUL of a test component from the lifetimes of the most similar members.",
+      "usage": "mdl = residualSimilarityModel\nmdl = residualSimilarityModel(Name=Value)\nfit(mdl, data, lifeTimeVariable, dataVariables)\n[estRUL, ciRUL, pdfRUL] = predictRUL(mdl, data)",
+      "parameters": [
+        {"name": "NumNearestNeighbors", "description": "Number of most similar members used (default 10)."},
+        {"name": "Method / Distance", "description": "Model structure and residual distance measure."}
+      ],
+      "example": "mdl = residualSimilarityModel;\nfit(mdl, trainMembers, \"Time\", [\"S1\" \"S2\" \"S3\"]);\n[rul, ci] = predictRUL(mdl, testMember);\ncompare(mdl, testMember)",
+      "notes": "hashSimilarityModel (feature hashing) and pairwiseSimilarityModel (direct trajectory comparison) are alternative similarity models.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/residualsimilaritymodel.html"
+    },
+    {
+      "name": "hashSimilarityModel",
+      "kind": "function",
+      "description": "Creates a hashed-feature similarity RUL model that summarizes each member's degradation history with hash features (e.g. min, max, mean, power) and predicts RUL from the nearest historical members; scalable to large fleets.",
+      "usage": "mdl = hashSimilarityModel\nmdl = hashSimilarityModel(Name=Value)\nfit(mdl, data, lifeTimeVariable, dataVariables)\nestRUL = predictRUL(mdl, data)",
+      "parameters": [
+        {"name": "HashFunction", "description": "Function returning hash features from a member's data."},
+        {"name": "NumNearestNeighbors / Distance", "description": "Neighbor count and distance metric."}
+      ],
+      "example": "mdl = hashSimilarityModel(NumNearestNeighbors=20);\nfit(mdl, trainMembers, \"Cycle\", \"HealthIndicator\");\nrul = predictRUL(mdl, partialTestMember)",
+      "notes": "Faster than pairwise comparison for many members.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/hashsimilaritymodel.html"
+    },
+    {
+      "name": "pairwiseSimilarityModel",
+      "kind": "function",
+      "description": "Creates a pairwise-comparison similarity RUL model that compares the test component's degradation trajectory directly with each historical trajectory (optionally with dynamic time warping) to find the most similar members.",
+      "usage": "mdl = pairwiseSimilarityModel\nmdl = pairwiseSimilarityModel(Name=Value)\nfit(mdl, data, lifeTimeVariable, dataVariables)\nestRUL = predictRUL(mdl, data)",
+      "parameters": [
+        {"name": "Method", "description": "\"absolute\", \"correlation\", \"dtw\" or \"custom\" comparison."},
+        {"name": "NumNearestNeighbors", "description": "Number of nearest members."}
+      ],
+      "example": "mdl = pairwiseSimilarityModel(Method=\"dtw\");\nfit(mdl, trainMembers);\n[rul, ci, pdfRUL] = predictRUL(mdl, testMember);",
+      "notes": "Best when the full degradation path, not just its summary, matters.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/pairwisesimilaritymodel.html"
+    },
+    {
+      "name": "covariateSurvivalModel",
+      "kind": "function",
+      "description": "Creates a proportional-hazards survival RUL model that estimates remaining life from lifetime data plus covariates (e.g. operating conditions, supplier), without requiring condition monitoring histories.",
+      "usage": "mdl = covariateSurvivalModel\nmdl = covariateSurvivalModel(Name=Value)\nfit(mdl, data, lifeTimeVariable, dataVariables, censorVariable)\n[estRUL, ciRUL, pdfRUL] = predictRUL(mdl, data)",
+      "parameters": [
+        {"name": "EncodedVariables", "description": "Categorical covariates to one-hot encode."},
+        {"name": "censorVariable", "description": "Variable flagging right-censored (not yet failed) units."}
+      ],
+      "example": "mdl = covariateSurvivalModel;\nfit(mdl, fleetTable, \"LifeTime\", [\"Temp\" \"Load\"], \"Censored\");\nrul = predictRUL(mdl, table(120, 70, 0.8, VariableNames=[\"LifeTime\" \"Temp\" \"Load\"]))",
+      "notes": "reliabilitySurvivalModel fits a lifetime distribution without covariates; plot(mdl) shows survival curves.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/covariatesurvivalmodel.html"
+    },
+    {
+      "name": "reliabilitySurvivalModel",
+      "kind": "function",
+      "description": "Creates a probabilistic failure-time RUL model by fitting a lifetime distribution (Weibull by default) to historical failure times, then predicts RUL of a component given its current age.",
+      "usage": "mdl = reliabilitySurvivalModel\nmdl = reliabilitySurvivalModel(Name=Value)\nfit(mdl, data)\n[estRUL, ciRUL, pdfRUL] = predictRUL(mdl, currentLife)",
+      "parameters": [
+        {"name": "Distribution", "description": "Lifetime distribution name, e.g. \"weibull\" (default)."},
+        {"name": "LifeTimeUnit", "description": "Time unit label."}
+      ],
+      "example": "mdl = reliabilitySurvivalModel;\nfit(mdl, failureTimesTable, \"FailureTime\");\nrul = predictRUL(mdl, 5000)",
+      "notes": "Suited when only failure times are known; accuracy improves with condition-based models when sensor data exist.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/reliabilitysurvivalmodel.html"
+    },
+    {
+      "name": "predictRUL",
+      "kind": "function",
+      "description": "Estimates the remaining useful life of a test component from a trained RUL model (degradation, similarity or survival), returning the estimate, confidence interval and probability distribution of RUL.",
+      "usage": "estRUL = predictRUL(mdl, data)\nestRUL = predictRUL(mdl, threshold)\n[estRUL, ciRUL, pdfRUL] = predictRUL(___, Name=Value)",
+      "parameters": [
+        {"name": "mdl", "description": "Any Predictive Maintenance Toolbox RUL model."},
+        {"name": "data / threshold", "description": "Test data (similarity/survival models) or failure threshold (degradation models)."},
+        {"name": "Alpha", "description": "Confidence level parameter (default 0.1 for 90% interval)."}
+      ],
+      "example": "[rul, ci, pdfRUL] = predictRUL(mdl, testMember, Alpha=0.05);\nplot(pdfRUL.RUL, pdfRUL.Probability)",
+      "notes": "Units follow the model's LifeTimeUnit (duration outputs when the lifetime variable is a duration).",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/lineardegradationmodel.predictrul.html"
+    },
+    {
+      "name": "saveRULModelForCoder",
+      "kind": "function",
+      "description": "Saves a trained RUL model to a MAT-file in a form that can be reloaded with loadRULModelForCoder inside code-generation-compatible functions, enabling deployment of RUL prediction to embedded targets.",
+      "usage": "saveRULModelForCoder(mdl, fileName)\nmdl = loadRULModelForCoder(fileName)",
+      "parameters": [
+        {"name": "mdl", "description": "Trained degradation or similarity RUL model."},
+        {"name": "fileName", "description": "MAT-file name."}
+      ],
+      "example": "saveRULModelForCoder(mdl, \"rulModel\");\n% in the entry-point function:\n% function rul = predictEntry(x)\n%   mdl = loadRULModelForCoder(\"rulModel\");\n%   rul = predictRUL(mdl, x);\n% end\ncodegen predictEntry -args {zeros(1,2)}",
+      "notes": "readState/restoreState persist degradation model state between calls on the target.",
+      "docs": "https://www.mathworks.com/help/predmaint/ref/saverulmodelforcoder.html"
+    }
+  ]
+}

@@ -1,0 +1,612 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Adapter</title>
+<link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3">
+<style>
+  :root {
+    --bg1: #0b1020; --bg2: #141a36; --ink: #e9edff; --muted: #a9b1d6; --line: rgba(255,255,255,.18);
+    --glass: linear-gradient(145deg, rgba(255,255,255,.16), rgba(255,255,255,.05));
+    --accent: #7c8cff; --accent2: #38d6ff; --ok: #34d399; --warn: #fbbf24; --bad: #fb7185;
+    --radius: 20px; --shadow: 0 24px 60px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.35);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; }
+  body {
+    display: flex; flex-direction: column; height: 100vh; overflow: hidden;
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    color: var(--ink); background: var(--bg1);
+    background-image:
+      radial-gradient(1100px 600px at 8% -10%, rgba(124,140,255,.35), transparent 60%),
+      radial-gradient(900px 500px at 105% 10%, rgba(56,214,255,.28), transparent 60%),
+      radial-gradient(800px 500px at 50% 120%, rgba(255,110,196,.22), transparent 60%),
+      linear-gradient(160deg, var(--bg1), var(--bg2) 55%, var(--bg1));
+    background-attachment: fixed;
+  }
+  .glass {
+    background: var(--glass); border: 1px solid var(--line); border-radius: var(--radius);
+    backdrop-filter: blur(18px) saturate(140%); -webkit-backdrop-filter: blur(18px) saturate(140%);
+    box-shadow: var(--shadow); position: relative; overflow: hidden;
+  }
+  .glass::before { content: ""; position: absolute; inset: 0 0 62% 0; pointer-events: none;
+    background: linear-gradient(180deg, rgba(255,255,255,.22), rgba(255,255,255,0)); }
+  .topbar { flex: none; margin: 14px auto 0; width: calc(100% - 32px); max-width: 1500px; display: flex; align-items: center;
+            justify-content: space-between; gap: 16px; padding: 12px 18px; }
+  .brand { display: flex; align-items: center; gap: 14px; flex: 1; min-width: 0; }
+  .btn, .tabs, .actions { white-space: nowrap; flex: none; }
+  .logo { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; font-weight: 800; letter-spacing: .5px;
+          background: linear-gradient(145deg, var(--accent), var(--accent2)); color: #0b1020;
+          box-shadow: 0 10px 24px rgba(56,214,255,.35), inset 0 2px 0 rgba(255,255,255,.7); }
+  h1 { font-size: 19px; margin: 0; } .sub { margin: 2px 0 0; color: var(--muted); font-size: 12.5px; }
+  .tabs { display: inline-flex; gap: 4px; padding: 4px; border-radius: 999px; border: 1px solid var(--line); background: rgba(0,0,0,.28); box-shadow: inset 0 2px 6px rgba(0,0,0,.35); }
+  .tabs button { border: 0; background: transparent; color: var(--muted); padding: 9px 18px; border-radius: 999px; cursor: pointer; font-weight: 700; font-size: 13.5px; }
+  .tabs button:hover { color: var(--ink); }
+  .tabs button.on { color: #0b1020; background: linear-gradient(180deg, #ffffff, #cfe6ff); box-shadow: inset 0 1px 0 #fff, 0 6px 14px rgba(0,0,0,.35); }
+  .actions { display: flex; align-items: center; gap: 10px; }
+  .btn { border: 1px solid var(--line); border-radius: 999px; padding: 9px 16px; font-weight: 600; cursor: pointer; color: var(--ink);
+         background: linear-gradient(180deg, rgba(255,255,255,.18), rgba(255,255,255,.06));
+         box-shadow: inset 0 1px 0 rgba(255,255,255,.45), 0 8px 20px rgba(0,0,0,.25); transition: transform .08s ease, filter .15s ease; }
+  .btn:hover { filter: brightness(1.12); } .btn:active { transform: translateY(1px); }
+  .btn.primary { background: linear-gradient(180deg, #8f9dff, #5f6fff 55%, #4d5df0); border-color: rgba(255,255,255,.35); color: #fff; }
+  .btn.go { background: linear-gradient(180deg, #6ee7c7, #10b981 55%, #059669); border-color: rgba(255,255,255,.35); color: #04211a; }
+  .btn.danger { background: linear-gradient(180deg, #ffb4c0, #fb7185 55%, #e11d48); border-color: rgba(255,255,255,.35); color: #fff; }
+  .btn:disabled { filter: grayscale(.6) brightness(.8); cursor: default; }
+  .btn.small { padding: 6px 12px; font-size: 12px; }
+  .btn.hidden, .hidden { display: none !important; }
+  main { flex: 1; min-height: 0; overflow-y: auto; margin-top: 12px; padding: 4px 16px 24px; scrollbar-gutter: stable; }
+  .content { max-width: 1500px; margin: 0 auto; height: 100%; }
+  .view { display: none; } .view.active { display: block; } #view-chat.active { display: flex; height: 100%; }
+  .panel { padding: 22px; margin-bottom: 18px; }
+  .panel h2 { margin: 0 0 4px; font-size: 17px; } .panel h3 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
+  .panel .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 24px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; letter-spacing: .3px; text-transform: uppercase; }
+  .input, select.input, textarea.input { width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); color: var(--ink); font-size: 14px;
+    background: linear-gradient(180deg, rgba(0,0,0,.28), rgba(0,0,0,.18)); box-shadow: inset 0 2px 6px rgba(0,0,0,.35); outline: none; font-family: inherit; }
+  select.input option { background: #151a36; color: var(--ink); }
+  .input:focus { border-color: var(--accent2); box-shadow: inset 0 2px 6px rgba(0,0,0,.35), 0 0 0 3px rgba(56,214,255,.25); }
+  textarea.input { resize: vertical; line-height: 1.45; }
+  .row { display: flex; align-items: center; gap: 12px; }
+  .seg { display: inline-flex; border-radius: 999px; padding: 4px; border: 1px solid var(--line); background: rgba(0,0,0,.25); }
+  .seg button { border: 0; background: transparent; color: var(--muted); padding: 8px 16px; border-radius: 999px; cursor: pointer; font-weight: 600; }
+  .seg button.on { color: #0b1020; background: linear-gradient(180deg, #fff, #cfe6ff); box-shadow: inset 0 1px 0 #fff, 0 4px 12px rgba(0,0,0,.35); }
+  .seg button.on.danger { background: linear-gradient(180deg, #ffd39b, #fbbf24); }
+  .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .3px;
+          border: 1px solid var(--line); background: rgba(0,0,0,.25); color: var(--muted); white-space: nowrap; }
+  .pill::before { content: ""; width: 8px; height: 8px; border-radius: 50%; background: currentColor; box-shadow: 0 0 10px currentColor; }
+  .pill.ok { color: var(--ok); } .pill.warn { color: var(--warn); } .pill.bad { color: var(--bad); } .pill.run { color: var(--accent2); }
+  .pill.run::before { animation: pulse 1s infinite alternate; }
+  @keyframes pulse { from { opacity: .3; } to { opacity: 1; } }
+  .light { display: inline-block; width: 12px; height: 12px; border-radius: 50%; margin-right: 8px; vertical-align: middle; box-shadow: 0 0 10px currentColor; background: currentColor; }
+  .light.green { color: var(--ok); } .light.orange { color: var(--warn); } .light.red { color: var(--bad); } .light.grey { color: #6b7394; }
+  .switch { position: relative; display: inline-block; width: 46px; height: 26px; flex: none; }
+  .switch input { opacity: 0; width: 0; height: 0; }
+  .slider { position: absolute; inset: 0; border-radius: 999px; cursor: pointer; transition: .2s;
+            background: linear-gradient(180deg, #2a2f4d, #1b1f38); border: 1px solid var(--line); box-shadow: inset 0 2px 6px rgba(0,0,0,.5); }
+  .slider::after { content: ""; position: absolute; top: 2px; left: 2px; width: 20px; height: 20px; border-radius: 50%; transition: .2s;
+                   background: radial-gradient(circle at 35% 30%, #fff, #cfd6ff 70%); box-shadow: 0 3px 8px rgba(0,0,0,.45), inset 0 -2px 3px rgba(0,0,0,.15); }
+  .switch input:checked + .slider { background: linear-gradient(180deg, #5eead4, #10b981 60%, #059669); border-color: rgba(255,255,255,.4); box-shadow: inset 0 1px 0 rgba(255,255,255,.6), 0 0 14px rgba(52,211,153,.45); }
+  .switch input:checked + .slider::after { transform: translateX(20px); }
+  /* applications */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(360px, 1fr)); gap: 18px; }
+  .card { padding: 18px 18px 16px; transition: transform .15s ease; } .card:hover { transform: translateY(-2px); } .card.off { opacity: .72; }
+  .card-head { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+  .icon { width: 44px; height: 44px; border-radius: 13px; display: grid; place-items: center; font-weight: 800; font-size: 15px; color: #0b1020;
+          background: linear-gradient(145deg, #ffffff, #b9c8ff); box-shadow: inset 0 2px 0 #fff, 0 8px 18px rgba(0,0,0,.35); }
+  .icon img { width: 34px; height: 34px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,.45)); }
+  .icon.mono { color: #fff; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .icon.flat { background: none; box-shadow: none; }
+  .icon.flat img { width: 44px; height: 44px; border-radius: 13px; filter: drop-shadow(0 3px 6px rgba(0,0,0,.45)); }
+  .logo.svg { background: none; box-shadow: none; padding: 0; overflow: hidden; }
+  .logo.svg img { width: 100%; height: 100%; display: block; border-radius: inherit; }
+  .title { flex: 1; min-width: 0; } .title b { display: block; font-size: 15px; } .title small { color: var(--muted); }
+  .paths { display: grid; gap: 10px; margin-top: 8px; }
+  .path label { display: flex; justify-content: space-between; font-size: 12px; color: var(--muted); margin-bottom: 5px; }
+  .path .row .input { flex: 1; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .path .detected { font-size: 11.5px; color: var(--muted); margin-top: 5px; word-break: break-all; } .path .detected code { color: #cfe6ff; }
+  .meta { display: flex; justify-content: space-between; align-items: center; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .note { font-size: 12px; color: var(--muted); margin: 6px 0 0; }
+  .banner { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%) translateY(calc(100% + 60px)); visibility: hidden; transition: transform .25s ease, visibility 0s linear .25s; padding: 14px 20px; max-width: 720px; z-index: 20; font-size: 14px; }
+  .banner.show { transform: translateX(-50%) translateY(0); visibility: visible; transition: transform .25s ease, visibility 0s; }
+  .banner.warnb { border-color: rgba(251,191,36,.5); }
+  #toast { position: fixed; right: 22px; top: 90px; z-index: 30; display: grid; gap: 8px; }
+  .toast { padding: 10px 14px; border-radius: 12px; font-size: 13px; animation: fade 3.2s forwards; }
+  @keyframes fade { 0% { opacity: 0; transform: translateY(-6px);} 10% { opacity: 1; transform: none;} 85% { opacity: 1;} 100% { opacity: 0;} }
+  .netwarn { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 12px; border: 1px solid rgba(251,191,36,.45); background: rgba(251,191,36,.12); font-size: 13px; }
+  .netwarn.show { display: block; }
+  /* chat layout */
+  .chatlayout { display: flex; gap: 14px; width: 100%; height: 100%; min-height: 0; }
+  .sidebar { width: 270px; flex: none; display: flex; flex-direction: column; padding: 14px; min-height: 0; }
+  .sidebar .newchat { width: 100%; margin-bottom: 12px; }
+  .chatlist { list-style: none; margin: 0; padding: 0; overflow-y: auto; display: grid; gap: 6px; align-content: start; }
+  .chatlist li { padding: 9px 10px; border-radius: 12px; border: 1px solid transparent; cursor: pointer; display: grid; grid-template-columns: 10px 1fr auto; gap: 8px; align-items: center; }
+  .chatlist li:hover { background: rgba(255,255,255,.06); } .chatlist li.on { background: rgba(124,140,255,.22); border-color: rgba(124,140,255,.5); }
+  .chatlist .dot { width: 8px; height: 8px; border-radius: 50%; background: #6b7394; } .chatlist .dot.run { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); animation: pulse 1s infinite alternate; }
+  .chatlist .dot.finished { background: var(--ok); } .chatlist .dot.error, .chatlist .dot.interrupted { background: var(--bad); } .chatlist .dot.stopped { background: var(--warn); }
+  .chatlist .t { min-width: 0; } .chatlist .t b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .chatlist .t small { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; }
+  .chatlist .x { opacity: .5; cursor: pointer; font-size: 14px; padding: 2px 6px; } .chatlist .x:hover { opacity: 1; color: var(--bad); }
+  .chatmain { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 0; }
+  .chathead { display: flex; align-items: center; gap: 10px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+  .chathead input { flex: 1; min-width: 0; background: transparent; border: 0; color: var(--ink); font-size: 16px; font-weight: 700; outline: none; }
+  .chathead input:focus { border-bottom: 1px dashed var(--line); }
+  .messages { flex: 1; min-height: 0; overflow-y: auto; padding: 16px 18px; display: grid; gap: 12px; align-content: start; }
+  .empty { color: var(--muted); text-align: center; margin-top: 60px; font-size: 14px; line-height: 1.6; }
+  .msg { padding: 10px 14px; border-radius: 14px; font-size: 13.5px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; max-width: 88%; }
+  .msg.user { background: linear-gradient(145deg, rgba(52,211,153,.28), rgba(52,211,153,.1)); border: 1px solid rgba(52,211,153,.4); justify-self: end; }
+  .msg.assistant { background: linear-gradient(145deg, rgba(124,140,255,.35), rgba(124,140,255,.12)); border: 1px solid rgba(124,140,255,.4); }
+  .msg.assistant .meta2 { display: block; margin-top: 8px; font-size: 11px; color: var(--muted); }
+  .msg.assistant .meta2 a { color: var(--accent2); cursor: pointer; }
+  .msg.tool { background: rgba(0,0,0,.25); border: 1px solid var(--line); font-family: ui-monospace, Consolas, monospace; font-size: 12px; color: #cfe6ff; max-width: 100%; }
+  .msg.tool.err { border-color: rgba(251,113,133,.5); color: #ffd1d9; }
+  .msg.thinking { color: var(--muted); font-style: italic; border: 1px dashed var(--line); max-width: 100%; }
+  .msg.note { color: var(--warn); border: 1px solid rgba(251,191,36,.4); background: rgba(251,191,36,.08); max-width: 100%; }
+  .msg .k { font-weight: 700; color: var(--accent2); } .msg details summary { cursor: pointer; }
+  .approval { display: none; margin: 0 18px 8px; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(251,191,36,.6); background: rgba(251,191,36,.14); }
+  .approval.show { display: block; } .approval pre { margin: 8px 0; white-space: pre-wrap; word-break: break-word; font-size: 12px; max-height: 160px; overflow: auto; }
+  .composer { border-top: 1px solid var(--line); padding: 12px 16px 14px; }
+  .composer textarea { min-height: 74px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--line); background: rgba(0,0,0,.25); font-size: 12px; color: var(--muted); cursor: pointer; white-space: nowrap; max-width: 100%; }
+  .chip:hover { color: var(--ink); } .chip.on { color: #04211a; background: linear-gradient(180deg, #6ee7c7, #10b981 60%, #059669); border-color: rgba(255,255,255,.35); }
+  .chip select, .chip input[type=number] { background: transparent; border: 0; color: var(--ink); font-size: 12px; outline: none; max-width: 260px; }
+  .chip select option { background: #151a36; }
+  .chip input[type=number] { width: 52px; }
+  .chip .lbl { color: var(--muted); }
+  .chip .fold { max-width: 220px; overflow: hidden; text-overflow: ellipsis; color: var(--ink); }
+  .spacer { flex: 1; }
+  .folderbox { display: none; margin-top: 10px; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: rgba(0,0,0,.22); }
+  .folderbox.show { display: block; }
+  .folderbox .row .input { flex: 1; font-family: ui-monospace, Consolas, monospace; font-size: 12.5px; }
+  .folderbox .acc { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; }
+  .accwarn { font-size: 12px; color: var(--warn); margin-top: 6px; }
+  .snippet { width: 100%; min-height: 80px; font-family: ui-monospace, Consolas, monospace; font-size: 12px; }
+  .prov { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  .provrow { display: grid; grid-template-columns: 220px 1fr auto auto; gap: 10px; align-items: center; padding: 10px 12px; border-radius: 14px; border: 1px solid var(--line); background: rgba(0,0,0,.2); }
+  .provrow .name { font-weight: 700; } .provrow small { display: block; color: var(--muted); font-weight: 400; font-size: 11.5px; }
+  @media (max-width: 900px) { .provrow { grid-template-columns: 1fr; } .sidebar { width: 200px; } }
+  @media (max-width: 720px) { .topbar { flex-direction: column; align-items: stretch; } .actions { justify-content: flex-end; }
+    .tabs { display: flex; width: 100%; } .tabs button { flex: 1; padding: 9px 8px; text-align: center; }
+    .chatlayout { flex-direction: column; } .sidebar { width: 100%; max-height: 180px; } }
+  main::-webkit-scrollbar, .messages::-webkit-scrollbar, .chatlist::-webkit-scrollbar { width: 10px; }
+  main::-webkit-scrollbar-thumb, .messages::-webkit-scrollbar-thumb, .chatlist::-webkit-scrollbar-thumb { background: rgba(255,255,255,.18); border-radius: 999px; }
+</style>
+</head>
+<body>
+<header class="topbar glass">
+  <div class="brand">
+    <div class="logo svg"><img src="/favicon.svg?v=3" alt="MCP Adapter"></div>
+    <div><h1>MCP Adapter <span id="viewname" style="font-weight:400;color:var(--muted)">/ chat</span></h1>
+      <p class="sub">Loopback-only page. Settings are saved to <span id="envfile">.env</span>.</p></div>
+  </div>
+  <nav class="tabs" id="tabs">
+    <button data-view="chat">Chat</button>
+    <button data-view="settings">Settings</button>
+    <button data-view="applications">Applications</button>
+  </nav>
+  <div class="actions">
+    <span id="dirty" class="pill warn hidden">Unsaved changes</span>
+    <button id="detect" class="btn hidden">Re-detect</button>
+    <button id="save" class="btn primary hidden" disabled>Save</button>
+  </div>
+</header>
+
+<main>
+<div class="content">
+
+<!-- ===================== CHAT ===================== -->
+<div class="view" id="view-chat">
+  <div class="chatlayout">
+    <aside class="sidebar glass">
+      <button id="newchat" class="btn primary newchat">+ New chat</button>
+      <ul id="chatlist" class="chatlist"></ul>
+    </aside>
+    <section class="chatmain glass">
+      <div class="chathead">
+        <input id="chattitle" placeholder="Chat title" disabled>
+        <span id="chatstatus" class="pill">idle</span>
+        <span id="chatfolder" class="pill" title="working folder"></span>
+        <button id="deletechat" class="btn small danger" title="Delete this chat">Delete</button>
+      </div>
+      <div id="messages" class="messages"><div class="empty">Create a chat with <b>+ New chat</b>, pick a working folder and a model, then describe the task.</div></div>
+      <div id="approval" class="approval">
+        <b>The agent wants to run a tool:</b> <span id="apname" class="k"></span>
+        <pre id="apinput"></pre>
+        <div class="row"><button id="apyes" class="btn go small">Approve</button><button id="apno" class="btn danger small">Deny</button></div>
+      </div>
+      <div class="composer">
+        <textarea class="input" id="task" placeholder="Describe the task... (Ctrl+Enter to send)" disabled></textarea>
+        <div class="chips">
+          <label class="chip" title="Model (from providers connected in Settings)"><span class="lbl">Model</span><select id="model"></select></label>
+          <label class="chip" title="Reasoning effort"><span class="lbl">Effort</span><select id="effort"></select></label>
+          <span class="chip" id="folderchip" title="Working folder: files generated for this chat go here"><span class="lbl">&#128193;</span><span class="fold" id="foldname">no folder</span></span>
+          <span class="chip" id="accesschip" title="Full file and command access inside the working folder">Folder access</span>
+          <span class="chip" id="approvechip" title="Pause before every tool call">Approve calls</span>
+          <span class="chip" id="thinkchip" title="Show the model's reasoning summaries (Anthropic)">Reasoning</span>
+          <label class="chip" title="Safety cap on model turns"><span class="lbl">Max turns</span><input id="maxturns" type="number" min="1" max="500"></label>
+          <span class="spacer"></span>
+          <button id="stop" class="btn danger small" disabled>Stop</button>
+          <button id="send" class="btn go" disabled>Send</button>
+        </div>
+        <div id="folderbox" class="folderbox">
+          <div class="row"><input class="input" id="workdir" placeholder="D:\projects\my-task  (created if missing)"><button id="browse" class="btn small">Browse...</button><button id="applyfolder" class="btn small primary">Use</button></div>
+          <div class="acc"><label class="switch"><input type="checkbox" id="accessswitch"><span class="slider"></span></label>
+            <span>Full access inside this folder: the agent may list, read, write, move and delete files there and run commands with it as working directory. Nothing outside the folder is reachable.</span></div>
+          <div class="accwarn" id="accwarn"></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<!-- ===================== SETTINGS ===================== -->
+<div class="view" id="view-settings">
+  <section class="panel glass">
+    <h2>Model providers</h2>
+    <p class="hint">Keys are stored write-only in <code>.env</code>. Green = key stored and the provider answered; orange = key stored but not verified or unreachable; red = no key. Models of every green/orange provider appear in the chat's model dropdown.</p>
+    <div class="prov" id="providers"></div>
+    <div class="settings" style="margin-top:14px"><div class="field"><label>OpenAI base URL (optional, for Azure / OpenAI-compatible gateways)</label><input class="input" id="openaibase" placeholder="leave empty for api.openai.com"></div></div>
+  </section>
+
+  <section class="panel glass">
+    <h2>MCP server for other LLM apps</h2>
+    <p class="hint">Expose these applications as an MCP server on this computer for Claude Desktop, Claude Code, Cursor, VS Code and similar apps. stdio needs no running endpoint (the client starts the server itself); the HTTP endpoint below is for clients that connect to a URL. Loopback only, per the security policy.</p>
+    <div class="row" style="flex-wrap:wrap;gap:14px">
+      <span><span id="mcplight" class="light grey"></span><span id="mcpstatus">stopped</span></span>
+      <label class="chip"><span class="lbl">Port</span><input id="mcpport" type="number" min="1024" max="65535" style="width:70px"></label>
+      <button id="mcpstart" class="btn go small">Start endpoint</button>
+      <button id="mcpstop" class="btn danger small">Stop</button>
+      <label class="chip"><span class="lbl">Start automatically with the UI</span><label class="switch"><input type="checkbox" id="mcpauto"><span class="slider"></span></label></label>
+      <span id="mcpurl" class="pill"></span>
+    </div>
+    <div class="settings" style="margin-top:14px">
+      <div class="field"><label>Default working folder exposed to external apps</label><div class="row"><input class="input" id="extworkdir" placeholder="optional: folder the external app's agent may work in"><button id="extbrowse" class="btn small">Browse...</button></div></div>
+      <div class="field"><label>Full access inside that folder for external apps</label><div class="row"><label class="switch"><input type="checkbox" id="extaccess"><span class="slider"></span></label><span style="font-size:13px">Registers the workspace_* file/command tools on the endpoint</span></div></div>
+    </div>
+    <h3>Claude Desktop (stdio)</h3><textarea class="input snippet" id="snip_desktop" readonly></textarea><button class="btn small" data-copy="snip_desktop">Copy</button>
+    <h3>Claude Code</h3><textarea class="input snippet" id="snip_code" readonly style="min-height:56px"></textarea><button class="btn small" data-copy="snip_code">Copy</button>
+    <h3>HTTP clients (Cursor, VS Code, Windsurf...)</h3><textarea class="input snippet" id="snip_http" readonly></textarea><button class="btn small" data-copy="snip_http">Copy</button>
+    <p class="note" id="mcpnotes"></p>
+    <pre id="mcplog" class="input" style="display:none;max-height:200px;overflow:auto;font-size:11.5px;white-space:pre-wrap"></pre>
+  </section>
+
+  <section class="panel glass">
+    <h2>Security &amp; network policy</h2>
+    <p class="hint">Enforced by the server itself. Local mode binds 127.0.0.1 only and rejects foreign Host headers; deny any firewall prompt for local use.</p>
+    <div class="settings">
+      <div class="field"><label>Who may connect</label>
+        <div class="seg" id="mode"><button data-v="local">This computer only</button><button data-v="network">Other machines</button></div>
+        <div class="netwarn" id="netwarn">Network mode: the server may listen on other interfaces when started with <code>--host</code>. Allow it through the firewall only on a trusted (private) network and set a Host allow-list.</div></div>
+      <div class="field"><label>Host allow-list (network mode)</label><input class="input" id="hosts" placeholder="192.168.1.20:8000, workstation:*"></div>
+      <div class="field"><label>Internet-facing tools</label><div class="row"><label class="switch"><input type="checkbox" id="internet"><span class="slider"></span></label><span style="font-size:14px">Tavily documentation search &amp; Wolfram|Alpha</span></div></div>
+      <div class="field"><label>Tavily API key</label><input class="input" id="tavily" type="password" autocomplete="off" placeholder="leave blank to keep"></div>
+      <div class="field"><label>Expose tools of missing software</label><div class="row"><label class="switch"><input type="checkbox" id="expose"><span class="slider"></span></label><span style="font-size:14px">Register every tool even when the app is not installed</span></div></div>
+      <div class="field"><label>Launch timeout (seconds)</label><input class="input" id="timeout" type="number" min="10" step="10"></div>
+      <div class="field"><label>Output folder for generated scripts</label><input class="input" id="outdir" placeholder="./outputs (a chat's working folder overrides this)"></div>
+    </div>
+  </section>
+</div>
+
+<!-- ===================== APPLICATIONS ===================== -->
+<div class="view" id="view-applications">
+  <section class="panel glass" style="padding-bottom:12px">
+    <h2>Applications</h2>
+    <p class="hint">Switch an application off to hide all of its automation tools from agents. Leave a path empty to auto-detect; set it when the program lives somewhere unusual. The catalog stays available either way. Use <b>Re-detect</b> after installing software and <b>Save</b> to store changes.</p>
+  </section>
+  <section id="apps" class="grid"></section>
+</div>
+
+</div>
+</main>
+
+<div id="banner" class="banner glass"></div>
+<div id="toast"></div>
+
+<script>
+const TOKEN = "__TOKEN__";
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const truthy = (v) => v === true || /^(1|true|yes|on)$/i.test(String(v || ""));
+let state = null, dirty = false, view = "chat";
+let chatList = [], current = null, models = [], providers = {};
+let poll = { timer: null, seq: 0, listTimer: null };
+
+async function api(path, body, method) {
+  const res = await fetch(path, { method: method || (body ? "POST" : "GET"),
+    headers: { "X-MCP-Adapter-Token": TOKEN, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
+  const data = await res.json();
+  if (!res.ok || data.ok === false) throw new Error(data.error || ("HTTP " + res.status));
+  return data;
+}
+function toast(msg, kind) { const el = document.createElement("div"); el.className = "toast glass"; el.textContent = msg;
+  if (kind === "bad") el.style.borderColor = "rgba(251,113,133,.6)"; $("#toast").appendChild(el); setTimeout(() => el.remove(), 3300); }
+function banner(msg, warn) { const b = $("#banner"); b.textContent = msg; b.classList.toggle("warnb", !!warn); b.classList.add("show"); setTimeout(() => b.classList.remove("show"), 6000); }
+function setDirty(v) { dirty = v; $("#dirty").classList.toggle("hidden", !v); $("#save").disabled = !v; }
+
+/* ---------- views ---------- */
+const VIEWS = ["chat", "settings", "applications"];
+function showView(name) {
+  if (!VIEWS.includes(name)) name = "chat";
+  view = name;
+  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + name));
+  document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.view === name));
+  $("#viewname").textContent = "/ " + name;
+  $("#save").classList.toggle("hidden", name === "chat");
+  $("#detect").classList.toggle("hidden", name !== "applications");
+  if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
+  if (name === "settings") { loadProviders(false); loadMcp(); }
+}
+document.addEventListener("click", (e) => { const b = e.target.closest("#tabs button"); if (b) showView(b.dataset.view); });
+window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
+
+/* ---------- settings + applications ---------- */
+function renderSettings() {
+  const s = state.settings;
+  document.querySelectorAll("#mode button").forEach(b => { const on = b.dataset.v === s.MCP_ADAPTER_NETWORK_MODE; b.classList.toggle("on", on); b.classList.toggle("danger", on && b.dataset.v === "network"); });
+  $("#netwarn").classList.toggle("show", s.MCP_ADAPTER_NETWORK_MODE === "network");
+  $("#hosts").value = s.MCP_ADAPTER_ALLOWED_HOSTS || "";
+  $("#internet").checked = truthy(s.MCP_ADAPTER_ALLOW_INTERNET);
+  $("#expose").checked = truthy(s.MCP_ADAPTER_EXPOSE_UNAVAILABLE);
+  $("#tavily").value = ""; $("#tavily").placeholder = s.TAVILY_API_SET ? "key stored - leave blank to keep" : "not set";
+  $("#timeout").value = s.MCP_ADAPTER_TIMEOUT || "600";
+  $("#outdir").value = s.MCP_ADAPTER_OUTPUT_DIR || "";
+  $("#openaibase").value = s.OPENAI_BASE_URL || "";
+  $("#mcpport").value = s.MCP_HTTP_PORT || "8766";
+  $("#mcpauto").checked = truthy(s.MCP_HTTP_AUTOSTART);
+  $("#extworkdir").value = s.MCP_ADAPTER_WORK_DIR || "";
+  $("#extaccess").checked = truthy(s.MCP_ADAPTER_WORK_DIR_ACCESS);
+  $("#envfile").textContent = state.env_file;
+}
+function collectSettings() {
+  return { MCP_ADAPTER_NETWORK_MODE: state.settings.MCP_ADAPTER_NETWORK_MODE, MCP_ADAPTER_ALLOWED_HOSTS: $("#hosts").value,
+    MCP_ADAPTER_ALLOW_INTERNET: $("#internet").checked ? "true" : "false", MCP_ADAPTER_EXPOSE_UNAVAILABLE: $("#expose").checked ? "true" : "false",
+    MCP_ADAPTER_TIMEOUT: $("#timeout").value, MCP_ADAPTER_OUTPUT_DIR: $("#outdir").value, TAVILY_API: $("#tavily").value,
+    OPENAI_BASE_URL: $("#openaibase").value, MCP_HTTP_PORT: $("#mcpport").value, MCP_HTTP_AUTOSTART: $("#mcpauto").checked ? "true" : "false",
+    MCP_ADAPTER_WORK_DIR: $("#extworkdir").value, MCP_ADAPTER_WORK_DIR_ACCESS: $("#extaccess").checked ? "true" : "false" };
+}
+function collect() { return { apps: state.apps.map(a => ({ id: a.id, enabled: a.enabled, paths: a.paths.map(p => ({ env: p.env, configured: p.configured })) })), settings: collectSettings() }; }
+function iconHtml(app) {
+  if (app.icon_uri && app.icon_source === "bundled") return `<div class="icon flat" title="bundled icon (the program was not detected, so its own icon could not be read)"><img src="${app.icon_uri}" alt=""></div>`;
+  if (app.icon_uri) return `<div class="icon" style="background:linear-gradient(145deg,#ffffff,#dfe6ff)" title="icon read from the installed program"><img src="${app.icon_uri}" alt=""></div>`;
+  const c = esc(app.color || "#7c8cff"); return `<div class="icon mono" style="background:linear-gradient(145deg,${c},${c}99)">${esc(app.icon)}</div>`;
+}
+function statusPill(app) { if (!app.enabled) return '<span class="pill">switched off</span>'; return app.available ? '<span class="pill ok">detected</span>' : '<span class="pill warn">not found</span>'; }
+function renderApps() {
+  const grid = $("#apps"); grid.innerHTML = "";
+  state.apps.forEach((app, ai) => {
+    const card = document.createElement("article"); card.className = "card glass" + (app.enabled ? "" : " off");
+    card.innerHTML = `<div class="card-head">${iconHtml(app)}<div class="title"><b>${esc(app.name)}</b><small>${esc(app.vendor)} &middot; ${app.catalog_entries} catalog entries</small></div>${statusPill(app)}
+        <label class="switch" title="Enable / disable this application's tools"><input type="checkbox" data-app="${ai}" ${app.enabled ? "checked" : ""}><span class="slider"></span></label></div>
+      <div class="paths">${app.paths.map((p, pi) => `<div class="path"><label><span>${esc(p.label)} <code style="color:#cfe6ff">${esc(p.env)}</code></span>
+              <span class="pill ${p.exists ? "ok" : (p.effective ? "bad" : "")}" style="padding:2px 8px">${p.exists ? "path ok" : (p.effective ? "missing" : "auto")}</span></label>
+            <div class="row"><input class="input" data-app="${ai}" data-path="${pi}" value="${esc(p.configured)}" placeholder="${esc(p.detected || "not found - enter the full path")}" ${p.shared ? "disabled title='shared with MATLAB'" : ""}>
+              ${p.detected && !p.shared ? `<button class="btn small" data-use="${ai}:${pi}" title="Use the auto-detected path">Use detected</button>` : ""}</div>
+            <div class="detected">${p.detected ? "auto-detected: <code>" + esc(p.detected) + "</code>" : "nothing auto-detected on PATH or in the usual install folders"}</div></div>`).join("")}</div>
+      ${app.note ? `<p class="note">${esc(app.note)}</p>` : ""}
+      <div class="meta"><span>${app.enabled ? (app.available ? "tools exposed after restart" : "tools hidden: executable missing") : "tools hidden: switched off"}</span><span>id: ${esc(app.id)}</span></div>`;
+    grid.appendChild(card);
+  });
+}
+function render() { for (const [label, fn] of [["applications", renderApps], ["settings", renderSettings]]) { try { fn(); } catch (e) { console.error(label, e); toast("Could not render " + label + ": " + e.message, "bad"); } } }
+
+/* ---------- providers ---------- */
+async function loadProviders(refresh) {
+  try {
+    const r = await api(`/api/providers/status?refresh=${refresh ? 1 : 0}`); providers = r.providers;
+    const box = $("#providers"); box.innerHTML = "";
+    for (const [prov, p] of Object.entries(providers)) {
+      const row = document.createElement("div"); row.className = "provrow";
+      row.innerHTML = `<div><span class="light ${p.light}"></span><span class="name">${esc(p.label)}</span><small>${p.connected ? p.models.length + " models available" : (p.key_set ? "key stored - " + esc(p.error || "not verified") : "no API key")}</small></div>
+        <input class="input" type="password" autocomplete="off" data-key="${prov}" placeholder="${p.key_set ? "key stored - paste a new one to replace" : (prov === "openai" ? "sk-..." : "sk-ant-...")}">
+        <button class="btn small primary" data-savekey="${prov}">Save key</button><button class="btn small" data-test="${prov}">Test</button>`;
+      box.appendChild(row);
+    }
+    await loadModels(refresh);
+  } catch (e) { toast("Providers: " + e.message, "bad"); }
+}
+async function loadModels(refresh) {
+  try { const r = await api(`/api/models/all?refresh=${refresh ? 1 : 0}`); models = r.models; fillModelSelect(); }
+  catch (e) { toast("Models: " + e.message, "bad"); }
+}
+function fillModelSelect() {
+  const sel = $("#model"); const cur = current ? `${current.settings.provider}|${current.settings.model}` : "";
+  let opts = models.map(m => `<option value="${esc(m.provider + "|" + m.model)}">${esc(m.label)}</option>`).join("");
+  if (!models.length) opts = `<option value="">no provider connected - add a key in Settings</option>`;
+  else if (cur && !models.some(m => m.provider + "|" + m.model === cur)) opts = `<option value="${esc(cur)}">${esc(current.settings.model)} (${esc(current.settings.provider)})</option>` + opts;
+  sel.innerHTML = opts; if (cur) sel.value = cur;
+}
+
+/* ---------- MCP endpoint ---------- */
+async function loadMcp() {
+  try {
+    const st = await api("/api/mcp/status"); const cfg = await api("/api/mcp/config");
+    $("#mcplight").className = "light " + (st.running ? "green" : "grey"); $("#mcpstatus").textContent = st.running ? `running (pid ${st.pid}, ${Math.round(st.uptime_s)} s)` : "stopped";
+    $("#mcpurl").textContent = st.url; $("#mcpstart").disabled = st.running; $("#mcpstop").disabled = !st.running;
+    $("#snip_desktop").value = cfg.claude_desktop_stdio_json; $("#snip_code").value = cfg.claude_code_stdio_cmd + "\n" + cfg.claude_code_http_cmd; $("#snip_http").value = cfg.generic_http_json;
+    $("#mcpnotes").innerHTML = cfg.notes.map(n => "&bull; " + esc(n)).join("<br>");
+    const log = $("#mcplog"); if (st.log_tail && st.log_tail.length) { log.style.display = "block"; log.textContent = st.log_tail.join("\n"); } else log.style.display = "none";
+  } catch (e) { toast("MCP endpoint: " + e.message, "bad"); }
+}
+$("#mcpstart").addEventListener("click", async () => { try { const r = await api("/api/mcp/start", { port: $("#mcpport").value }); if (r.error) toast(r.error, "bad"); else toast("MCP endpoint running at " + r.url); await loadMcp(); } catch (e) { toast(e.message, "bad"); } });
+$("#mcpstop").addEventListener("click", async () => { try { await api("/api/mcp/stop", {}); toast("MCP endpoint stopped"); await loadMcp(); } catch (e) { toast(e.message, "bad"); } });
+document.addEventListener("click", async (e) => {
+  const c = e.target.closest("button[data-copy]"); if (c) { try { await navigator.clipboard.writeText($("#" + c.dataset.copy).value); toast("Copied"); } catch (_) { toast("Select the text and copy it manually", "bad"); } return; }
+  const sk = e.target.closest("button[data-savekey]"); if (sk) { const prov = sk.dataset.savekey; const inp = document.querySelector(`input[data-key="${prov}"]`);
+    if (!inp.value.trim()) { toast("Paste a key first", "bad"); return; }
+    try { await api("/api/save", { settings: { [prov === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY"]: inp.value.trim(), OPENAI_BASE_URL: $("#openaibase").value } }); inp.value = ""; toast("Key saved - testing connection"); await loadProviders(true); }
+    catch (err) { toast(err.message, "bad"); } return; }
+  const t = e.target.closest("button[data-test]"); if (t) { toast("Testing " + t.dataset.test + "..."); await loadProviders(true); const p = providers[t.dataset.test]; toast(p.connected ? `${p.label}: connected, ${p.models.length} models` : `${p.label}: ${p.error || "not connected"}`, p.connected ? "" : "bad"); }
+});
+
+/* ---------- chats ---------- */
+function statusClass(s) { return { running: "run", finished: "ok", error: "bad", stopped: "warn", interrupted: "bad" }[s] || ""; }
+function baseName(p) { if (!p) return ""; const parts = p.replace(/[\\/]+$/, "").split(/[\\/]/); return parts[parts.length - 1] || p; }
+async function loadChats() {
+  const r = await api("/api/chats"); chatList = r.chats; renderChatList();
+  if (!current && chatList.length) await openChat(chatList[0].id);
+  if (!current) renderComposer();
+}
+function renderChatList() {
+  const ul = $("#chatlist"); ul.innerHTML = "";
+  chatList.forEach(c => {
+    const li = document.createElement("li"); li.dataset.id = c.id; li.className = current && current.id === c.id ? "on" : "";
+    li.innerHTML = `<span class="dot ${c.running ? "run" : esc(c.status)}"></span><div class="t"><b>${esc(c.title)}</b><small>${esc(c.model)}${c.work_dir ? " &middot; " + esc(baseName(c.work_dir)) : ""}${c.pending_approval ? " &middot; waiting for approval" : ""}</small></div><span class="x" data-del="${c.id}" title="Delete chat">&times;</span>`;
+    ul.appendChild(li);
+  });
+  const anyRunning = chatList.some(c => c.running);
+  if (anyRunning && !poll.listTimer) poll.listTimer = setInterval(async () => { try { chatList = (await api("/api/chats")).chats; renderChatList(); } catch (_) {} }, 3000);
+  if (!anyRunning && poll.listTimer) { clearInterval(poll.listTimer); poll.listTimer = null; }
+}
+async function openChat(id) {
+  stopPolling();
+  const r = await api(`/api/chats/${id}`); current = r.chat; poll.seq = 0;
+  renderChatList(); renderMessages(); renderComposer(); showApproval(current.pending);
+  if (current.running) startPolling();
+}
+function addLive(cls, html) { const box = $("#messages"); const el = document.createElement("div"); el.className = "msg " + cls; el.dataset.live = "1"; el.innerHTML = html; box.appendChild(el); box.scrollTop = box.scrollHeight; return el; }
+function renderMessages() {
+  const box = $("#messages"); box.innerHTML = "";
+  if (!current) { box.innerHTML = '<div class="empty">Create a chat with <b>+ New chat</b>, pick a working folder and a model, then describe the task.</div>'; return; }
+  if (!current.messages.length) box.innerHTML = '<div class="empty">Describe the task below. The agent will use the installed applications' + (current.settings.work_dir ? " and work inside <b>" + esc(current.settings.work_dir) + "</b>" : "") + ".</div>";
+  current.messages.forEach(m => {
+    if (m.role === "user") addLive("user", esc(m.text));
+    else if (m.role === "assistant") { const rep = m.report ? baseName(m.report) : ""; addLive("assistant", esc(m.text) + `<span class="meta2">${m.turns ? m.turns + " turns, " + m.tool_calls + " tool calls" : ""}${rep ? ` &middot; <a data-report="${esc(rep)}">view steps</a>` : ""}</span>`); }
+    else addLive("note", esc(m.text));
+  });
+  document.querySelectorAll('#messages [data-live]').forEach(el => delete el.dataset.live);
+  box.scrollTop = box.scrollHeight;
+}
+function renderEvent(e) {
+  const t = `<span style="color:var(--muted);font-size:11px">${e.t}s</span> `;
+  if (e.kind === "assistant") addLive("assistant", esc(e.text));
+  else if (e.kind === "thinking") addLive("thinking", `<details><summary>thinking</summary>${esc(e.text)}</details>`);
+  else if (e.kind === "tool_call") addLive("tool", `${t}<span class="k">&#9654; ${esc(e.name)}</span> ${esc(JSON.stringify(e.input)).slice(0, 1500)}`);
+  else if (e.kind === "tool_result") addLive("tool" + (e.is_error ? " err" : ""), `${t}<span class="k">&#9664; ${esc(e.name)}</span>\n${esc(String(e.content).slice(0, 2500))}${String(e.content).length > 2500 ? " ..." : ""}`);
+  else if (e.kind === "approval") addLive("note", `${t}waiting for your approval: ${esc(e.name)}`);
+  else if (e.kind === "note" || e.kind === "status") addLive("note", `${t}${esc(e.text)}`);
+}
+function showApproval(p) { const box = $("#approval"); if (!p) { box.classList.remove("show"); return; } $("#apname").textContent = p.name; $("#apinput").textContent = JSON.stringify(p.input, null, 2); box.classList.add("show"); }
+function renderComposer() {
+  const has = !!current; const running = has && current.running;
+  ["#task", "#chattitle"].forEach(s => $(s).disabled = !has || running);
+  $("#send").disabled = !has || running; $("#stop").disabled = !running; $("#deletechat").disabled = !has;
+  $("#chattitle").value = has ? current.title : "";
+  const st = $("#chatstatus"); st.textContent = has ? (running ? "working" : current.status) : "idle"; st.className = "pill " + (has ? statusClass(running ? "running" : current.status) : "");
+  const s = has ? current.settings : { provider: "anthropic", model: "", effort: "", max_turns: 40, approve: false, show_thinking: false, work_dir: "", work_dir_access: false };
+  fillModelSelect();
+  const eff = $("#effort"); eff.innerHTML = (state.effort_choices || ["", "low", "medium", "high", "xhigh", "max"]).map(v => `<option value="${v}" ${v === (s.effort || "") ? "selected" : ""}>${v || "default"}</option>`).join("");
+  $("#maxturns").value = s.max_turns || 40;
+  $("#foldname").textContent = s.work_dir ? baseName(s.work_dir) : "no folder"; $("#folderchip").title = s.work_dir || "Working folder: click to choose";
+  $("#chatfolder").textContent = s.work_dir ? baseName(s.work_dir) : ""; $("#chatfolder").title = s.work_dir || ""; $("#chatfolder").style.display = s.work_dir ? "" : "none";
+  $("#workdir").value = s.work_dir || ""; $("#accessswitch").checked = !!s.work_dir_access;
+  $("#accesschip").classList.toggle("on", !!s.work_dir_access); $("#approvechip").classList.toggle("on", !!s.approve); $("#thinkchip").classList.toggle("on", !!s.show_thinking);
+  $("#thinkchip").style.display = s.provider === "openai" ? "none" : "";
+  $("#accwarn").textContent = s.work_dir_access && !s.work_dir ? "Choose a folder first; access applies to that folder only." : "";
+  document.querySelectorAll(".chips .chip, .chips select, .chips input").forEach(el => { if (el.id !== "send" && el.id !== "stop") el.style.pointerEvents = has ? "" : "none"; });
+}
+async function saveChatSettings(patch) {
+  if (!current) return;
+  try { const r = await api(`/api/chats/${current.id}/settings`, { settings: patch }); current = r.chat; renderComposer(); chatList = (await api("/api/chats")).chats; renderChatList(); }
+  catch (e) { toast("Could not save chat settings: " + e.message, "bad"); }
+}
+async function pollOnce() {
+  if (!current) return;
+  try {
+    const ev = await api(`/api/chats/${current.id}/events?since=${poll.seq}`);
+    ev.events.forEach(e => { renderEvent(e); poll.seq = e.seq; });
+    showApproval(ev.pending);
+    if (!ev.running) {
+      stopPolling();
+      const r = await api(`/api/chats/${current.id}`); current = r.chat; renderMessages(); renderComposer(); showApproval(null);
+      chatList = (await api("/api/chats")).chats; renderChatList();
+      toast(current.error ? current.error : "Chat " + current.status, current.error ? "bad" : "");
+    }
+  } catch (e) { stopPolling(); toast("Lost contact with the UI server: " + e.message, "bad"); }
+}
+function startPolling() { if (!poll.timer) { poll.seq = current && current.events ? current.events : 0; poll.timer = setInterval(pollOnce, 1000); } }
+function stopPolling() { if (poll.timer) { clearInterval(poll.timer); poll.timer = null; } }
+
+$("#newchat").addEventListener("click", async () => {
+  try { const base = current ? current.settings : undefined; const r = await api("/api/chats", { settings: base }); chatList = (await api("/api/chats")).chats; await openChat(r.chat.id); $("#task").focus(); }
+  catch (e) { toast("Could not create the chat: " + e.message, "bad"); }
+});
+$("#send").addEventListener("click", async () => {
+  if (!current) return; const text = $("#task").value.trim(); if (!text) { toast("Describe the task first", "bad"); return; }
+  if (!$("#model").value) { toast("Connect a model provider in Settings first", "bad"); showView("settings"); return; }
+  const [provider, model] = $("#model").value.split("|");
+  try {
+    document.querySelectorAll("#messages .empty").forEach(el => el.remove());
+    addLive("user", esc(text)); $("#task").value = "";
+    const r = await api(`/api/chats/${current.id}/send`, { text, settings: { provider, model, effort: $("#effort").value, max_turns: $("#maxturns").value } });
+    current = r.chat; poll.seq = current.events || 0; renderComposer(); chatList = (await api("/api/chats")).chats; renderChatList(); startPolling();
+  } catch (e) { toast("Could not start: " + e.message, "bad"); const r = await api(`/api/chats/${current.id}`); current = r.chat; renderMessages(); renderComposer(); }
+});
+$("#stop").addEventListener("click", async () => { if (current) { try { await api(`/api/chats/${current.id}/stop`, {}); toast("Stop requested - finishing the current step"); } catch (e) { toast(e.message, "bad"); } } });
+$("#apyes").addEventListener("click", async () => { try { await api(`/api/chats/${current.id}/decide`, { approve: true }); showApproval(null); } catch (e) { toast(e.message, "bad"); } });
+$("#apno").addEventListener("click", async () => { try { await api(`/api/chats/${current.id}/decide`, { approve: false }); showApproval(null); } catch (e) { toast(e.message, "bad"); } });
+$("#task").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) $("#send").click(); });
+$("#chattitle").addEventListener("change", async () => { if (current) { try { const r = await api(`/api/chats/${current.id}/rename`, { title: $("#chattitle").value }); current = r.chat; chatList = (await api("/api/chats")).chats; renderChatList(); } catch (e) { toast(e.message, "bad"); } } });
+$("#deletechat").addEventListener("click", async () => { if (current && confirm("Delete this chat and its history?")) { try { const r = await api(`/api/chats/${current.id}/delete`, {}); chatList = r.chats; current = null; stopPolling(); renderChatList(); renderMessages(); renderComposer(); if (chatList.length) await openChat(chatList[0].id); } catch (e) { toast(e.message, "bad"); } } });
+$("#model").addEventListener("change", () => { const [provider, model] = $("#model").value.split("|"); if (provider) saveChatSettings({ provider, model }); });
+$("#effort").addEventListener("change", () => saveChatSettings({ effort: $("#effort").value }));
+$("#maxturns").addEventListener("change", () => saveChatSettings({ max_turns: $("#maxturns").value }));
+$("#approvechip").addEventListener("click", () => current && saveChatSettings({ approve: !current.settings.approve }));
+$("#thinkchip").addEventListener("click", () => current && saveChatSettings({ show_thinking: !current.settings.show_thinking }));
+$("#accesschip").addEventListener("click", () => { if (!current) return; if (!current.settings.work_dir) { $("#folderbox").classList.add("show"); toast("Choose a working folder first", "bad"); return; } saveChatSettings({ work_dir_access: !current.settings.work_dir_access }); });
+$("#folderchip").addEventListener("click", () => $("#folderbox").classList.toggle("show"));
+$("#applyfolder").addEventListener("click", () => saveChatSettings({ work_dir: $("#workdir").value, work_dir_access: $("#accessswitch").checked }).then(() => $("#folderbox").classList.remove("show")));
+$("#accessswitch").addEventListener("change", () => { if ($("#workdir").value.trim()) saveChatSettings({ work_dir: $("#workdir").value, work_dir_access: $("#accessswitch").checked }); });
+async function browseInto(inputId, after) {
+  toast("Choose the folder in the dialog that opened");
+  try { const r = await api("/api/pick-folder", { initial: $("#" + inputId).value }); if (r.path) { $("#" + inputId).value = r.path; if (after) after(r.path); } else if (r.cancelled) toast("No folder chosen"); }
+  catch (e) { toast("Folder dialog: " + e.message, "bad"); }
+}
+$("#browse").addEventListener("click", () => browseInto("workdir", (p) => saveChatSettings({ work_dir: p, work_dir_access: $("#accessswitch").checked })));
+$("#extbrowse").addEventListener("click", () => browseInto("extworkdir", () => setDirty(true)));
+document.addEventListener("click", async (e) => {
+  const li = e.target.closest("#chatlist li"); const del = e.target.closest("#chatlist .x");
+  if (del) { e.stopPropagation(); if (confirm("Delete this chat?")) { try { const r = await api(`/api/chats/${del.dataset.del}/delete`, {}); chatList = r.chats; if (current && current.id === del.dataset.del) { current = null; stopPolling(); renderMessages(); renderComposer(); } renderChatList(); } catch (err) { toast(err.message, "bad"); } } return; }
+  if (li) { await openChat(li.dataset.id); return; }
+  const rep = e.target.closest("a[data-report]"); if (rep && current) { try { const r = await api(`/api/chats/${current.id}/report?name=${encodeURIComponent(rep.dataset.report)}`); const el = addLive("tool", esc(r.text)); el.style.maxHeight = "360px"; el.style.overflow = "auto"; } catch (err) { toast(err.message, "bad"); } }
+});
+
+/* ---------- generic settings/apps handling ---------- */
+document.addEventListener("input", (e) => {
+  const t = e.target;
+  if (t.matches("input[data-path]")) { const app = state.apps[+t.dataset.app]; const p = app.paths[+t.dataset.path]; p.configured = t.value; app.paths.filter(x => x.env === p.env).forEach(x => x.configured = t.value); setDirty(true); }
+  else if (t.matches("#hosts, #tavily, #timeout, #outdir, #openaibase, #mcpport, #extworkdir")) setDirty(true);
+});
+document.addEventListener("change", async (e) => {
+  const t = e.target;
+  if (t.matches("input[type=checkbox][data-app]")) { state.apps[+t.dataset.app].enabled = t.checked; renderApps(); setDirty(true); }
+  else if (t.matches("#internet, #expose, #mcpauto, #extaccess")) setDirty(true);
+  if (t.matches("input[data-path]") && t.value.trim()) { try { const r = await api("/api/check-path", { path: t.value }); if (!r.exists) toast("Path does not exist: " + t.value, "bad"); } catch (_) {} }
+});
+document.addEventListener("click", (e) => {
+  const use = e.target.closest("button[data-use]"); if (use) { const [ai, pi] = use.dataset.use.split(":").map(Number); const p = state.apps[ai].paths[pi]; p.configured = p.detected; renderApps(); setDirty(true); return; }
+  const seg = e.target.closest("#mode button"); if (seg) { state.settings.MCP_ADAPTER_NETWORK_MODE = seg.dataset.v; renderSettings(); setDirty(true); }
+});
+$("#save").addEventListener("click", async () => {
+  try { const r = await api("/api/save", collect()); state = r.state; render(); setDirty(false);
+    const net = state.settings.MCP_ADAPTER_NETWORK_MODE === "network";
+    banner("Saved to " + state.env_file + ". Restart the MCP server (or reconnect it in your client) to apply application changes." + (net ? " Network mode is ON: allow the firewall rule only on a trusted network." : ""), net); toast("Configuration saved"); }
+  catch (err) { toast("Save failed: " + err.message, "bad"); }
+});
+$("#detect").addEventListener("click", async () => { if (dirty && !confirm("Discard unsaved changes and re-detect installed software?")) return;
+  try { const r = await api("/api/detect", {}); state = r.state; render(); setDirty(false); toast("Detection refreshed"); } catch (err) { toast("Re-detect failed: " + err.message, "bad"); } });
+window.addEventListener("beforeunload", (e) => { if (dirty) { e.preventDefault(); e.returnValue = ""; } });
+
+/* ---------- boot ---------- */
+async function load() {
+  try { state = await api("/api/state"); } catch (e) { toast("Could not load state: " + e.message, "bad"); return; }
+  render();
+  showView(location.hash.slice(1) || "chat");
+  try { await loadModels(false); await loadChats(); }
+  catch (e) { toast("Chat workspace unavailable: " + e.message + " - restart the UI server if it is older than this page.", "bad"); }
+}
+load();
+</script>
+</body>
+</html>

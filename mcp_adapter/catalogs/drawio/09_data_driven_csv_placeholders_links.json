@@ -1,0 +1,529 @@
+{
+  "category": "Data-driven diagrams: CSV directives, placeholders and custom links",
+  "description": "Everything that lets text or data drive a diagram: the individual # directives of the CSV importer (Arrange > Insert > Advanced > CSV and ?create= JSON), the %placeholder% syntax for labels, tooltips and links, the data:page/id and data:action/json link formats with their effect catalogue and selector model, and the text-based insert dialogs (From Text, SQL, Mermaid, PlantUML, math).",
+  "tools": [
+    {
+      "name": "# label: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Defines the label of every node created by the CSV importer. Column values are substituted with %columnName% and HTML is allowed (html=1 is part of the default style), so multi-line labels are written with <br>. A column named label is used automatically when the directive is absent.",
+      "usage": "# label: %name%<br><i>%position%</i>",
+      "parameters": [
+        {"name": "%column%", "description": "Value of the named CSV column for the row."}
+      ],
+      "example": "# label: %name%<br><small>%email%</small>\nname,email,manager\nAda,ada@example.com,\nBob,bob@example.com,Ada",
+      "notes": "Use # labels: with # labelname: to pick a label template per row type. Columns used only in the label can still be kept as metadata unless listed in # ignore:.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# labels: / # labelname: (CSV directives)",
+      "kind": "system-variable",
+      "description": "Per-type label templates: # labelname: names the column whose value selects the template, and # labels: is a JSON object mapping those values to label strings (with %column% placeholders). Rows whose value is not in the map fall back to # label:. Use it when one CSV mixes different node kinds that need different captions.",
+      "usage": "# labelname: type\n# labels: {\"person\": \"%name%<br>%role%\", \"team\": \"<b>%name%</b>\"}",
+      "parameters": [
+        {"name": "labelname", "description": "Column containing the template key."},
+        {"name": "labels", "description": "JSON object: key -> label template."}
+      ],
+      "example": "# labelname: kind\n# labels: {\"db\": \"%name% (DB)\", \"svc\": \"%name%\"}\n# label: %name%\nid,name,kind\n1,orders,svc\n2,orders-db,db",
+      "notes": "The value '-' disables a directive. JSON must be on one line.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# style: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Style string applied to every node; %column% placeholders let data choose shape, colours or image. The default when omitted is a plain rounded rectangle with html=1;whiteSpace=wrap. Combine with # stylename:/# styles: for per-type styles and with # width:/# height: for sizing.",
+      "usage": "# style: shape=%shape%;whiteSpace=wrap;html=1;fillColor=%fill%;strokeColor=%stroke%;",
+      "parameters": [
+        {"name": "style string", "description": "Semicolon-separated draw.io style with optional %column% substitutions."}
+      ],
+      "example": "# style: label;image=%image%;whiteSpace=wrap;html=1;rounded=1;fillColor=#ffffff;align=left;spacingLeft=40;imageWidth=32;imageHeight=32;\n# ignore: image\nname,image\nAlice,https://example.com/a.png",
+      "notes": "Columns referenced only inside the style still become cell attributes unless ignored.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# stylename: / # styles: / # unknownStyle: (CSV directives)",
+      "kind": "system-variable",
+      "description": "Conditional styling: # stylename: names the column whose value selects an entry of the # styles: JSON map (value -> style string); rows without a match use # unknownStyle: if given, otherwise # style:. This is the usual way to colour nodes by status, type or team without a style column per row.",
+      "usage": "# stylename: status\n# styles: {\"ok\": \"fillColor=#d5e8d4;strokeColor=#82b366;\", \"fail\": \"fillColor=#f8cecc;strokeColor=#b85450;\"}\n# unknownStyle: fillColor=#eeeeee;",
+      "parameters": [
+        {"name": "stylename", "description": "Column used as the key."},
+        {"name": "styles", "description": "JSON map of key to style string (may contain %column%)."},
+        {"name": "unknownStyle", "description": "Style for keys not present in the map."}
+      ],
+      "example": "# stylename: type\n# styles: {\"start\": \"ellipse;fillColor=#d5e8d4;\", \"decision\": \"rhombus;fillColor=#fff2cc;\"}\n# style: rounded=1;whiteSpace=wrap;html=1;\nid,name,type,next\n1,Begin,start,2\n2,Check,decision,",
+      "notes": "Styles from the map are appended to the base style when both are given.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# identity: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Names the column that uniquely identifies each row; its value becomes the cell id (prefixed by # namespace:) and is what # connect: and # parent: reference. Re-importing a CSV with the same identity values updates the existing cells in place (labels, styles and metadata) instead of creating duplicates, which enables refresh workflows.",
+      "usage": "# identity: id",
+      "parameters": [
+        {"name": "column", "description": "Column holding unique ids."}
+      ],
+      "example": "# identity: id\n# namespace: csvimport-\n# connect: {\"from\": \"refs\", \"to\": \"id\"}\nid,name,refs\n1,A,\n2,B,1",
+      "notes": "Without an identity the importer generates ids and cannot update on re-import. Ids must be unique within the namespace.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# parent: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Names the column whose value is the identity of the row's container; nodes are inserted as children of that parent cell, producing nested groups, swimlanes or org-chart units. The parent's appearance comes from # parentstyle: and # collapsed: chooses its initial fold state.",
+      "usage": "# parent: parentId",
+      "parameters": [
+        {"name": "column", "description": "Column referencing another row's identity value (empty for top-level)."}
+      ],
+      "example": "# identity: id\n# parent: dept\n# parentstyle: swimlane;whiteSpace=wrap;html=1;childLayout=stackLayout;horizontal=1;horizontalStack=0;resizeParent=1;resizeLast=0;collapsible=1;\nid,name,dept\nsales,Sales,\nalice,Alice,sales\nbob,Bob,sales",
+      "notes": "Parents that are themselves rows keep their own label; parents referenced but not defined as rows are created as empty containers.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# parentstyle: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Style applied to cells that act as parents (referenced by # parent:), typically a swimlane or group with a child layout so children are stacked automatically. It replaces # style: for those cells.",
+      "usage": "# parentstyle: swimlane;whiteSpace=wrap;html=1;childLayout=stackLayout;horizontal=1;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;",
+      "parameters": [
+        {"name": "style string", "description": "Style for parent cells; %column% substitution is supported."}
+      ],
+      "example": "# parent: group\n# parentstyle: rounded=1;whiteSpace=wrap;html=1;container=1;collapsible=0;fillColor=#f5f5f5;dashed=1;",
+      "notes": "Give the parent style container=1 (swimlane implies it) or children will not be clipped/moved with it.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# collapsed: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Sets the initial collapsed state of parent containers created through # parent:. # collapsed: true imports groups folded so only headers show, which keeps large hierarchies readable on first open.",
+      "usage": "# collapsed: true|false",
+      "parameters": [
+        {"name": "true / false", "description": "Initial fold state of parents (default false)."}
+      ],
+      "example": "# parent: manager\n# parentstyle: swimlane;childLayout=stackLayout;resizeParent=1;collapsible=1;\n# collapsed: true",
+      "notes": "Only meaningful with a parent style that has collapsible=1.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# namespace: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Prefix added to every generated cell id (identity value or generated number) so that several CSV imports, or an import and hand-drawn cells, cannot collide in the same diagram. The default namespace is csvimport-.",
+      "usage": "# namespace: csvimport-",
+      "parameters": [
+        {"name": "prefix", "description": "String prepended to ids, e.g. hr-, net-."}
+      ],
+      "example": "# namespace: servers-\n# identity: host\nhost,ip\nweb1,10.0.0.1",
+      "notes": "Re-import with the same namespace and identity to update cells rather than duplicate them.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# connect: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Creates edges between rows. The JSON object names the referencing column (from) and the identity column it points at (to); from values may contain several comma-separated ids. Optional keys: invert (reverse direction), label (edge label, may use %column% with placeholders:true), fromlabel/tolabel or sourcelabel/targetlabel (labels near the ends taken from source/target columns), style (edge style string) and data (JSON metadata copied to the edge). Several # connect: lines create several edge sets.",
+      "usage": "# connect: {\"from\": \"refs\", \"to\": \"id\", \"invert\": true, \"label\": \"uses\", \"style\": \"edgeStyle=orthogonalEdgeStyle;endArrow=block;\"}",
+      "parameters": [
+        {"name": "from", "description": "Column containing target identity values (comma-separated list allowed)."},
+        {"name": "to", "description": "Identity column matched against from values."},
+        {"name": "invert", "description": "true draws the edge from the referenced row to this row."},
+        {"name": "label", "description": "Edge label text; supports placeholders when placeholders:true."},
+        {"name": "fromlabel / tolabel / sourcelabel / targetlabel", "description": "Columns whose values become end labels."},
+        {"name": "style", "description": "Edge style string."},
+        {"name": "data", "description": "Object of attributes stored on the edge."}
+      ],
+      "example": "# connect: {\"from\": \"manager\", \"to\": \"id\", \"invert\": true, \"style\": \"edgeStyle=orthogonalEdgeStyle;curved=0;endArrow=none;\"}\n# connect: {\"from\": \"dotted\", \"to\": \"id\", \"label\": \"reports\", \"style\": \"dashed=1;endArrow=open;\"}",
+      "notes": "Edges are created after all nodes exist, so forward references work. Unresolved ids are ignored silently.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# link: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Names the column whose value becomes the cell's link attribute (clickable in the viewer/lightbox and via Ctrl+click in the editor). Values may be URLs, data:page/id,... page links or data:action/json custom actions.",
+      "usage": "# link: url",
+      "parameters": [
+        {"name": "column", "description": "Column with the link target for each row."}
+      ],
+      "example": "# link: url\n# ignore: url\nname,url\nWiki,https://wiki.example.com\nPage 2,data:page/id,abc123",
+      "notes": "Add the column to # ignore: if it should not also appear as metadata.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# width: / # height: (CSV directives)",
+      "kind": "system-variable",
+      "description": "Size of generated nodes: a number in px, auto (size to the label using # padding:), or @column to take the value from a column per row. Default is 100 x 40 px when omitted.",
+      "usage": "# width: auto\n# height: auto\n   or   # width: 120\n# height: @h",
+      "parameters": [
+        {"name": "number", "description": "Fixed size in px."},
+        {"name": "auto", "description": "Autosize to the label."},
+        {"name": "@column", "description": "Per-row size from that column."}
+      ],
+      "example": "# width: @w\n# height: 60\n# ignore: w\nname,w\nShort,80\nA longer name,160",
+      "notes": "Image-based styles usually need fixed sizes; text nodes work best with auto plus # padding:.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# padding: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Extra pixels added around the label when # width: or # height: is auto; negative values shrink the node. Typical values are 10-20 for rounded boxes.",
+      "usage": "# padding: 15",
+      "parameters": [
+        {"name": "px", "description": "Padding in pixels (may be negative)."}
+      ],
+      "example": "# width: auto\n# height: auto\n# padding: -12   (tight fit for label shapes)",
+      "notes": "Ignored when both dimensions are fixed numbers.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# ignore: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Comma-separated list of columns that must not be stored as cell attributes (metadata visible in Edit Data). Use it for columns consumed by the label/style/connect directives, such as ids, colours, image URLs and reference lists.",
+      "usage": "# ignore: id,image,fill,stroke,refs",
+      "parameters": [
+        {"name": "columns", "description": "Column names separated by commas."}
+      ],
+      "example": "# ignore: id,fill,refs\nid,name,fill,refs\n1,A,#dae8fc,\n2,B,#d5e8d4,1",
+      "notes": "Ignored columns can still be used in %placeholders% inside the directives during import; they are just not persisted.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# nodespacing: / # levelspacing: / # edgespacing: (CSV directives)",
+      "kind": "system-variable",
+      "description": "Spacing parameters handed to the automatic layout chosen with # layout:: nodespacing is the distance between sibling nodes (default 40), levelspacing the distance between hierarchy levels (default 100) and edgespacing the gap between parallel edges (default 40). For organic layout nodespacing also scales the force constant.",
+      "usage": "# nodespacing: 40\n# levelspacing: 100\n# edgespacing: 40",
+      "parameters": [
+        {"name": "nodespacing", "description": "Sibling distance in px."},
+        {"name": "levelspacing", "description": "Level/rank distance in px."},
+        {"name": "edgespacing", "description": "Parallel edge spacing in px."}
+      ],
+      "example": "# layout: horizontaltree\n# nodespacing: 20\n# levelspacing: 160",
+      "notes": "Has no effect with # layout: none.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# layout: (CSV directive)",
+      "kind": "system-variable",
+      "description": "Automatic arrangement applied after import: auto (default: tree when there is one root, otherwise organic), none (use # left:/# top: positions or stack vertically), verticaltree, horizontaltree, verticalflow, horizontalflow (hierarchical), organic, circle and orgchart, plus the ELK-based elkLayered/elkOrganic and libavoid routing variants in current versions. The layout runs on the imported cells only.",
+      "usage": "# layout: auto|none|verticaltree|horizontaltree|verticalflow|horizontalflow|organic|circle|orgchart|elkLayered",
+      "parameters": [
+        {"name": "verticaltree / horizontaltree", "description": "Compact tree layouts (need a single root)."},
+        {"name": "verticalflow / horizontalflow", "description": "Hierarchical layouts for DAGs."},
+        {"name": "organic / circle / orgchart", "description": "Force-directed, circular and org-chart layouts."},
+        {"name": "none", "description": "Keep positions from # left:/# top: or default placement."}
+      ],
+      "example": "# layout: verticalflow\n# nodespacing: 30\n# levelspacing: 80\n# connect: {\"from\": \"next\", \"to\": \"id\"}",
+      "notes": "Tree layouts need every node reachable from one root through the # connect: edges; otherwise use verticalflow or organic.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# left: / # top: (CSV directives)",
+      "kind": "system-variable",
+      "description": "Name the columns that hold explicit x and y coordinates (in px, diagram units) for each node, used together with # layout: none to reproduce positions exported from another tool or stored in a database.",
+      "usage": "# left: x\n# top: y\n# layout: none",
+      "parameters": [
+        {"name": "left", "description": "Column with the x coordinate."},
+        {"name": "top", "description": "Column with the y coordinate."}
+      ],
+      "example": "# left: x\n# top: y\n# layout: none\n# ignore: x,y\nname,x,y\nA,40,40\nB,240,40",
+      "notes": "Coordinates are absolute for top-level cells and relative to the parent for children created via # parent:.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "# vars: (CSV directive)",
+      "kind": "system-variable",
+      "description": "JSON object of global variables available as %name% placeholders inside the label, style and connect directives during import, useful for parameterising one CSV template (colours, environment names, base URLs) without repeating values per row.",
+      "usage": "# vars: {\"env\": \"prod\", \"base\": \"https://wiki.example.com/\"}",
+      "parameters": [
+        {"name": "JSON object", "description": "Variable name -> value."}
+      ],
+      "example": "# vars: {\"fill\": \"#dae8fc\"}\n# style: rounded=1;whiteSpace=wrap;html=1;fillColor=%fill%;\n# link: url\nname,url\nDocs,%base%docs",
+      "notes": "Row columns take precedence over vars with the same name.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "CSV data block (header row, quoting, ## comments)",
+      "kind": "format",
+      "description": "After the directives comes ordinary CSV: the first non-directive line is the header naming the columns, later lines are rows; fields containing commas or line breaks are double-quoted and quotes are doubled inside. Lines beginning with ## are comments, empty lines are skipped, and every column not listed in # ignore: is stored on the cell as an attribute (visible in Edit Data and usable as %placeholders%).",
+      "usage": "# label: %name%\n## comment line\nname,role,notes\n\"Smith, Ann\",Lead,\"Says \"\"hi\"\"\"",
+      "parameters": [
+        {"name": "header", "description": "Column names; referenced by directives as %name% or by name."},
+        {"name": "rows", "description": "One node per row."}
+      ],
+      "example": "# label: %name%\n# identity: id\n# connect: {\"from\": \"to\", \"to\": \"id\"}\n## nodes\nid,name,to\n1,Start,\"2,3\"\n2,Left,\n3,Right,",
+      "notes": "Import via Arrange > Insert > Advanced > CSV (paste text) or ?create={\"type\":\"csv\",\"data\":...}. The dialog remembers the last text.",
+      "docs": "https://www.drawio.com/doc/faq/insert-from-csv"
+    },
+    {
+      "name": "%propertyName% placeholders (placeholders=1)",
+      "kind": "system-variable",
+      "description": "Inside a label, tooltip or link, %name% is replaced by the value of the cell attribute name (set in Edit > Edit Data, Ctrl+M) once placeholders are enabled for the cell: the Placeholders checkbox in Edit Data, which stores placeholders=\"1\" on the wrapping <object>. If the cell has no such attribute the nearest ancestor (group, container, layer, then diagram-level attributes) is consulted, then global variables. %id% resolves to the cell id.",
+      "usage": "<object label=\"%name% (%role%)\" name=\"Ada\" role=\"Lead\" placeholders=\"1\" id=\"c1\"><mxCell style=\"rounded=1;whiteSpace=wrap;html=1;\" vertex=\"1\" parent=\"1\">...</mxCell></object>",
+      "parameters": [
+        {"name": "placeholders", "description": "\"1\" on the object element enables substitution."},
+        {"name": "%name%", "description": "Attribute lookup, inherited from ancestors."},
+        {"name": "%id%", "description": "The cell id."}
+      ],
+      "example": "Edit Data (Ctrl+M) > add property owner = Ops > tick Placeholders > set label to \"Owner: %owner%\".",
+      "notes": "Placeholder names may not contain %, {, }, quotes, = or ;. Multilingual variants (name_de, name_fr) are picked when ?translate-diagram=1&diagram-language=de is set.",
+      "docs": "https://www.drawio.com/docs/manual/advanced/placeholders/"
+    },
+    {
+      "name": "%date%, %time%, %timestamp%, %date{format}% placeholders",
+      "kind": "system-variable",
+      "description": "System placeholders for the current date and time: %date% (locale date), %time% (locale time), %timestamp% (locale date and time) and %date{mask}% with a format mask using yyyy, yy, mmmm, mmm, mm, m, dddd, ddd, dd, d, HH, H, hh, h, MM, M, ss, s, l (ms), TT/tt (AM/PM) and Z (timezone), following the Steven Levithan date-format masks. They refresh every time the diagram is rendered, so exports carry the export date.",
+      "usage": "%date{yyyy-mm-dd}%   %date{dddd, mmmm d, yyyy HH:MM}%   %time%   %timestamp%",
+      "parameters": [
+        {"name": "mask tokens", "description": "yyyy/yy year, mmmm/mmm/mm/m month, dddd/ddd/dd/d day, HH/H 24h, hh/h 12h, MM/M minutes, ss/s seconds, TT/tt AM/PM, Z zone."},
+        {"name": "named masks", "description": "default, shortDate, mediumDate, longDate, fullDate, shortTime, mediumTime, longTime, isoDate, isoTime, isoDateTime, isoUtcDateTime."}
+      ],
+      "example": "Label: \"Generated %date{yyyy-mm-dd HH:MM}%\" with placeholders enabled on the cell.",
+      "notes": "Requires placeholders=1 on the cell like any other placeholder. Not evaluated in the CLI export unless the cell already has placeholders enabled.",
+      "docs": "https://www.drawio.com/docs/manual/advanced/placeholders/"
+    },
+    {
+      "name": "%page%, %pagenumber%, %pagecount%, %filename% placeholders",
+      "kind": "system-variable",
+      "description": "Document placeholders: %page% is the current page name, %pagenumber% its 1-based index, %pagecount% the number of pages and %filename% the file title. %pagenumber% and %pagecount% accept simple arithmetic (%pagenumber+1%, %pagecount-1%) for footers and 'continued on' notes. They are typically placed in a text shape copied to every page.",
+      "usage": "%page%   %pagenumber%   %pagecount%   %pagenumber+1%   %filename%",
+      "parameters": [
+        {"name": "page", "description": "Page name (tab title)."},
+        {"name": "pagenumber / pagecount", "description": "Index and count; +n / -n arithmetic allowed."},
+        {"name": "filename", "description": "Document title."}
+      ],
+      "example": "Footer text: \"%filename% - %page% (%pagenumber% / %pagecount%)\"",
+      "notes": "Values are resolved per page during export (all-pages PDF gets correct numbers).",
+      "docs": "https://www.drawio.com/docs/manual/advanced/placeholders/"
+    },
+    {
+      "name": "%width%, %height%, %length% placeholders with unit suffixes",
+      "kind": "system-variable",
+      "description": "Geometry placeholders: %width% and %height% give the vertex size and %length% the length of the edge the label belongs to, in px; appending _mm, _in or _m converts to millimetres, inches or metres using the diagram scale (View > Units). Use them for floor plans, cabinet layouts and dimensioned drawings whose labels must follow resizing.",
+      "usage": "%width%   %height_mm%   %length_m%",
+      "parameters": [
+        {"name": "width / height", "description": "Vertex dimensions."},
+        {"name": "length", "description": "Edge length (also on edge labels)."},
+        {"name": "_mm / _in / _m", "description": "Unit conversion suffix."}
+      ],
+      "example": "Edge label \"%length_m% m\" with placeholders enabled updates as the wall is stretched.",
+      "notes": "Values are rounded to the unit precision shown by the rulers.",
+      "docs": "https://www.drawio.com/docs/manual/advanced/placeholders/"
+    },
+    {
+      "name": "Global variables (globalVars / ?vars=)",
+      "kind": "system-variable",
+      "description": "Placeholder values that apply to the whole editor session: the configuration key globalVars ({\"name\": \"value\", ...}) and the URL parameter vars= (URL-encoded JSON). They are consulted after the cell, its ancestors and the diagram, so they act as defaults that any cell can override; typical uses are company name, environment or link base URLs.",
+      "usage": "Extras > Configuration: {\"globalVars\": {\"company\": \"ACME\", \"env\": \"prod\"}}   |   ?vars=%7B%22env%22%3A%22prod%22%7D",
+      "parameters": [
+        {"name": "globalVars", "description": "Configuration object of name/value pairs."},
+        {"name": "vars", "description": "URL parameter with the same JSON, URL-encoded."}
+      ],
+      "example": "Label \"%company% - %env%\" renders \"ACME - prod\" for everyone using the configuration.",
+      "notes": "Diagram-level defaults can also be set as attributes of the diagram's root object via Edit Data with nothing selected.",
+      "docs": "https://www.drawio.com/docs/manual/advanced/placeholders/"
+    },
+    {
+      "name": "placeholder and tooltip special properties",
+      "kind": "system-variable",
+      "description": "Two attribute names have built-in meaning in Edit Data: tooltip sets the hover text of the cell (shown in editor and viewer; may itself contain placeholders), and placeholder turns the entire label into the value of that property, which is convenient when the visible text should be a single data field. The ID field at the top of Edit Data shows and (for new ids) sets the cell id used by links and CSV identity.",
+      "usage": "Edit > Edit Data (Ctrl+M) > Add property: tooltip = <text>   |   placeholder = <property name>",
+      "parameters": [
+        {"name": "tooltip", "description": "Hover text; HTML allowed when the label is HTML."},
+        {"name": "placeholder", "description": "Name of the attribute whose value becomes the label."},
+        {"name": "ID", "description": "Cell identifier (read-only for existing cells except through Edit Diagram)."}
+      ],
+      "example": "<object label=\"\" placeholder=\"hostname\" hostname=\"web-01\" tooltip=\"IP: %ip%\" ip=\"10.0.0.5\" placeholders=\"1\" id=\"srv1\">",
+      "notes": "Edit > Edit Tooltip (Alt+Shift+T) is a shortcut for the tooltip attribute. Built-in attribute names (label, tooltip, placeholders, placeholder, note) are reserved.",
+      "docs": "https://www.drawio.com/docs/manual/advanced/placeholders/"
+    },
+    {
+      "name": "data:page/id link (link to page)",
+      "kind": "format",
+      "description": "Link value that navigates to another page of the same file: data:page/id,<diagram id>, where the id is the id attribute of the <diagram> element (visible in Edit > Edit Link's page picker and in Extras > Edit Diagram). It works in the editor (Ctrl+click), lightbox, HTML viewer and exported SVG/PDF, so multi-page files become navigable documents.",
+      "usage": "Edit > Edit Link (Alt+Shift+L) > Pages > choose page   ->   link=\"data:page/id,AbC123\"",
+      "parameters": [
+        {"name": "id", "description": "Value of <diagram id=...>."}
+      ],
+      "example": "<object label=\"Details\" link=\"data:page/id,4Bx9Kq2\" id=\"btn1\"><mxCell style=\"rounded=1;whiteSpace=wrap;html=1;\" vertex=\"1\" parent=\"1\">...</mxCell></object>",
+      "notes": "Older files may contain data:page/name,<name> links, which break when the page is renamed. Page ids stay stable across renames and reordering.",
+      "docs": "https://www.drawio.com/doc/faq/custom-links"
+    },
+    {
+      "name": "data:action/json custom link format",
+      "kind": "format",
+      "description": "Link value that runs a sequence of effects when the cell is clicked: data:action/json,{\"title\":\"optional\",\"actions\":[{...},{...}]}. Each action object has one effect key (show, hide, toggle, setOpacity, fadeIn, fadeOut, fadeTo, wipeIn, wipeOut, popIn, popOut, style, toggleStyle, highlight, flow, open, scroll, viewbox, select, tags, wait) whose value is a selector object or a scalar. Created visually with Edit > Edit Link > Custom Action, or written by hand.",
+      "usage": "link=\"data:action/json,{\\\"actions\\\":[{\\\"toggle\\\":{\\\"cells\\\":[\\\"5\\\",\\\"7\\\"]}}]}\"",
+      "parameters": [
+        {"name": "title", "description": "Optional description shown in the link editor."},
+        {"name": "actions", "description": "Ordered array of effect objects executed sequentially (immediate:true runs in parallel with the previous)."}
+      ],
+      "example": "data:action/json,{\"actions\":[{\"open\":\"data:page/id,1\"},{\"highlight\":{\"cells\":[\"2\"],\"opacity\":100,\"color\":\"red\"}}]}",
+      "notes": "Effects are transient (not written to the file) unless transient:false is set on show/hide/toggle/style/toggleStyle. JSON inside an XML attribute must be entity-escaped.",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "Custom action selector (cells, layers, tags, tagsMatch, excludeCells, descendants)",
+      "kind": "format",
+      "description": "The target object accepted by every cell-targeting action: cells (array of cell ids, \"*\" for all), layers (array of layer ids; their contents are resolved at run time), tags (array of tag names) with tagsMatch \"and\" (default) or \"or\", descendants:true to include children of the matched cells, and excludeCells to remove specific ids. The final set is (cells + layers + tags) plus descendants minus excludeCells.",
+      "usage": "{\"show\": {\"cells\": [\"a\", \"b\"], \"layers\": [\"L2\"], \"tags\": [\"phase1\"], \"tagsMatch\": \"or\", \"descendants\": true, \"excludeCells\": [\"c\"]}}",
+      "parameters": [
+        {"name": "cells", "description": "Cell ids or [\"*\"]."},
+        {"name": "layers", "description": "Layer cell ids."},
+        {"name": "tags / tagsMatch", "description": "Tag names and combination logic."},
+        {"name": "descendants", "description": "Include children recursively."},
+        {"name": "excludeCells", "description": "Ids removed from the result."}
+      ],
+      "example": "{\"actions\":[{\"hide\":{\"cells\":[\"*\"]}},{\"show\":{\"tags\":[\"step1\"]}}]}",
+      "notes": "Legacy shorthand {\"toggle\": {\"cells\": [...]}} and {\"toggle\": {\"layers\": [...]}} remain valid.",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "show / hide / toggle / setOpacity actions",
+      "kind": "api",
+      "description": "Visibility effects for custom links and page animations: show and hide set the visible flag of the selected cells, toggle flips it, and setOpacity sets the cell opacity to a value 0-100 without hiding. With transient:false the change is applied to the model (saved and undoable); by default it is only visual.",
+      "usage": "{\"show\": {<selector>}}   {\"hide\": {<selector>}}   {\"toggle\": {<selector>, \"transient\": false}}   {\"setOpacity\": {<selector>, \"opacity\": 30}}",
+      "parameters": [
+        {"name": "selector", "description": "cells/layers/tags target."},
+        {"name": "opacity", "description": "0-100 for setOpacity."},
+        {"name": "transient", "description": "false persists show/hide/toggle."}
+      ],
+      "example": "data:action/json,{\"actions\":[{\"toggle\":{\"layers\":[\"3\"]}}]}   (layer toggle button)",
+      "notes": "Hidden cells are excluded from exports only when hidden in the model (transient:false or via the Layers dialog).",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "fadeIn / fadeOut / fadeTo / wipeIn / wipeOut / popIn / popOut actions",
+      "kind": "api",
+      "description": "Animated visibility effects: fadeIn/fadeOut animate opacity (default 400 ms), fadeTo animates to a given opacity, wipeIn/wipeOut reveal or hide with a wipe along the shape (about 900 ms), popIn/popOut scale the cells in or out. Each accepts the selector plus delay (ms before start) and is always transient, which makes them the building blocks of step-by-step presentations.",
+      "usage": "{\"fadeIn\": {<selector>, \"delay\": 200}}   {\"fadeTo\": {<selector>, \"opacity\": 20}}   {\"wipeOut\": {<selector>}}   {\"popIn\": {<selector>}}",
+      "parameters": [
+        {"name": "selector", "description": "Target cells."},
+        {"name": "delay", "description": "Milliseconds before the effect starts."},
+        {"name": "opacity", "description": "Target opacity for fadeTo."}
+      ],
+      "example": "{\"actions\":[{\"hide\":{\"cells\":[\"*\"]}},{\"fadeIn\":{\"tags\":[\"intro\"]}},{\"wait\":1000},{\"popIn\":{\"tags\":[\"detail\"]}}]}",
+      "notes": "Animations run in the editor, lightbox and HTML viewer; static exports show the final state of the model.",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "style / toggleStyle / highlight / flow actions",
+      "kind": "api",
+      "description": "Style effects: style applies a style string (or key/value changes) to the selected cells, toggleStyle toggles a style key (e.g. dashed=1) on and off, highlight draws a coloured outline (color, opacity, duration) around the cells to draw attention, and flow switches the flowAnimation of edges on or off. style/toggleStyle may be persisted with transient:false; highlight and flow are always transient.",
+      "usage": "{\"style\": {<selector>, \"style\": \"fillColor=#ffe6cc;strokeColor=#d79b00;\"}}   {\"toggleStyle\": {<selector>, \"key\": \"dashed\", \"defaultValue\": \"0\", \"value\": \"1\"}}   {\"highlight\": {<selector>, \"color\": \"#ff0000\", \"opacity\": 100, \"duration\": 2000}}   {\"flow\": {<selector>, \"value\": true}}",
+      "parameters": [
+        {"name": "style", "description": "Style string to apply."},
+        {"name": "key / value / defaultValue", "description": "toggleStyle parameters."},
+        {"name": "color / opacity / duration", "description": "highlight appearance and length in ms."},
+        {"name": "value", "description": "flow on/off."}
+      ],
+      "example": "data:action/json,{\"actions\":[{\"highlight\":{\"cells\":[\"db1\"],\"color\":\"#ff9900\",\"duration\":1500}},{\"flow\":{\"cells\":[\"e1\",\"e2\"],\"value\":true}}]}",
+      "notes": "The 'flow' plugin adds a context-menu toggle for the same edge animation.",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "open / scroll / viewbox / select actions",
+      "kind": "api",
+      "description": "Navigation effects: open loads a URL or a data:page/id link (page switch), scroll scrolls the selected cells into view, viewbox zooms to a rectangle {x, y, width, height, border} or to the bounds of a selector, and select selects the cells in the editor. scroll and viewbox accept smooth:true for animated movement.",
+      "usage": "{\"open\": \"data:page/id,abc\"}   {\"scroll\": {<selector>, \"smooth\": true}}   {\"viewbox\": {\"x\": 0, \"y\": 0, \"width\": 800, \"height\": 600, \"border\": 20, \"smooth\": true}}   {\"select\": {<selector>}}",
+      "parameters": [
+        {"name": "open", "description": "URL or page link string."},
+        {"name": "scroll / select", "description": "Selector-based targets."},
+        {"name": "viewbox", "description": "Rectangle or selector with optional border."},
+        {"name": "smooth", "description": "Animate the movement."}
+      ],
+      "example": "{\"actions\":[{\"open\":\"data:page/id,p2\"},{\"viewbox\":{\"cells\":[\"zone-a\"],\"border\":40,\"smooth\":true}}]}",
+      "notes": "open with an http(s) URL follows the target rules of the viewer (target= parameter).",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "tags and wait actions",
+      "kind": "api",
+      "description": "tags changes tag visibility: {\"tags\": {\"hidden\": [...], \"visible\": [...]}} hides or shows every cell carrying those tags (the same mechanism as the Tags dialog), while wait pauses the sequence for the given milliseconds so later effects start after a delay. Both are transient.",
+      "usage": "{\"tags\": {\"hidden\": [\"future\"], \"visible\": [\"current\"]}}   {\"wait\": 1500}",
+      "parameters": [
+        {"name": "hidden / visible", "description": "Tag name arrays."},
+        {"name": "wait", "description": "Pause in ms."}
+      ],
+      "example": "{\"actions\":[{\"tags\":{\"hidden\":[\"phase2\",\"phase3\"]}},{\"wait\":800},{\"tags\":{\"visible\":[\"phase2\"]}}]}",
+      "notes": "Tags are assigned with Edit > Edit Tags (Ctrl+K) and stored in the tags attribute as a space-separated list.",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "transient, delay, smooth, immediate (custom action options)",
+      "kind": "system-variable",
+      "description": "Modifiers on action objects: transient (default true; false makes show/hide/toggle/style/toggleStyle write to the model, i.e. saved and undoable), delay (ms before an animated effect starts), smooth (animated scroll/viewbox) and immediate (step-level: run this step in parallel with the previous instead of after it). Effects that only animate (fade, wipe, pop, highlight, flow, opacity, scroll, viewbox, select, open, tags, wait) ignore transient.",
+      "usage": "{\"show\": {\"cells\": [\"a\"], \"transient\": false}}   {\"fadeIn\": {\"cells\": [\"b\"], \"delay\": 300, \"immediate\": true}}   {\"scroll\": {\"cells\": [\"c\"], \"smooth\": true}}",
+      "parameters": [
+        {"name": "transient", "description": "false persists the change to the file."},
+        {"name": "delay", "description": "Start delay in ms."},
+        {"name": "smooth", "description": "Animate navigation."},
+        {"name": "immediate", "description": "Do not wait for the previous step."}
+      ],
+      "example": "{\"actions\":[{\"hide\":{\"cells\":[\"draft\"],\"transient\":false}}]}   (a button that permanently hides the draft cell)",
+      "notes": "Persisting through transient:false requires an editable diagram; in the read-only viewer it behaves transiently.",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "Page animation (animation.steps, loop, enabled)",
+      "kind": "format",
+      "description": "A page-level animation stored on the diagram (Extras > Edit Diagram or the Animation editor) with the shape {\"animation\": {\"enabled\": true, \"loop\": true, \"steps\": [ ...action objects... ]}}. It plays automatically when the page is shown in the lightbox/viewer and can be started in the editor, producing presentations that reveal parts of the diagram step by step without a click per step.",
+      "usage": "{\"animation\": {\"enabled\": true, \"loop\": false, \"steps\": [{\"hide\": {\"cells\": [\"*\"]}}, {\"fadeIn\": {\"tags\": [\"s1\"]}}, {\"wait\": 1000}, {\"fadeIn\": {\"tags\": [\"s2\"]}}]}}",
+      "parameters": [
+        {"name": "enabled", "description": "Play automatically in the viewer."},
+        {"name": "loop", "description": "Restart after the last step."},
+        {"name": "steps", "description": "Array of action objects (same vocabulary as custom links)."}
+      ],
+      "example": "Set a wait between steps and loop:true to build a self-running kiosk animation; export as HTML to share it.",
+      "notes": "The older 'anim' plugin (Extras > Animation) provides a simpler edge-flow animation script.",
+      "docs": "https://www.drawio.com/docs/manual/links-tooltips-tags/animations-custom-actions/"
+    },
+    {
+      "name": "Arrange > Insert > Advanced > From Text (List, Table, Diagram types)",
+      "kind": "menu",
+      "description": "Turns plain text into shapes. Type List creates one shape per line (or a single list container when the text is a bullet list); Table creates a table from tab/comma-separated lines; Diagram parses a simple graph syntax where each line is 'a->b' (edge) or 'a' (node) with optional labels 'a->label->b', and the extra Circle / Horizontal Flow / Vertical Flow options apply that layout to the result. Ideal for quickly sketching dependency graphs from notes.",
+      "usage": "Arrange > Insert > Advanced > From Text... > choose List | Table | Diagram (| Circle | Horizontal Flow | Vertical Flow) > paste text > Insert",
+      "parameters": [
+        {"name": "List", "description": "One node per line."},
+        {"name": "Table", "description": "Rows/columns separated by tabs or commas."},
+        {"name": "Diagram", "description": "Lines 'A->B' or 'A->edge label->B'; ';' ends a line."}
+      ],
+      "example": "Diagram type:\nBrowser->HTTPS->Load Balancer\nLoad Balancer->App Server\nApp Server->Database",
+      "notes": "Node names are matched by text, so repeated names reuse the same node. For richer control use CSV import.",
+      "docs": "https://www.drawio.com/doc/faq/"
+    },
+    {
+      "name": "Arrange > Insert > Advanced > SQL (From SQL)",
+      "kind": "menu",
+      "description": "Parses SQL DDL (CREATE TABLE statements with columns, types, PRIMARY KEY and FOREIGN KEY / REFERENCES clauses) and inserts an entity-relationship diagram: one table shape per CREATE TABLE with a row per column, keys marked, and connectors for foreign-key relations. Works with MySQL/PostgreSQL/SQL Server style DDL exported from a database.",
+      "usage": "Arrange > Insert > Advanced > SQL... > paste CREATE TABLE statements > Insert",
+      "parameters": [
+        {"name": "CREATE TABLE", "description": "Table name and column definitions."},
+        {"name": "PRIMARY KEY / FOREIGN KEY ... REFERENCES", "description": "Produce key markers and relationship edges."}
+      ],
+      "example": "CREATE TABLE customers (id INT PRIMARY KEY, name VARCHAR(100));\nCREATE TABLE orders (id INT PRIMARY KEY, customer_id INT, FOREIGN KEY (customer_id) REFERENCES customers(id));",
+      "notes": "Historically provided by the 'sql' plugin, now built into the Insert > Advanced menu. Vendor-specific syntax (backticks, schemas, constraints) is tolerated but not fully parsed.",
+      "docs": "https://www.drawio.com/doc/faq/"
+    },
+    {
+      "name": "Mermaid and PlantUML insert types (diagram vs image)",
+      "kind": "menu",
+      "description": "Arrange > Insert > Advanced > Mermaid offers two result types: Diagram converts supported Mermaid definitions (flowchart, sequence, class, ER, state, gantt, mindmap, ...) into native editable draw.io shapes, while Image inserts a single 'mermaid' shape that renders the source at view time and keeps it editable as text via Edit Data. PlantUML likewise offers Diagram (native shapes via the PlantUML server's text output) or Image (SVG/PNG rendered by the server); PlantUML needs a network connection to the configured server.",
+      "usage": "Arrange > Insert > Advanced > Mermaid... > type: Diagram | Image\nArrange > Insert > Advanced > PlantUML... > type: Diagram | Image",
+      "parameters": [
+        {"name": "Diagram", "description": "Native shapes; layout is applied once, then freely editable."},
+        {"name": "Image", "description": "Single shape re-rendered from the source; edit text via Edit Data (mermaid) or the dialog."}
+      ],
+      "example": "Mermaid, type Image:\nflowchart LR\n  A[Client] --> B[API]\n  B --> C[(DB)]",
+      "notes": "Mermaid rendering is local (no server); PlantUML is disabled in offline/stealth mode and in the desktop app unless a server is configured. Mermaid theme/config defaults come from the mermaid configuration key.",
+      "docs": "https://www.drawio.com/blog/mermaid-diagrams"
+    },
+    {
+      "name": "Mathematical typesetting delimiters ($$, \\( \\), backticks)",
+      "kind": "system-variable",
+      "description": "After enabling Extras > Mathematical Typesetting (stored as math=\"1\" on mxGraphModel), labels may contain LaTeX between $$...$$ (display) or \\(...\\) (inline) and AsciiMath between single backticks; MathJax renders them in the editor, lightbox and viewer and as SVG in image exports. Formats may be mixed in one label.",
+      "usage": "$$\\sqrt{a^2+b^2}$$   \\(E = mc^2\\)   `sum_(i=1)^n i = (n(n+1))/2`",
+      "parameters": [
+        {"name": "$$ ... $$", "description": "LaTeX display math."},
+        {"name": "\\( ... \\)", "description": "LaTeX inline math."},
+        {"name": "` ... `", "description": "AsciiMath."}
+      ],
+      "example": "Text shape label: The area is $$A = \\pi r^2$$ and the circumference is \\(2\\pi r\\).",
+      "notes": "Exported PDF text is not selectable by default; ?math-output=html helps in some cases. ?math=0 disables MathJax entirely; math-font selects STIX fonts.",
+      "docs": "https://www.drawio.com/docs/manual/text/math-typesetting/"
+    }
+  ]
+}

@@ -1,0 +1,463 @@
+{
+  "category": "PyAEDT: Boundaries, Excitations, Field Setups & Mesh Operations",
+  "description": "The Hfss methods that define the electromagnetic problem on top of the geometry: ports beyond the basic wave/lumped pair (circuit, Floquet), periodic and symmetry boundaries, impedance/RLC/layered/FE-BI/hybrid regions, voltage and current sources, incident waves and SBR+ antenna sources, source editing and differential pairs, the BoundaryObject handle, near-field and far-field setups, SAR and mesh fusion settings, and the hfss.mesh operations with the MeshOperation handle.",
+  "tools": [
+    {
+      "name": "hfss.circuit_port",
+      "kind": "excitation",
+      "description": "Create a circuit port between an edge of a signal conductor and an edge of a reference conductor (or between two objects, from which PyAEDT picks the closest parallel edges). Circuit ports are lumped, edge-based excitations that need no port sheet, so they suit quick feeds on planar structures, ports on 3D-Layout-style traces and terminals for lumped element connections.",
+      "usage": "port = hfss.circuit_port(assignment, reference, port_location=0, impedance=50, name=None,\n                         renormalize=True, renorm_impedance=\"50\", deembed=False)",
+      "parameters": [
+        {"name": "assignment / reference", "description": "Signal and reference as edge IDs/EdgePrimitives, face IDs, or Object3d handles (closest edges are found automatically)."},
+        {"name": "port_location", "description": "Which side of the objects to use when they are given as bodies: hfss.AxisDir.XNeg ... ZPos (0-5)."},
+        {"name": "impedance", "description": "Port impedance in ohms; complex values as \"50+1i*55\"."},
+        {"name": "renormalize / renorm_impedance", "description": "Renormalise the S-matrix to the given impedance (Modal only; Terminal designs use the terminal impedance)."},
+        {"name": "deembed", "description": "Enable de-embedding of the port."}
+      ],
+      "example": "from ansys.aedt.core.generic.constants import Plane\ntrace = hfss.modeler.create_rectangle(Plane.XY, [0, -0.5, \"h\"], [20, 1], name=\"Trace\")\ngnd = hfss.modeler.create_rectangle(Plane.XY, [-5, -10, 0], [30, 20], name=\"Gnd\")\ne_sig = hfss.modeler.get_edgeid_from_position([0, 0, \"h\"], assignment=\"Trace\")\ne_gnd = hfss.modeler.get_edgeid_from_position([0, 0, 0], assignment=\"Gnd\")\np1 = hfss.circuit_port(e_sig, e_gnd, impedance=50, name=\"P1\")",
+      "notes": "Native: oModule.AssignCircuitPort([\"NAME:P1\", \"Edges:=\", [e_sig, e_gnd], \"Impedance:=\", \"50ohm\", \"DoDeembed:=\", False, \"RenormalizeAllTerminals:=\", True]). The two edges must be parallel and close together compared with the wavelength; otherwise use a lumped port on a sheet.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.circuit_port.html"
+    },
+    {
+      "name": "hfss.create_floquet_port",
+      "kind": "excitation",
+      "description": "Assign a Floquet port to the face that closes a unit cell, defining the lattice vectors A and B (derived from the face automatically if not given), the number of Floquet modes, renormalisation, de-embedding and which modes appear in reports. Combined with lattice-pair boundaries on the side walls it turns the cell into an infinite periodic array or frequency-selective surface with plane-wave-like excitation and Floquet-mode S-parameters.",
+      "usage": "port = hfss.create_floquet_port(assignment, lattice_origin=None, lattice_a_end=None, lattice_b_end=None, modes=2,\n                                name=None, renormalize=True, deembed_distance=0, reporter_filter=True, lattice_cs=\"Global\")",
+      "parameters": [
+        {"name": "assignment", "description": "Face ID, FacePrimitive or sheet name on the cell's open side."},
+        {"name": "lattice_origin / lattice_a_end / lattice_b_end", "description": "[x,y,z] points defining the two lattice vectors; None lets PyAEDT compute them from the face edges."},
+        {"name": "modes", "description": "Number of Floquet modes (2 covers the two fundamental TE/TM specular modes)."},
+        {"name": "deembed_distance", "description": "De-embed distance in the face-normal direction (0 disables), used to move the reference plane to the surface of the structure."},
+        {"name": "reporter_filter", "description": "Bool or list of bools per mode selecting which modes are included in reports."},
+        {"name": "lattice_cs", "description": "Coordinate system the lattice points refer to."}
+      ],
+      "example": "cell = hfss.modeler.create_box([\"-p/2\", \"-p/2\", 0], [\"p\", \"p\", \"h_air\"], name=\"Cell\", material=\"vacuum\")\nhfss.auto_assign_lattice_pairs(cell.name)\nfp = hfss.create_floquet_port(cell.top_face_z, modes=2, deembed_distance=\"h_air\", name=\"Floquet\")\nhfss.create_setup(\"Setup1\", Frequency=\"10GHz\")\nhfss.post.create_report(\"dB(S(Floquet:1,Floquet:1))\")",
+      "notes": "Native: oModule.AssignFloquetPort([\"NAME:FloquetPort1\", \"Faces:=\", [7], \"NumModes:=\", 2, \"RenormalizeAllTerminals:=\", True, \"DoDeembed:=\", True, \"DeembedDist:=\", \"h_air\", [\"NAME:Modes\", ...], [\"NAME:LatticeAVector\", \"Start:=\", [...], \"End:=\", [...]], [\"NAME:LatticeBVector\", ...], \"ShowReporterFilter:=\", True, \"ReporterFilter:=\", [True, True], \"UseScanAngles:=\", True, \"Phi:=\", \"0deg\", \"Theta:=\", \"0deg\"]). Scan angles come from the lattice-pair phase delay.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.create_floquet_port.html"
+    },
+    {
+      "name": "hfss.assign_lattice_pair / hfss.auto_assign_lattice_pairs",
+      "kind": "boundary",
+      "description": "Assign a Lattice Pair boundary (the 2020 R1+ replacement for Primary/Secondary on rectangular unit cells) to two opposite faces, with the phase delay expressed as a scan angle (theta, phi), as UV scan values or as an explicit phase. auto_assign_lattice_pairs finds the opposite face pairs of a box automatically, which with a Floquet port gives a complete infinite-array cell in three calls.",
+      "usage": "bnd = hfss.assign_lattice_pair(assignment, reverse_v=False, phase_delay=\"UseScanAngle\", phase_delay_param1=\"0deg\",\n                               phase_delay_param2=\"0deg\", name=None)\nnames = hfss.auto_assign_lattice_pairs(assignment, coordinate_system=\"Global\", coordinate_plane=\"XY\")",
+      "parameters": [
+        {"name": "assignment", "description": "List of exactly two face IDs/FacePrimitives (assign_lattice_pair) or the object name (auto_assign_lattice_pairs)."},
+        {"name": "phase_delay", "description": "\"UseScanAngle\" (param1 = phi, param2 = theta), \"UseScanUV\" (param1 = U, param2 = V) or \"InputPhaseDelay\" (param1 = phase)."},
+        {"name": "reverse_v", "description": "Flip the V vector direction when the automatic orientation is wrong."},
+        {"name": "coordinate_plane", "description": "Plane whose two in-plane axes define the pairs for auto assignment."}
+      ],
+      "example": "hfss[\"theta_scan\"] = \"30deg\"\nhfss[\"phi_scan\"] = \"0deg\"\ncell = hfss.modeler[\"Cell\"]\nlp1 = hfss.assign_lattice_pair([cell.faces[2], cell.faces[5]], phase_delay=\"UseScanAngle\",\n                               phase_delay_param1=\"phi_scan\", phase_delay_param2=\"theta_scan\", name=\"LatticeX\")\nlp2 = hfss.assign_lattice_pair([cell.faces[3], cell.faces[4]], phase_delay=\"UseScanAngle\",\n                               phase_delay_param1=\"phi_scan\", phase_delay_param2=\"theta_scan\", name=\"LatticeY\")",
+      "notes": "Native: oModule.AssignLatticePair([\"NAME:LatticePair1\", \"Faces:=\", [9, 8], \"ReverseV:=\", False, \"PhaseDelay:=\", \"UseScanAngle\", \"Phi:=\", \"0deg\", \"Theta:=\", \"0deg\"]). For skewed (non-rectangular) lattices use assign_primary/assign_secondary with explicit U vectors. Scan-angle variables can be swept with Optimetrics to compute active element patterns.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_lattice_pair.html"
+    },
+    {
+      "name": "hfss.assign_primary / hfss.assign_secondary",
+      "kind": "boundary",
+      "description": "The general periodic boundary pair (Primary/Secondary, formerly Master/Slave): the primary face defines a U vector from two points, the secondary face references the primary, defines its own U vector and carries the phase delay between the two. Needed for triangular or skewed lattices and for periodic structures that are not aligned with the global axes, where Lattice Pair cannot be used.",
+      "usage": "primary = hfss.assign_primary(assignment, u_start, u_end, reverse_v=False, coordinate_system=\"Global\", name=None)\nsecondary = hfss.assign_secondary(assignment, primary, u_start, u_end, reverse_v=False, phase_delay=\"UseScanAngle\",\n                                  phase_delay_param1=\"0deg\", phase_delay_param2=\"0deg\", coordinate_system=\"Global\", name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Face ID or FacePrimitive."},
+        {"name": "u_start / u_end", "description": "[x,y,z] points on the face defining the U vector; the V vector is derived from the face normal."},
+        {"name": "primary", "description": "Name of the primary boundary the secondary is coupled to."},
+        {"name": "phase_delay / param1 / param2", "description": "As for lattice pairs: scan angle (phi, theta), UV, or input phase."}
+      ],
+      "example": "box = hfss.modeler.create_box([-100, -100, -100], [200, 200, 200], name=\"Cell\")\nprim = hfss.assign_primary(box.faces[4], [100, -100, -100], [100, 100, -100], name=\"Primary1\")\nsec = hfss.assign_secondary(box.faces[0], prim.name, [100, -100, 100], [100, 100, 100],\n                            phase_delay=\"InputPhaseDelay\", phase_delay_param1=\"45deg\", name=\"Secondary1\")",
+      "notes": "Native: oModule.AssignMaster([\"NAME:Primary1\", \"Faces:=\", [..], [\"NAME:CoordSysVector\", \"Origin:=\", [...], \"UPos:=\", [...]], \"ReverseV:=\", False]) and oModule.AssignSlave([\"NAME:Secondary1\", \"Faces:=\", [..], [\"NAME:CoordSysVector\", ...], \"ReverseV:=\", False, \"Master:=\", \"Primary1\", \"UseScanAngles:=\", False, \"Phase:=\", \"45deg\"]) (names still Master/Slave in the object model). Faces must be geometrically identical after translation.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_primary.html"
+    },
+    {
+      "name": "hfss.assign_symmetry",
+      "kind": "boundary",
+      "description": "Place a Perfect E or Perfect H symmetry plane on faces that lie on a plane of symmetry of the model, so only half (or a quarter) of the structure is meshed. Perfect E symmetry is used where the E field is normal to the plane (a virtual electric wall), Perfect H where the E field is tangential; port impedances are corrected automatically through the impedance multiplier that HFSS sets on the cut ports.",
+      "usage": "bnd = hfss.assign_symmetry(assignment, name=None, is_perfect_e=True)\nhfss.set_impedance_multiplier(multiplier)",
+      "parameters": [
+        {"name": "assignment", "description": "List of face IDs or FacePrimitives lying on the symmetry plane (including the cut faces of the region)."},
+        {"name": "is_perfect_e", "description": "True = Perfect E symmetry, False = Perfect H symmetry."},
+        {"name": "set_impedance_multiplier", "description": "Sets the port impedance multiplier (2 for a half model with the port cut in half, etc.) - HFSS suggests it when the symmetry is created in the GUI."}
+      ],
+      "example": "hfss.modeler.split([\"Horn\", \"Region\"], plane=\"YZ\", sides=\"PositiveOnly\")\ncut = [f.id for o in [\"Horn\", \"Region\"] for f in hfss.modeler[o].faces if abs(f.center[0]) < 1e-6]\nhfss.assign_symmetry(cut, name=\"SymH\", is_perfect_e=False)\nhfss.set_impedance_multiplier(2)",
+      "notes": "Native: oModule.AssignSymmetry([\"NAME:Sym1\", \"IsPerfectE:=\", True, \"Faces:=\", [12]]). Symmetry planes are not allowed to cut a port in Terminal designs unless the reference conductor is also symmetric; far-field patterns are automatically completed by the symmetry when the infinite sphere covers the full space.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_symmetry.html"
+    },
+    {
+      "name": "hfss.assign_perfect_h / hfss.assign_perfecth_to_sheets / hfss.assign_perfecte_to_sheets / create_perfecte_from_objects",
+      "kind": "boundary",
+      "description": "Perfect magnetic and perfect electric conductor boundaries on faces, objects or sheets. assign_perfect_e/assign_perfect_h take objects or face IDs; the *_to_sheets variants take sheet names (with an infinite-ground option for Perfect E); create_perfecte_from_objects / create_perfecth_from_objects build the sheet between two objects first. Perfect H is used for magnetic-wall approximations of open apertures and for symmetry-like truncation of stripline models.",
+      "usage": "hfss.assign_perfect_h(assignment, name=None)\nhfss.assign_perfecth_to_sheets(assignment, name=None)\nhfss.assign_perfecte_to_sheets(assignment, name=None, is_infinite_ground=False)\nhfss.create_perfecte_from_objects(assignment, reference, start_direction=0, name=None, is_infinite_ground=False, is_boundary_on_plane=True)\nhfss.create_perfecth_from_objects(assignment, reference, start_direction=0, name=None, is_boundary_on_plane=True)",
+      "parameters": [
+        {"name": "assignment", "description": "Object names, face IDs, or sheet names depending on the variant."},
+        {"name": "is_infinite_ground", "description": "Treat the Perfect E sheet as an infinite ground plane for far-field computation (image theory below it)."},
+        {"name": "reference / start_direction", "description": "For create_*_from_objects: second object and the axis direction along which the sheet is built between them."}
+      ],
+      "example": "hfss.assign_perfecte_to_sheets(\"GndSheet\", name=\"GndPEC\", is_infinite_ground=True)\nhfss.assign_perfect_h([hfss.modeler[\"Region\"].top_face_z.id], name=\"MagWall\")\nhfss.create_perfecte_from_objects(\"Trace\", \"Gnd\", start_direction=hfss.AxisDir.ZNeg, name=\"ShortEnd\")",
+      "notes": "Native: oModule.AssignPerfectE([\"NAME:PerfE1\", \"Faces:=\", [12], \"InfGroundPlane:=\", False]) and oModule.AssignPerfectH([\"NAME:PerfH1\", \"Faces:=\", [12]]). Objects assigned as PEC material behave like Perfect E on all their faces; the boundary form is preferred for sheets.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_perfect_h.html"
+    },
+    {
+      "name": "hfss.assign_impedance_to_sheet / hfss.create_impedance_between_objects",
+      "kind": "boundary",
+      "description": "Impedance boundary condition: a surface with a specified resistance and reactance per square, isotropic or anisotropic (2x2 tensor in a chosen coordinate system), optionally acting as an infinite ground plane. It models thin resistive films, absorbers, metasurface impedance sheets and simplified conductors; create_impedance_between_objects builds the sheet between two objects first, mirroring the lumped-port helper.",
+      "usage": "bnd = hfss.assign_impedance_to_sheet(assignment, name=None, resistance=50.0, reactance=0.0, is_infinite_ground=False, coordinate_system=\"Global\")\nbnd = hfss.create_impedance_between_objects(assignment, reference, start_direction=0, name=None, resistance=50, reactance=0,\n                                            is_infinite_ground=False, bound_on_plane=True)",
+      "parameters": [
+        {"name": "assignment", "description": "Sheet name(s) or face IDs."},
+        {"name": "resistance / reactance", "description": "Ohms per square; a 4-element list [Zxx, Zxy, Zyx, Zyy] makes the boundary anisotropic."},
+        {"name": "coordinate_system", "description": "CS whose XY plane orients the anisotropic tensor."},
+        {"name": "is_infinite_ground", "description": "Use the sheet as an infinite ground plane for radiation."}
+      ],
+      "example": "film = hfss.modeler.create_rectangle(\"XY\", [-10, -10, \"h\"], [20, 20], name=\"RFilm\")\nhfss.assign_impedance_to_sheet(film.name, name=\"Z377\", resistance=377, reactance=0)\nhfss.assign_impedance_to_sheet(\"MetaSheet\", name=\"Zaniso\", resistance=[377, 0, 0, 50], reactance=[0, 0, 0, -100],\n                               coordinate_system=\"Global\")",
+      "notes": "Native: oModule.AssignImpedance([\"NAME:Imped1\", \"Resistance:=\", \"377\", \"Reactance:=\", \"0\", \"InfGroundPlane:=\", False, \"Faces:=\", [12]]) (anisotropic form uses oModule.AssignAnisotropicImpedance). The impedance is frequency-independent unless expressed with variables/datasets.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_impedance_to_sheet.html"
+    },
+    {
+      "name": "hfss.assign_layered_impedance",
+      "kind": "boundary",
+      "description": "Layered Impedance boundary: represent a stack of thin material layers (metal platings, conductive coatings, thin dielectrics, absorber laminates) on a surface by its equivalent surface impedance instead of meshing the layers. Each layer has a material and thickness, the boundary can be one- or two-sided, act as a shell element on a sheet, include surface roughness, and behave as an infinite ground plane.",
+      "usage": "bnd = hfss.assign_layered_impedance(assignment, is_two_side=False, material=None, thickness=None, is_infinite_ground=False,\n                                    is_shell_element=False, roughness=0.0, height_deviation=0.0, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Object names, sheet names or face IDs."},
+        {"name": "material / thickness", "description": "Single values or lists (one per layer, outermost first), e.g. [\"gold\", \"nickel\", \"copper\"] with [\"2um\", \"5um\", \"35um\"]."},
+        {"name": "is_two_side", "description": "True for a sheet with fields on both sides (e.g. a thin plated foil in free space)."},
+        {"name": "is_shell_element", "description": "Treat the sheet as a shell element with the given thickness."},
+        {"name": "roughness / height_deviation", "description": "Surface roughness (Groisse model) and, for SBR+ designs, RMS height deviation."}
+      ],
+      "example": "hfss.assign_layered_impedance(\"WaveguideWall\", material=[\"gold\", \"nickel\", \"aluminum\"],\n                              thickness=[\"1um\", \"3um\", \"1mm\"], roughness=\"0.5um\", name=\"Plating\")",
+      "notes": "Native: oModule.AssignLayeredImp([\"NAME:Layered1\", \"Objects:=\", [\"WaveguideWall\"], \"Frequency:=\", \"0GHz\", \"Roughness:=\", \"0.5um\", \"IsTwoSided:=\", False, \"IsShellElement:=\", False, [\"NAME:Layers\", [\"NAME:Layer1\", \"Thickness:=\", \"1um\", \"Material:=\", \"gold\"], ...], \"InfGroundPlane:=\", False]). Layer order in the native array is from the outside (field side) inward.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_layered_impedance.html"
+    },
+    {
+      "name": "hfss.assign_lumped_rlc_to_sheet / hfss.create_lumped_rlc_between_objects",
+      "kind": "boundary",
+      "description": "Lumped RLC boundary: a sheet that behaves as a parallel or series R, L, C network between its two ends along a current line. Used for matching components, loads, capacitive gaps, RFID chips and any two-terminal element small compared with the wavelength; the *_between_objects form creates the sheet between two conductors first. Unused elements are simply left None.",
+      "usage": "bnd = hfss.assign_lumped_rlc_to_sheet(assignment, start_direction=0, name=None, rlc_type=\"Parallel\",\n                                      resistance=None, inductance=None, capacitance=None)\nbnd = hfss.create_lumped_rlc_between_objects(assignment, reference, start_direction=0, name=None, rlc_type=\"Parallel\",\n                                             resistance=None, inductance=None, capacitance=None, is_boundary_on_plane=True)",
+      "parameters": [
+        {"name": "assignment", "description": "Sheet name (or, for between_objects, the first object)."},
+        {"name": "start_direction", "description": "Current line direction: hfss.AxisDir.XPos ... or explicit [[x0,y0,z0],[x1,y1,z1]] points on the sheet."},
+        {"name": "rlc_type", "description": "\"Parallel\" or \"Serial\"."},
+        {"name": "resistance / inductance / capacitance", "description": "Values in ohm, henry, farad; None disables that element."}
+      ],
+      "example": "gap = hfss.modeler.create_rectangle(\"XZ\", [\"x_load\", 0, 0], [\"w_gap\", \"h\"], name=\"LoadSheet\")\nhfss.assign_lumped_rlc_to_sheet(gap.name, hfss.AxisDir.ZPos, name=\"Load\", rlc_type=\"Parallel\",\n                                resistance=50, capacitance=1e-12)\nhfss.assign_lumped_rlc_to_sheet(\"ChipSheet\", [gap.bottom_edge_x.midpoint, gap.top_edge_x.midpoint],\n                                name=\"Chip\", rlc_type=\"Serial\", resistance=15, capacitance=0.9e-12)",
+      "notes": "Native: oModule.AssignLumpedRLC([\"NAME:LumpRLC1\", \"Objects:=\", [\"LoadSheet\"], [\"NAME:CurrentLine\", \"Start:=\", [...], \"End:=\", [...]], \"RLC Type:=\", \"Parallel\", \"UseResist:=\", True, \"Resistance:=\", \"50ohm\", \"UseInduct:=\", False, \"Inductance:=\", \"0nH\", \"UseCap:=\", True, \"Capacitance:=\", \"1pF\"]). The sheet must not touch the conductor along its whole boundary or the element is shorted.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_lumped_rlc_to_sheet.html"
+    },
+    {
+      "name": "hfss.assign_febi / hfss.assign_hybrid_region / hfss.assign_radiation_boundary_to_faces",
+      "kind": "boundary",
+      "description": "Open-region truncations and hybrid regions on objects and faces: FE-BI (finite element boundary integral, an exact conformal absorbing boundary that can be placed very close to the structure), hybrid regions solved with the IE, PO or SBR+ method instead of FEM (the object becomes part of a hybrid FEM-IE / FEM-SBR+ problem), and a radiation boundary applied to a selected list of faces rather than a whole object.",
+      "usage": "hfss.assign_febi(assignment, name=None)\nhfss.assign_hybrid_region(assignment, name=None, hybrid_region=\"SBR+\")\nhfss.assign_radiation_boundary_to_faces(assignment, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Object names/IDs/handles (febi, hybrid) or a list of face IDs (radiation_to_faces)."},
+        {"name": "hybrid_region", "description": "\"IE\", \"PO\" or \"SBR+\" - the asymptotic or integral-equation method applied to the region."},
+        {"name": "hfss.hybrid", "description": "Must be True (hybrid solution type) for hybrid regions; PyAEDT sets it when needed."}
+      ],
+      "example": "hfss.hybrid = True\nradome = hfss.modeler.create_sphere([0, 0, 0], 300, name=\"Radome\", material=\"vacuum\")\nhfss.assign_febi(\"Radome\", name=\"FEBI_outer\")\nplatform = hfss.modeler.import_3d_cad(\"C:/cad/mast.step\")\nhfss.assign_hybrid_region(\"Mast\", name=\"SBR_mast\", hybrid_region=\"SBR+\")\ntop = [hfss.modeler[\"Region\"].top_face_z.id]\nhfss.assign_radiation_boundary_to_faces(top, name=\"RadTop\")",
+      "notes": "Native: oModule.AssignFEBI([\"NAME:FE-BI1\", \"Objects:=\", [\"Radome\"]]), oModule.AssignHybridRegion([\"NAME:SBR1\", \"Objects:=\", [\"Mast\"], \"Type:=\", \"SBR+\"]) (IE/PO variants use the same call with Type \"IE\"/\"PO\"), oModule.AssignRadiation([\"NAME:Rad1\", \"Faces:=\", [..]]). FE-BI requires the HFSS hybrid license feature and cannot share faces with a symmetry plane.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_hybrid_region.html"
+    },
+    {
+      "name": "hfss.assign_voltage_source_to_sheet / hfss.assign_current_source_to_sheet / create_voltage_source_from_objects / create_current_source_from_objects",
+      "kind": "excitation",
+      "description": "Ideal voltage and current source excitations on a sheet, defined by a direction line across the sheet. They inject a fixed voltage or current at all frequencies (no port impedance, no S-parameters) and are used for driving antennas or resonators when only fields, radiated power or input impedance (through Z from field integrals) are wanted, and for eigen-like field excitation in Transient designs. The *_from_objects variants build the sheet between two conductors first.",
+      "usage": "src = hfss.assign_voltage_source_to_sheet(assignment, start_direction=0, name=None)\nsrc = hfss.assign_current_source_to_sheet(assignment, start_direction=0, name=None)\nsrc = hfss.create_voltage_source_from_objects(assignment, reference, start_direction=0, name=None, source_on_plane=True)\nsrc = hfss.create_current_source_from_objects(assignment, reference, start_direction=0, name=None, source_on_plane=True)",
+      "parameters": [
+        {"name": "assignment", "description": "Sheet name, or first object for the *_from_objects variants."},
+        {"name": "start_direction", "description": "hfss.AxisDir.* constant or [[start],[end]] points defining the source direction across the sheet."},
+        {"name": "magnitude / phase", "description": "Set afterwards with hfss.edit_sources({name: (\"1V\", \"0deg\")}) or by editing src.props[\"Voltage\"] / [\"Current\"]."}
+      ],
+      "example": "feed = hfss.modeler.create_rectangle(\"XZ\", [0, 0, 0], [\"w_gap\", \"h_gap\"], name=\"VSheet\")\nv1 = hfss.assign_voltage_source_to_sheet(feed.name, hfss.AxisDir.ZPos, name=\"V1\")\nv1.props[\"Voltage\"] = \"2V\"\nv1.update()\nhfss.analyze()\nprint(hfss.post.get_solution_data(\"Zin\", report_category=\"Fields\") if False else \"use Fields Calculator for Zin\")",
+      "notes": "Native: oModule.AssignVoltage([\"NAME:V1\", \"Voltage:=\", \"1V\", [\"NAME:Direction\", \"Start:=\", [...], \"End:=\", [...]], \"Faces:=\", [7]]) and oModule.AssignCurrent([\"NAME:I1\", \"Current:=\", \"1A\", [\"NAME:Direction\", ...], \"Faces:=\", [12]]). Voltage/current sources are not ports: reports offer Fields and Far Fields categories only, and Antenna Parameters use the accepted power from the source.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.assign_voltage_source_to_sheet.html"
+    },
+    {
+      "name": "hfss.plane_wave",
+      "kind": "excitation",
+      "description": "Create an incident plane wave, in Cartesian form (E0 vector and k vector) or spherical form (theta/phi angle ranges with E-theta/E-phi polarisation, allowing a sweep of incidence angles in one excitation), of propagating, evanescent or elliptically polarised type. Plane waves drive RCS, radome, FSS, shielding and SAR-from-external-field studies; the scattered fields and monostatic/bistatic RCS are then reported from the Far Fields category.",
+      "usage": "src = hfss.plane_wave(assignment=None, vector_format=\"Spherical\", origin=None, polarization=None,\n                      propagation_vector=None, wave_type=\"Propagating\", wave_type_properties=None, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Faces/objects the wave is applied to; None applies it to the whole model (all radiation faces)."},
+        {"name": "vector_format", "description": "\"Cartesian\" (polarization=[Ex,Ey,Ez], propagation_vector=[kx,ky,kz]) or \"Spherical\" (propagation_vector=[[phi_start, phi_stop, n_phi], [theta_start, theta_stop, n_theta]], polarization=\"Vertical\"/\"Horizontal\" or [E_theta, E_phi])."},
+        {"name": "origin", "description": "[x, y, z] phase reference point (default 0,0,0)."},
+        {"name": "wave_type / wave_type_properties", "description": "\"Propagating\", \"Evanescent\" (real/imag propagation constants) or \"Elliptical\" (polarisation angle and ratio)."}
+      ],
+      "example": "# monostatic RCS scan in the azimuth plane: 73 incidence directions, vertical polarisation\npw = hfss.plane_wave(vector_format=\"Spherical\", polarization=\"Vertical\",\n                     propagation_vector=[[\"0deg\", \"360deg\", 73], [\"90deg\", \"90deg\", 1]], name=\"IncPWave1\")\n\n# single Cartesian wave travelling along -z, E along x\npw2 = hfss.plane_wave(vector_format=\"Cartesian\", polarization=[1, 0, 0], propagation_vector=[0, 0, -1], name=\"PW_z\")",
+      "notes": "Native: oModule.AssignPlaneWave([\"NAME:IncPWave1\", \"IsCartesian:=\", False, \"PhiStart:=\", \"0deg\", \"PhiStop:=\", \"360deg\", \"PhiPoints:=\", 73, \"ThetaStart:=\", \"90deg\", \"ThetaStop:=\", \"90deg\", \"ThetaPoints:=\", 1, \"EoPhi:=\", \"0\", \"EoTheta:=\", \"1\", \"OriginX:=\", \"0mm\", ..., \"IsPropagating:=\", True, \"IsEvanescent:=\", False, \"IsEllipticallyPolarized:=\", False]). Use hfss.edit_sources(..., incident_wave=\"Scattered\") to choose scattered vs total fields in post-processing, and hfss.get_rcs_data for monostatic RCS export.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.plane_wave.html"
+    },
+    {
+      "name": "hfss.hertzian_dipole_wave / hfss.far_field_wave",
+      "kind": "excitation",
+      "description": "Two more incident-wave sources. A Hertzian dipole wave is an ideal electric or magnetic point dipole at a position with a polarisation vector, enclosed by a small sphere, used to excite cavities, test EMC coupling and generate reference fields. A far-field wave illuminates the model with the radiation pattern of another HFSS design (linked at solve time) or of an .ffd file, which is how a large platform is illuminated by a separately solved antenna without a hybrid region.",
+      "usage": "src = hfss.hertzian_dipole_wave(assignment=None, origin=None, polarization=None, is_electric=True, radius=\"10mm\", name=None)\nsrc = hfss.far_field_wave(assignment, setup=None, simulate_source=True, preserve_source_solution=True,\n                          coordinate_system=\"Global\", name=None)",
+      "parameters": [
+        {"name": "origin / polarization", "description": "Dipole position [x,y,z] and moment direction [px,py,pz]."},
+        {"name": "is_electric", "description": "True electric dipole, False magnetic dipole."},
+        {"name": "radius", "description": "Radius of the exclusion sphere around the dipole."},
+        {"name": "assignment (far_field_wave)", "description": "Source Hfss object (same or another project) or a path to an .ffd far-field file."},
+        {"name": "setup / simulate_source / preserve_source_solution", "description": "Source setup to link, whether to force solving it, and whether to keep its results."}
+      ],
+      "example": "hd = hfss.hertzian_dipole_wave(origin=[0, 0, \"h_cav/2\"], polarization=[0, 0, 1], is_electric=True, radius=\"2mm\", name=\"Dipole\")\n\nsource = Hfss(project=hfss.project_file, design=\"Feed\")\nffw = hfss.far_field_wave(assignment=source, setup=\"Setup1\", coordinate_system=\"FeedCS\", name=\"FeedIllum\")",
+      "notes": "Native: oModule.AssignHertzianDipoleWave([\"NAME:IncHDWave1\", \"IsCartesian:=\", True, \"EoX:=\", \"0\", \"EoY:=\", \"0\", \"EoZ:=\", \"1\", \"kX:=\", \"0\", \"kY:=\", \"0\", \"kZ:=\", \"1\", \"OriginX:=\", ..., \"SphereRadius:=\", \"2mm\", \"IsElectricDipole:=\", True]) and oModule.AssignFarFieldWave([...]). Gaussian beams (oModule.AssignGaussianBeam) and linear antenna waves exist in the object model but have no dedicated PyAEDT wrapper yet.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.hertzian_dipole_wave.html"
+    },
+    {
+      "name": "hfss.create_sbr_antenna (parametric beam sources)",
+      "kind": "excitation",
+      "description": "In an SBR+ design, add a parametric antenna source from the built-in library - conical horn, pyramidal horn, short dipole, half-wave dipole, small loop, parametric beam, Gaussian beam, wire monopole/dipole, slot, etc. (hfss.SbrAntennas enumerator) - placed at a coordinate system with a dictionary of parameters such as polarisation and beam widths. The antenna is a NativeComponentObject whose pattern excites the ray tracer; arrays of identical elements are created with is_array or a custom .sarr file.",
+      "usage": "ant = hfss.create_sbr_antenna(antenna_type=\"Conical Horn\", target_cs=None, units=None, parameters=None,\n                              use_current_source_representation=False, is_array=False, custom_array=None, name=None)",
+      "parameters": [
+        {"name": "antenna_type", "description": "Member of hfss.SbrAntennas (ConicalHorn, PyramidalHorn, ShortDipole, HalfWaveDipole, SmallLoop, ParametricBeam, ..., Wire types) or its string name."},
+        {"name": "target_cs", "description": "Coordinate system that positions and orients the antenna (None = working CS)."},
+        {"name": "parameters", "description": "Dict of antenna parameters, e.g. {\"Polarization\": \"Vertical\", \"Vertical BeamWidth\": \"30deg\", \"Horizontal BeamWidth\": \"60deg\"}."},
+        {"name": "use_current_source_representation", "description": "Represent the antenna by equivalent currents instead of a far-field pattern."},
+        {"name": "is_array / custom_array", "description": "Build a parametric array of the element, or read a custom array layout (.sarr)."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"SBR+\")\ncs = hfss.modeler.create_coordinate_system(origin=[0, 0, 1500], name=\"RadarCS\")\ntx = hfss.create_sbr_antenna(hfss.SbrAntennas.ParametricBeam, target_cs=\"RadarCS\",\n                             parameters={\"Polarization\": \"Vertical\", \"Vertical BeamWidth\": \"20deg\",\n                                         \"Horizontal BeamWidth\": \"60deg\"}, name=\"TX1\")\nhfss.set_sbr_txrx_settings({\"TX1\": \"TX1\"})",
+      "notes": "GUI: HFSS > Excitations > Assign > Antenna (SBR+ designs only). Sources become excitations named after the component and appear in edit_sources. create_sbr_file_based_antenna uses an .ffd pattern file; create_sbr_linked_antenna links a solved HFSS design.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.create_sbr_antenna.html"
+    },
+    {
+      "name": "hfss.create_sbr_linked_antenna (installed antenna from a solved HFSS design)",
+      "kind": "excitation",
+      "description": "Place a solved HFSS antenna design into an SBR+ design as a linked source: the near-field or far-field data of the source design (its currents, thin-source equivalents or pattern) illuminates the platform. This is the installed-antenna workflow - the antenna is solved once with FEM in its own design, then reused on vehicles, aircraft or buildings with SBR+ ray tracing, including arrays.",
+      "usage": "src = hfss.create_sbr_linked_antenna(assignment, target_cs=\"Global\", setup=None, field_type=\"nearfield\", use_composite_ports=False,\n                                     use_global_current=True, current_conformance=False, thin_sources=True,\n                                     power_fraction=\"0.95\", visible=True, is_array=False, custom_array=None, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Source Hfss object (open in the same session; may be another project)."},
+        {"name": "target_cs", "description": "Coordinate system in the SBR+ design where the antenna is placed."},
+        {"name": "setup", "description": "Source setup name; None uses its nominal setup."},
+        {"name": "field_type", "description": "\"nearfield\" (currents/near-field equivalent, more accurate close to the platform) or \"farfield\" (pattern only)."},
+        {"name": "thin_sources / power_fraction / current_conformance", "description": "Thin-source compression keeping the given power fraction, and conformance of currents to the target geometry."},
+        {"name": "visible", "description": "Show the source geometry in the target design."}
+      ],
+      "example": "target = Hfss(project=\"C:/work/car.aedt\", solution_type=\"SBR+\", version=\"2025.1\")\nsource = Hfss(project=\"C:/work/car.aedt\", design=\"PatchFeed\")\nant = target.create_sbr_linked_antenna(source, target_cs=\"RoofCS\", setup=\"Setup1\", field_type=\"farfield\", name=\"Roof\")\ntarget.create_setup(\"SBR1\", setup_type=\"HFSSSBR\")\ntarget.analyze()",
+      "notes": "The source design must be solved (or PyAEDT solves it) before the SBR+ setup runs; changes in the source invalidate the target. GUI: HFSS > Excitations > Assign > Linked Antenna / Setup Link. Equivalent for FEM targets is far_field_wave.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.create_sbr_linked_antenna.html"
+    },
+    {
+      "name": "hfss.edit_sources (post-processing source magnitudes and phases)",
+      "kind": "api",
+      "description": "Set the excitation weights used for field overlays, far fields, antenna parameters and active S-parameters after the solve - the Edit Sources dialog. Each port mode, terminal or incident wave gets a magnitude and phase (and for Terminal designs a termination flag), with options for port post-processing, incident-voltage definition, a system power reference for gain, and, for Eigenmode, stored-energy weights. Array scan and beamforming studies are done entirely here without re-solving.",
+      "usage": "hfss.edit_sources(assignment, include_port_post_processing=True, max_available_power=None, use_incident_voltage=False,\n                  eigenmode_stored_energy=True, incident_wave=None)\nhfss.edit_source_from_file(assignment, input_file, is_time_domain=True, x_scale=1, y_scale=1, ...)",
+      "parameters": [
+        {"name": "assignment", "description": "Dict {source_name: magnitude | (magnitude, phase) | (magnitude, phase, terminated)}; names are \"Port:mode\" for Modal (\"P1:1\"), terminal names for Terminal, incident wave names, or mode numbers for Eigenmode."},
+        {"name": "include_port_post_processing", "description": "Apply the port renormalisation/de-embedding in the field weighting."},
+        {"name": "max_available_power", "description": "System power reference, e.g. \"2W\"; None uses the maximum available power of the sources."},
+        {"name": "use_incident_voltage", "description": "Terminal designs: interpret magnitudes as incident voltages instead of power."},
+        {"name": "incident_wave", "description": "\"Scattered\", \"Incident\" or \"Total\" field type for incident-wave excitations."},
+        {"name": "edit_source_from_file", "description": "Load frequency- or time-dependent magnitudes/phases per source from a CSV (used for Transient and Push-Excitation workflows)."}
+      ],
+      "example": "# 4-element array: uniform amplitude, 90 deg progressive phase\nsources = {f\"P{i+1}:1\": (\"1W\", f\"{90*i}deg\") for i in range(4)}\nhfss.edit_sources(sources, include_port_post_processing=True)\nhfss.post.create_report(\"dB(GainTotal)\", hfss.nominal_adaptive, report_category=\"Far Fields\",\n                        primary_sweep_variable=\"Theta\", context=\"3D\", variations={\"Freq\": [\"10GHz\"], \"Phi\": [\"0deg\"], \"Theta\": [\"All\"]})\n\n# scattered field only for an RCS design\nhfss.edit_sources({\"IncPWave1\": (\"1V_per_meter\", \"0deg\")}, incident_wave=\"Scattered\")",
+      "notes": "Native: oModule = oDesign.GetModule(\"Solutions\"); oModule.EditSources([[\"FieldType:=\", \"ScatteredFields\", \"UseIncidentVoltage:=\", False, \"IncludePortPostProcessing:=\", True, \"SpecifySystemPower:=\", False], [\"Name:=\", \"P1:1\", \"Magnitude:=\", \"1W\", \"Phase:=\", \"0deg\"], ...]). Magnitudes are in W for ports (power) and V for terminals with incident voltage; the source weights are stored per design and used by every subsequent report until changed.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.edit_sources.html"
+    },
+    {
+      "name": "hfss.set_differential_pair",
+      "kind": "api",
+      "description": "Define a differential pair from two terminals of a Terminal (Driven Terminal) design, giving names and reference impedances for the differential and common modes and whether the pair is active. Once defined, mixed-mode quantities such as S(Diff1,Diff1), S(Comm1,Diff1) and the differential TDR are available in reports and Touchstone export, which is the standard way to characterise SerDes channels, twisted pairs and balanced antennas.",
+      "usage": "hfss.set_differential_pair(assignment, reference, common_mode=None, differential_mode=None, common_reference=25,\n                           differential_reference=100, active=True, matched=False)",
+      "parameters": [
+        {"name": "assignment / reference", "description": "Positive and negative terminal names."},
+        {"name": "differential_mode / common_mode", "description": "Names for the two mixed-mode ports (auto-generated when None)."},
+        {"name": "differential_reference / common_reference", "description": "Reference impedances in ohms (100 and 25 by default)."},
+        {"name": "active", "description": "Whether the pair is active (used in the mixed-mode matrix)."},
+        {"name": "matched", "description": "Use matched (individually 50 ohm) instead of the given references."}
+      ],
+      "example": "hfss = Hfss(solution_type=\"Terminal\")\nhfss.set_differential_pair(\"Trace_P_T1\", \"Trace_N_T1\", differential_mode=\"Diff1\", common_mode=\"Comm1\",\n                           differential_reference=90, common_reference=22.5)\nhfss.post.create_report(\"dB(S(Diff1,Diff1))\", context=\"Differential Pairs\")",
+      "notes": "Native: oModule = oDesign.GetModule(\"BoundarySetup\"); oModule.SetDiffPairs([\"NAME:DiffPairs\", [\"NAME:Pair\", \"PosBoundary:=\", \"Trace_P_T1\", \"NegBoundary:=\", \"Trace_N_T1\", \"CommonName:=\", \"Comm1\", \"CommonRefZ:=\", \"22.5ohm\", \"DiffName:=\", \"Diff1\", \"DiffRefZ:=\", \"90ohm\", \"IsActive:=\", True, \"UseMatched:=\", False]]). Hfss3dLayout and Circuit have the same method plus get_differential_pairs / load_diff_pairs_from_file / save_diff_pairs_to_file.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.set_differential_pair.html"
+    },
+    {
+      "name": "hfss.thicken_port_sheets",
+      "kind": "api",
+      "description": "Give wave-port sheets a metal thickness by thickening them outward (or inward) so that the port face is backed by a PEC cap, which is the recommended construction when a wave port cannot sit on the outer surface of the air region. PyAEDT thickens each listed sheet, optionally extrudes internally by a second amount to guarantee contact with the model, and reports which ports received a cap.",
+      "usage": "result = hfss.thicken_port_sheets(assignment=None, value=None, extrude_internally=True, internal_extrusion=1)",
+      "parameters": [
+        {"name": "assignment", "description": "List of port sheet names."},
+        {"name": "value", "description": "Thickness in model units applied outward."},
+        {"name": "extrude_internally / internal_extrusion", "description": "Also extrude inward by internal_extrusion units so the cap overlaps the model."},
+        {"name": "return", "description": "Dict mapping sheet names to the created port cap object names."}
+      ],
+      "example": "sheet = hfss.modeler.create_circle(\"YZ\", [\"-L\", 0, 0], \"r_out\", name=\"CoaxPortSheet\")\nhfss.wave_port(sheet.name, integration_line=hfss.AxisDir.ZPos, name=\"P1\")\nhfss.thicken_port_sheets([\"CoaxPortSheet\"], value=2, extrude_internally=True, internal_extrusion=1)",
+      "notes": "Ports inside the solution volume without a cap trigger the 'wave port is internal' validation error; the alternative is an inward-facing lumped port. The cap material is PEC; no boundary is needed on it.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.thicken_port_sheets.html"
+    },
+    {
+      "name": "BoundaryObject (props, update, update_assignment, delete, name, type)",
+      "kind": "api",
+      "description": "Every assign_* / *_port call returns a BoundaryObject: a live handle on the boundary or excitation whose props dictionary mirrors the native argument array (\"NumModes\", \"Impedance\", \"Resistance\", \"Faces\", \"Objects\", ...). Editing props and calling update() re-issues the corresponding Edit* command, update_assignment() moves the boundary to other faces/objects, delete() removes it, and available_properties / properties expose the ChildObject view. It is the way to modify an existing boundary without recreating it.",
+      "usage": "bnd = hfss.boundaries_by_type[\"Wave Port\"][0]      # or the object returned by hfss.wave_port(...)\nbnd.name, bnd.type, bnd.props, bnd.assignment\nbnd.props[\"NumModes\"] = 2\nbnd.update()\nbnd.props[\"Faces\"] = [new_face_id]\nbnd.update_assignment()\nbnd.properties[\"Renorm All Terminals\"] = False       # ChildObject property (GUI name)\nbnd.delete()",
+      "parameters": [
+        {"name": "props", "description": "Dict of native property names -> values, editable; keys depend on the boundary type (record a script to see them)."},
+        {"name": "properties / available_properties", "description": "ChildObject property names as shown in the Properties window, settable directly (AEDT 2022 R2+)."},
+        {"name": "update()", "description": "Push props to AEDT via the matching Edit command (EditWavePort, EditImpedance, ...)."},
+        {"name": "update_assignment()", "description": "Re-assign faces/objects from props[\"Faces\"] / props[\"Objects\"] (ReassignBoundary)."},
+        {"name": "type", "description": "\"Wave Port\", \"Lumped Port\", \"Perfect E\", \"Finite Conductivity\", \"Radiation\", \"Lattice Pair\", \"Floquet Port\", ..."}
+      ],
+      "example": "port = hfss.wave_port(\"PortSheet\", name=\"P1\")\nport.props[\"NumModes\"] = 2\nport.props[\"DoDeembed\"] = True\nport.props[\"DeembedDist\"] = \"5mm\"\nport.update()\n\nfor b in hfss.boundaries:\n    print(b.name, b.type, b.assignment if hasattr(b, 'assignment') else '')\nrad = hfss.boundaries_by_type.get(\"Radiation\", [])\nif rad:\n    rad[0].delete()",
+      "notes": "props keys are the native names, e.g. wave port modes live under props[\"Modes\"][\"Mode1\"][\"UseIntLine\"]. Setting a key that the boundary type does not know fails silently at update() - check the recorded array. hfss.boundaries and hfss.boundaries_by_type are rebuilt lazily; call after native edits.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.boundary.common.BoundaryObject.html"
+    },
+    {
+      "name": "hfss.boundaries / boundaries_by_type / excitation_names / excitations_by_type / ports / design_excitations",
+      "kind": "api",
+      "description": "Inventories of what is assigned in the design: hfss.boundaries lists every boundary and excitation as BoundaryObjects, boundaries_by_type groups them by native type name, excitation_names gives the port/source names used in S-parameter expressions (with mode suffixes for Modal designs via get_all_sources / get_all_source_modes), ports lists port names, and design_excitations returns the excitation objects. Scripts iterate these to build reports, edit sources or validate a model built by someone else.",
+      "usage": "hfss.boundaries                  # list[BoundaryObject]\nhfss.boundaries_by_type          # {\"Wave Port\": [...], \"Perfect E\": [...], ...}\nhfss.excitation_names            # ['P1', 'P2']\nhfss.excitations_by_type         # {\"Wave Port\": [...]}\nhfss.ports                       # port names\nhfss.design_excitations          # {name: BoundaryObject}\nhfss.get_all_sources() / hfss.get_all_source_modes()\nhfss.get_all_sparameter_list / hfss.get_all_return_loss_list() / hfss.get_all_insertion_loss_list()",
+      "parameters": [
+        {"name": "get_all_sources / get_all_source_modes", "description": "Source names as used by edit_sources, e.g. ['P1:1', 'P2:1'] in Modal designs."},
+        {"name": "get_all_return_loss_list / get_all_insertion_loss_list", "description": "Ready-made expression lists dB(S(i,i)) and dB(S(i,j)) for create_report."},
+        {"name": "field_setup_names / field_setups", "description": "Radiation (infinite sphere / near field) setup names and objects, kept separately from boundaries."}
+      ],
+      "example": "print(hfss.excitation_names)\nfor kind, objs in hfss.boundaries_by_type.items():\n    print(kind, [o.name for o in objs])\nhfss.post.create_report(hfss.get_all_return_loss_list() + hfss.get_all_insertion_loss_list())\nsources = {s: (\"1W\", \"0deg\") for s in hfss.get_all_sources()}\nhfss.edit_sources(sources)",
+      "notes": "Native: oModule.GetBoundaries(), GetExcitations(), GetBoundariesOfType(type), GetBoundaryAssignment(name). Excitation names inside 3D components are prefixed with the component name.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.html"
+    },
+    {
+      "name": "hfss.insert_near_field_sphere / insert_near_field_box / insert_near_field_line / insert_near_field_rectangle / insert_near_field_points",
+      "kind": "api",
+      "description": "Create near-field radiation setups (Radiation > Insert Near Field Setup) on a sphere, box, line, rectangle or an arbitrary point list, in a chosen coordinate system and optionally restricted to a custom radiation surface. Near-field setups make the Near Fields report category available (NearE, NearH, NearEx..., NearETotal) for EMC limit checks, field probing at a distance, SAR-like exposure planes and coupling to other tools.",
+      "usage": "nf = hfss.insert_near_field_sphere(radius=20, radius_units=\"mm\", phi_start=0, phi_stop=180, phi_step=10, theta_start=0,\n                                   theta_stop=180, theta_step=10, angle_units=\"deg\", custom_radiation_faces=None,\n                                   custom_coordinate_system=None, name=None)\nnf = hfss.insert_near_field_box(u_length=20, u_samples=21, v_length=20, v_samples=21, w_length=20, w_samples=21, units=\"mm\", ...)\nnf = hfss.insert_near_field_rectangle(u_length=20, u_samples=21, v_length=20, v_samples=21, units=\"mm\", custom_radiation_faces=None,\n                                      custom_coordinate_system=None, name=None)\nnf = hfss.insert_near_field_line(assignment, points=1000, custom_radiation_faces=None, name=None)\nnf = hfss.insert_near_field_points(input_file, coordinate_system=\"Global\", custom_radiation_faces=None, name=None)",
+      "parameters": [
+        {"name": "radius / u_length / v_length / w_length", "description": "Geometry of the sampling surface in the given units, centred at the custom CS origin."},
+        {"name": "*_samples / theta_step / phi_step", "description": "Sampling density of the near-field grid."},
+        {"name": "custom_coordinate_system", "description": "CS defining position and orientation of the surface."},
+        {"name": "custom_radiation_faces", "description": "Face list name to use as the radiating surface instead of all radiation boundaries."},
+        {"name": "assignment (line)", "description": "Existing polyline along which fields are sampled."},
+        {"name": "input_file (points)", "description": "Text file with x y z points."}
+      ],
+      "example": "cs = hfss.modeler.create_coordinate_system(origin=[0, 0, \"3m\"], name=\"NF_CS\")\nnf = hfss.insert_near_field_rectangle(u_length=\"1m\", u_samples=51, v_length=\"1m\", v_samples=51, units=\"m\",\n                                      custom_coordinate_system=\"NF_CS\", name=\"NF_3m\")\nhfss.analyze()\ndata = hfss.post.get_solution_data(\"NearETotal\", report_category=\"Near Fields\", context=\"NF_3m\",\n                                   primary_sweep_variable=\"U\", variations={\"Freq\": [\"1GHz\"], \"U\": [\"All\"], \"V\": [\"0m\"]})",
+      "notes": "Native: oModule = oDesign.GetModule(\"RadField\"); oModule.InsertSphereSetup([...]), InsertBoxSetup([\"NAME:MyBox\", \"UseCustomRadiationSurface:=\", False, \"Length:=\", \"20mm\", \"Width:=\", \"20mm\", \"LengthSamples:=\", 21, \"WidthSamples:=\", 21, \"CoordSystem:=\", \"Global\", \"Height:=\", \"20mm\", \"HeightSamples:=\", 21]), InsertLineSetup, InsertRectangleSetup, InsertPointListSetup. Not available in Eigenmode or Characteristic Mode designs; the surface must lie outside the solved volume when only far-field data is saved (SaveRadFields).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.insert_near_field_rectangle.html"
+    },
+    {
+      "name": "FarFieldSetup object (infinite sphere: theta/phi ranges, definition, polarization, custom surface, local CS)",
+      "kind": "api",
+      "description": "The object returned by hfss.insert_infinite_sphere and listed in hfss.field_setups. Its properties map the Infinite Sphere dialog: theta/phi (or azimuth/elevation) start, stop and step, the angle definition (Theta-Phi, Az Over El, El Over Az), polarisation (Linear, Slant with slant_angle), a custom radiation surface face list and a local coordinate system for the pattern axes. Editing a property updates the setup immediately; delete() removes it.",
+      "usage": "ff = hfss.insert_infinite_sphere(definition=\"Theta-Phi\", x_start=0, x_stop=180, x_step=10, y_start=0, y_stop=180, y_step=10,\n                                 units=\"deg\", custom_radiation_faces=None, custom_coordinate_system=None, use_slant_polarization=False,\n                                 polarization_angle=45, name=None)\nff.theta_start / theta_stop / theta_step / phi_start / phi_stop / phi_step\nff.azimuth_start / elevation_start ...        # for Az/El definitions\nff.definition, ff.polarization, ff.slant_angle\nff.use_custom_radiation_surface, ff.custom_radiation_surface\nff.use_local_coordinate_system, ff.local_coordinate_system\nff.props / ff.update() / ff.delete()\nhfss.field_setups / hfss.field_setup_names",
+      "parameters": [
+        {"name": "definition", "description": "\"Theta-Phi\", \"Az Over El\" or \"El Over Az\"."},
+        {"name": "polarization / slant_angle", "description": "\"Linear\" or \"Slant\" with the slant angle in degrees (affects GainL3X/L3Y style quantities)."},
+        {"name": "custom_radiation_surface", "description": "Face-list name used as Huygens surface (useful with FE-BI or when only part of the boundary radiates)."},
+        {"name": "local_coordinate_system", "description": "CS whose axes define theta=0 and phi=0."}
+      ],
+      "example": "ff = hfss.insert_infinite_sphere(name=\"3D\", x_step=2, y_step=2)\nff.theta_start = \"-90deg\"; ff.theta_stop = \"90deg\"\nff.use_local_coordinate_system = True\nff.local_coordinate_system = \"AntCS\"\nprint(ff.props)\ncut = hfss.insert_infinite_sphere(name=\"Ecut\", x_start=-180, x_stop=180, x_step=1, y_start=0, y_stop=0, y_step=1)",
+      "notes": "Native: oModule = oDesign.GetModule(\"RadField\"); oModule.InsertInfiniteSphereSetup([\"NAME:3D\", \"UseCustomRadiationSurface:=\", False, \"CSDefinition:=\", \"Theta-Phi\", \"Polarization:=\", \"Linear\", \"ThetaStart:=\", \"0deg\", \"ThetaStop:=\", \"180deg\", \"ThetaStep:=\", \"2deg\", \"PhiStart:=\", \"-180deg\", \"PhiStop:=\", \"180deg\", \"PhiStep:=\", \"2deg\", \"UseLocalCS:=\", False]) and EditInfiniteSphereSetup(name, [...]). Finer steps increase report size but not solve time.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.boundary.hfss_boundary.FarFieldSetup.html"
+    },
+    {
+      "name": "hfss.sar_setup / hfss.set_radiated_power_calc_method / hfss.set_phase_center_per_port",
+      "kind": "api",
+      "description": "Design-level post-processing settings: sar_setup fixes the averaging mass, tissue density, voxel size and standard (IEEE 1528 or Ansys) used by the Average_SAR field quantity; set_radiated_power_calc_method selects how radiated power is computed for antenna parameters (integrate the far field, or use accepted power and losses); set_phase_center_per_port stores a phase-centre location per port for far-field phase reporting and array export.",
+      "usage": "hfss.sar_setup(assignment=-1, tissue_mass=1, material_density=1, voxel_size=1, average_sar_method=0)\nhfss.set_radiated_power_calc_method(method=\"Auto\")     # \"Auto\", \"Radiation Surface Integral\", \"Far Field Integral\"\nhfss.set_phase_center_per_port(coordinate_system=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Object ID of the tissue object, or -1 for the whole model."},
+        {"name": "tissue_mass / material_density / voxel_size", "description": "Averaging mass in g (1 g or 10 g), density in g/cm3, voxel size in mm."},
+        {"name": "average_sar_method", "description": "0 = IEEE Standard 1528, 1 = Ansys method."},
+        {"name": "method", "description": "Radiated power calculation method for Antenna Parameters."},
+        {"name": "coordinate_system", "description": "List of CS names, one per port, used as phase centres (None = Global for all)."}
+      ],
+      "example": "hfss.sar_setup(assignment=hfss.modeler[\"Head\"].id, tissue_mass=10, material_density=1.03, voxel_size=1, average_sar_method=0)\nhfss.analyze()\nsar = hfss.post.get_scalar_field_value(\"Average_SAR\", \"Maximum\", object_name=\"Head\")\nhfss.set_radiated_power_calc_method(\"Radiation Surface Integral\")",
+      "notes": "SAR needs the tissue objects to have mass_density set in their materials and the fields saved. GUI: HFSS > Design Settings > SAR Setup; Radiated Power Calculation Method is under Design Settings as well.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.sar_setup.html"
+    },
+    {
+      "name": "hfss.set_mesh_fusion_settings (mesh assembly of 3D components)",
+      "kind": "mesh",
+      "description": "Configure Mesh Fusion: the 3D components that are meshed independently and then fused into the global mesh, each with an envelope padding [+x,-x,+y,-y,+z,-z] and an optional priority flag. Mesh fusion lets components with very different scales (a connector on a large board, a feed in a reflector) be meshed with their own settings and reused across variations without re-meshing the whole model.",
+      "usage": "hfss.set_mesh_fusion_settings(assignment=None, volume_padding=None, priority=None)",
+      "parameters": [
+        {"name": "assignment", "description": "List of 3D component instance names to include; None disables mesh fusion."},
+        {"name": "volume_padding", "description": "List of six-value padding lists, one per component, in model units."},
+        {"name": "priority", "description": "Component names whose mesh takes priority in overlaps."}
+      ],
+      "example": "hfss.set_mesh_fusion_settings(assignment=[\"Elem0\", \"Elem1\", \"Connector\"],\n                              volume_padding=[[0]*6, [0]*6, [1, 1, 1, 1, 2, 0]],\n                              priority=[\"Connector\"])",
+      "notes": "GUI: HFSS > Mesh > Mesh Fusion Settings (requires the components to be 3D components, not plain objects). Not available in the Student edition (mesh assemblies disabled).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.hfss.Hfss.set_mesh_fusion_settings.html"
+    },
+    {
+      "name": "hfss.mesh.assign_model_resolution",
+      "kind": "mesh",
+      "description": "Model Resolution mesh operation: instruct the mesher to ignore geometric details smaller than a given length on the selected objects (or to pick the length automatically), so tiny fillets, chamfers, text and CAD noise do not generate excessive elements. It is the solver-side alternative to healing/defeaturing the CAD and the first remedy when an imported part produces millions of tetrahedra.",
+      "usage": "op = hfss.mesh.assign_model_resolution(assignment, defeature_length=None, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Object names, IDs or handles."},
+        {"name": "defeature_length", "description": "Length in model units below which features are dropped; None enables automatic length."},
+        {"name": "return", "description": "MeshOperation object (props: \"UseAutoLength\", \"DefeatureLength\", \"Objects\")."}
+      ],
+      "example": "hfss.mesh.assign_model_resolution([\"Housing\", \"Screws\"], defeature_length=0.2, name=\"ModelRes_housing\")\nauto = hfss.mesh.assign_model_resolution(\"Connector\")   # automatic",
+      "notes": "Native: oModule = oDesign.GetModule(\"MeshSetup\"); oModule.AssignModelResolutionOp([\"NAME:ModelResolution1\", \"Objects:=\", [\"Housing\"], \"UseAutoLength:=\", False, \"DefeatureLength:=\", \"0.2mm\"]). Global automatic model resolution is set in Initial Mesh Settings (assign_initial_mesh_from_slider auto_model_resolution).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.mesh.Mesh.assign_model_resolution.html"
+    },
+    {
+      "name": "hfss.mesh.assign_surface_mesh / hfss.mesh.assign_surface_mesh_manual",
+      "kind": "mesh",
+      "description": "Surface Approximation mesh operations controlling how curved surfaces are faceted: assign_surface_mesh uses the 1-10 slider level of the Initial Mesh Settings on specific objects, assign_surface_mesh_manual sets the explicit surface deviation, normal deviation angle and aspect ratio on selected faces. Tighter values improve accuracy on cylinders, spheres and coax pins at the cost of elements.",
+      "usage": "op = hfss.mesh.assign_surface_mesh(assignment, level, name=None)\nop = hfss.mesh.assign_surface_mesh_manual(assignment, surface_deviation=None, normal_dev=None, aspect_ratio=None, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Object names/IDs (slider variant) or face IDs / FacePrimitives (manual variant)."},
+        {"name": "level", "description": "1 (coarse) to 10 (fine) slider value."},
+        {"name": "surface_deviation", "description": "Maximum distance between the true surface and the facets (length with units, or \"inf\" to ignore)."},
+        {"name": "normal_dev", "description": "Maximum angle between true and faceted normals, e.g. \"15deg\"."},
+        {"name": "aspect_ratio", "description": "Maximum triangle aspect ratio on the surface."}
+      ],
+      "example": "pin = hfss.modeler[\"CoaxPin\"]\nhfss.mesh.assign_surface_mesh_manual([f.id for f in pin.faces], surface_deviation=\"0.02mm\", normal_dev=\"10deg\",\n                                     aspect_ratio=4, name=\"PinSurf\")\nhfss.mesh.assign_surface_mesh(\"Radome\", level=7, name=\"RadomeSurf\")",
+      "notes": "Native: oModule.AssignTrueSurfOp([\"NAME:TrueSurf1\", \"Faces:=\", [9], \"SurfDevChoice:=\", 2, \"SurfDev:=\", \"0.02mm\", \"NormalDevChoice:=\", 2, \"NormalDev:=\", \"10deg\", \"AspectRatioChoice:=\", 2, \"AspectRatio:=\", 4]) where *Choice 1 = ignore, 2 = use value. Curvilinear elements are usually a better way to capture curvature than very small deviations.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.mesh.Mesh.assign_surface_mesh_manual.html"
+    },
+    {
+      "name": "hfss.mesh.assign_curvilinear_elements / hfss.mesh.assign_curvature_extraction",
+      "kind": "mesh",
+      "description": "Two operations for curved geometry: Apply Curvilinear Elements makes the tetrahedra on the selected objects/faces follow the true curved surface (second-order geometry), which dramatically improves accuracy of resonant frequencies and losses on cylinders, spheres and curved conductors with far fewer elements; Curvature Extraction recovers smooth curvature from faceted (STL/Nastran) imports so the mesher treats them as curved rather than as many flat facets.",
+      "usage": "op = hfss.mesh.assign_curvilinear_elements(assignment, enable=True, name=None)\nop = hfss.mesh.assign_curvature_extraction(assignment, disabled_for_faceted=True, name=None)",
+      "parameters": [
+        {"name": "assignment", "description": "Objects or face IDs."},
+        {"name": "enable", "description": "True applies curvilinear elements, False explicitly disables them on the selection (overriding the global setting)."},
+        {"name": "disabled_for_faceted", "description": "Whether curvature extraction is disabled for surfaces detected as faceted."}
+      ],
+      "example": "hfss.mesh.assign_curvilinear_elements([\"Cavity\", \"CoaxPin\"], name=\"Curvi\")\nhfss.mesh.assign_curvature_extraction(\"ScannedRadome\", disabled_for_faceted=False, name=\"CurvExtract\")",
+      "notes": "Native: oModule.AssignApplyCurvlinearElementsOp([\"NAME:CurvilinearElements1\", \"Objects:=\", [\"Cavity\"], \"Apply:=\", True]) and oModule.AssignCurvatureExtractionOp([...]). Curvilinear meshing can be enabled globally in Initial Mesh Settings (curvilinear=True in assign_initial_mesh_from_slider).",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.mesh.Mesh.assign_curvilinear_elements.html"
+    },
+    {
+      "name": "hfss.mesh.assign_initial_mesh_from_slider / hfss.mesh.initial_mesh_settings",
+      "kind": "mesh",
+      "description": "Global Initial Mesh Settings for the design: the surface-approximation slider level, the mesh method (Auto, TAU, Classic), dynamic surface resolution, flex meshing for TAU, curvilinear elements everywhere, fallback to alternative meshers, Phi mesher for layered geometry, and automatic or fixed global model resolution. initial_mesh_settings exposes the same data as an editable MeshOperation-like object.",
+      "usage": "hfss.mesh.assign_initial_mesh_from_slider(level=5, method=\"Auto\", dynamic_surface=True, flex_mesh=False, curvilinear=False,\n                                          fallback=True, phi=True, auto_model_resolution=True, model_resolution_length=\"0.0001mm\")\nims = hfss.mesh.initial_mesh_settings\nims.props[\"MeshMethod\"] = \"AnsoftTAU\"\nims.update()",
+      "parameters": [
+        {"name": "level", "description": "Surface approximation slider 1-10 (5 default)."},
+        {"name": "method", "description": "\"Auto\", \"AnsoftTAU\" or \"AnsoftClassic\" initial mesher."},
+        {"name": "dynamic_surface / flex_mesh / fallback", "description": "TAU options: dynamic surface resolution, flexible volume meshing, fall back to Classic when TAU fails."},
+        {"name": "curvilinear", "description": "Apply curvilinear elements globally."},
+        {"name": "phi", "description": "Allow the Phi (layered) mesher for planar layered geometry."},
+        {"name": "auto_model_resolution / model_resolution_length", "description": "Global model resolution automatic, or fixed length."}
+      ],
+      "example": "hfss.mesh.assign_initial_mesh_from_slider(level=6, method=\"AnsoftTAU\", curvilinear=True, fallback=True,\n                                          auto_model_resolution=False, model_resolution_length=\"0.05mm\")\nprint(hfss.mesh.initial_mesh_settings.props)",
+      "notes": "Native: oModule.InitialMeshSettings([\"NAME:MeshSettings\", [\"NAME:GlobalSurfApproximation\", \"CurvedSurfaceApproxChoice:=\", \"UseSlider\", \"SliderMeshSettings:=\", 6], [\"NAME:GlobalCurvilinear\", \"Apply:=\", True], [\"NAME:GlobalModelRes\", \"UseAutoLength:=\", False, \"ModelResLength:=\", \"0.05mm\"], \"MeshMethod:=\", \"AnsoftTAU\", \"UseLegacyFaceterForTAUVolumeMesh:=\", False, \"DynamicSurfaceResolution:=\", False, \"UseFlexMeshingForTAUvolumeMesh:=\", False, \"UseAlternativeMeshMethodsAsFallBack:=\", True, \"AllowPhiForLayeredGeometry:=\", True]). Phi Plus is selected in 3D Layout through set_meshing_settings.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.mesh.Mesh.assign_initial_mesh_from_slider.html"
+    },
+    {
+      "name": "hfss.mesh.generate_mesh / hfss.mesh.delete_mesh_operations / meshoperations / meshoperation_names",
+      "kind": "mesh",
+      "description": "Run the mesher for a setup without solving (Analysis > Apply Mesh Operations / Generate Mesh), remove all or one type of mesh operations, and list the existing operations as MeshOperation objects. Generating the mesh first lets a script check element counts and mesh statistics, catch meshing failures early and produce Plot Mesh pictures before committing to an adaptive solve.",
+      "usage": "hfss.mesh.generate_mesh(name)              # setup name\nhfss.mesh.delete_mesh_operations(mesh_type=None)\nhfss.mesh.meshoperations               # list[MeshOperation]\nhfss.mesh.meshoperation_names\nhfss.export_mesh_stats(setup, variations=\"\", output_file=None)",
+      "parameters": [
+        {"name": "name", "description": "Analysis setup whose settings (frequency, lambda refinement) drive the initial mesh."},
+        {"name": "mesh_type", "description": "None deletes all operations; otherwise a type such as \"LengthBased\", \"SkinDepthBased\", \"SurfApproxBased\", \"ModelResolution\"."},
+        {"name": "export_mesh_stats", "description": "Writes the mesh statistics (.ms) file for the setup/variation; native oDesign.ExportMeshStats."}
+      ],
+      "example": "hfss.create_setup(\"Setup1\", Frequency=\"10GHz\")\nhfss.mesh.generate_mesh(\"Setup1\")\nstats = hfss.export_mesh_stats(\"Setup1\", output_file=\"C:/work/mesh.ms\")\nprint(hfss.mesh.meshoperation_names)\nhfss.mesh.delete_mesh_operations(\"SkinDepthBased\")",
+      "notes": "Native: oDesign.GenerateMesh(setup) and oModule.DeleteOp([names]). generate_mesh honours all mesh operations and the initial mesh settings but not adaptive refinement; the element count after generation is the starting point of pass 1.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.mesh.Mesh.generate_mesh.html"
+    },
+    {
+      "name": "MeshOperation object (props, update, delete)",
+      "kind": "mesh",
+      "description": "Handle returned by every hfss.mesh.assign_* call and listed in hfss.mesh.meshoperations: a dictionary of the native properties of the operation (\"MaxLength\", \"NumMaxElem\", \"SkinDepth\", \"NumLayers\", \"SurfDev\", \"Objects\", \"Faces\", ...) with update() to push edits through the matching Edit*Op command and delete() to remove the operation. Convergence studies that vary a mesh length or a skin-depth layer count loop over props without recreating operations.",
+      "usage": "op = hfss.mesh.assign_length_mesh(\"Patch\", maximum_length=\"0.5mm\", maximum_elements=None, name=\"PatchLen\")\nop.name, op.type, op.props\nop.props[\"MaxLength\"] = \"0.3mm\"\nop.update()\nop.delete()\nfor op in hfss.mesh.meshoperations: print(op.name, op.type)",
+      "parameters": [
+        {"name": "props", "description": "Native property dictionary; key names follow the recorded argument array of the operation type."},
+        {"name": "type", "description": "\"LengthBased\", \"SkinDepthBased\", \"SurfApproxBased\", \"ModelResolution\", \"Curvilinear\", \"CurvatureExtraction\"."}
+      ],
+      "example": "op = hfss.mesh.assign_skin_depth(hfss.get_all_conductors_names(), skin_depth=\"1um\", layers_number=\"2\", name=\"Skin\")\nfor n_layers in (2, 3, 4):\n    op.props[\"NumLayers\"] = n_layers\n    op.update()\n    hfss.analyze(\"Setup1\")\n    print(n_layers, hfss.post.get_solution_data(\"dB(S(2,1))\").primary_sweep_values[:3])",
+      "notes": "Native edits: oModule.EditLengthOp(name, [...]), EditSkinDepthOp, EditTrueSurfOp, EditModelResolutionOp. Renaming through props[\"Name\"] is not supported; delete and recreate instead.",
+      "docs": "https://aedt.docs.pyansys.com/version/stable/API/_autosummary/ansys.aedt.core.modules.mesh.Mesh.html"
+    }
+  ]
+}

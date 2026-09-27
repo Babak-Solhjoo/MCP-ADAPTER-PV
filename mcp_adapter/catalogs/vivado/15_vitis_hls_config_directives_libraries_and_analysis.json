@@ -1,0 +1,635 @@
+{
+  "category": "Vitis HLS: Configuration Commands, Directives, Libraries & Analysis",
+  "description": "The remainder of the Vitis HLS command set: the unified-flow component commands (2023.2+), the config_* commands that set solution-wide defaults for compilation, dataflow, RTL generation, scheduling, operators/storage, export and co-simulation, the set_directive_* commands (with their #pragma HLS twins) not covered by the basic pragma entries, the C++ libraries (ap_int, ap_fixed, hls::stream, hls::vector, hls_math, FFT/FIR/DDS, hls::task, stream-of-blocks, Vitis Vision and the other Vitis libraries), and the reports and GUI views used to analyse a synthesized design.",
+  "tools": [
+    {
+      "name": "open_component / vitis-run --mode hls (unified HLS flow, 2023.2+)",
+      "kind": "tcl-command",
+      "description": "In the Vitis Unified IDE flow an HLS design is a 'component' described by hls_config.cfg (INI-style: part, clock, flow_target, syn.file, tb.file, syn.top, and every config_*/directive setting under [hls]) instead of a Tcl project/solution; open_component -flow_target vivado|vitis (with -reset) replaces open_project + open_solution in scripts run by vitis-run --mode hls --tcl, and v++ -c --mode hls --config hls_config.cfg --work_dir <dir> runs synthesis from the command line. The classic vitis_hls -f script.tcl with open_project/open_solution remains supported for existing scripts.",
+      "usage": "vitis-run --mode hls --tcl run_hls.tcl\n# run_hls.tcl\nopen_component -reset comp_fir -flow_target vivado\nadd_files fir.cpp\nadd_files -tb fir_tb.cpp\nset_top fir\nset_part xcu250-figd2104-2L-e\ncreate_clock -period 3.33 -name default\ncsim_design\ncsynth_design\ncosim_design\nexport_design -format ip_catalog\n# or purely from a config file\nv++ -c --mode hls --config ./hls_config.cfg --work_dir ./fir_work",
+      "parameters": [
+        {"name": "open_component -reset -flow_target vivado|vitis", "description": "Create or reopen a component directory; the flow target selects Vivado IP or Vitis kernel defaults (interfaces, resets, 64-bit m_axi)."},
+        {"name": "hls_config.cfg keys", "description": "part=..., [hls] flow_target=vivado, clock=3.33, syn.file=fir.cpp, syn.top=fir, tb.file=fir_tb.cpp, syn.compile.pipeline_loops=64, syn.directive.pipeline=loop_label ... (every config_* option maps to a key)."},
+        {"name": "v++ -c --mode hls", "description": "Compile the component from the config file; --work_dir sets the output location; -o for .xo when flow_target=vitis."},
+        {"name": "vitis-run --mode hls --csim / --cosim / --package? (see notes)", "description": "Run individual stages non-interactively."}
+      ],
+      "example": "# hls_config.cfg\npart=xczu7ev-ffvc1156-2-e\n[hls]\nflow_target=vivado\nclock=5\nsyn.file=src/fir.cpp\nsyn.top=fir\ntb.file=tb/fir_tb.cpp\nsyn.compile.pipeline_loops=64\nsyn.directive.pipeline=fir/SHIFT_LOOP\nsyn.directive.array_partition=fir shift_reg type=complete\npackage.output.format=ip_catalog",
+      "notes": "The unified IDE (vitis -w workspace) creates the component folder with hls_config.cfg and shows a Flow Navigator (C Simulation, C Synthesis, C/RTL Cosimulation, Package, Implementation). Directives in the config file use syn.directive.<name>=<location> <options> syntax; the Tcl set_directive_* forms still work inside a --tcl script. Consult the release's UG1399 for the exact vitis-run stage switches.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Launching-Vitis-HLS"
+    },
+    {
+      "name": "set_clock_uncertainty (Vitis HLS)",
+      "kind": "tcl-command",
+      "description": "Set the clock uncertainty (in ns or as a percentage of the period) that HLS subtracts from the clock period when scheduling, leaving margin for the Vivado placement/routing delays that HLS cannot predict. The default is 27% of the period; lowering it packs more logic per cycle (fewer cycles, higher risk of timing failure in Vivado), raising it does the opposite. Applied per solution and reported in the synthesis report's timing summary.",
+      "usage": "set_clock_uncertainty <value>[%] [<clock_name>]",
+      "parameters": [
+        {"name": "<value>", "description": "Absolute ns (e.g. 0.5) or percentage (e.g. 12.5%)."},
+        {"name": "<clock_name>", "description": "Clock created with create_clock -name (default clock if omitted)."}
+      ],
+      "example": "create_clock -period 4.0 -name default\nset_clock_uncertainty 0.8\n# or\nset_clock_uncertainty 15%\ncsynth_design",
+      "notes": "The estimated clock period in the report already includes the uncertainty; if Vivado still fails timing, raise it or pipeline the offending functions. In hls_config.cfg the key is clock_uncertainty.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_clock_uncertainty"
+    },
+    {
+      "name": "config_compile",
+      "kind": "tcl-command",
+      "description": "Front-end compilation defaults for the solution: -pipeline_loops <n> sets the trip-count threshold above which inner loops are pipelined automatically (default 64; 0 disables auto-pipelining), -pipeline_style stp|flp|frp selects the default pipeline type (stall, flushable, free-running), -enable_auto_rewind allows automatic loop rewind, -unsafe_math_optimizations and -no_signed_zeros permit floating-point reassociation and ignoring signed zero for faster arithmetic, -name_max_length limits generated RTL name lengths, -pragma_strict_mode makes misplaced pragmas errors, -pre_tcl runs a Tcl script before synthesis and -ignore_long_run_time silences long-runtime warnings.",
+      "usage": "config_compile [-enable_auto_rewind=true|false] [-ignore_long_run_time=true|false] [-name_max_length <n>] [-no_signed_zeros=true|false] [-pipeline_flush_in_task always|never|ii1] [-pipeline_loops <threshold>] [-pipeline_style stp|flp|frp] [-pragma_strict_mode=true|false] [-pre_tcl <script>] [-unsafe_math_optimizations=true|false]",
+      "parameters": [
+        {"name": "-pipeline_loops", "description": "Auto-pipeline loops with trip count >= threshold (default 64)."},
+        {"name": "-pipeline_style", "description": "stp (stall pipeline, default), flp (flushable), frp (free-running); overridden per loop by PIPELINE style=."},
+        {"name": "-unsafe_math_optimizations / -no_signed_zeros", "description": "Enable associative/commutative float optimizations (results may differ from C)."},
+        {"name": "-name_max_length", "description": "Maximum RTL identifier length (default 256)."},
+        {"name": "-pragma_strict_mode", "description": "Error on pragmas that cannot be applied."}
+      ],
+      "example": "open_solution -reset sol_fast -flow_target vivado\nconfig_compile -pipeline_loops 16 -pipeline_style frp -unsafe_math_optimizations=true -name_max_length 80\ncsynth_design",
+      "notes": "hls_config.cfg keys: syn.compile.pipeline_loops, syn.compile.pipeline_style, syn.compile.unsafe_math_optimizations ... Auto-pipelining of a loop that should stay sequential (e.g. one containing a stream read with a loop-carried dependency) is a common source of II violations; set -pipeline_loops 0 to take manual control.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_compile"
+    },
+    {
+      "name": "config_dataflow",
+      "kind": "tcl-command",
+      "description": "Defaults for channels created between DATAFLOW processes: -default_channel pingpong|fifo chooses ping-pong buffers (whole arrays, default) or FIFOs (streams) for arrays passed between tasks, -fifo_depth sets the default FIFO depth (2), -start_fifo_depth / -scalar_fifo_depth / -task_level_fifo_depth size the control and scalar propagation FIFOs, -strict_mode off|warning|error decides how canonical-form violations are reported, -disable_fifo_sizing_opt and -override_user_fifo_depth control FIFO sizing, and -strict_stable_sync ties stable ports to ap_done. Wrong FIFO depths are the leading cause of dataflow deadlocks, which cosim_design -enable_dataflow_profiling / -enable_fifo_sizing help diagnose.",
+      "usage": "config_dataflow [-default_channel fifo|pingpong] [-disable_fifo_sizing_opt] [-fifo_depth <n>] [-override_user_fifo_depth <n>] [-scalar_fifo_depth <n>] [-start_fifo_depth <n>] [-strict_mode off|warning|error] [-strict_stable_sync=true|false] [-task_level_fifo_depth <n>]",
+      "parameters": [
+        {"name": "-default_channel", "description": "pingpong (default; two copies of the array) or fifo (needs sequential access order)."},
+        {"name": "-fifo_depth", "description": "Default depth for fifo channels and hls::stream without an explicit depth."},
+        {"name": "-start_fifo_depth / -scalar_fifo_depth / -task_level_fifo_depth", "description": "Depths of the ap_start propagation, scalar and task-level FIFOs."},
+        {"name": "-strict_mode", "description": "Report code that breaks the dataflow canonical form (single producer/consumer, no bypass) as warning or error."}
+      ],
+      "example": "config_dataflow -default_channel fifo -fifo_depth 16 -strict_mode error\ncsynth_design\ncosim_design -enable_dataflow_profiling -enable_fifo_sizing   ;# suggests depths in the cosim report",
+      "notes": "Per-variable overrides use #pragma HLS STREAM variable=x depth=N type=fifo|pipo. The Dataflow Viewer in the GUI shows channel types/depths and the cosim profile shows stalls per channel.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_dataflow"
+    },
+    {
+      "name": "config_rtl",
+      "kind": "tcl-command",
+      "description": "RTL generation options: -reset none|control|state|all selects which registers get the reset (control = only the FSM/handshake logic, default; state adds internal state; all includes arrays of registers, costly), -reset_level low|high sets the polarity (ap_rst_n vs ap_rst), -reset_async uses asynchronous reset, -register_reset_num adds pipeline registers on the reset, -module_auto_prefix / -module_prefix prefix RTL module names to avoid collisions when several HLS IP are used together, -header inserts a text header in every output file, -kernel_profile adds Vitis profiling ports, -deadlock_detection none|sim|hw|hw_diagnosis adds deadlock monitors, -mult_keep_attribute keeps multipliers from being merged, and -register_all_io registers all top-level I/O.",
+      "usage": "config_rtl [-deadlock_detection none|sim|hw|hw_diagnosis] [-header <file>] [-kernel_profile] [-module_auto_prefix] [-module_prefix <string>] [-mult_keep_attribute] [-register_all_io] [-register_reset_num <n>] [-reset none|control|state|all] [-reset_async] [-reset_level low|high]",
+      "parameters": [
+        {"name": "-reset", "description": "Which registers are reset; 'all' also resets array (BRAM) contents through initialization logic and increases area."},
+        {"name": "-reset_level / -reset_async", "description": "Active-low synchronous is the Vivado IP default; Vitis kernels use active-low too."},
+        {"name": "-module_prefix / -module_auto_prefix", "description": "Prefix generated RTL module names (auto uses the top function name)."},
+        {"name": "-deadlock_detection", "description": "Insert deadlock detection into simulation (sim) or hardware (hw); hw_diagnosis adds diagnosis registers."},
+        {"name": "-register_reset_num", "description": "Number of registers on the reset path (helps timing on large designs; default 0 for Vivado, 3 for Vitis flow)."}
+      ],
+      "example": "config_rtl -reset control -reset_level low -module_prefix fir_v2_ -header ./license_header.txt\ncsynth_design",
+      "notes": "Using -reset all on designs with large arrays creates long reset sequences (one cycle per element) and extra logic; keep control and initialise data explicitly. Module prefixing is essential when two versions of the same HLS IP coexist in one Vivado project.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_rtl"
+    },
+    {
+      "name": "config_schedule",
+      "kind": "tcl-command",
+      "description": "Scheduler settings: -enable_dsp_full_reg (default true) fully registers DSP48 inputs/outputs for maximum frequency, and in older releases -effort low|medium|high, -relax_ii_for_timing (allow the scheduler to increase II to meet timing rather than fail) and -verbose were available. Most tuning is done through directives; this command is used to relax or tighten the global scheduling behaviour.",
+      "usage": "config_schedule [-enable_dsp_full_reg=true|false] [-effort low|medium|high] [-relax_ii_for_timing=true|false] [-verbose]",
+      "parameters": [
+        {"name": "-enable_dsp_full_reg", "description": "Register DSP inputs and outputs (true); false saves latency at the cost of Fmax."},
+        {"name": "-relax_ii_for_timing", "description": "Permit a higher II than requested when the timing constraint cannot otherwise be met (release dependent)."},
+        {"name": "-effort", "description": "Scheduling effort (release dependent)."}
+      ],
+      "example": "config_schedule -enable_dsp_full_reg=false   ;# lower latency accumulator, check timing afterwards\ncsynth_design",
+      "notes": "Options have been trimmed over releases; run config_schedule -help in your version. Timing violations after synthesis are usually addressed with set_clock_uncertainty, LATENCY/PIPELINE directives or config_op -latency rather than scheduler effort.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_schedule"
+    },
+    {
+      "name": "config_array_partition",
+      "kind": "tcl-command",
+      "description": "Global array-partitioning behaviour: -complete_threshold <n> sets the size below which arrays are automatically partitioned completely into registers (default 4 elements? release dependent, see notes), -throughput_driven off|auto|aggressive lets HLS partition arrays automatically to reach the requested throughput (auto is on by default and can silently explode register usage on large arrays), and older releases offered -auto_partition_threshold / -auto_promotion_threshold / -include_extern_globals / -scalarize_all. Use it to stop unwanted automatic partitioning or to raise the threshold for small lookup tables.",
+      "usage": "config_array_partition [-complete_threshold <n>] [-throughput_driven off|auto|aggressive] [-include_extern_globals] [-scalarize_all]",
+      "parameters": [
+        {"name": "-complete_threshold", "description": "Arrays with at most this many elements are fully partitioned automatically."},
+        {"name": "-throughput_driven", "description": "off disables automatic partitioning driven by pipelining; aggressive partitions more."},
+        {"name": "-include_extern_globals / -scalarize_all", "description": "Extend automatic partitioning to extern globals / all small arrays (older releases)."}
+      ],
+      "example": "config_array_partition -throughput_driven off -complete_threshold 0\nset_directive_array_partition -type cyclic -factor 4 -dim 1 fir shift_reg\ncsynth_design",
+      "notes": "Automatic partitioning shows in the synthesis log as 'Partitioning array ... automatically'; if BRAM usage collapses and FF/LUT usage explodes, this is the switch to check. hls_config.cfg key: syn.array_partition.*.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_array_partition"
+    },
+    {
+      "name": "config_op",
+      "kind": "tcl-command",
+      "description": "Set the default implementation and latency for a class of operators across the whole design: config_op <op> -impl dsp|fabric|meddsp|fulldsp|maxdsp|primitivedsp|auto|none|all -latency <n>, where ops are integer mul/add/sub, single-precision fadd/fsub/fmul/fdiv/fsqrt/frsqrt/frecip/fexp/flog/facc/fmacc/fmadd, double-precision dadd/dsub/dmul/ddiv/dsqrt/drsqrt/drecip/dexp/dlog and half-precision hadd/hsub/hmul/hdiv/hsqrt; -precision low|standard|high selects the accumulator precision for facc/fmacc/fmadd. It is the global form of BIND_OP: e.g. force all multipliers into DSPs, or make float adds use fabric to save DSPs.",
+      "usage": "config_op <op_name> [-impl dsp|fabric|meddsp|fulldsp|maxdsp|primitivedsp|auto|none|all] [-latency <n>] [-precision low|standard|high]",
+      "parameters": [
+        {"name": "<op_name>", "description": "mul, add, sub, fadd, fsub, fmul, fdiv, fexp, flog, fsqrt, frsqrt, frecip, facc, fmacc, fmadd, dadd, dsub, dmul, ddiv, dexp, dlog, dsqrt, drsqrt, drecip, hadd, hsub, hmul, hdiv, hsqrt."},
+        {"name": "-impl", "description": "Resource type; meddsp/fulldsp/maxdsp are the floating-point DSP usage levels."},
+        {"name": "-latency", "description": "Pipeline depth of the operator (-1 = default for the implementation)."},
+        {"name": "-precision", "description": "Floating-point accumulator precision (facc/fmacc/fmadd only)."}
+      ],
+      "example": "config_op mul -impl dsp -latency 3\nconfig_op fadd -impl fabric\nconfig_op facc -impl fulldsp -precision high\ncsynth_design",
+      "notes": "Per-variable control uses set_directive_bind_op / #pragma HLS BIND_OP. Operator implementations available depend on the device (e.g. hadd/hmul DSP support only on newer families). config_storage is the storage-side equivalent.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_op"
+    },
+    {
+      "name": "config_storage",
+      "kind": "tcl-command",
+      "description": "Global default for how a storage type is implemented and its latency: config_storage <type> -impl <impl> -latency <n>, where types are fifo (and in older releases ram_1p, ram_2p, ram_t2p, rom_1p, rom_2p, ...), impls include bram, lutram, uram, srl, memory, auto. Typically used to make all FIFOs (hls::stream channels) use SRLs or block RAM, or to set a default latency; per-array control is BIND_STORAGE.",
+      "usage": "config_storage <type> [-impl bram|lutram|uram|srl|memory|auto] [-latency <n>]",
+      "parameters": [
+        {"name": "<type>", "description": "fifo (current releases); ram_1p/ram_2p/ram_t2p/rom_1p/rom_np etc. in older releases."},
+        {"name": "-impl", "description": "Resource for the storage type."},
+        {"name": "-latency", "description": "Read latency in cycles (e.g. 1 for LUTRAM, 2 for BRAM with output register)."}
+      ],
+      "example": "config_storage fifo -impl srl\nset_directive_bind_storage -type ram_2p -impl uram top big_buffer\ncsynth_design",
+      "notes": "Shallow FIFOs (depth <= 16-32) in SRL save block RAM; deep or wide ones should be bram/uram. hls_config.cfg key: syn.storage.<type>.impl.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_storage"
+    },
+    {
+      "name": "config_export",
+      "kind": "tcl-command",
+      "description": "Defaults for export_design: -format ip_catalog|xo|syn_dcp|sysgen, -rtl verilog|vhdl, -output path, IP identity (-ipname, -vendor, -library, -version, -display_name, -description, -taxonomy), and the optional Vivado evaluation run controls: -flow none|syn|impl runs Vivado synthesis or implementation on the exported RTL to report real timing/resources, with -vivado_synth_strategy, -vivado_impl_strategy, -vivado_phys_opt none|place|route|all, -vivado_optimization_level 0-3, -vivado_clock (override the target clock), -vivado_pblock, -vivado_report_level and -vivado_max_timing_paths; -ip_xdc_file / -ip_xdc_ooc_file bundle user constraints into the IP; -cosim_trace_generation and -hwemu_trace_dir? relate to Vitis hardware-emulation test vectors.",
+      "usage": "config_export [-format ip_catalog|xo|syn_dcp|sysgen] [-rtl verilog|vhdl] [-output <path>] [-ipname <s>] [-vendor <s>] [-library <s>] [-version <s>] [-display_name <s>] [-description <s>] [-taxonomy <s>] [-flow none|syn|impl] [-vivado_synth_strategy <s>] [-vivado_impl_strategy <s>] [-vivado_phys_opt none|place|route|all] [-vivado_optimization_level 0|1|2|3] [-vivado_clock <ns>] [-vivado_pblock <range>] [-vivado_report_level 0|1|2] [-vivado_max_timing_paths <n>] [-vivado_synth_design_args <s>] [-ip_xdc_file <f>] [-ip_xdc_ooc_file <f>] [-cosim_trace_generation=true|false]",
+      "parameters": [
+        {"name": "-format", "description": "ip_catalog (Vivado IP .zip), xo (Vitis kernel object), syn_dcp (synthesized checkpoint), sysgen."},
+        {"name": "-flow syn|impl", "description": "Run Vivado out-of-context synthesis/implementation for the 'Export RTL' report (timing met? resources)."},
+        {"name": "-vivado_*", "description": "Strategy, phys_opt, optimisation level and clock for that evaluation run."},
+        {"name": "-ipname/-vendor/-library/-version", "description": "VLNV of the packaged IP (xilinx.com:hls:<top>:1.0 by default)."}
+      ],
+      "example": "config_export -format ip_catalog -rtl verilog -vendor mycompany.com -library hls -ipname fir_hls -version 2.1 -display_name \"FIR (HLS)\" -flow impl -vivado_phys_opt all -vivado_clock 3.5\nexport_design -output ./ip_repo/fir_hls.zip",
+      "notes": "Options given directly to export_design override config_export. The implementation evaluation run takes minutes to hours but is the only reliable Fmax/resource check before integration; its reports are under solution/impl/report.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_export"
+    },
+    {
+      "name": "config_cosim",
+      "kind": "tcl-command",
+      "description": "Defaults for cosim_design: -rtl verilog|vhdl, -tool xsim|vcs|xcelium|riviera|modelsim (via cosim_design -tool), -trace_level none|all|port|port_hier to dump waveforms, -wave_debug to open the simulator GUI, -setup to generate the co-simulation files without running, -ldflags/-mflags/-argv for the testbench build and run, -O for optimised testbench compilation, -random_stall / -user_stall <json> to stall interfaces randomly or from a file (exposes handshake bugs), -disable_deadlock_detection / -disable_dependency_check, -enable_dataflow_profiling and -enable_fifo_sizing (report channel occupancy and suggest depths), -stable_axilite_update, -enable_tasks_with_m_axi, -coverage (VCS) and -hwemu_trace_dir for Vitis emulation vectors.",
+      "usage": "config_cosim [-O] [-argv <string>] [-compiled_library_dir <dir>] [-coverage] [-disable_deadlock_detection] [-disable_dependency_check] [-enable_dataflow_profiling] [-enable_fifo_sizing] [-enable_tasks_with_m_axi] [-hwemu_trace_dir <dir>] [-ldflags <string>] [-mflags <string>] [-random_stall] [-rtl verilog|vhdl] [-setup] [-stable_axilite_update] [-trace_level none|all|port|port_hier] [-user_stall <file.json>] [-wave_debug]",
+      "parameters": [
+        {"name": "-trace_level", "description": "none (default), port (top ports only), port_hier (ports of all modules), all (everything)."},
+        {"name": "-random_stall / -user_stall", "description": "Inject random or scripted stalls on AXI/stream interfaces during co-simulation."},
+        {"name": "-enable_dataflow_profiling / -enable_fifo_sizing", "description": "Channel utilisation profile and automatic FIFO depth suggestions for DATAFLOW designs."},
+        {"name": "-wave_debug", "description": "Open the xsim (or third-party) GUI with waveforms."},
+        {"name": "-setup", "description": "Prepare solution/sim/<rtl> scripts only, to run the simulation manually later."}
+      ],
+      "example": "config_cosim -trace_level port_hier -random_stall -enable_dataflow_profiling\ncosim_design -rtl verilog -tool xsim\n# waveform: solution1/sim/verilog/<top>.wdb (open in Vivado: open_wave_database)",
+      "notes": "Co-simulation reuses the C testbench: its main() must return 0 on success and compare against a golden model. Deadlock detection stops the simulation and points to the blocked channel; combine with the dataflow profile to fix FIFO depths.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_cosim"
+    },
+    {
+      "name": "config_unroll",
+      "kind": "tcl-command",
+      "description": "Global unrolling threshold: -tripcount_threshold <n> makes HLS fully unroll every loop whose trip count is at most n (default 0 = no automatic unrolling), which is a quick way to unroll all the small fixed loops in a design without individual UNROLL pragmas.",
+      "usage": "config_unroll -tripcount_threshold <n>",
+      "parameters": [
+        {"name": "-tripcount_threshold", "description": "Loops with trip count <= n are unrolled automatically."}
+      ],
+      "example": "config_unroll -tripcount_threshold 8\ncsynth_design",
+      "notes": "Fully unrolling loops that contain memory accesses can create port conflicts (II violations) unless the arrays are partitioned accordingly.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/config_unroll"
+    },
+    {
+      "name": "set_directive_array_reshape / #pragma HLS ARRAY_RESHAPE",
+      "kind": "tcl-command",
+      "description": "Combine array partitioning with width widening: instead of creating separate arrays like ARRAY_PARTITION, ARRAY_RESHAPE packs the partitioned elements into wider words of a single memory (e.g. block factor 4 turns 1024 x 8-bit into 256 x 32-bit), so several elements are read per cycle through one port without multiplying memories. Types block, cyclic and complete and -factor/-dim behave as for partitioning.",
+      "usage": "set_directive_array_reshape [-type block|cyclic|complete] [-factor <n>] [-dim <d>] [-off] <location> <array>\n#pragma HLS ARRAY_RESHAPE variable=<array> type=block|cyclic|complete factor=<n> dim=<d>",
+      "parameters": [
+        {"name": "-type", "description": "block (contiguous chunks), cyclic (interleaved), complete (one wide word per dimension)."},
+        {"name": "-factor", "description": "Number of elements packed per word."},
+        {"name": "-dim", "description": "Dimension to reshape (0 = all)."}
+      ],
+      "example": "void filter(int8_t in[1024]) {\n#pragma HLS ARRAY_RESHAPE variable=in type=cyclic factor=4 dim=1\n  for (int i = 0; i < 1024; i += 4) {\n#pragma HLS PIPELINE II=1\n    acc += in[i] + in[i+1] + in[i+2] + in[i+3];   // one 32-bit read\n  }\n}\n# Tcl: set_directive_array_reshape -type cyclic -factor 4 -dim 1 filter in",
+      "notes": "Reshaping a top-level interface array changes its port width (visible in the RTL). Cannot be combined with ARRAY_PARTITION on the same dimension. Works with BIND_STORAGE to choose the memory type of the reshaped array.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_array_reshape"
+    },
+    {
+      "name": "set_directive_loop_merge / #pragma HLS LOOP_MERGE",
+      "kind": "tcl-command",
+      "description": "Merge consecutive loops in a function (or region) into one, removing the cycles spent entering/exiting each loop and allowing optimisation across them, provided the loops have compatible bounds (constant or the same variable) and no code between them that depends on the order. -force merges even when HLS's safety checks would refuse, at the user's risk of changing behaviour.",
+      "usage": "set_directive_loop_merge [-force] <location>\n#pragma HLS LOOP_MERGE [force]",
+      "parameters": [
+        {"name": "<location>", "description": "Function or loop label containing the loops to merge."},
+        {"name": "-force", "description": "Merge despite the checks (bounds, dependencies)."}
+      ],
+      "example": "void f(int a[N], int b[N], int c[N]) {\n#pragma HLS LOOP_MERGE\n  L1: for (int i = 0; i < N; i++) a[i] = a[i] * 2;\n  L2: for (int i = 0; i < N; i++) c[i] = a[i] + b[i];\n}",
+      "notes": "Loops with different trip counts can only be merged if the bounds are constants (HLS uses the maximum and predicates the bodies). Merging loops that write and then read the same array can break correctness; verify with cosim_design.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_loop_merge"
+    },
+    {
+      "name": "set_directive_loop_flatten / #pragma HLS LOOP_FLATTEN",
+      "kind": "tcl-command",
+      "description": "Flatten a perfect (or semi-perfect) loop nest into a single loop so that pipelining the outer loop needs no extra cycles at inner-loop boundaries; HLS flattens automatically when an outer loop is pipelined and the nest is perfect, so the directive mainly forces flattening on semi-perfect nests or, with -off, prevents it (useful when flattening creates a large multiplier for the index or hurts timing).",
+      "usage": "set_directive_loop_flatten [-off] <location> [<loop_label>]\n#pragma HLS LOOP_FLATTEN [off]",
+      "parameters": [
+        {"name": "-off", "description": "Prevent flattening of this loop nest."},
+        {"name": "<loop_label>", "description": "The loop (inner-most or the outer) to apply to."}
+      ],
+      "example": "ROW: for (int r = 0; r < ROWS; r++) {\n  COL: for (int c = 0; c < COLS; c++) {\n#pragma HLS PIPELINE II=1\n#pragma HLS LOOP_FLATTEN\n    out[r][c] = in[r][c] * k;\n  }\n}",
+      "notes": "Perfect nest: only the innermost loop has a body and the bounds are constant. Flattened loops report a single trip count (ROWS*COLS) in the synthesis report.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_loop_flatten"
+    },
+    {
+      "name": "set_directive_allocation / #pragma HLS ALLOCATION",
+      "kind": "tcl-command",
+      "description": "Limit the number of instances of a function or an operation (mul, add, fadd, ... ) in a scope, forcing HLS to share hardware: e.g. allow at most two multipliers in a loop body to save DSPs at the cost of more cycles, or limit an inlined? (non-inlined) function to one instance. -type function applies to function calls, -type operation to operators.",
+      "usage": "set_directive_allocation -limit <n> -type function|operation <location> <instances>\n#pragma HLS ALLOCATION instances=<name> limit=<n> type=function|operation",
+      "parameters": [
+        {"name": "-limit", "description": "Maximum number of instances."},
+        {"name": "-type", "description": "function (named function) or operation (operator: mul, add, sub, fadd, fmul, sdiv, udiv, urem, ... )."},
+        {"name": "<instances>", "description": "Function name or operator name."}
+      ],
+      "example": "void top(...) {\n#pragma HLS ALLOCATION instances=mul limit=4 type=operation\n#pragma HLS ALLOCATION instances=compute_tap limit=1 type=function\n  ...\n}\n# Tcl: set_directive_allocation -limit 4 -type operation top mul",
+      "notes": "Only applies to non-inlined functions (add INLINE off) and to operations of the given kind at the specified bit widths? no: all widths of that operator. Check the resulting II in the report; sharing raises II when the limit is below the parallelism of a pipelined loop.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_allocation"
+    },
+    {
+      "name": "set_directive_stream / #pragma HLS STREAM",
+      "kind": "tcl-command",
+      "description": "Implement an array (or hls::stream) that connects DATAFLOW tasks as a FIFO channel of a given depth instead of the default ping-pong buffer (-type fifo, the default for this directive, or pipo to force ping-pong; shared / unsync exist for special cases), and set the depth of hls::stream objects declared in the code. Streams reduce memory (no double buffer) when data is produced and consumed in order; the depth must cover rate mismatches to avoid deadlock.",
+      "usage": "set_directive_stream [-depth <n>] [-type fifo|pipo|shared|unsync] [-off] <location> <variable>\n#pragma HLS STREAM variable=<name> depth=<n> type=fifo|pipo|shared|unsync [off]",
+      "parameters": [
+        {"name": "-depth", "description": "FIFO depth (elements)."},
+        {"name": "-type", "description": "fifo (stream), pipo (ping-pong), shared (single-buffer with handshake), unsync (no synchronization)."},
+        {"name": "-off", "description": "Do not stream this array (keep as memory)."}
+      ],
+      "example": "void top(...) {\n#pragma HLS DATAFLOW\n  static hls::stream<data_t> ch;\n#pragma HLS STREAM variable=ch depth=64\n  int tmp[1024];\n#pragma HLS STREAM variable=tmp type=fifo depth=16\n  produce(tmp); consume(tmp, ch); sink(ch);\n}",
+      "notes": "For hls::stream declared with a template depth (hls::stream<T, DEPTH>) the pragma is unnecessary. config_dataflow -default_channel fifo streams every array by default. Deadlocks in cosim usually mean a depth too small for the producer's burst.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_stream"
+    },
+    {
+      "name": "set_directive_bind_op / #pragma HLS BIND_OP",
+      "kind": "tcl-command",
+      "description": "Bind a specific variable's operation to a hardware implementation and latency: -op mul|add|sub|fadd|fmul|fdiv|fsqrt|dmul|... with -impl dsp|fabric|meddsp|fulldsp|maxdsp|primitivedsp and -latency <n>. It replaces the old RESOURCE directive for operators and is used to force a multiplier into fabric to save DSPs, to make a float add use the DSP-based implementation, or to add pipeline stages to an operator that limits Fmax.",
+      "usage": "set_directive_bind_op -op <op> [-impl <impl>] [-latency <n>] <location> <variable>\n#pragma HLS BIND_OP variable=<var> op=<op> impl=<impl> latency=<n>",
+      "parameters": [
+        {"name": "-op", "description": "Operator name as in config_op (mul, add, sub, fadd, fsub, fmul, fdiv, fexp, flog, fsqrt, frsqrt, frecip, dadd, dmul, ... hadd, hmul ...)."},
+        {"name": "-impl", "description": "dsp, fabric, meddsp, fulldsp, maxdsp, primitivedsp."},
+        {"name": "-latency", "description": "Pipeline latency of the bound operator."}
+      ],
+      "example": "int mac(int a, int b, int acc) {\n  int prod = a * b;\n#pragma HLS BIND_OP variable=prod op=mul impl=dsp latency=3\n  return acc + prod;\n}",
+      "notes": "The variable must be the result of the operation. A latency that is too small for the target clock produces a timing violation reported in the synthesis report; too large increases pipeline depth.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_bind_op"
+    },
+    {
+      "name": "set_directive_occurrence / #pragma HLS OCCURRENCE",
+      "kind": "tcl-command",
+      "description": "Tell the scheduler that a region of code inside a pipelined loop or function executes only once every -cycle N iterations (e.g. code under an if that is true every Nth iteration), so its operations can be scheduled with a relaxed initiation interval of N and shared, saving resources. The condition itself is not changed; the directive is a hint whose truth the user guarantees.",
+      "usage": "set_directive_occurrence [-cycle <n>] <location>\n#pragma HLS OCCURRENCE cycle=<n>",
+      "parameters": [
+        {"name": "-cycle", "description": "The region executes at most once per n iterations of the enclosing pipeline."}
+      ],
+      "example": "L: for (int i = 0; i < 1024; i++) {\n#pragma HLS PIPELINE II=1\n  if ((i & 3) == 0) {\n#pragma HLS OCCURRENCE cycle=4\n    coef = expensive_update(coef);   // scheduled with II=4\n  }\n  out[i] = in[i] * coef;\n}",
+      "notes": "If the region actually executes more often than declared, results are wrong; co-simulation catches such mismatches only if the testbench exercises the case.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_occurrence"
+    },
+    {
+      "name": "set_directive_protocol / #pragma HLS PROTOCOL",
+      "kind": "tcl-command",
+      "description": "Mark a code region as a protocol region in which HLS must not reorder or reschedule the statements relative to each other or insert clock cycles arbitrarily: -mode floating (default; other code may overlap with the region) or fixed (nothing else overlaps). Used with ap_wait()/ap_wait_n() to hand-write cycle-accurate signalling sequences on ap_none/ap_vld/ap_hs ports, such as a custom bus handshake or a strobe pattern.",
+      "usage": "set_directive_protocol [-mode floating|fixed] <location>\n#pragma HLS PROTOCOL [floating|fixed]",
+      "parameters": [
+        {"name": "-mode", "description": "floating: other operations can be scheduled in parallel; fixed: the region is isolated in time."}
+      ],
+      "example": "#include \"ap_utils.h\"\nvoid ctrl(volatile bool *strobe, volatile int *data, int v) {\n#pragma HLS INTERFACE ap_none port=strobe\n#pragma HLS INTERFACE ap_none port=data\n  { \n#pragma HLS PROTOCOL fixed\n    *data = v; ap_wait(); *strobe = 1; ap_wait_n(2); *strobe = 0;\n  }\n}",
+      "notes": "Protocol regions are the only way to guarantee cycle timing of port writes in HLS; everywhere else the scheduler is free to move I/O. Variables written inside must be volatile to keep each access.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_protocol"
+    },
+    {
+      "name": "set_directive_dependence / #pragma HLS DEPENDENCE",
+      "kind": "tcl-command",
+      "description": "Override HLS's dependence analysis for a variable or a whole loop: declare that a loop-carried (inter) or intra-iteration (intra) dependence of a given direction (RAW, WAR, WAW) is false (-dependent false), letting the loop pipeline at II=1 when the tool conservatively assumed a memory dependence (e.g. reads and writes to different addresses of the same array that it cannot prove distinct), or declare a true dependence with a -distance to enforce it. Wrong 'false' declarations produce hardware that silently computes wrong results, so the testbench must cover the aliasing cases.",
+      "usage": "set_directive_dependence [-variable <var>] [-class array|pointer] [-type inter|intra] [-direction RAW|WAR|WAW] [-distance <n>] -dependent true|false <location>\n#pragma HLS DEPENDENCE variable=<var> class=array|pointer type=inter|intra direction=RAW|WAR|WAW distance=<n> dependent=true|false",
+      "parameters": [
+        {"name": "-variable", "description": "The array/pointer; omit to apply to all dependences in the location."},
+        {"name": "-type", "description": "inter (between loop iterations) or intra (within one iteration)."},
+        {"name": "-direction", "description": "RAW (read after write), WAR, WAW."},
+        {"name": "-dependent", "description": "false removes the dependence, true enforces it (with -distance)."},
+        {"name": "-distance", "description": "Iteration distance of a true inter dependence."}
+      ],
+      "example": "void hist(int in[N], int h[256]) {\n  L: for (int i = 0; i < N; i++) {\n#pragma HLS PIPELINE II=1\n#pragma HLS DEPENDENCE variable=h type=inter direction=RAW dependent=false   // only valid if consecutive bins differ (or with a local cache)\n    h[in[i]]++;\n  }\n}",
+      "notes": "The synthesis log prints 'Unable to schedule ... due to dependence' with the variable and loop when a dependence blocks pipelining; the Schedule Viewer highlights it. Prefer restructuring (local accumulator, bin caching) over blindly declaring false dependences.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_dependence"
+    },
+    {
+      "name": "set_directive_expression_balance / #pragma HLS EXPRESSION_BALANCE",
+      "kind": "tcl-command",
+      "description": "Control the automatic balancing of long expression chains (a+b+c+d+... rewritten as a balanced tree to shorten the critical path and reduce latency). It is on by default for integer and, with unsafe math, floating-point operations; -off keeps the sequential chain, which can be preferable when a chain maps naturally to a cascade of DSP adders or to preserve a specific evaluation order.",
+      "usage": "set_directive_expression_balance [-off] <location>\n#pragma HLS EXPRESSION_BALANCE [off]",
+      "parameters": [
+        {"name": "-off", "description": "Disable balancing in the function/region."}
+      ],
+      "example": "int sum8(int x[8]) {\n#pragma HLS EXPRESSION_BALANCE off\n  return x[0]+x[1]+x[2]+x[3]+x[4]+x[5]+x[6]+x[7];  // keep the DSP adder cascade\n}",
+      "notes": "Balancing floating-point expressions changes rounding; HLS only does it when config_compile -unsafe_math_optimizations is set.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_expression_balance"
+    },
+    {
+      "name": "set_directive_top / #pragma HLS TOP",
+      "kind": "tcl-command",
+      "description": "Designate the top-level function for synthesis from within the source (with an optional RTL name) as an alternative to set_top in the script; useful when the same source tree is synthesized with different tops or when the top must be renamed in the RTL (name= gives the module name).",
+      "usage": "set_directive_top [-name <rtl_name>] <function>\n#pragma HLS TOP name=<rtl_name>",
+      "parameters": [
+        {"name": "-name", "description": "Name of the generated RTL top module (default the function name)."}
+      ],
+      "example": "void fir_core(...) {\n#pragma HLS TOP name=fir_v2\n  ...\n}\n# script: set_top is then optional (set_top fir_core still works)",
+      "notes": "Only one function may carry the TOP pragma. The name also becomes the IP name unless config_export -ipname overrides it.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_top"
+    },
+    {
+      "name": "set_directive_reset / #pragma HLS RESET",
+      "kind": "tcl-command",
+      "description": "Per-variable control of reset: add a reset to a static/global variable or array that would otherwise not be reset (because config_rtl -reset control excludes data), or -off to remove the reset from a variable that config_rtl -reset all/state would reset (saving the initialisation logic of a large array). Static variables with an initial value are normally reset to that value only when included by the reset policy.",
+      "usage": "set_directive_reset [-off] <location> <variable>\n#pragma HLS RESET variable=<var> [off]",
+      "parameters": [
+        {"name": "<variable>", "description": "Static or global variable (scalars or arrays)."},
+        {"name": "-off", "description": "Exclude the variable from reset."}
+      ],
+      "example": "static int running_sum = 0;\n#pragma HLS RESET variable=running_sum        // reset even under config_rtl -reset control\nstatic int big_table[4096];\n#pragma HLS RESET variable=big_table off      // never generate table reset logic",
+      "notes": "Resetting arrays mapped to BRAM requires an initialisation state machine that cycles through every address after reset; the block is not ready until it completes (ap_idle timing).",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_reset"
+    },
+    {
+      "name": "set_directive_stable / #pragma HLS STABLE",
+      "kind": "tcl-command",
+      "description": "Mark a top-level argument (typically scalars or memory pointers read in a DATAFLOW region) as stable: its value does not change while the kernel executes, so HLS need not synchronise its reads with ap_start/ap_done through dataflow channels, removing FIFOs and enabling dataflow to start processes independently. Common for configuration parameters and m_axi base pointers in DATAFLOW kernels.",
+      "usage": "set_directive_stable <location> <variable>\n#pragma HLS STABLE variable=<var>",
+      "parameters": [
+        {"name": "<variable>", "description": "Top-level function argument (scalar, array or pointer)."}
+      ],
+      "example": "void top(const int *coeffs, hls::stream<int> &in, hls::stream<int> &out, int gain) {\n#pragma HLS INTERFACE m_axi port=coeffs bundle=gmem\n#pragma HLS INTERFACE s_axilite port=gain\n#pragma HLS STABLE variable=gain\n#pragma HLS STABLE variable=coeffs\n#pragma HLS DATAFLOW\n  ...\n}",
+      "notes": "If the host changes a stable argument while the kernel runs the behaviour is undefined. config_dataflow -strict_stable_sync forces synchronisation of stable ports with ap_done when required by the protocol.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_stable"
+    },
+    {
+      "name": "set_directive_aggregate / set_directive_disaggregate (#pragma HLS AGGREGATE / DISAGGREGATE)",
+      "kind": "tcl-command",
+      "description": "Control how struct-typed arguments and variables are represented: AGGREGATE packs all fields into one wide word (with -compact bit|byte|none|auto controlling padding/alignment) so the struct moves through a single port or stream element and is stored in one memory word; DISAGGREGATE splits the struct into separate variables/ports per field, which allows different interfaces or partitioning per field. Default behaviour depends on the interface type (e.g. structs on axis/m_axi are aggregated; on ap_memory/bram they are disaggregated in newer releases).",
+      "usage": "set_directive_aggregate [-compact bit|byte|none|auto] <location> <variable>\nset_directive_disaggregate <location> <variable>\n#pragma HLS AGGREGATE variable=<var> compact=bit|byte|none|auto\n#pragma HLS DISAGGREGATE variable=<var>",
+      "parameters": [
+        {"name": "-compact", "description": "bit (pack without padding), byte (byte-align fields), none (keep C alignment), auto."}
+      ],
+      "example": "struct pixel_t { ap_uint<8> r, g, b; ap_uint<1> last; };\nvoid top(hls::stream<pixel_t> &in, pixel_t *mem) {\n#pragma HLS INTERFACE axis port=in\n#pragma HLS AGGREGATE variable=in compact=bit      // 25-bit TDATA\n#pragma HLS INTERFACE m_axi port=mem bundle=gmem\n#pragma HLS DISAGGREGATE variable=mem              // one m_axi pointer per field\n  ...\n}",
+      "notes": "Aggregation with compact=bit produces non-byte-aligned stream widths that AXI4-Stream infrastructure may round up; use compact=byte for interoperability. Replaces the older DATA_PACK directive.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_aggregate"
+    },
+    {
+      "name": "set_directive_performance / #pragma HLS PERFORMANCE",
+      "kind": "tcl-command",
+      "description": "High-level throughput constraint on a loop (2022.1+): -target_ti <cycles> (transaction interval: cycles between successive starts of the whole loop) or -target_tl <cycles> (transaction latency), from which HLS derives the necessary II, unrolling, array partitioning and pipelining automatically instead of the user specifying each micro-architectural directive. If the target cannot be met, the report explains which resource (memory ports, dependences) limits it.",
+      "usage": "set_directive_performance [-target_ti <cycles>] [-target_tl <cycles>] [-assume_ti <cycles>] [-assume_tl <cycles>] <location> [<loop_label>]\n#pragma HLS PERFORMANCE target_ti=<cycles> [target_tl=<cycles>]",
+      "parameters": [
+        {"name": "-target_ti", "description": "Desired cycles per execution of the loop (all iterations); e.g. N/4 for 4x parallelism over N iterations."},
+        {"name": "-target_tl", "description": "Desired latency of one execution."},
+        {"name": "-assume_ti / -assume_tl", "description": "Assumptions about the environment (source/sink rates) used by the estimation."}
+      ],
+      "example": "void vec_add(int a[1024], int b[1024], int c[1024]) {\n  L: for (int i = 0; i < 1024; i++) {\n#pragma HLS PERFORMANCE target_ti=256   // 4 elements per cycle -> unroll 4 + partitions inferred\n    c[i] = a[i] + b[i];\n  }\n}",
+      "notes": "Works best on loops with regular memory access; the derived directives are listed in the synthesis log and can be replaced by explicit ones once understood. Not applicable to DATAFLOW regions or functions with complex control.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_performance"
+    },
+    {
+      "name": "set_directive_function_instantiate / #pragma HLS FUNCTION_INSTANTIATE",
+      "kind": "tcl-command",
+      "description": "Create a specialised hardware instance of a function for each distinct constant value of a given argument at its call sites, so each copy is optimised for its constant (e.g. a fixed coefficient set or mode) instead of one shared generic instance with a run-time input; this trades area for performance where the function is called with a small number of constant arguments.",
+      "usage": "set_directive_function_instantiate <location> <variable>\n#pragma HLS FUNCTION_INSTANTIATE variable=<arg>",
+      "parameters": [
+        {"name": "<variable>", "description": "The function argument whose constant call-site values drive specialisation."}
+      ],
+      "example": "int scale(int x, int mode) {\n#pragma HLS FUNCTION_INSTANTIATE variable=mode\n  switch (mode) { case 0: return x << 1; case 1: return x * 3; default: return x; }\n}\nvoid top(int a, int b, int &y0, int &y1) { y0 = scale(a, 0); y1 = scale(b, 1); }   // two specialised instances",
+      "notes": "Only useful when the function is not inlined (INLINE off) and the argument is a compile-time constant at each call. Each instance appears separately in the report and RTL hierarchy.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_function_instantiate"
+    },
+    {
+      "name": "set_directive_cache / #pragma HLS CACHE",
+      "kind": "tcl-command",
+      "description": "Insert a cache into the M_AXI adapter of a read-only pointer argument so repeated or nearby accesses hit local memory instead of issuing individual AXI reads: -lines sets the number of cache lines (1 or a power of two) and -depth the words per line (power of two, default the maximum burst length); the resource type of the cache memory is set by config_interface -m_axi_cache_impl. It helps kernels with data reuse or non-burstable access patterns that HLS cannot turn into bursts.",
+      "usage": "set_directive_cache -port <name> [-lines <n>] [-depth <n>] <location>\n#pragma HLS CACHE port=<name> lines=<n> depth=<n>",
+      "parameters": [
+        {"name": "-port", "description": "The m_axi port (pointer argument) to cache; must be read-only."},
+        {"name": "-lines", "description": "Number of cache lines (1 = single line, or power of two)."},
+        {"name": "-depth", "description": "Words per line (power of two)."}
+      ],
+      "example": "void dut(const double *in, double *out, int size) {\n#pragma HLS INTERFACE m_axi port=in bundle=aximm depth=1026\n#pragma HLS INTERFACE m_axi port=out bundle=aximm depth=1024\n#pragma HLS CACHE port=in lines=8 depth=128\n  for (int i = 0; i < size; i++) out[i] = in[i] + in[i + 1];\n}",
+      "notes": "Single-port, single-way (direct-mapped) cache; read-only ports only; not applicable to ports sharing a bundle with other cached ports. Introduced in the 2022.x releases; check UG1399 for the release's restrictions.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_cache"
+    },
+    {
+      "name": "set_directive_alias / #pragma HLS ALIAS",
+      "kind": "tcl-command",
+      "description": "Declare that several m_axi pointer arguments alias into the same memory with a known offset (or distance) between them, so HLS can still analyse dependences and schedule bursts correctly when the host passes pointers into one buffer (e.g. in and out pointing into the same allocation with a fixed distance). -distance gives the constant difference, -offset the individual offsets from a common base.",
+      "usage": "set_directive_alias -ports <list> [-distance <n>] [-offset <list>] <location>\n#pragma HLS ALIAS ports=<p1,p2,...> distance=<n>\n#pragma HLS ALIAS ports=<p1,p2,...> offset=<o1,o2,...>",
+      "parameters": [
+        {"name": "-ports", "description": "The aliasing m_axi pointer arguments (same bundle)."},
+        {"name": "-distance", "description": "Constant difference between successive ports' addresses."},
+        {"name": "-offset", "description": "Explicit offsets per port from the base."}
+      ],
+      "example": "void top(int *a, int *b, int n) {\n#pragma HLS INTERFACE m_axi port=a bundle=gmem\n#pragma HLS INTERFACE m_axi port=b bundle=gmem\n#pragma HLS ALIAS ports=a,b distance=1024\n  for (int i = 0; i < n; i++) b[i] = a[i] + 1;\n}",
+      "notes": "Available since 2022.1; without it HLS assumes distinct pointers do not overlap (restrict semantics), which is unsafe when they do.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/set_directive_alias"
+    },
+    {
+      "name": "set_directive_* Tcl forms vs. #pragma HLS (directives.tcl, pipeline/unroll/array_partition/interface options)",
+      "kind": "reference",
+      "description": "Every optimisation exists in two equivalent forms: a pragma placed in the C++ source (#pragma HLS <NAME> options, inside the function/loop it applies to) and a set_directive_<name> <location> Tcl command stored in the solution's directives.tcl (or in hls_config.cfg as syn.directive.<name> in the unified flow), where <location> is 'function' or 'function/loop_label' or 'function/region'. Pragmas travel with the code and are best for micro-architecture that is intrinsic to the algorithm; directives keep the source portable and allow several solutions with different optimisations on the same code. The key Tcl forms: set_directive_pipeline [-II n] [-off] [-rewind] [-style stp|flp|frp] <loc>; set_directive_unroll [-factor n] [-skip_exit_check] [-off] <loc>; set_directive_array_partition [-type block|cyclic|complete] [-factor n] [-dim d] <loc> <array>; set_directive_interface -mode ap_ctrl_hs|ap_ctrl_none|ap_ctrl_chain|s_axilite|m_axi|axis|ap_fifo|ap_memory|bram|ap_none|ap_vld|ap_ovld|ap_hs [-bundle b] [-offset slave|direct|off] [-depth n] [-max_read_burst_length n] [-max_write_burst_length n] [-num_read_outstanding n] [-num_write_outstanding n] [-register] [-latency n] [-clock c] <loc> <port>; set_directive_dataflow [-disable_start_propagation] <loc>; set_directive_inline [-recursive] [-off] <loc>; set_directive_loop_tripcount [-min n] [-max n] [-avg n] <loc>; set_directive_latency [-min n] [-max n] <loc>; set_directive_bind_storage -type ram_1p|ram_2p|ram_t2p|ram_s2p|rom_1p|rom_2p|rom_np|fifo [-impl bram|lutram|uram|srl|memory|auto] [-latency n] <loc> <var>.",
+      "usage": "# directives.tcl (loaded automatically by open_solution)\nset_directive_pipeline -II 1 fir/SHIFT_LOOP\nset_directive_unroll -factor 4 fir/MAC_LOOP\nset_directive_array_partition -type complete -dim 1 fir shift_reg\nset_directive_interface -mode s_axilite -bundle CTRL fir\nset_directive_interface -mode m_axi -bundle gmem -offset slave -max_read_burst_length 64 -num_read_outstanding 4 fir in\nset_directive_dataflow top\nset_directive_inline -off fir/compute\nset_directive_loop_tripcount -min 16 -max 1024 -avg 256 fir/DATA_LOOP\nset_directive_latency -max 8 fir\nset_directive_bind_storage -type ram_2p -impl uram top buf",
+      "parameters": [
+        {"name": "<location>", "description": "func, func/label (loop or named region { ... } with a label), func/callee? use the function name for functions."},
+        {"name": "Priority", "description": "When both a pragma and a directive target the same object, the directive from directives.tcl takes precedence (release dependent; keep one source of truth)."},
+        {"name": "GUI", "description": "The Directives view (Vitis HLS classic) / Directive editor (unified IDE) writes either form: 'Destination: Source File' vs 'Directive File'."}
+      ],
+      "example": "# Two solutions on one source: area-optimised vs throughput-optimised\nopen_solution -reset area\nset_directive_allocation -limit 1 -type operation fir mul\ncsynth_design\nopen_solution -reset fast\nset_directive_pipeline -II 1 fir/MAC_LOOP\nset_directive_unroll fir/MAC_LOOP\nset_directive_array_partition -type complete fir coeffs\ncsynth_design",
+      "notes": "Loop labels (LABEL: for ...) are required to address loops from Tcl. In the unified flow, hls_config.cfg uses e.g. syn.directive.pipeline=fir/MAC_LOOP II=1; the vitis-run --tcl path still accepts set_directive_* commands.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Adding-Pragmas-and-Directives"
+    },
+    {
+      "name": "ap_int / ap_uint (ap_int.h)",
+      "kind": "library",
+      "description": "Arbitrary-precision integer types ap_int<W> (signed) and ap_uint<W> (unsigned) for 1 to 1024 bits (extendable to 32768 with AP_INT_MAX_W), with C++ operators, bit/range selection (x[3], x(7,4) or x.range(7,4)), concatenation ((a, b) or a.concat(b)), reduction (and_reduce, or_reduce, xor_reduce), reverse, and conversions; they let synthesis size datapaths exactly (a 12-bit ADC value in 12 bits, not 32) which reduces LUT/DSP usage and helps timing. The ap_int types are synthesizable and also compile in the C testbench (g++ with -I$XILINX_HLS/include).",
+      "usage": "#include \"ap_int.h\"\nap_uint<12> sample;\nap_int<18> coef;\nap_int<30> prod = sample * coef;      // width follows the operands\nap_uint<4> nib = sample(7,4);         // range select\nap_uint<24> packed = (sample, nib, ap_uint<8>(0));   // concatenation\nbool any = sample.or_reduce();",
+      "parameters": [
+        {"name": "ap_int<W> / ap_uint<W>", "description": "W bits, two's complement or unsigned; arithmetic results are widened automatically to avoid overflow, assignment truncates."},
+        {"name": "Bit/range operators", "description": "x[i], x(hi,lo), x.range(hi,lo), x.set(i), x.clear(i), x.invert(i), x.test(i)."},
+        {"name": "Reductions / helpers", "description": "and_reduce(), or_reduce(), xor_reduce(), reverse(), to_int(), to_uint64(), to_string(radix)."},
+        {"name": "AP_INT_MAX_W", "description": "#define before include to allow widths beyond 1024."}
+      ],
+      "example": "ap_uint<8> parity(ap_uint<64> w) {\n#pragma HLS INLINE\n  ap_uint<8> p = 0;\n  for (int i = 0; i < 8; i++) p[i] = w(8*i+7, 8*i).xor_reduce();\n  return p;\n}",
+      "notes": "Mixing ap_int with int in expressions follows the usual C promotion rules for the built-in type (32/64-bit), so cast explicitly for narrow arithmetic. Division/modulo by non-powers of two are expensive; shifts are free. The same headers work in Vivado xsim C models and in host code.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Arbitrary-Precision-Integer-Types"
+    },
+    {
+      "name": "ap_fixed / ap_ufixed (ap_fixed.h) with quantization and overflow modes",
+      "kind": "library",
+      "description": "Arbitrary-precision fixed-point types ap_fixed<W, I, Q, O, N> and ap_ufixed<W, I, Q, O, N>: W total bits, I integer bits (fractional = W-I, may be negative or larger than W), Q quantization mode on assignment of extra fractional bits (AP_TRN truncate toward -inf default, AP_RND round half up, AP_RND_ZERO, AP_RND_MIN_INF, AP_RND_INF, AP_RND_CONV convergent, AP_TRN_ZERO), O overflow mode (AP_WRAP default, AP_SAT saturate, AP_SAT_ZERO, AP_SAT_SYM, AP_WRAP_SM) and N saturation bits for AP_WRAP_SM/AP_WRAP. They give DSP-friendly arithmetic with explicit precision control and are the standard replacement for float in filters, control loops and DSP kernels; conversions to/from float/double are provided for testbenches.",
+      "usage": "#include \"ap_fixed.h\"\ntypedef ap_fixed<18, 2, AP_RND, AP_SAT> coef_t;      // 18 bits, 2 integer, 16 fractional, rounding + saturation\ntypedef ap_fixed<24, 8> data_t;                        // AP_TRN, AP_WRAP defaults\ntypedef ap_ufixed<10, 0> frac_t;                       // [0, 1) in 10 bits\ndata_t y = (data_t)(x * c);                             // product is 42-bit internally, assignment rounds/saturates",
+      "parameters": [
+        {"name": "W / I", "description": "Total width and integer width (including sign for ap_fixed)."},
+        {"name": "Q (quantization)", "description": "AP_TRN, AP_TRN_ZERO, AP_RND, AP_RND_ZERO, AP_RND_MIN_INF, AP_RND_INF, AP_RND_CONV."},
+        {"name": "O (overflow)", "description": "AP_WRAP, AP_SAT, AP_SAT_ZERO, AP_SAT_SYM, AP_WRAP_SM."},
+        {"name": "N", "description": "Number of saturation bits for wrap modes (default 0)."},
+        {"name": "Member functions", "description": "to_float(), to_double(), to_int(), range()/bit access on the raw bits, ap_fixed_base helpers."}
+      ],
+      "example": "// 2nd-order IIR section in fixed point\ntypedef ap_fixed<32, 8, AP_RND_CONV, AP_SAT> acc_t;\nacc_t biquad(ap_fixed<16,2> x) {\n#pragma HLS PIPELINE II=1\n  static acc_t z1 = 0, z2 = 0;\n  acc_t y = b0 * x + z1;\n  z1 = b1 * x - a1 * y + z2;\n  z2 = b2 * x - a2 * y;\n  return y;\n}",
+      "notes": "Rounding and saturation cost logic on every assignment; apply them at the output, keep intermediates AP_TRN/AP_WRAP with enough headroom. Exact bit-true behaviour is shared by the C simulation, so csim results equal RTL results. ap_fixed to float conversion in the testbench uses to_float()/to_double().",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Arbitrary-Precision-Fixed-Point-Data-Types"
+    },
+    {
+      "name": "hls::stream (hls_stream.h)",
+      "kind": "library",
+      "description": "The streaming FIFO type hls::stream<T, DEPTH> used for point-to-point data flow between functions (DATAFLOW channels) and for axis/ap_fifo top-level interfaces: blocking read()/write() (and >> / << operators), non-blocking read_nb()/write_nb(), empty()/full() tests, and a depth template/pragma for the FIFO size; in simulation it is an unbounded queue unless the depth is enforced (cosim), so undersized streams surface as deadlocks only in co-simulation. Streams of structs (with side-channel fields) map to AXI4-Stream with TLAST/TKEEP/TUSER via hls::axis<T,U,TI,TD> from ap_axi_sdata.h.",
+      "usage": "#include \"hls_stream.h\"\nvoid producer(hls::stream<int> &out) { for (...) out.write(v); }\nvoid consumer(hls::stream<int> &in, int *mem) { while (!in.empty()) *mem++ = in.read(); }\nvoid top(hls::stream<int> &s_in, hls::stream<int> &s_out) {\n#pragma HLS INTERFACE axis port=s_in\n#pragma HLS INTERFACE axis port=s_out\n#pragma HLS DATAFLOW\n  static hls::stream<int, 32> mid;      // depth via template (2022.1+) or #pragma HLS STREAM\n  stage1(s_in, mid); stage2(mid, s_out);\n}",
+      "parameters": [
+        {"name": "read() / write(v) / operator>> <<", "description": "Blocking access (RTL: waits on empty/full)."},
+        {"name": "read_nb(v) / write_nb(v)", "description": "Non-blocking; return false when empty/full."},
+        {"name": "empty() / full() / size()", "description": "Status (size only in simulation)."},
+        {"name": "hls::axis<T, TUSER_W, TID_W, TDEST_W>", "description": "Struct with data, keep, strb, user, last, id, dest for AXI4-Stream side channels (ap_axi_sdata.h)."}
+      ],
+      "example": "#include \"ap_axi_sdata.h\"\ntypedef hls::axis<ap_uint<32>, 0, 0, 0> pkt_t;\nvoid pass(hls::stream<pkt_t> &in, hls::stream<pkt_t> &out) {\n#pragma HLS INTERFACE axis port=in\n#pragma HLS INTERFACE axis port=out\n#pragma HLS INTERFACE ap_ctrl_none port=return\n  pkt_t p = in.read(); p.data += 1; out.write(p);   // last/keep propagate\n}",
+      "notes": "A stream must have exactly one producer and one consumer; reading an empty stream in C simulation raises an error ('Read from empty stream'). Streams cannot be passed by value. Use hls::stream<T> &arg for top-level ports; local streams must be static or declared inside the dataflow region.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/HLS-Stream-Library"
+    },
+    {
+      "name": "hls::vector (hls_vector.h)",
+      "kind": "library",
+      "description": "SIMD-style fixed-size vector type hls::vector<T, N> with element-wise arithmetic, comparison and reduction operators, aligned storage and a size matching the AXI data width, used to express wide-word processing (e.g. 16 x 32-bit lanes on a 512-bit m_axi or axis port) without manual packing. Loops over the vector lanes are unrolled automatically because the operators are defined lane-wise.",
+      "usage": "#include \"hls_vector.h\"\ntypedef hls::vector<float, 16> vec16_t;      // 512 bits\nvoid vadd(const vec16_t *a, const vec16_t *b, vec16_t *c, int n) {\n#pragma HLS INTERFACE m_axi port=a bundle=gmem0 max_read_burst_length=64\n#pragma HLS INTERFACE m_axi port=b bundle=gmem1\n#pragma HLS INTERFACE m_axi port=c bundle=gmem2\n  for (int i = 0; i < n; i++) {\n#pragma HLS PIPELINE II=1\n    c[i] = a[i] + b[i];                        // 16 parallel float adds\n  }\n}",
+      "parameters": [
+        {"name": "hls::vector<T, N>", "description": "N elements of T; element access v[i]; operators + - * / % & | ^ << >> and comparisons element-wise."},
+        {"name": "reduce_add / reduce_mult etc.", "description": "Reduction helpers via std::accumulate style templates (hls::vector::reduce? see notes)."},
+        {"name": "Alignment", "description": "Vectors are aligned to their size for correct AXI mapping; host buffers must be aligned similarly (aligned_allocator in XRT hosts)."}
+      ],
+      "example": "hls::vector<int, 8> v = {1,2,3,4,5,6,7,8};\nint sum = 0;\nfor (int i = 0; i < 8; i++) sum += v[i];   // unrolled",
+      "notes": "Introduced in 2020.2. Element type must be trivially copyable; vectors of ap_fixed work. Using vector types on interfaces widens the port to N x sizeof(T) bits, so host code must match the layout.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/HLS-Vector-Library"
+    },
+    {
+      "name": "hls_math.h (HLS math library)",
+      "kind": "library",
+      "description": "Synthesizable implementations of the C/C++ math functions (sqrt, sin, cos, tan, exp, log, pow, atan2, floor, ceil, fabs, fmin/fmax, hypot, cbrt, erf, gamma, ... ) for float, double, half and ap_fixed arguments under the hls:: namespace (hls::sqrt, hls::sin ...) or via std math when hls_math.h is included, with documented accuracy relative to the standard library (bit-exact for most float functions, ULP-level differences for some) and fixed-point overloads (hls::sin(ap_fixed<...>)) that use CORDIC/table-based hardware. Using the fixed-point overloads instead of float is the usual way to make trigonometric or exponential kernels cheap.",
+      "usage": "#include \"hls_math.h\"\nfloat mag(float re, float im) {\n#pragma HLS PIPELINE\n  return hls::sqrtf(re * re + im * im);      // or hls::hypot(re, im)\n}\nap_fixed<18, 3> s = hls::sin(ap_fixed<16, 3>(phase));   // fixed-point overload\nap_fixed<32, 16> e = hls::exp(x);",
+      "parameters": [
+        {"name": "Float/double functions", "description": "sqrt, rsqrt, cbrt, sin, cos, sincos, tan, asin, acos, atan, atan2, sinh, cosh, tanh, exp, exp2, expm1, log, log2, log10, log1p, pow, fmod, remainder, floor, ceil, round, trunc, fabs, copysign, fma, hypot, erf, erfc, tgamma, lgamma, isnan/isinf/isfinite, nextafter ..."},
+        {"name": "Fixed-point overloads", "description": "sqrt, sin, cos, sincos, tan, atan, atan2, exp, log, log2? pow, floor, ceil, ... with ap_fixed/ap_ufixed arguments (range restrictions documented per function)."},
+        {"name": "Accuracy", "description": "UG1399 lists per-function precision (exact, 1 ULP, ...) and the input ranges for fixed-point versions."}
+      ],
+      "example": "// Fixed-point phase-to-sine for a DDS, replacing a float sinf\ntypedef ap_ufixed<16, 0> phase_t;       // [0,1) turns\ntypedef ap_fixed<16, 2> amp_t;\namp_t dds_sample(phase_t ph) {\n#pragma HLS PIPELINE II=1\n  ap_fixed<20, 3> rad = ap_fixed<20,3>(ph) * ap_fixed<20,3>(6.283185307);\n  return hls::sin(rad);\n}",
+      "notes": "C simulation with hls_math.h uses the same implementations as the RTL, so results can differ from glibc; compare with tolerance in testbenches. Double-precision functions are large; prefer float or fixed. config_op sets DSP usage for the underlying operators.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/HLS-Math-Library"
+    },
+    {
+      "name": "hls::fft / hls::fir / hls::dds (hls_fft.h, hls_fir.h, hls_dds.h IP libraries)",
+      "kind": "library",
+      "description": "C++ wrappers that instantiate the AMD FFT, FIR Compiler and DDS Compiler LogiCORE IP from HLS code with the same parameter sets as the IP catalog: hls::fft<CONFIG> with a config struct (transform length, architecture pipelined_streaming_io/radix_4_burst_io/radix_2_burst_io/radix_2_lite_burst_io, scaling, ordering, phase factor width) operating on hls::stream<std::complex<T>> data plus a config channel; hls::fir<CONFIG> (coefficients, decimation/interpolation, channels, rate) in hls::FIR::fir class form; hls::dds<CONFIG> for sine/cosine generation. They give bit-exact behaviour with the IP in C simulation and are placed as IP instances in the generated RTL.",
+      "usage": "#include \"hls_fft.h\"\nstruct fft_cfg : hls::ip_fft::params_t {\n  static const unsigned ordering_opt = hls::ip_fft::natural_order;\n  static const unsigned config_width = 16;\n  static const unsigned max_nfft = 10;             // 1024 points\n  static const unsigned scaling_opt = hls::ip_fft::block_floating_point;\n};\ntypedef hls::ip_fft::config_t<fft_cfg> cfg_t;\ntypedef hls::ip_fft::status_t<fft_cfg> stat_t;\nvoid fft_top(std::complex<float> in[1024], std::complex<float> out[1024], bool inverse) {\n#pragma HLS DATAFLOW\n  cfg_t cfg; cfg.setDir(!inverse); cfg.setNfft(10);\n  hls::stream<cfg_t> cs; hls::stream<stat_t> ss; cs.write(cfg);\n  hls::fft<fft_cfg>(in, out, ss, cs);\n}",
+      "parameters": [
+        {"name": "hls::ip_fft::params_t members", "description": "input_width, output_width, config_width, max_nfft, has_nfft, arch_opt, scaling_opt, ordering_opt, phase_factor_width, use_native_float, has_ovflo, has_scaling_sch, rounding_opt, mem_data/mem_phase_factors/mem_reorder ..."},
+        {"name": "hls::ip_fir::params_t members", "description": "coeff_width, coeff_sets, num_coeffs, coeff_vec[], input_width, output_width, decim_rate, interp_rate, num_channels, sample_period, rate_specification, filter_type, quantization, coeff_structure ..."},
+        {"name": "hls::ip_dds::params_t members", "description": "phase_width, output_width, spurious_free_dynamic_range, frequency_resolution, phase_increment, output_selection ..."}
+      ],
+      "example": "#include \"hls_fir.h\"\nstruct fir_cfg : hls::ip_fir::params_t {\n  static const unsigned num_coeffs = 21; static const double coeff_vec[num_coeffs];\n  static const unsigned input_width = 16; static const unsigned output_width = 24; static const unsigned coeff_width = 16;\n};\nconst double fir_cfg::coeff_vec[21] = { ... };\nstatic hls::FIR::FIR<fir_cfg> fir1;\nvoid fir_top(int16_t in[N], int32_t out[N]) { fir1.run(in, out); }",
+      "notes": "The wrapped IP must be called from within a DATAFLOW region with its data in the required form (streams or arrays as documented) and cannot be pipelined/unrolled like user code. RTL co-simulation uses the IP's simulation model; export includes the IP as sub-cores (license for FFT/FIR is included).",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/FFT-IP-Library"
+    },
+    {
+      "name": "hls::task / hls::split / hls::merge (hls_task.h, hls_np_channel.h)",
+      "kind": "library",
+      "description": "Task-level parallelism without the DATAFLOW canonical-form restrictions: hls::task t(func, stream_args...) instantiates a function as a free-running process that starts at reset and communicates only through hls::stream (or hls::stream_of_blocks) channels, so networks of tasks with feedback, non-blocking behaviour and data-dependent control are possible; hls::split::round_robin / load_balancing and hls::merge::round_robin / load_balancing (hls_np_channel.h) are 1-to-N and N-to-1 stream channels that distribute or gather data between tasks. Tasks are used for streaming pipelines with cycles or dynamic routing that DATAFLOW cannot express.",
+      "usage": "#include \"hls_task.h\"\n#include \"hls_np_channel.h\"\nvoid worker(hls::stream<int> &in, hls::stream<int> &out) { out.write(in.read() * 2); }\nvoid top(hls::stream<int> &in, hls::stream<int> &out) {\n#pragma HLS INTERFACE axis port=in\n#pragma HLS INTERFACE axis port=out\n  hls_thread_local hls::split::round_robin<int, 4> sp;\n  hls_thread_local hls::merge::round_robin<int, 4> mg;\n  hls_thread_local hls::task dist(distribute, in, sp.in);\n  hls_thread_local hls::task w[4] = { {worker, sp.out[0], mg.in[0]}, {worker, sp.out[1], mg.in[1]}, {worker, sp.out[2], mg.in[2]}, {worker, sp.out[3], mg.in[3]} };\n  hls_thread_local hls::task coll(collect, mg.out, out);\n}",
+      "parameters": [
+        {"name": "hls::task", "description": "Constructed with a function and its stream arguments; the function must take only stream (or stream_of_blocks) arguments and be non-inlined."},
+        {"name": "hls_thread_local", "description": "Storage qualifier required for tasks and channels declared in the top function so they persist (static-like) in simulation."},
+        {"name": "hls::split / hls::merge", "description": "round_robin<T, N, DEPTH> or load_balancing<T, N, DEPTH> channels with .in / .out[i] (split) and .in[i] / .out (merge) ports."}
+      ],
+      "example": "// Feedback loop between two tasks (not allowed in DATAFLOW)\nhls_thread_local hls::stream<int, 8> fb;\nhls_thread_local hls::task a(stage_a, in, fb, mid);\nhls_thread_local hls::task b(stage_b, mid, fb, out);",
+      "notes": "Introduced in 2022.1. Tasks run under ap_ctrl_none semantics (no ap_start/ap_done per task); the top can still have ap_ctrl_hs if it contains non-task code. Deadlock detection in cosim and config_cosim -enable_tasks_with_m_axi for m_axi access from tasks (with stable ports).",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/HLS-Task-Library"
+    },
+    {
+      "name": "hls::stream_of_blocks / hls::burst_maxi (hls_streamofblocks.h, hls_burst_maxi.h)",
+      "kind": "library",
+      "description": "Two specialised interface libraries: hls::stream_of_blocks<T, DEPTH> is a channel that passes whole arrays (blocks) between DATAFLOW processes using ping-pong buffers with explicit hls::write_lock / hls::read_lock RAII objects, giving random access inside a block while still streaming block by block (e.g. a row buffer between two image stages) with cleaner semantics than a shared array; hls::burst_maxi<T> is an explicit burst API for m_axi ports (port.read_request(addr, len) / port.read() / port.write_request / port.write / port.write_response) that lets the code control AXI bursts directly when automatic burst inference fails or when overlapping requests are needed.",
+      "usage": "#include \"hls_streamofblocks.h\"\ntypedef int buf_t[256];\nvoid prod(hls::stream_of_blocks<buf_t> &s) { hls::write_lock<buf_t> b(s); for (int i=0;i<256;i++) b[i] = i; }\nvoid cons(hls::stream_of_blocks<buf_t> &s, int *out) { hls::read_lock<buf_t> b(s); for (int i=0;i<256;i++) out[i] = b[255-i]; }\n#include \"hls_burst_maxi.h\"\nvoid copy(hls::burst_maxi<int> in, int n, int *out) {\n#pragma HLS INTERFACE m_axi port=in bundle=gmem\n  in.read_request(0, n);\n  for (int i = 0; i < n; i++) {\n#pragma HLS PIPELINE\n    out[i] = in.read();\n  }\n}",
+      "parameters": [
+        {"name": "hls::stream_of_blocks<T, DEPTH>", "description": "T is an array type; DEPTH number of blocks buffered (default 2 = ping-pong)."},
+        {"name": "hls::write_lock / hls::read_lock", "description": "Acquire a block for the scope of the object; the block is committed/released at destruction."},
+        {"name": "hls::burst_maxi<T> methods", "description": "read_request(offset, len), read(), write_request(offset, len), write(data, byte_enable?), write_response()."}
+      ],
+      "example": "// Line-buffer pipeline: three stages exchanging image rows as blocks\nvoid img_pipe(hls::stream<pix_t> &in, hls::stream<pix_t> &out) {\n#pragma HLS DATAFLOW\n  hls::stream_of_blocks<row_t, 3> rows_a, rows_b;\n  read_rows(in, rows_a); filter(rows_a, rows_b); write_rows(rows_b, out);\n}",
+      "notes": "Both are 2021.2/2022.1-era additions; stream_of_blocks blocks must be fully written/read within one lock scope per block. burst_maxi ports appear as normal m_axi interfaces to Vivado/Vitis.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/HLS-Stream-of-Blocks-Library"
+    },
+    {
+      "name": "half (hls_half.h) and ap_float (ap_float.h)",
+      "kind": "library",
+      "description": "Reduced-precision floating-point support: the half type (IEEE 754 binary16, hls_half.h) with arithmetic, comparisons and conversions to/from float, synthesizable to half-precision operators (hadd/hmul/hdiv/hsqrt in config_op) and usable in hls_math functions; and in recent releases ap_float<W, E> (ap_float.h), an arbitrary-precision floating-point template with W mantissa? see notes and E exponent bits (including bfloat16-like formats) for custom-precision datapaths in ML and DSP kernels. Both compile in C simulation with bit-exact behaviour relative to the RTL.",
+      "usage": "#include \"hls_half.h\"\nhalf a = 1.5f, b = 2.25f;\nhalf c = a * b + half(0.5f);\nfloat f = (float)c;\n#include \"ap_float.h\"\nap_float<8, 8> bf = 3.14159f;     // custom format (mantissa/exponent per the library's template order, see UG1399)",
+      "parameters": [
+        {"name": "half", "description": "16-bit float: 1 sign, 5 exponent, 10 mantissa bits; operators + - * / and hls::sqrt/hls::exp overloads (accuracy documented per function)."},
+        {"name": "ap_float<...>", "description": "Template arbitrary-precision float (2024.x+); check the release's UG1399 'Arbitrary Precision Floating-Point' section for template parameter order and supported operators."}
+      ],
+      "example": "// half-precision dot product\nhalf dot(const half a[64], const half b[64]) {\n#pragma HLS PIPELINE II=1\n  half acc = 0;\n  for (int i = 0; i < 64; i++) acc += a[i] * b[i];\n  return acc;\n}",
+      "notes": "Half operators use DSP48E2/DSP58 where supported (UltraScale+/Versal); on 7 series they map to fabric. Accumulating in half loses precision quickly; accumulate in float and convert at the end.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Vitis-HLS-Libraries-Reference"
+    },
+    {
+      "name": "Vitis Vision library (xf::cv): LineBuffer, Window, xf::cv::Mat and image-processing kernels",
+      "kind": "library",
+      "description": "The open-source Vitis Vision library (github.com/Xilinx/Vitis_Libraries/vision, formerly xfOpenCV / hls_video.h) provides OpenCV-like functions optimised for HLS: xf::cv::Mat<TYPE, ROWS, COLS, NPC> as the image container (streamed row by row, NPC pixels per clock), conversion to/from AXI4-Stream (xf::cv::AXIvideo2xfMat, xfMat2AXIvideo) and memory (Array2xfMat, xfMat2Array), the line-buffer and window classes (xf::cv::LineBuffer<ROWS, COLS, T>, xf::cv::Window<ROWS, COLS, T>, successors of hls::LineBuffer/hls::Window) for writing custom 2D filters, and over a hundred kernels: colour conversion, resize, filters (Gaussian, Sobel, median, bilateral, box), thresholding, morphology, histogram/equalisation, Harris/FAST/ORB? features, optical flow, stereo, warp, pyramids, ISP blocks (demosaic, gamma, AWB, LTM) and more. Use it with -I for the include path and the L1/L2 structure of the library.",
+      "usage": "#include \"common/xf_common.hpp\"\n#include \"imgproc/xf_gaussian_filter.hpp\"\n#include \"common/xf_infra.hpp\"\n#define NPC XF_NPPC2\nvoid gauss_top(hls::stream<ap_axiu<16,1,1,1>> &in, hls::stream<ap_axiu<16,1,1,1>> &out, int rows, int cols, float sigma) {\n#pragma HLS INTERFACE axis port=in\n#pragma HLS INTERFACE axis port=out\n#pragma HLS INTERFACE s_axilite port=rows\n#pragma HLS INTERFACE s_axilite port=cols\n#pragma HLS INTERFACE s_axilite port=sigma\n#pragma HLS INTERFACE s_axilite port=return\n  xf::cv::Mat<XF_8UC1, 1080, 1920, NPC> src(rows, cols), dst(rows, cols);\n#pragma HLS DATAFLOW\n  xf::cv::AXIvideo2xfMat(in, src);\n  xf::cv::GaussianBlur<XF_FILTER_3X3, XF_BORDER_CONSTANT, XF_8UC1, 1080, 1920, NPC>(src, dst, sigma);\n  xf::cv::xfMat2AXIvideo(dst, out);\n}",
+      "parameters": [
+        {"name": "xf::cv::Mat<TYPE, ROWS, COLS, NPC>", "description": "TYPE such as XF_8UC1/XF_8UC3/XF_16UC1, maximum size, pixels per clock (XF_NPPC1/2/4/8)."},
+        {"name": "xf::cv::LineBuffer<ROWS, COLS, T> / xf::cv::Window<ROWS, COLS, T>", "description": "Shift-register structures for sliding-window filters (insert_top/insert_bottom, shift_pixels_up/down, getval/insert)."},
+        {"name": "AXIvideo2xfMat / xfMat2AXIvideo / Array2xfMat / xfMat2Array", "description": "Adapters between AXI4-Stream video, memory-mapped arrays and Mat."},
+        {"name": "Build flags", "description": "-I<lib>/L1/include -D__SDSVHLS__? (legacy) ; needs OpenCV only for the C testbench."}
+      ],
+      "example": "# add to the HLS project\nadd_files gauss_top.cpp -cflags \"-I/opt/Vitis_Libraries/vision/L1/include -std=c++14\"\nadd_files -tb tb.cpp -cflags \"-I/opt/Vitis_Libraries/vision/L1/include -I/usr/include/opencv4\" -csimflags \"-std=c++14\"\ncsim_design -ldflags \"-lopencv_core -lopencv_imgcodecs -lopencv_imgproc\"",
+      "notes": "hls_video.h (hls::Mat, hls::LineBuffer, hls::Window) was the pre-2019 Vivado HLS video library and is deprecated; port to xf::cv. Kernels expect DATAFLOW between them and Mat objects that are consumed exactly once. The L2/L3 levels of the library provide ready-made Vitis kernels and host code.",
+      "docs": "https://xilinx.github.io/Vitis_Libraries/vision/"
+    },
+    {
+      "name": "Vitis Libraries (BLAS, DSP, Solver, Data Compression, Security, Database, Graph, Quantitative Finance, Ultrasound, Data Analytics, Codec, HPC, Sparse, Utils)",
+      "kind": "library",
+      "description": "The open-source Vitis accelerated libraries (github.com/Xilinx/Vitis_Libraries) are HLS C++ libraries organised in three levels: L1 primitives (header-only HLS functions with pragmas already applied, usable in Vivado IP or Vitis kernel flows), L2 pre-built kernels (.xo / xclbin build scripts) and L3 host-level software APIs. Domains: BLAS (gemm, gemv, dot, axpy ...), DSP (FFT 1D/2D, FIR, SSR FFT, DDS, mixer, pulse compression), Solver (Cholesky, QR, LU, SVD, least squares), Data Compression (LZ4, Snappy, Zlib/GZip, ZSTD), Security (AES, SHA, RSA, ECDSA, ChaCha20, CRC ...), Database (hash join, aggregation, GQE), Graph (BFS, PageRank, shortest path, Louvain), Quantitative Finance (Monte Carlo, Black-Scholes, binomial trees), Ultrasound (beamforming), Data Analytics (decision tree, k-means, regression), Codec (JPEG, WebP, resize), HPC (CG, LBM, RTM), Sparse (SpMV) and Utils (stream utilities: stream_n_to_one, stream_reorder, axi_to_stream, cache). They are the primary reference for well-optimised HLS code.",
+      "usage": "# HLS project using an L1 primitive\nadd_files kernel.cpp -cflags \"-I/opt/Vitis_Libraries/blas/L1/include/hw -I/opt/Vitis_Libraries/utils/L1/include\"\n// kernel.cpp\n#include \"xf_blas.hpp\"\nvoid gemv_top(...) { xf::blas::gemv<...>(...); }\n# L2 kernel build (Vitis): make build TARGET=hw PLATFORM=xilinx_u250_gen3x16_xdma_4_1_202210_1 in the library's L2/benchmarks/<kernel> directory",
+      "parameters": [
+        {"name": "L1/include", "description": "Header-only HLS functions with template parameters for widths, parallelism and memory types."},
+        {"name": "L2/benchmarks, L2/tests", "description": "Kernel wrappers, Makefiles with v++ flow and testbenches per target (sw_emu/hw_emu/hw)."},
+        {"name": "L3/", "description": "Host libraries/APIs (C++/Python) that manage xclbins and buffers over XRT."},
+        {"name": "Release compatibility", "description": "Library branches match Vitis/Vivado releases (e.g. 2024.2); use the matching tag."}
+      ],
+      "example": "// Utils: converting a wide AXI stream to N narrow streams\n#include \"xf_utils_hw/stream_one_to_n.hpp\"\nxf::common::utils_hw::streamOneToN<512, 32, 16>(wide_in, e_wide, narrow_out, e_narrow, xf::common::utils_hw::RoundRobinT());",
+      "notes": "Each library documents required Vitis HLS version, supported devices and the C++ standard (-std=c++14/17). L1 functions can be exported as Vivado IP through export_design; L2 kernels are Vitis-only (.xo).",
+      "docs": "https://xilinx.github.io/Vitis_Libraries/"
+    },
+    {
+      "name": "HLS synthesis report, Schedule Viewer, Dataflow Viewer, Timeline Trace, Function Call Graph & Guidance",
+      "kind": "panel",
+      "description": "The analysis outputs of csynth_design/cosim_design: the Synthesis Summary report (solution/syn/report/<top>_csynth.rpt and .xml/.json) with timing estimate (target, uncertainty, estimated clock), latency/II/trip count per module and loop, resource utilisation (BRAM/DSP/FF/LUT/URAM) per module, interface summary (ports, protocols, registers, address map for s_axilite) and the bind-op/bind-storage tables; the Schedule Viewer (operations per clock cycle with dependences, highlighting the critical path and II-violating loops), the Dataflow Viewer (process graph with channel types/depths and, after cosim with profiling, per-channel utilisation and stalls), the Timeline Trace (per-process start/finish over simulated time from cosim), the Function Call Graph (hierarchy with per-function latency/II and hot paths), the Cosim report (pass/fail per RTL, min/avg/max latency and II measured), and the Guidance view listing warnings with recommended fixes (burst failures, port conflicts, dependences).",
+      "usage": "csynth_design\n# text/JSON reports\nsolution1/syn/report/<top>_csynth.rpt   solution1/syn/report/csynth.xml   solution1/syn/report/<top>_csynth.json? (release dependent)\n# GUI (classic): Analysis perspective > Module Hierarchy / Performance Profile / Schedule Viewer\n# GUI (unified IDE): Flow Navigator > C Synthesis > Reports > Synthesis / Schedule Viewer / Dataflow Viewer / Function Call Graph; C/RTL Cosimulation > Reports > Cosimulation / Timeline Trace\ncosim_design -enable_dataflow_profiling -trace_level port_hier   ;# enables Dataflow Viewer profile data and Timeline",
+      "parameters": [
+        {"name": "Timing section", "description": "Target period, uncertainty, estimated period; a violation appears as a warning and in the Schedule Viewer as a red path."},
+        {"name": "Latency/II tables", "description": "Per instance and loop: latency min/max in cycles and time, iteration latency, initiation interval achieved vs target, trip count, pipelined yes/no."},
+        {"name": "Utilization estimates", "description": "Per module and total, before Vivado synthesis (typically pessimistic for LUTs, accurate for BRAM/DSP)."},
+        {"name": "Interface section", "description": "RTL ports with protocol (ap_ctrl_hs, s_axilite, m_axi, axis, ap_memory ...), widths and the AXI4-Lite register map."}
+      ],
+      "example": "# Extract II/latency from the JSON/XML report in a script\nset f [open ./fir_prj/solution1/syn/report/csynth.xml]\n# ... parse <ModuleInfo> <Metrics> <Latency>/<PipelineII>\n# or open the GUI: vitis_hls -p ./fir_prj  (classic) / vitis -w ./workspace (unified)",
+      "notes": "The 'Performance & Resource Estimates' in the unified IDE has hyperlinks from each loop to the source. Real timing and utilisation come only from Vivado (export_design -flow impl or the Vivado project that integrates the IP).",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Analyzing-the-Results-of-Synthesis"
+    },
+    {
+      "name": "Vitis Unified IDE HLS component (Flow Navigator, Directive editor, hls_config.cfg editor)",
+      "kind": "panel",
+      "description": "The HLS environment inside the Vitis Unified IDE (2023.2+): a workspace holds HLS components (each a folder with hls_config.cfg, sources and testbench); the Flow Navigator on the left runs C Simulation, C Synthesis, C/RTL Cosimulation, Package (IP or XO) and Implementation (Vivado RTL synthesis/implementation for real numbers) and lists their reports; the Settings editor for hls_config.cfg groups options into General, Sources, Testbench, Compile/Simulation/Synthesis/Cosim/Package/Implementation sections with tooltips that name the config_* equivalent; the Directive editor (from a source file's right-click 'Add Directive' or the HLS Directive view) inserts pragmas into the source or entries into the config file; the Analysis views (Schedule Viewer etc.) open as tabs. Classic Vitis HLS (vitis_hls -p project) remains available up to the release where it is retired and has the equivalent Explorer/Directives/Analysis perspectives.",
+      "usage": "vitis -w ./hls_workspace          # unified IDE\nFile > New Component > HLS (name, config file, source files, top function, testbench, part/board, clock, flow target)\nFlow Navigator: C SIMULATION > Run; C SYNTHESIS > Run > Reports > Synthesis; C/RTL COSIMULATION > Run; PACKAGE > Run; IMPLEMENTATION > Run\nvitis_hls -p ./fir_prj              # classic GUI on an existing Tcl-created project",
+      "parameters": [
+        {"name": "hls_config.cfg editor", "description": "Graphical form for every config_*/directive setting; 'Source Editor' tab shows the raw INI text."},
+        {"name": "Directive editor", "description": "Choose directive type, options, and destination (source file pragma vs config file)."},
+        {"name": "Flow Navigator report links", "description": "Synthesis summary, Schedule Viewer, Dataflow Viewer, Function Call Graph, Cosimulation report, Timeline trace, Implementation reports."},
+        {"name": "Command line equivalents", "description": "vitis-run --mode hls --csim/--csynth/--cosim/--package --config hls_config.cfg --work_dir ... (switch names per release)."}
+      ],
+      "example": "1. vitis -w ~/hls_ws; New Component > HLS 'fir_comp', add fir.cpp (top fir) and fir_tb.cpp, part xc7z020clg400-1, clock 10 ns, flow target Vivado IP\n2. Flow Navigator > C Simulation > Run (check console for testbench pass)\n3. Open fir.cpp, right-click loop > Add Directive > PIPELINE II=1 (destination: source)\n4. C Synthesis > Run; open Schedule Viewer to confirm II=1\n5. Package > Run; the IP .zip appears under fir_comp/fir/hls/impl/ip (add to Vivado ip_repo_paths)",
+      "notes": "Components can be scripted with the vitis Python API (vitis -s script.py: client.create_hls_component(...)). Classic project/solution directories are not directly convertible; recreate as components.",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Vitis-Unified-IDE-and-HLS"
+    },
+    {
+      "name": "HLS best practices: burst inference, memory port limits, II violations, pointer casting, floating-point accumulation",
+      "kind": "reference",
+      "description": "Recurring HLS pitfalls and their fixes. Bursts: m_axi reads/writes become AXI bursts only for sequential, non-conditional accesses inside a loop with a constant stride and no intervening dependence; guidance 'Unable to infer burst' points to the access; copy to a local array with a simple loop (memcpy pattern), use hls::burst_maxi, or set max_read_burst_length/num_read_outstanding and latency on the INTERFACE. Memory ports: a BRAM array has at most two ports, so a pipelined loop that reads three elements per iteration gets II>=2 ('unable to schedule load ... due to limited memory ports'); fix with ARRAY_PARTITION/ARRAY_RESHAPE (cyclic factor matching the unroll), BIND_STORAGE ram_t2p, or by restructuring into a shift register. II violations from loop-carried dependences (accumulators, histogram updates): pipeline with a local accumulator array (interleaving), use DEPENDENCE when provably false, or accept II>1; from long latency operators: float accumulation has ~4-cycle latency so acc += x forces II=4, split into N partial sums (unroll) and reduce at the end, or use ap_fixed (1-cycle add). Pointer casting/reinterpretation between types of different widths is unsupported or produces unexpected ports; use unions or ap_int range operations; pointers to pointers, recursion, dynamic memory, system calls and STL containers are not synthesizable. Interfaces: keep top arguments simple (scalars, arrays, streams, pointers to memory); set depth= on m_axi ports for cosim; use ap_ctrl_chain or ap_ctrl_none with streams for continuous processing; add 'volatile' only for protocol regions. Verification: the C testbench must be self-checking and return 0; run cosim with -random_stall before Vivado integration.",
+      "usage": "// Burst-friendly copy\nvoid k(const int *in, int *out, int n) {\n#pragma HLS INTERFACE m_axi port=in bundle=gmem0 max_read_burst_length=256 num_read_outstanding=8 latency=64\n#pragma HLS INTERFACE m_axi port=out bundle=gmem1 max_write_burst_length=256\n  int buf[1024];\n  for (int i = 0; i < n; i++) {\n#pragma HLS PIPELINE II=1\n    buf[i] = in[i];              // sequential -> burst\n  }\n  process(buf, n);\n  for (int i = 0; i < n; i++) {\n#pragma HLS PIPELINE II=1\n    out[i] = buf[i];\n  }\n}\n// Float accumulation at II=1 with partial sums\nfloat sum(const float *x, int n) {\n  float part[8] = {0};\n#pragma HLS ARRAY_PARTITION variable=part complete\n  for (int i = 0; i < n; i++) {\n#pragma HLS PIPELINE II=1\n    part[i % 8] += x[i];         // each partial sum updated every 8 cycles\n  }\n  float s = 0; for (int j = 0; j < 8; j++) s += part[j];\n  return s;\n}",
+      "parameters": [
+        {"name": "Guidance messages", "description": "'Unable to infer burst', 'Unable to schedule ... due to limited memory ports', 'Unable to enforce a carried dependence constraint', 'Loop is not pipelined', 'Dataflow: process has bypass'."},
+        {"name": "Useful settings", "description": "config_interface -m_axi_latency, -m_axi_max_widen_bitwidth (automatic port widening), -m_axi_alignment_byte_size; config_compile -pipeline_loops; set_clock_uncertainty."},
+        {"name": "Unsupported C/C++", "description": "Recursion, dynamic allocation, function pointers, virtual functions in synthesized code, std::vector/map, exceptions, system calls (allowed in testbench only)."}
+      ],
+      "example": "# Fast iteration loop\ncsynth_design ; # read the Guidance and the loop table\n# after fixing:\ncosim_design -random_stall -trace_level port\nexport_design -format ip_catalog -flow syn   ;# check real Fmax before integration",
+      "notes": "UG1399 chapters 'Optimizing the HLS Project' and 'HLS Programmers Guide' plus UG1270 (Vivado HLS Optimization Methodology) and the Vitis_Libraries source are the canonical references. Vitis HLS Migration Guide (UG1391) lists behaviour differences from Vivado HLS (default interfaces, reset, m_axi 64-bit).",
+      "docs": "https://docs.amd.com/r/en-US/ug1399-vitis-hls/Optimizing-the-HLS-Project"
+    }
+  ]
+}

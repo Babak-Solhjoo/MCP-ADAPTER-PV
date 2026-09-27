@@ -1,0 +1,611 @@
+{
+  "category": "Editor commands: ADD to ERRORS",
+  "description": "EAGLE editor commands from ADD to ERRORS in the order of the built-in help: placing parts and gates, drawing arcs, circles, buses and dimensions, attributes, net classes, the autorouter, copy/cut/delete, layer visibility, design and electrical rule checks, and loading drawings, sheets and library objects. Each command can be typed in the editor command line, assigned to a key or written into a .scr script; coordinates are given as (x y) in the current GRID unit (units such as mm or mil may be appended), '•' in the syntax stands for a mouse click, and ';' ends a command that has fewer than its maximum number of parameters.",
+  "tools": [
+    {
+      "name": "ADD",
+      "kind": "command",
+      "description": "Places a part from a library: gates of a device in the schematic, a footprint in the board. In the device editor of a library it adds a symbol as a gate of the device instead (see 'ADD symbol into device'). Without a name it opens the ADD dialog (library tree, search, preview); with a name each click places another copy, which makes it the main command for building schematics and boards from scripts.",
+      "usage": "ADD footprint_name[@library_name] [name] [orientation] •..\nADD device_name[@library_name]  [P3D=3d_package] [name [gate]] [orientation] •..\nADD symbol_name                 [name] [options] •..",
+      "parameters": [
+        {"name": "device_name / footprint_name", "description": "Name of the object in the library; may contain the wildcards '*' and '?' (if several devices match, the ADD dialog opens with the matches)."},
+        {"name": "@library_name", "description": "Library to take it from: a plain name (ttl or ttl.lbr), a file path, or the URN of a downloaded managed library (urn:adsk.eagle:library:462). Put the whole expression in single quotes if the path contains blanks."},
+        {"name": "P3D=3d_package", "description": "Name or URN of the 3D package to assign; restricts the matching devices to those that contain it (not case-sensitive, no wildcards)."},
+        {"name": "name", "description": "Name of the new part or element (IC1, R5). If omitted the device PREFIX plus the next free number is used. Quote it if it could be read as an orientation or option. A new name may be typed while the part hangs on the cursor to name the next copy (ADD CAP C1 • C5 • C7 •)."},
+        {"name": "gate", "description": "Places one particular gate of a new multi-gate part (ADD 7400 IC1 A •); mainly for generated schematics."},
+        {"name": "orientation", "description": "[S][M]Rnnn text form of spin, mirror and rotation, default R0 (see 'ADD orientation')."}
+      ],
+      "example": "ADD DIL16 R90 (0 0);\nADD 7400 IC1 A (20 30);\nADD 'DEV1A@/home/my dir/ttl.lbr' (40 30);\nADD PINHD-1x4 P3D=PINHD-1x4-5.84MM (60 30);",
+      "notes": "Mouse: center button mirrors, right button rotates, Shift+Right rotates the other way. Adding a single gate explicitly does not bring the MUST/ALWAYS gates along; fetch them with INVOKE, otherwise the ERC reports them as missing. If the same device from a library that has changed since is already in the drawing, ADD starts an automatic library update; run DRC and ERC afterwards. A device name typed in the command line is searched only in device names, so the dialog's Description option gets unchecked. Fetching a gate of an incompletely defined device gives an error unless SET CHECK_CONNECTS OFF; is set (BOARD always checks). Related: INVOKE, USE, UPDATE, REPLACE."
+    },
+    {
+      "name": "ADD orientation ([S][M]Rnnn)",
+      "kind": "reference",
+      "description": "Text notation for the orientation of placed objects, defined under ADD and reused by ATTRIBUTE, INVOKE, LABEL, MODULE and SMD (SMD accepts only the rotation). It combines an optional Spin flag, an optional Mirror flag and a rotation angle. In a board any angle from 0.0 to 359.9 in 0.1 degree steps is allowed; in a schematic only 0, 90, 180 and 270.",
+      "usage": "[S][M]Rnnn",
+      "parameters": [
+        {"name": "S", "description": "Spin flag: texts are no longer kept readable from the bottom or right side (board context only)."},
+        {"name": "M", "description": "Mirror flag: mirrors the object about the y axis (in a board this puts the element on the bottom side)."},
+        {"name": "Rnnn", "description": "Rotation in degrees, counterclockwise. Negative values are converted (R-90 becomes R270). At least R followed by a number is required."}
+      ],
+      "example": "ADD DIL16 R90 (0 0);\nADD DIL14 IC2 MR0 (30 0);\nADD DIL14 IC3 SMR33.3 (60 0);",
+      "notes": "Letters may be upper or lower case. When both an element and a text inside its footprint carry the mirror flag, the two cancel each other; the same holds for the spin flag. Interactively the right mouse button rotates and the center button mirrors."
+    },
+    {
+      "name": "ADD symbol into device (swaplevel, addlevel)",
+      "kind": "command",
+      "description": "In the device editor of a library, ADD places a previously drawn symbol as a gate of the device. Two optional values, given in any order, control the gate's behaviour in schematics: the swaplevel decides whether GATESWAP may exchange it, the addlevel decides when it is fetched. Both can be changed later with CHANGE SWAPLEVEL and CHANGE ADDLEVEL, and the values entered are kept as defaults for the next ADD.",
+      "usage": "ADD symbol_name [name] [options] •..\noptions = swaplevel (integer) and/or addlevel NEXT | MUST | ALWAYS | CAN | REQUEST",
+      "parameters": [
+        {"name": "swaplevel", "description": "0 = gate can never be swapped (default); >0 = can be swapped with any gate of the same symbol type and the same swaplevel, even in another device."},
+        {"name": "NEXT", "description": "Normal gate of a multi-gate device; ADD fetches the gates one after another."},
+        {"name": "MUST", "description": "Fetched automatically as soon as any gate of the device is used; cannot be deleted while other gates exist (deleting when only MUST gates remain deletes the whole part)."},
+        {"name": "ALWAYS", "description": "Like MUST, but may be deleted and brought back with INVOKE."},
+        {"name": "CAN", "description": "If the device has NEXT gates, fetched only explicitly with INVOKE; ADD fetches it only when the device consists of CAN and REQUEST gates alone."},
+        {"name": "REQUEST", "description": "Fetched only explicitly with INVOKE and not counted as a gate, so a one-gate device with a power symbol is named IC1 rather than IC1A. Typical for power-supply symbols."}
+      ],
+      "example": "OPEN mylib;\nEDIT 7400.dev;\nADD NAND A 1 NEXT (0 0);\nADD NAND B 1 NEXT (0 -15.24);\nADD PWR P 0 REQUEST (25.4 0);",
+      "notes": "After adding the gates define the package variant with PACKAGE and the pin-to-pad mapping with CONNECT; PREFIX sets the name prefix. Related: INVOKE, GATESWAP, CHANGE SWAPLEVEL/ADDLEVEL."
+    },
+    {
+      "name": "ALIGN",
+      "kind": "command",
+      "description": "Aligns the currently selected objects of a board (layout) relative to each other: align edges, align centers, distribute with equal spacing, or move each object's origin to the nearest grid point. It applies to elements, texts, pads, vias and holes and ignores any other selected objects. It is started from the command toolbar, the Edit menu or the command line.",
+      "usage": "ALIGN • ..",
+      "parameters": [
+        {"name": "Align Edges Top | Bottom | Left | Right", "description": "Line up the bounding-box edges of the selected objects."},
+        {"name": "Align centers Vertical | Horizontal", "description": "Line up the bounding-box centers."},
+        {"name": "Distribute Vertically | Horizontally", "description": "Equal spacing between the objects; needs at least three selected objects."},
+        {"name": "Align Origin to Grid", "description": "Snaps each object's origin (not its bounding box) to the nearest grid point."}
+      ],
+      "example": "1. Select the parts, e.g. GROUP (0 0) (60 0) (60 40) (0 40) (0 0);\n2. ALIGN\n3. Choose 'Align Edges Left' (or 'Distribute Horizontally') in the parameter toolbar",
+      "notes": "In 9.6 ALIGN takes no command-line parameters, so the mode cannot be scripted; it does nothing when no applicable objects are selected. For scripted placement use MOVE with coordinates."
+    },
+    {
+      "name": "ARC",
+      "kind": "command",
+      "description": "Draws an arc with a given line width in the current layer (boards, schematics, symbols, footprints). The first click sets a point on the circle, the second the opposite point of the diameter, the third where the arc ends. CW/CCW choose the direction, ROUND/FLAT the end caps, and a signal name turns the arc into copper of that signal.",
+      "usage": "ARC ['signal_name'] [CW | CCW] [ROUND | FLAT] [width] • • •",
+      "parameters": [
+        {"name": "'signal_name'", "description": "Adds the arc to this signal without any automatic checks; meant for scripts that import generated data. Run DRC afterwards, because shorts are possible."},
+        {"name": "CW | CCW", "description": "Direction of the arc, clockwise or counterclockwise."},
+        {"name": "ROUND | FLAT", "description": "Round or flat arc endings."},
+        {"name": "width", "description": "Line width in the current unit (same setting as the wire width, also preset with CHANGE WIDTH)."}
+      ],
+      "example": "GRID inch 1;\nARC CW (0 1) (0 -1) (1 0);\nGRID LAST;",
+      "notes": "The example gives a 90 degree arc centred on the origin. Center mouse button selects the layer, right button reverses the direction. Arcs of 0 or 360 degrees or with radius 0 are rejected. LINE with a curve (+90) or @radius parameter also draws arcs; CHANGE CAP switches the endings later."
+    },
+    {
+      "name": "ASSIGN",
+      "kind": "command",
+      "description": "Assigns commands or command sequences to keys: F1 to F12, the letters A to Z, the digits 0 to 9 and Backspace, each combined with Shift, Ctrl, Alt (and Cmd on macOS). Without parameters it opens a dialog that lists and edits all key assignments. Works in all editors; many useful defaults come from the default-assign.scr start-up script.",
+      "usage": "ASSIGN\nASSIGN function_key command..;\nASSIGN function_key;\n\nfunction_key = modifier+key\nmodifier     = any combination of S (Shift), C (Control), A (Alt) and M (Cmd, Mac OS X only)\nkey          = F1..F12, A-Z, 0-9, BS (Backspace)",
+      "parameters": [
+        {"name": "function_key", "description": "Key code such as F7, A+F7, C+F10 or CA+R. Letter and digit keys need at least A, C or M as modifier."},
+        {"name": "command..", "description": "Command(s) to execute; enclose a sequence in apostrophes. End a command with ';' only if it is complete (e.g. 'change layer top; route' where ROUTE still waits for clicks)."},
+        {"name": "ASSIGN function_key;", "description": "Removes the assignment from that key."}
+      ],
+      "example": "ASSIGN F7 'change layer top; route';\nASSIGN CA+R 'route';\nASSIGN C+F10 menu add mov rou ''';''' edit;\nASSIGN A+F7;",
+      "notes": "Abbreviations work for commands and parameters ('cha lay to; rou'). Assigning Alt+letter disables the matching pull-down menu hotkey, and some operating-system keys (e.g. Shift+F10 on Windows) cannot be overwritten. A ';' inside a MENU definition on a key is written as three pairs of apostrophes. Default keys: F1 HELP, Alt+F2 WINDOW FIT, F2 WINDOW;, F3 WINDOW 2, F4 WINDOW 0.5, F5 WINDOW (@);, F6 GRID;."
+    },
+    {
+      "name": "ATTRIBUTE",
+      "kind": "command",
+      "description": "Defines name/value attributes (part number, supplier, tolerance, author...) for devices in a library, for parts in a schematic, for elements in a board, or globally for a whole drawing with '*'. Clicking a part with ATTRIBUTE opens a dialog listing all its attributes for editing; the text forms create, change or delete an attribute and can place its text in the drawing. Attributes of the same part stay identical in schematic and board through forward/back annotation.",
+      "usage": "ATTRIBUTE name [ 'value' ] [ options ]\nATTRIBUTE part_name attribute_name\nATTRIBUTE part_name attribute_name 'attribute_value' [ [ orientation ] • ]\nATTRIBUTE part_name attribute_name DELETE\nATTRIBUTE element_name attribute_name\nATTRIBUTE element_name attribute_name 'attribute_value' [ [ orientation ] • ]\nATTRIBUTE element_name attribute_name DELETE\nATTRIBUTE * [ name [ 'value' ] ]\nATTRIBUTE * name DELETE\nATTRIBUTE •..",
+      "parameters": [
+        {"name": "part_name / element_name", "description": "Part (schematic) or element (board). For a multi-gate part give the full instance name (IC1A); a bare part name selects the first visible gate."},
+        {"name": "attribute_name", "description": "Letters, digits, '_', '#' and '-' (not starting with '-'), any length, case-insensitive."},
+        {"name": "'attribute_value'", "description": "Any characters, always in single quotes."},
+        {"name": "orientation •", "description": "Places the attribute text at the click/coordinate with the given orientation. Without coordinates (ended with ';') an existing attribute only gets its new value, a new one is placed at the origin of the selected gate."},
+        {"name": "DELETE", "description": "Removes the attribute from the part or element."},
+        {"name": "*", "description": "Global attribute of the whole schematic or board (see 'ATTRIBUTE * (global attributes)')."}
+      ],
+      "example": "ATTRIBUTE R5 TOLERANCE '1%';\nATTRIBUTE IC1 MPN 'SN74LS00N' R0 (30 20);\nATTRIBUTE R5 TOLERANCE DELETE;",
+      "notes": "Use CHANGE DISPLAY OFF | VALUE | NAME | BOTH to choose what a placed attribute shows. Names of text variables such as NAME or GATE cannot be used; VALUE is only allowed in a library (it then sets the part value) and _EXTERNAL_ is reserved for external devices. ATTRIBUTE remembers its own layer, so in a script choose the layer while the command is active: ATTRIBUTE parameters, then LAYER layer on the next line, then the remaining parameters and ';'. Deleting an attribute's text in a board only switches its display OFF unless the attribute exists solely in the board. Related: TECHNOLOGY, VALUE, NAME, REPOSITION, TEXT."
+    },
+    {
+      "name": "ATTRIBUTE in library (variable / constant)",
+      "kind": "command",
+      "description": "In the device editor of a library ATTRIBUTE defines attributes for the currently selected package variant and technology; every part created from that device inherits them. Attributes are variable by default, so a schematic may overwrite the value; constant attributes are protected and are reset by a library UPDATE.",
+      "usage": "ATTRIBUTE name [ 'value' ] [ options ]\noptions = DELETE | VARIABLE | CONSTANT",
+      "parameters": [
+        {"name": "name", "description": "Attribute name (letters, digits, '_', '#', '-'; case-insensitive)."},
+        {"name": "'value'", "description": "Value in single quotes."},
+        {"name": "DELETE", "description": "Deletes the attribute from all technology variants (no value may be given)."},
+        {"name": "VARIABLE", "description": "Value may be overwritten in the schematic (default)."},
+        {"name": "CONSTANT", "description": "Value cannot be overwritten in the schematic (unless the user insists)."}
+      ],
+      "example": "PACKAGE N;\nTECHNOLOGY LS;\nATTRIBUTE PartNo 'LS00-DIP14';\nATTRIBUTE Temp '100K' constant;\nATTRIBUTE Note 'hand soldering';",
+      "notes": "Select the package variant (PACKAGE) and technology (TECHNOLOGY) first when the device has several. An existing attribute can be switched between variable and constant without repeating the value (ATTRIBUTE ABC constant); changing a value keeps the variable/constant state. Options may be abbreviated. The attribute VALUE becomes the part value when the device is added, regardless of the Value On/Off setting."
+    },
+    {
+      "name": "ATTRIBUTE * (global attributes)",
+      "kind": "command",
+      "description": "Global attributes belong to the whole schematic or board instead of one part, which makes them the usual place for title-block data such as author, project or revision. A drawing frame containing a text variable of the same name (e.g. >AUTHOR) shows the value on every sheet. They can also be edited through Edit > Global attributes...",
+      "usage": "ATTRIBUTE * [ name [ 'value' ] ]\nATTRIBUTE * name DELETE",
+      "parameters": [
+        {"name": "*", "description": "Stands for 'all parts', i.e. a global attribute."},
+        {"name": "name 'value'", "description": "Attribute name and its value in single quotes."},
+        {"name": "DELETE", "description": "Removes the global attribute."}
+      ],
+      "example": "ATTRIBUTE * AUTHOR 'J. Smith';\nATTRIBUTE * REVISION 'B';\nATTRIBUTE * REVISION DELETE;",
+      "notes": "Global attributes of the board and of the schematic are separate and are not synchronised by forward/back annotation, so set them in both if both need them."
+    },
+    {
+      "name": "AUTO",
+      "kind": "command",
+      "description": "Starts the integrated autorouter in the board editor: all signals, only the named or clicked signals, or all signals except those listed after '!'. Without a terminating ';' (or from the menu) it opens the autorouter setup dialog with the routing parameters. The keywords FOLLOWME and BGA open the settings of the follow-me router and the BGA router, and LOAD/SAVE exchange parameter files.",
+      "usage": "AUTO;\nAUTO signal_name..;\nAUTO ! signal_name..;\nAUTO •..;\nAUTO FOLLOWME\nAUTO BGA\nAUTO LOAD|SAVE filename;",
+      "parameters": [
+        {"name": "signal_name..", "description": "Signals to route; wildcards '*' (any characters), '?' (one character) and '[...]' (one of the listed characters or a range such as [a-z]). Put a wildcard character in brackets to match it literally (abc[*]ghi)."},
+        {"name": "! signal_name..", "description": "Route everything except these signals; '!' must be the first parameter and appear only once."},
+        {"name": "FOLLOWME", "description": "Opens the dialog showing only the parameters of the follow-me router."},
+        {"name": "BGA", "description": "Opens the BGA router dialog (see 'AUTO BGA')."},
+        {"name": "LOAD | SAVE filename", "description": "Loads or saves the autorouter control parameters; '.ctl' is appended if missing."}
+      ],
+      "example": "AUTO SAVE myrouting;\nAUTO ! GND VCC;\nAUTO D[0-7];\nRATSNEST;",
+      "notes": "The routing area is the rectangle around all objects; closed lines in the Dimension layer (20) limit it. Objects in tRestrict, bRestrict and vRestrict are keep-out areas for top, bottom and vias; set a layer's preferred direction to N/A to keep the router off it. All polygons are calculated at start and a protocol file name.pro is written. After STOP, recalculate the airwires with RATSNEST. Every extra net class in use slows routing; signals are routed in order of width plus clearance. Related: ROUTE, FANOUT, SIGNAL, CLASS."
+    },
+    {
+      "name": "AUTO BGA",
+      "kind": "command",
+      "description": "The BGA router is a special autorouter that escapes and routes ball-grid arrays with as few layers as possible, placing microvias on the SMDs when the board's layer setup offers them. It works on elements that carry an attribute named BGA whose value (possibly empty) holds its parameters; AUTO BGA opens a dialog that writes these attributes and starts routing. Large BGAs can take a long time and much memory.",
+      "usage": "AUTO BGA\nBGA attribute value: [ (NETS names) | (-NETS names) ] [ (LAYERS (n names) (-n names) ...) ] [ (MICROVIAS OFF) ]",
+      "parameters": [
+        {"name": "empty value", "description": "Route all signals connected to the BGA's SMDs on all available layers, using microvias if available."},
+        {"name": "(NETS list)", "description": "Route only the listed signals, e.g. (NETS LPC_A1 PWR D0)."},
+        {"name": "(-NETS list)", "description": "Route all signals except the listed ones."},
+        {"name": "(LAYERS (n list) ...)", "description": "Per layer, only the listed signals may use layer n, e.g. (LAYERS (2 GND) (3 3V3 2V5 1V2)); an empty list (2) switches routing on that layer off."},
+        {"name": "(-n list)", "description": "Inside LAYERS: layer n may be used by all signals except those listed."},
+        {"name": "(MICROVIAS OFF)", "description": "Do not use microvias."}
+      ],
+      "example": "ATTRIBUTE U1 BGA '(NETS D0 D1 D2 D3) (LAYERS (2 GND) (-3 VCC))';\nAUTO BGA",
+      "notes": "Give the BGA attribute only to BGA elements; behaviour with other elements is undefined. In the dialog, the right list holds the BGAs to process: a green marker means save settings and route, orange means only save (double-click toggles). The Edit button sets the allowed layers per signal and the microvia option."
+    },
+    {
+      "name": "BOARD",
+      "kind": "command",
+      "description": "Schematic editor command that creates the board belonging to the current schematic, or loads it if it already exists. A new board receives all packages to the left of a default 160 x 100 mm outline, with airwires for every net; supply pins are already connected.",
+      "usage": "BOARD [ grid ]",
+      "parameters": [
+        {"name": "grid", "description": "Raster in which the parts are placed, with unit (e.g. 5mm), maximum 10mm; default 50mil."}
+      ],
+      "example": "BOARD 2.5mm;",
+      "notes": "BOARD never overwrites an existing board file; delete the file first to regenerate. It fails if a device has no package ('device has no package', except devices that only have supply pins) or unassigned pins ('device has unconnected pins', except devices without pins such as frames). EDIT .brd in the schematic window does the same. Replace the default outline with your own lines in the Dimension layer (width 0 recommended). The Light edition uses a 100 x 80 mm outline."
+    },
+    {
+      "name": "BUS",
+      "kind": "command",
+      "description": "Draws bus lines on the Busses layer of a schematic. A bus is a named collection of nets given by a bus specification: an optional alias followed by net names and indexed ranges such as D[0..7]. Buses make wide connections readable; member nets are broken out with NET and LABEL or automatically with BREAKOUTBUS.",
+      "usage": "BUS [? | {PREDEFINED_BUS_NAME} | bus_spec] • [curve | @radius] •..\nBUS {PREDEFINED_BUS_NAME=bus_spec}",
+      "parameters": [
+        {"name": "bus_spec", "description": "ALIAS:partbus,partbus,.. where partbus is a net name or NetName[LowestIndex..HighestIndex] with 0 <= low <= high <= 511 (a ranged NetName must not end in digits). Examples: A[0..15], DB[0..7],A[3..4], ATBUS:A[0..31],B[0..31],RESET,CLOCK,IOSEL[0..1]."},
+        {"name": "? / {NAME}", "description": "Open the Predefined Bus dialog, or use a stored predefined bus (see 'BUS predefined busses')."},
+        {"name": "curve | @radius", "description": "Draws an arc segment, as in LINE."}
+      ],
+      "example": "SET Bus_Wire_Width 30;\nBUS DB[0..7] (10 10) (10 80);\nBUS 'CTRL:!RESET,CLOCK,IOSEL[0..1]' (30 10) (30 80);",
+      "notes": "Mouse: right button changes the bend style (SET Wire_Bend), Shift+Right reverses the order, Ctrl+Right toggles corresponding styles. Without a specification the bus is named B$1 etc.; rename with NAME or INFO. A bus wire ends automatically on an existing bus wire (SET AUTO_END_NET OFF or Options/Set/Misc disables this). A '!' before a name draws it overlined (active low). Default width 30 mil (SET Bus_Wire_Width)."
+    },
+    {
+      "name": "BUS predefined busses (PDB)",
+      "kind": "command",
+      "description": "Predefined busses store reusable bus specifications (for example SPI:MISO,MOSI,CLK,CS) in the eaglerc settings file, so they are available in every project and can be shared. BUS {NAME} draws a bus with that specification, BUS {NAME=spec} creates a new predefined bus from the command line, and BUS ? opens the Predefined Bus dialog to create and manage them.",
+      "usage": "BUS {PREDEFINED_BUS_NAME} • •..\nBUS {PREDEFINED_BUS_NAME=bus_spec}\nBUS ?",
+      "parameters": [
+        {"name": "PREDEFINED_BUS_NAME", "description": "Unique name of the stored bus; must exist in eaglerc when used."},
+        {"name": "bus_spec", "description": "A valid bus specification (see BUS)."}
+      ],
+      "example": "BUS {SPI=SPI:MISO,MOSI,CLK,CS};\nBUS {SPI} (20 10) (20 60);",
+      "notes": "New predefined busses are saved to eaglerc immediately. Right-clicking the BUS button in the command toolbar lists the existing ones ('New' there equals BUS ?)."
+    },
+    {
+      "name": "BREAKOUTBUS",
+      "kind": "command",
+      "description": "Breaks member nets out of a schematic bus as new net stubs with labels, spaced one grid step apart along the bus. It is normally used from the bus's right-click context menu with the choices All Nets, Selected Nets (a dialog to pick them) or Single Net (a submenu of the members). After the choice, a click places the new nets.",
+      "usage": "BREAKOUTBUS • •..",
+      "example": "1. BUS DB[0..7] (10 10) (10 80);\n2. Right-click the bus and choose the breakout 'All Nets' (or type BREAKOUTBUS and click the bus)\n3. Click to place the new labeled nets",
+      "notes": "Holding Shift while placing freezes the shape of the new nets and allows movement only along the bus. Related: BUS, NET, LABEL."
+    },
+    {
+      "name": "CHANGE",
+      "kind": "command",
+      "description": "Changes properties of existing objects, and at the same time presets them for objects drawn afterwards: choose the property and value (menu or text), then click the objects. It works in every editor and all values are in the current GRID unit. With a GROUP defined, a Ctrl+right click applies the change to all objects of the group.",
+      "usage": "CHANGE option • •..\nCHANGE option value;",
+      "parameters": [
+        {"name": "LAYER name | number", "description": "Move objects to another layer / preset the drawing layer."},
+        {"name": "TEXT [ text ]", "description": "Change the content of a text."},
+        {"name": "text, line, pad, pin, polygon, package, dimension options", "description": "See the entries 'CHANGE text and line parameters', 'CHANGE pad, via and SMD parameters', 'CHANGE pin and gate parameters', 'CHANGE polygon parameters', 'CHANGE PACKAGE, PACKAGE3D and TECHNOLOGY' and 'CHANGE dimension parameters'."},
+        {"name": "CLASS number | name", "description": "Assign a net class to a net or signal."},
+        {"name": "DISPLAY OFF | VALUE | NAME | BOTH", "description": "What a placed attribute shows."},
+        {"name": "COLUMS value / ROWS value / BORDER NONE | BOTTOM | RIGHT | TOP | LEFT | ALL", "description": "Frame parameters (see FRAME); the help spells the keyword COLUMS."},
+        {"name": "XREF OFF | ON", "description": "Turn a label into a cross-reference label or back."},
+        {"name": "POPULATE OFF | ON", "description": "Mark an element as not populated / populated; only in a board without active forward/back annotation."}
+      ],
+      "example": "CHANGE WIDTH 0.4;\nCHANGE LAYER BOTTOM (12 30);\nCHANGE CLASS 1 (40 20);\nGROUP ALL;\nCHANGE SIZE 1.27 (C> 0 0);",
+      "notes": "Mouse: Ctrl+Right applies the change to the group ((C> x y) in scripts). Presets remain active for later objects, so scripts should set WIDTH, SIZE, DRILL etc. explicitly before drawing. INFO shows and edits all properties of one object in a dialog."
+    },
+    {
+      "name": "CHANGE text and line parameters",
+      "kind": "command",
+      "description": "The CHANGE options for texts (size, stroke ratio, line distance, font, alignment) and for lines/wires (width, line style, arc end cap). Use them on existing objects by clicking, or with ';' to preset the values for the next TEXT, LINE, ARC or CIRCLE.",
+      "usage": "CHANGE SIZE value\nCHANGE RATIO ratio\nCHANGE LINEDISTANCE value\nCHANGE FONT VECTOR | PROPORTIONAL | FIXED\nCHANGE ALIGN BOTTOM | LEFT | CENTER | TOP | RIGHT\nCHANGE WIDTH value\nCHANGE STYLE value\nCHANGE CAP ROUND | FLAT",
+      "parameters": [
+        {"name": "SIZE", "description": "Text height."},
+        {"name": "RATIO", "description": "Text stroke thickness (ratio)."},
+        {"name": "LINEDISTANCE", "description": "Distance between the lines of a multi-line text."},
+        {"name": "FONT", "description": "VECTOR, PROPORTIONAL or FIXED font."},
+        {"name": "ALIGN", "description": "Text alignment relative to its origin."},
+        {"name": "WIDTH", "description": "Width of lines, wires, arcs and circle outlines."},
+        {"name": "STYLE", "description": "Line style: Continuous, LongDash, ShortDash or DashDot."},
+        {"name": "CAP", "description": "ROUND or FLAT endings of arcs."}
+      ],
+      "example": "CHANGE FONT VECTOR;\nCHANGE SIZE 1.5 (10 5) (10 15);\nCHANGE WIDTH 0.25;\nCHANGE STYLE DashDot;",
+      "notes": "DRC and autorouter treat every line as continuous, and a non-continuous line in a signal connected to a pad is a DRC error, so use styles only for drawings, not copper. Labels cannot be edited with CHANGE TEXT (they always show their net or bus name)."
+    },
+    {
+      "name": "CHANGE pad, via and SMD parameters",
+      "kind": "command",
+      "description": "The CHANGE options for pads, vias and SMD pads: shape, mask and thermal flags, diameter, drill, via layer span, SMD size and roundness. Used in the footprint editor and in boards; the DRILL value also applies to holes.",
+      "usage": "CHANGE SHAPE SQUARE | ROUND | OCTAGON | LONG | OFFSET\nCHANGE STOP | CREAM | THERMALS | FIRST  OFF | ON\nCHANGE DIAMETER diameter\nCHANGE DRILL value\nCHANGE VIA from-to\nCHANGE SMD width height\nCHANGE ROUNDNESS value",
+      "parameters": [
+        {"name": "SHAPE", "description": "Pad/via shape SQUARE, ROUND, OCTAGON, LONG or OFFSET."},
+        {"name": "STOP / CREAM / THERMALS / FIRST OFF | ON", "description": "Flags for the solder-stop opening, solder cream, thermal connection in polygons and the first-pad marking."},
+        {"name": "DIAMETER", "description": "Outer diameter of pads and vias."},
+        {"name": "DRILL", "description": "Drill diameter of pads, vias and holes."},
+        {"name": "VIA from-to", "description": "Layer span of a via (e.g. 1-16)."},
+        {"name": "SMD width height", "description": "Size of an SMD pad."},
+        {"name": "ROUNDNESS", "description": "Corner roundness of an SMD pad."}
+      ],
+      "example": "CHANGE SHAPE OCTAGON (0 0) (2.54 0);\nCHANGE DRILL 0.8;\nCHANGE DIAMETER 1.6;\nCHANGE SMD 1.2 0.6 (5 0);\nCHANGE VIA 1-16;",
+      "notes": "FANOUT uses the current width and drill settings. Design rules and net classes may enforce minimum drill and diameter values (see DRC, CLASS)."
+    },
+    {
+      "name": "CHANGE pin and gate parameters",
+      "kind": "command",
+      "description": "The CHANGE options for pins in the symbol editor (electrical direction, graphic function, length, visibility of names, swap level) and for gates in the device editor (swap level and add level). They decide how the ERC evaluates connections and how gates are fetched into schematics.",
+      "usage": "CHANGE DIRECTION NC | IN | OUT | IO | OC | HIZ | SUP | PAS | PWR\nCHANGE FUNCTION NONE | DOT | CLK | DOTCLK\nCHANGE LENGTH POINT | SHORT | MIDDLE | LONG\nCHANGE VISIBLE BOTH | PAD | PIN | OFF\nCHANGE SWAPLEVEL number\nCHANGE ADDLEVEL NEXT | MUST | ALWAYS | CAN | REQUEST",
+      "parameters": [
+        {"name": "DIRECTION", "description": "Electrical type of the pin (not connected, input, output, in/out, open collector, high-Z, supply, passive, power) used by the ERC; a SUP (supply) pin placed on a net gives that net its name."},
+        {"name": "FUNCTION", "description": "Graphic pin decoration: none, inversion dot, clock, or both."},
+        {"name": "LENGTH", "description": "Pin length POINT, SHORT, MIDDLE or LONG."},
+        {"name": "VISIBLE", "description": "Which names are shown at the pin: pad and pin name (BOTH), only PAD, only PIN, or none (OFF)."},
+        {"name": "SWAPLEVEL", "description": "Pins/gates with the same swaplevel > 0 may be swapped (PINSWAP, GATESWAP)."},
+        {"name": "ADDLEVEL", "description": "When a gate is fetched into the schematic (see 'ADD symbol into device')."}
+      ],
+      "example": "CHANGE DIRECTION PWR (0 -5.08);\nCHANGE LENGTH SHORT;\nCHANGE FUNCTION DOT (-7.62 0);\nCHANGE SWAPLEVEL 1 (-7.62 2.54) (-7.62 -2.54);",
+      "notes": "A supply pin (Sup) placed on a net gives that net its name. Changing supply-pin configuration after the board exists can create inconsistencies that the ERC reports."
+    },
+    {
+      "name": "CHANGE polygon parameters",
+      "kind": "command",
+      "description": "The CHANGE options for copper polygons (pours) in boards: thermals, orphans, isolation distance, pour style, rank and hatch spacing. They are applied to existing polygons by clicking their outline or preset for the next POLYGON; RATSNEST recalculates the fill.",
+      "usage": "CHANGE THERMALS OFF | ON\nCHANGE ORPHANS OFF | ON\nCHANGE ISOLATE distance\nCHANGE POUR SOLID | HATCH | CUTOUT\nCHANGE RANK value\nCHANGE SPACING distance",
+      "parameters": [
+        {"name": "THERMALS", "description": "ON (default) connects pads and SMDs through thermal spokes, OFF connects them solidly."},
+        {"name": "ORPHANS", "description": "OFF (default) removes isolated polygon islands with no connection to other objects of the signal; ON keeps them."},
+        {"name": "ISOLATE", "description": "Clearance to other signals and to Dimension/restrict objects (default 0); a larger value than the design rules overrides them. Best left at 0."},
+        {"name": "POUR", "description": "SOLID (default), HATCH, or CUTOUT (subtracted from all other signal polygons in the layer, regardless of rank)."},
+        {"name": "RANK", "description": "1..6, default 1: polygons with a lower rank are calculated first and subtracted from higher-ranked ones; equal ranks are checked against each other by DRC."},
+        {"name": "SPACING", "description": "Distance between the fill lines when POUR is HATCH (default 50 mil)."}
+      ],
+      "example": "CHANGE ISOLATE 0;\nCHANGE POUR HATCH;\nCHANGE SPACING 1.0;\nCHANGE RANK 2 (5 5);\nRATSNEST;",
+      "notes": "Rank only matters for polygons in signal layers 1..16 of a board. Objects in tRestrict/bRestrict are cut out of Top/Bottom polygons. Related: POLYGON, RATSNEST, RIPUP."
+    },
+    {
+      "name": "CHANGE PACKAGE, PACKAGE3D and TECHNOLOGY",
+      "kind": "command",
+      "description": "Switches a placed part to another package variant, 3D package or technology of its device set, in the schematic or board. This is how you change a footprint (e.g. from through-hole to SMD) without deleting the part; the attribute VALUE is updated if the device defines it.",
+      "usage": "CHANGE PACKAGE part_name [device_name] | 'device_name' [part_name]\nCHANGE PACKAGE3D part_name [3d_package] | '3d_package' [part_name]\nCHANGE TECHNOLOGY part_name [device_name] | 'device_name' [part_name]",
+      "parameters": [
+        {"name": "part_name", "description": "Part to change; in the quoted form it is optional and the part can be clicked instead."},
+        {"name": "device_name", "description": "Target variant/technology of the part's device set; in the quoted form it comes first."},
+        {"name": "3d_package", "description": "Name of the 3D package to assign."}
+      ],
+      "example": "CHANGE PACKAGE R1 0207/10;\nCHANGE TECHNOLOGY IC1 LS;\nCHANGE PACKAGE '0204/7' (30 20);",
+      "notes": "The consistency-check help recommends CHANGE PACKAGE in the schematic editor to change a package variant. In the schematic or board, the PACKAGE and TECHNOLOGY commands behave exactly like CHANGE PACKAGE / CHANGE TECHNOLOGY. Use REPLACE to switch to a different device altogether."
+    },
+    {
+      "name": "CHANGE dimension parameters",
+      "kind": "command",
+      "description": "The CHANGE options for dimension objects: dimension type, unit and precision of the displayed number, and the widths and lengths of dimension and extension lines. Preset them before DIMENSION or apply them to existing dimensions.",
+      "usage": "CHANGE DTYPE PARALLEL | HORIZONTAL | VERTICAL | RADIUS | DIAMETER | ANGLE | LEADER\nCHANGE DUNIT [MIC | MM | MIL | INCH] [OFF | ON] [precision]\nCHANGE DLINE width [ extension_width [ extension_length [ extension_offset ]]]",
+      "parameters": [
+        {"name": "DTYPE", "description": "Kind of dimension (see 'DIMENSION types')."},
+        {"name": "DUNIT", "description": "Unit in which the value is displayed, OFF/ON for showing the unit, and the number of decimals (precision)."},
+        {"name": "DLINE", "description": "Dimension line width and optional extension line width, length and offset; extension values may be AUTO and a '-' skips (keeps) a preceding value."}
+      ],
+      "example": "CHANGE DLINE 0.1mm;\nCHANGE DLINE 0.2mm - 0.5mm AUTO;\nCHANGE DUNIT MM ON 2;",
+      "notes": "The second example sets the line width 0.2 mm, keeps the extension width, sets extension length 0.5 mm and offset AUTO."
+    },
+    {
+      "name": "CIRCLE",
+      "kind": "command",
+      "description": "Draws circles in any editor: first click on the center, second on the circumference. A width of 0 gives a filled circle. Circles in tRestrict, bRestrict and vRestrict define keep-out areas and should have width 0.",
+      "usage": "CIRCLE • •..       [center, circumference]\nCIRCLE width • •..",
+      "parameters": [
+        {"name": "width", "description": "Width of the circumference line in the current unit (same setting as LINE; preset with CHANGE WIDTH); 0 = filled."}
+      ],
+      "example": "GRID inch 1;\nCIRCLE (0 0) (1 0);\nGRID LAST;",
+      "notes": "The example draws a 1 inch radius circle around the origin. Center mouse button selects the layer. The radius is limited to 1000 mm."
+    },
+    {
+      "name": "CLASS",
+      "kind": "command",
+      "description": "Defines net classes and selects the class used by subsequent NET and SIGNAL commands (schematic and board). A class sets a minimum track width, a clearance to other classes and a minimum drill for its nets, and optional class-to-class clearances. Without parameters it opens the net class dialog.",
+      "usage": "CLASS\nCLASS number|name\nCLASS number [ name [ width [ clearance [ drill ] ] ] ] [ number:clearance .. ]",
+      "parameters": [
+        {"name": "number|name", "description": "Alone: select this class for the next NET/SIGNAL commands. Names are case-insensitive."},
+        {"name": "number name ...", "description": "Define (or redefine) class number with these values and select it; omitted values stay as they were. A negative number clears that class (class 0 cannot be cleared)."},
+        {"name": "width", "description": "Minimum width of all objects of this class."},
+        {"name": "clearance", "description": "Minimum clearance between signals of this class and other classes."},
+        {"name": "drill", "description": "Minimum drill of pads and vias of this class."},
+        {"name": "number:clearance", "description": "Specific clearance to another class, whose number must be less than or equal to this class's number; 0 means no specific value (the larger class clearance applies)."}
+      ],
+      "example": "CLASS 1 power 0.6mm 0.4mm 0.8mm;\nCLASS 3 hv 0.5mm 1.5mm 0.6mm 1:0.6mm 2:0.8mm;\nCLASS power;\nNET (10 10) (40 10);",
+      "notes": "Change the class of an existing net or signal with CHANGE CLASS. Use as few classes as possible (every class in use slows the autorouter) and the same numbering in all drawings to avoid conflicts when pasting between them. The bus router only routes class 0. Modules share the schematic's classes; a net connected through a PORT takes the class of the outer net. If DRC errors persist after editing the design rules, check the net class of the object."
+    },
+    {
+      "name": "CLOSE",
+      "kind": "command",
+      "description": "Closes the current editor window; if the drawing has unsaved changes you are asked whether to save. Mainly used in script files, e.g. after editing a library.",
+      "usage": "CLOSE",
+      "example": "OPEN mylib;\nEDIT R0603.fpt;\nWRITE;\nCLOSE;",
+      "notes": "Related: OPEN, EDIT, WRITE, SCRIPT, QUIT."
+    },
+    {
+      "name": "CONNECT",
+      "kind": "command",
+      "description": "Device editor command that maps the pins of the device's gates to the pads of the selected package variant (set the package with PACKAGE first). Without parameters it opens the Connect dialog; the text form lists pin/pad pairs. Every device variant needs complete connections before BOARD can build a board from it.",
+      "usage": "CONNECT\nCONNECT [ ALL | ANY ] gate_name.pin_name pad_name..\nCONNECT [ ALL | ANY ] pin_name pad_name..",
+      "parameters": [
+        {"name": "gate_name.pin_name", "description": "Pin of a gate; the gate name may be omitted if the device has only one gate. Names containing periods need no quoting."},
+        {"name": "pad_name", "description": "Pad of the footprint; several pads for one pin are listed in single quotes separated by blanks ('1 3 5')."},
+        {"name": "ALL | ANY", "description": "For several pads per pin: all pads must be connected (ALL, default) or any of them suffices (see 'CONNECT ALL / ANY')."}
+      ],
+      "example": "PACKAGE DIL14 N;\nCONNECT A.I1 1 A.I2 2 A.O 3 B.I1 4 B.I2 5 B.O 6 \\\n  C.I1 13 C.I2 12 C.O 11 D.I1 10 D.I2 9 D.O 8 \\\n  PWR.GND 7 PWR.VCC 14;",
+      "notes": "Each CONNECT overwrites earlier assignments for the pins it names; giving all pairs in one call is much faster for large devices. End continued lines with '\\' so the next line is not mistaken for a command, or quote parameters. In the dialog: Connect joins the selected pin and pads, Append adds pads, Disconnect splits them again; Ctrl/Shift select several pads. Related: PACKAGE, PREFIX, TECHNOLOGY."
+    },
+    {
+      "name": "CONNECT ALL / ANY (several pads per pin)",
+      "kind": "command",
+      "description": "For parts with internally connected pads (power amplifiers, BGAs, heat-sink pads) one pin may be connected to several pads. With ALL every listed pad must be wired to the signal in the board; with ANY one of them is enough and the part may even act as a bridge between pads. RATSNEST and the autorouter handle both cases.",
+      "usage": "CONNECT ALL pin_name 'pad pad ..'\nCONNECT ANY pin_name 'pad pad ..'",
+      "parameters": [
+        {"name": "ALL", "description": "Default: all pads must be connected externally."},
+        {"name": "ANY", "description": "Any one (or all) of the pads may carry the connection; the part's internal connection may carry current between them."},
+        {"name": "'pad pad ..'", "description": "Pad names separated by blanks, enclosed in single quotes."}
+      ],
+      "example": "CONNECT ALL I1 '1 3 5';\nCONNECT ANY O1 '2 4 6';\nCONNECT 'A' '1' 'B' '2' ANY 'C' '3 4 5 6' 'D' '7 8' ALL 'E' '9 10 11';",
+      "notes": "A keyword applies to all following pairs until the other keyword appears. Quote a pin named ALL or ANY. Use ANY only if the part can carry the cross currents; if in doubt use ALL. In the Connect dialog an icon on multi-pad connections toggles ALL/ANY."
+    },
+    {
+      "name": "COPY",
+      "kind": "command",
+      "description": "Copies objects within a drawing: click an object, then place the copy (new names are generated, values are kept; copied wires, nets and buses keep their names). Since version 6 COPY (Ctrl+C) also puts the current group on the system clipboard for PASTE. With object@library forms it copies library objects between libraries (see 'COPY objects into a library').",
+      "usage": "COPY • •..\nCOPY deviceset@[library] [name]\nCOPY footprint@[library] [name]\nCOPY package3d@[library] [name]\nCOPY symbol@[library] [name]",
+      "parameters": [
+        {"name": "• •", "description": "Select the object, then click where the copy goes."},
+        {"name": "object@[library] [name]", "description": "Copy a library object into the currently open library, optionally under a new name."}
+      ],
+      "example": "COPY (10 10) (30 10);\nGROUP ALL;\nCUT;\nEDIT .s2;\nPASTE (0 0);",
+      "notes": "Mouse: Ctrl+C copies the selection to the clipboard, Ctrl+Left selects an object at its origin, Ctrl+Right takes the group, center button mirrors, right rotates, Shift+Right rotates back. Copying a gate of a multi-gate part adds a complete new part (plus its MUST/ALWAYS gates); use INVOKE to use another gate of the same part. Copied wires stay in their signal and are not connected to anything they overlap (DRC does not flag overlapping copies); connect with NAME or JUNCTION. With Ctrl+C a single object is pasted by its origin, a group by the cursor position at copy time (free anchor). SET Cmd.Copy.ClassicEagleMode 1 restores the pre-6 behaviour. To copy to another sheet: GROUP, COPY or CUT, change sheet, PASTE."
+    },
+    {
+      "name": "COPY objects into a library",
+      "kind": "command",
+      "description": "Copies device sets, footprints, 3D packages or symbols into the currently open library, either from another library (object@library) or from a design that is open in the schematic or board editor. Library objects used by the copied object (symbols, footprints) are updated automatically. The same can be done by drag and drop from the Control Panel or the library context menu.",
+      "usage": "COPY deviceset@[library] [name]\nCOPY footprint@[library] [name]\nCOPY package3d@[library] [name]\nCOPY symbol@[library] [name]\nCOPY device [name]\nCOPY footprint [name]\nCOPY package [name]\nCOPY symbol [name]",
+      "parameters": [
+        {"name": "library", "description": "Plain library name (searched in the library path and among downloaded managed libraries), a file path, a managed-library URN, or omitted for the current library."},
+        {"name": ".dev / .fpt / .p3d / .sym suffix", "description": "Resolves ambiguous object names (.pac is accepted for footprints for compatibility)."},
+        {"name": "name", "description": "New name of the copy (library form) or the part/element to copy from (design form); without it you click the object in the design."}
+      ],
+      "example": "OPEN mylib;\nCOPY 7400@74xx-us;\nCOPY DIL14.fpt@ref-packages DIL14_WIDE;",
+      "notes": "Design form: COPY symbol works in the schematic window, COPY footprint / COPY package in the board window, COPY device in both (from a board only if the matching schematic is available)."
+    },
+    {
+      "name": "CUT",
+      "kind": "command",
+      "description": "Copies the current group into the paste buffer with an explicit reference point, so that PASTE in another drawing or sheet places it exactly relative to the cursor. Despite its name it does not remove anything from the drawing. CUT; uses the center of the group (snapped to grid) as reference point.",
+      "usage": "CUT •\nCUT;",
+      "example": "GROUP (0 0) (40 0) (40 30) (0 30) (0 0);\nCUT (0 0);\nEDIT other.brd;\nPASTE (100 50);",
+      "notes": "Since version 6 CUT is no longer in the menus or toolbar (command line and scripts only); COPY/Ctrl+C put the group on the clipboard but always with the center as reference. SET Cmd.Copy.ClassicEagleMode 1 restores the classic COPY/CUT behaviour. Related: PASTE, GROUP."
+    },
+    {
+      "name": "DELETE",
+      "kind": "command",
+      "description": "Deletes objects by clicking or by name (parts, pads, SMDs, pins, gates), a whole group with Ctrl+right click, or all signals with DELETE SIGNALS. It works in all editors, only on visible layers. Components in a board with active forward/back annotation can only be deleted if no signals are connected; do such changes in the schematic.",
+      "usage": "DELETE •..\nDELETE name ..\nDELETE SIGNALS",
+      "parameters": [
+        {"name": "name", "description": "Object name; multi-gate parts need the full instance name (IC1A); part attributes as part>attribute (R5>VALUE)."},
+        {"name": "SIGNALS", "description": "Deletes all signals connected to pads (see 'DELETE SIGNALS')."}
+      ],
+      "example": "DELETE R12;\nDELETE R5>VALUE;\nDELETE (25 40);\nGROUP (0 0) (20 0) (20 20) (0 20) (0 0);\nDELETE (C> 0 0);\nRATSNEST;",
+      "notes": "Mouse: Shift+Left deletes the higher-level object (whole part from a gate, whole polygon from a polygon edge, whole net/bus segment), Ctrl+Left deletes a wire joint (joins two wires of the same layer, width and style into one) or a port, Ctrl+Right deletes the group. Board elements can only be deleted with tOrigins/bOrigins visible; an element may look unconnected yet be tied to supply through implicit power pins. With f/b annotation active, DELETE on wires/vias behaves like RIPUP. Deleting splits nets and signals: the larger part keeps the name. Polygon corners are deleted one by one (a triangle disappears). DRC error polygons are removed with ERRORS CLEAR. UNDO reverses deletions; run RATSNEST after deleting groups."
+    },
+    {
+      "name": "DELETE SIGNALS",
+      "kind": "command",
+      "description": "Removes all signals connected to pads from a board, leaving the placed components. It is used before reading a new or changed netlist into the board, typically a script produced with EXPORT NETSCRIPT.",
+      "usage": "DELETE SIGNALS",
+      "example": "EDIT myboard.brd;\nDELETE SIGNALS;\nSCRIPT newnets.scr;",
+      "notes": "Only signals connected to pads are deleted. A part actually named SIGNALS must be written in single quotes (DELETE 'SIGNALS'). Work on the board without a consistent schematic loaded (EXPORT NETSCRIPT requires this when its script is read)."
+    },
+    {
+      "name": "DESCRIPTION",
+      "kind": "command",
+      "description": "Defines or edits the description text of the current drawing or library object (device set, footprint, symbol, board, sheet). The text may contain HTML; its first non-blank line becomes the headline shown in the Control Panel. Without parameters it opens an editor dialog with formatted preview.",
+      "usage": "DESCRIPTION [ * ] [ description_string; ]\nDESCRIPTION ** [ description_string; ]",
+      "parameters": [
+        {"name": "*", "description": "Edit the description of the library (even while a device, footprint or symbol is open) or of the whole schematic instead of the current sheet."},
+        {"name": "**", "description": "Edit the description of the current module."},
+        {"name": "description_string", "description": "Text, may contain HTML tags and \\n line breaks."}
+      ],
+      "example": "DESCRIPTION '<b>Quad NAND</b><p>\\nFour 2-input NAND gates.';\nDESCRIPTION * 'My company parts library';",
+      "notes": "In a freshly opened library with no object being edited, DESCRIPTION changes the library description."
+    },
+    {
+      "name": "DIMENSION",
+      "kind": "command",
+      "description": "Adds dimensioning to boards, schematics and library drawings. Clicking a straight wire gives its length, an arc its radius, a circle or hole its diameter; elsewhere an arbitrary dimension of the current type is drawn from two reference points and an alignment point. Line width, unit and precision are set with CHANGE DLINE / DUNIT or in the properties dialog.",
+      "usage": "DIMENSION [dtype] • •..",
+      "parameters": [
+        {"name": "dtype", "description": "PARALLEL, HORIZONTAL, VERTICAL, RADIUS, DIAMETER, ANGLE or LEADER (see 'DIMENSION types')."}
+      ],
+      "example": "LAYER 47;\nDIMENSION HORIZONTAL (C 0 0) (C 100 0) (50 -10);",
+      "notes": "Mouse: center button selects the layer, right button cycles the dimension type (Shift+Right backwards), Ctrl+Left at start/end does not snap to an object. In scripts, the C modifier on the first coordinate (C x y) forces an arbitrary dimension even near an object. A dimension can be selected at any of its three points. The 'Unit' in the properties dialog is the unit in which the number is displayed. The example draws into layer 47 (Measures)."
+    },
+    {
+      "name": "DIMENSION types (dtype)",
+      "kind": "reference",
+      "description": "Every dimension object has two reference points and an alignment point; the dimension type decides how they are interpreted and displayed. Set it with DIMENSION dtype, CHANGE DTYPE or by right-clicking during DIMENSION.",
+      "usage": "DIMENSION PARALLEL | HORIZONTAL | VERTICAL | RADIUS | DIAMETER | ANGLE | LEADER • • •",
+      "parameters": [
+        {"name": "PARALLEL", "description": "Distance between the reference points, dimension line parallel to them through the alignment point."},
+        {"name": "HORIZONTAL / VERTICAL", "description": "Only the X or Y distance between the reference points."},
+        {"name": "RADIUS", "description": "First point = arc center, second on the arc; drawn inside or outside depending on the alignment point, with a center cross."},
+        {"name": "DIAMETER", "description": "Two points on opposite sides of the circle; inside or outside like RADIUS, with a center cross."},
+        {"name": "ANGLE", "description": "Angle from the second to the third point, counterclockwise around the first point (center)."},
+        {"name": "LEADER", "description": "Arrow at the first point and a bent line through the second and third; shows no value (add text with TEXT)."}
+      ],
+      "example": "DIMENSION RADIUS (C 50 50) (C 60 50) (65 50);\nDIMENSION ANGLE (C 0 0) (C 20 0) (C 0 20);",
+      "notes": "EAGLE normalises the alignment point when a dimension is created or changed (e.g. to the middle of the dimension line). If the text does not fit inside a radius or diameter dimension, it is drawn outside."
+    },
+    {
+      "name": "DISPLAY",
+      "kind": "command",
+      "description": "Selects which layers are visible, by number or name (mixed allowed); a leading '-' hides a layer. Without parameters it opens the layer dialog with all layer settings. Visibility matters beyond looks: only objects on visible layers can be selected, edited or grouped, and elements can only be selected when tOrigins/bOrigins is visible.",
+      "usage": "DISPLAY\nDISPLAY [option] layer_number..\nDISPLAY [option] layer_name..",
+      "parameters": [
+        {"name": "ALL / NONE", "description": "Show all layers / hide all layers (combine: DISPLAY NONE BOTTOM)."},
+        {"name": "LAST", "description": "Restore the previously visible layers."},
+        {"name": "-layer", "description": "Hide this layer (DISPLAY TOP -BOTTOM -3)."},
+        {"name": "? / ??", "description": "Undefined layers after '?' raise a warning the user can accept or cancel; after '??' they are silently ignored. Useful in scripts that must work with any drawing."},
+        {"name": "= name ...", "description": "Parameter aliases / layer sets (see 'DISPLAY layer sets (aliases)')."}
+      ],
+      "example": "DISPLAY NONE TOP PADS VIAS DIMENSION;\nDISPLAY TOP BOTTOM ? MYLAYER1 ?? OTHER;\nDISPLAY LAST;",
+      "notes": "Only signal layers present in the design-rules layer setup are available. PAD, SMD, SIGNAL and ROUTE switch certain layers on automatically. Pads and vias are drawn in the colours of the visible signal layers when layer 17/18 colour is 0 (background); this also applies to PRINT. Avoid layer names ALL, NONE, names starting with '-', and names of presets or aliases."
+    },
+    {
+      "name": "DISPLAY layer sets (aliases)",
+      "kind": "command",
+      "description": "Parameter aliases store a set of DISPLAY parameters under a name, so a layer combination (e.g. top-side assembly view) can be recalled with one short command. Aliases are also listed when the DISPLAY button is held down or right-clicked.",
+      "usage": "DISPLAY = name parameters\nDISPLAY = name @\nDISPLAY = ?\nDISPLAY = name\nDISPLAY = name;\nDISPLAY name",
+      "parameters": [
+        {"name": "= name parameters", "description": "Define the alias; name has letters, digits and underscores, starts with a letter or underscore, is case-insensitive and must not be an option keyword."},
+        {"name": "= name @", "description": "Define the alias from the current settings."},
+        {"name": "= ?", "description": "Ask for a name for the current settings."},
+        {"name": "= name", "description": "Open the DISPLAY dialog to pick the layers for this alias."},
+        {"name": "= name;", "description": "Delete the alias."},
+        {"name": "name", "description": "Execute the alias; may be abbreviated and combined with other parameters or aliases (aliases win over keywords when abbreviated)."}
+      ],
+      "example": "DISPLAY = CopperTop None Top Pads Vias Unrouted Dimension;\nDISPLAY coppert;",
+      "notes": "Include NONE in the alias to show only its layers; without it the layers are added to those already visible. Layer presets (layer groups) from the layer dialog, defined in eagle.scr or user-defined (up to 9), act similarly; a preset named like a layer (e.g. 'top') overrides that layer name in DISPLAY."
+    },
+    {
+      "name": "DRC",
+      "kind": "command",
+      "description": "Checks the board against its current set of design rules. Without parameters it opens the Design Rules dialog, from which the rules are edited and the check started; with two coordinates only that rectangle is checked. Errors appear as error polygons and in the ERRORS list.",
+      "usage": "DRC\nDRC • • ;\nDRC LOAD|MERGE|SAVE filename;\nDRC *",
+      "parameters": [
+        {"name": "• •", "description": "Check only the rectangle between the two points (errors at least partly inside are reported)."},
+        {"name": "LOAD | MERGE | SAVE filename", "description": "Design rule files (see 'DRC LOAD / MERGE / SAVE')."},
+        {"name": "*", "description": "Open the Design Rules dialog for editing without running a check on OK."}
+      ],
+      "example": "DRC LOAD myfab-2layer;\nDRC;\nERRORS;",
+      "notes": "Electrically irrelevant objects (footprint wires, rectangles, circles, texts) are not checked against each other. Persistent errors may come from a net class parameter (CLASS). Clear error polygons with ERRORS CLEAR. SET DRC_FILL fill_name; sets the error-polygon fill (default LtSlash); SET LIVE_DRC ON | OFF; switches checking while editing. Related: ERC, ERRORS, CLASS."
+    },
+    {
+      "name": "DRC LOAD / MERGE / SAVE",
+      "kind": "command",
+      "description": "Loads the design rules of the board from a .dru file, merges additional parameters from a file into the current rules, or saves the current rules to a file. This is the way to apply a board manufacturer's capabilities to a design, typically from a script before running DRC and CAM.",
+      "usage": "DRC LOAD|MERGE|SAVE filename;",
+      "parameters": [
+        {"name": "LOAD", "description": "Replace the board's design rules with those in the file."},
+        {"name": "MERGE", "description": "Apply only the parameters contained in the file; others remain unchanged."},
+        {"name": "SAVE", "description": "Write the current design rules to the file."},
+        {"name": "filename", "description": "'.dru' is appended if missing."}
+      ],
+      "example": "DRC SAVE backup_rules;\nDRC LOAD myfab;\nDRC MERGE extra_clearances;\nWRITE;",
+      "notes": "The rules are stored in the board file, so save the board (WRITE) to keep them."
+    },
+    {
+      "name": "EDIT",
+      "kind": "command",
+      "description": "Loads a drawing (board, schematic), switches between schematic and board of the same name, opens another schematic sheet or module, or, after OPEN in the library editor, loads a footprint, symbol or device for editing. Without parameters it shows a file dialog (drawings) or a table of contents (libraries). Wildcards such as *.brd are allowed.",
+      "usage": "EDIT name\nEDIT name.ext\nEDIT .ext\nEDIT .sX [ .sY ]\nEDIT name.mod\nEDIT name.m2\nEDIT .m3\nEDIT modX.m3 modY.m1\nEDIT;",
+      "parameters": [
+        {"name": "name.brd / name.sch", "description": "Load a board or schematic."},
+        {"name": ".brd / .sch", "description": "Switch to the board or schematic with the same name."},
+        {"name": ".sX / name.mod / .mX", "description": "Sheets and modules (see 'EDIT sheets and modules')."},
+        {"name": "name.fpt / .sym / .dev / urn", "description": "Library objects (see 'EDIT library objects')."},
+        {"name": "name.dbl", "description": "Load a design block in the preview dialog; with ';' (EDIT name.dbl;) load a new design block into the editor(s)."}
+      ],
+      "example": "EDIT myproject.sch;\nEDIT .brd;\nEDIT .s2;",
+      "notes": "Files are loaded from the project directory. EDIT .brd in a schematic without a board offers to create it (like BOARD). Related: OPEN, CLOSE, BOARD, MODULE, WRITE."
+    },
+    {
+      "name": "EDIT sheets and modules",
+      "kind": "command",
+      "description": "EDIT with a sheet or module suffix switches schematic sheets, creates new sheets, reorders sheets and creates or opens module sheets of a hierarchical design. A sheet number that does not exist yet creates a new sheet.",
+      "usage": "EDIT .sX [ .sY ]\nEDIT name.mod\nEDIT name.m2\nEDIT .m3\nEDIT .s2 modY.m1\nEDIT modX.m3 modY.m1",
+      "parameters": [
+        {"name": ".sX", "description": "Load sheet X (created if missing)."},
+        {"name": ".sX .sY", "description": "Move sheet X before sheet Y and load it (.s5 .s2); if Y does not exist, X becomes the last sheet."},
+        {"name": "name.mod", "description": "Load or create module 'name'."},
+        {"name": "name.mN / .mN", "description": "Load or create sheet N of the named module / of the current module."},
+        {"name": "modX.mN modY.mM", "description": "Move a module sheet before a sheet of another module and load it."}
+      ],
+      "example": "EDIT .s3;\nEDIT .s5 .s2;\nEDIT FILTER.mod;\nEDIT .m2;",
+      "notes": "Sheets can also be selected in the sheet combo box of the action toolbar or by clicking the sheet thumbnails (drag and drop reorders them). To move objects to another sheet see 'MOVE group to another sheet'."
+    },
+    {
+      "name": "EDIT library objects",
+      "kind": "command",
+      "description": "After a library has been opened with OPEN, EDIT loads a footprint, symbol or device (by name or URN) into the library editor, creating it if it does not exist. EDIT; shows the library's table of contents.",
+      "usage": "EDIT name.fpt\nEDIT name.pac\nEDIT name.sym\nEDIT name.dev\nEDIT urn\nEDIT;",
+      "parameters": [
+        {"name": ".fpt", "description": "Footprint (since EAGLE 9.1); .pac is accepted for compatibility."},
+        {"name": ".sym", "description": "Symbol."},
+        {"name": ".dev", "description": "Device set."},
+        {"name": "urn", "description": "Footprint, symbol or device by URN (managed libraries)."}
+      ],
+      "example": "OPEN mylib;\nEDIT R0603.fpt;\nSMD 0.9 1.0 -0 R0 '1' (-0.8 0);\nSMD 0.9 1.0 -0 R0 '2' (0.8 0);\nWRITE;",
+      "notes": "Symbols, devices and footprints can only be edited after OPEN. EDIT .sch or .brd returns from the library editor to a drawing."
+    },
+    {
+      "name": "EDITGROUP",
+      "kind": "command",
+      "description": "Adds objects to or removes objects from existing persistent (named) groups, which are created with NEWGROUP and listed in the Design Manager's Groups view. The same options appear in the right-click context menu of selected objects, where they act on the whole selection.",
+      "usage": "EDITGROUP ADD object_name .. TO group_name ..\nEDITGROUP REMOVE object_name .. FROM group_name ..",
+      "parameters": [
+        {"name": "ADD ... TO", "description": "Add the named objects to the named group(s)."},
+        {"name": "REMOVE ... FROM", "description": "Remove the named objects from the named group(s)."}
+      ],
+      "example": "EDITGROUP ADD R7 C4 TO PSU;\nEDITGROUP REMOVE C4 FROM PSU;",
+      "notes": "Persistent groups are distinct from the temporary selection made with GROUP. Related: NEWGROUP, UNGROUP."
+    },
+    {
+      "name": "ERC",
+      "kind": "command",
+      "description": "Runs the electrical rule check of a schematic (for example it reports MUST gates that were never invoked) and shows the results in the ERRORS dialog. If the matching board is loaded it also performs the consistency check between schematic and board, which turns forward/back annotation on or off depending on the result.",
+      "usage": "ERC",
+      "example": "EDIT myproject.sch;\nERC;",
+      "notes": "The ERC also detects mismatches between implicit power/supply pins in the schematic and the actual signal connections in the board, which can happen when the supply configuration is changed after BOARD; annotation still works in that case, but check the supply pins. Related: DRC, ERRORS."
+    },
+    {
+      "name": "ERRORS",
+      "kind": "command",
+      "description": "Opens the list of problems found by the ERC (schematic) or DRC (board), in sections for consistency errors, errors, warnings and approved messages; if no check has been run yet it starts one. Selecting an entry marks the location in the editor, double-clicking (or the Centered option) zooms to it. ERRORS CLEAR empties the list and removes the error markers.",
+      "usage": "ERRORS\nERRORS CLEAR",
+      "parameters": [
+        {"name": "CLEAR", "description": "Delete all entries except approved ones (same as the Clear all button); the next check recreates them if still valid."},
+        {"name": "Processed (button)", "description": "Mark a message as done: it stays in the list but no longer shows an indicator."},
+        {"name": "Approve (button)", "description": "Move an error or warning that is acceptable to the Approved section; approvals are saved in the drawing file."}
+      ],
+      "example": "DRC;\nERRORS;\nERRORS CLEAR;",
+      "notes": "Consistency errors cannot be approved; they must be fixed to activate forward/back annotation. Approved messages that no longer apply are removed after the next ERC/DRC."
+    }
+  ]
+}

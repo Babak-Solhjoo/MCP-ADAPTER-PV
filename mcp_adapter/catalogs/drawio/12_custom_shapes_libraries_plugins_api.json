@@ -1,0 +1,504 @@
+{
+  "category": "Custom shape XML, libraries, plugins and JavaScript API",
+  "description": "Element-level reference for the stencil XML that defines custom shapes (Edit Shape dialog), the mxlibrary format and library panel actions, the built-in plugin ids, and the JavaScript entry points (Draw.loadPlugin, EditorUi, Graph, Sidebar, mxCodec, Graph.compress) that plugins and embedding code use to extend the editor.",
+  "tools": [
+    {
+      "name": "<shapes> / <shape> (stencil root element)",
+      "kind": "format",
+      "description": "A stencil document is <shape name=\"...\" h=\"...\" w=\"...\" aspect=\"variable|fixed\" strokewidth=\"inherit|N\">, optionally wrapped in <shapes> when a file defines several. name identifies the shape, w/h define the drawing coordinate system (default 100 x 100), aspect=fixed keeps the w:h ratio when the cell is resized, and strokewidth=inherit lets the cell's strokeWidth style scale the lines while a number multiplies it. The Edit Shape dialog accepts a single <shape> and encodes it into the style as shape=stencil(...).",
+      "usage": "<shape name=\"myShape\" h=\"100\" w=\"100\" aspect=\"variable\" strokewidth=\"inherit\">\n  <connections>...</connections>\n  <background>...</background>\n  <foreground>...</foreground>\n</shape>",
+      "parameters": [
+        {"name": "name", "description": "Required unique shape name."},
+        {"name": "w / h", "description": "Coordinate-space width and height (decimals, default 100)."},
+        {"name": "aspect", "description": "variable (default) or fixed."},
+        {"name": "strokewidth", "description": "inherit or an integer multiplier."}
+      ],
+      "example": "<shape name=\"tag\" h=\"60\" w=\"120\" aspect=\"variable\" strokewidth=\"inherit\">\n  <background><path><move x=\"0\" y=\"0\"/><line x=\"100\" y=\"0\"/><line x=\"120\" y=\"30\"/><line x=\"100\" y=\"60\"/><line x=\"0\" y=\"60\"/><close/></path></background>\n  <foreground><fillstroke/></foreground>\n</shape>",
+      "notes": "All coordinates are in the shape's own w x h space and are scaled to the cell geometry. Stencil files in the draw.io repository (stencils/*.xml) use <shapes> with many <shape> children.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<connections> / <constraint> (fixed connection points)",
+      "kind": "format",
+      "description": "Declares the fixed connection points of a custom shape. Each <constraint x=\"\" y=\"\" perimeter=\"0|1\" name=\"\"/> gives a relative position (0,0 top-left, 1,1 bottom-right; values outside 0..1 are allowed), whether the point is projected onto the perimeter, and an optional port name. Without a <connections> element the shape uses only its perimeter function.",
+      "usage": "<connections>\n  <constraint x=\"0.5\" y=\"0\" perimeter=\"0\" name=\"N\"/>\n  <constraint x=\"1\" y=\"0.5\" perimeter=\"0\" name=\"E\"/>\n  <constraint x=\"0.5\" y=\"1\" perimeter=\"0\" name=\"S\"/>\n  <constraint x=\"0\" y=\"0.5\" perimeter=\"0\" name=\"W\"/>\n</connections>",
+      "parameters": [
+        {"name": "x / y", "description": "Relative position in the shape bounds."},
+        {"name": "perimeter", "description": "1 projects the point onto the outline, 0 uses it exactly."},
+        {"name": "name", "description": "Optional port identifier."}
+      ],
+      "example": "<connections><constraint x=\"0.25\" y=\"0\" perimeter=\"0\"/><constraint x=\"0.75\" y=\"0\" perimeter=\"0\"/></connections>",
+      "notes": "A points=[...] style key on the cell overrides the stencil's constraints; Edit > Edit Connection Points edits them interactively.",
+      "docs": "https://www.drawio.com/doc/faq/shape-connection-points-edit"
+    },
+    {
+      "name": "<background> / <foreground> (drawing sections)",
+      "kind": "format",
+      "description": "The drawing is split into a background, which may contain at most one <path>, <rect>, <roundrect> or <ellipse> and no fill/stroke commands, and a foreground with the remaining drawing, text and images. The shadow of the shape is derived from the background outline, and the first element of the foreground must be the <fill/>, <stroke/> or <fillstroke/> that paints the background.",
+      "usage": "<background>\n  <roundrect x=\"0\" y=\"0\" w=\"100\" h=\"60\" arcsize=\"10\"/>\n</background>\n<foreground>\n  <fillstroke/>\n  ... more drawing ...\n</foreground>",
+      "parameters": [
+        {"name": "background", "description": "Single outline primitive, no paint commands."},
+        {"name": "foreground", "description": "Paint of the background followed by any primitives, styles, text and images."}
+      ],
+      "example": "<background><ellipse x=\"0\" y=\"0\" w=\"100\" h=\"100\"/></background>\n<foreground><fillstroke/><path><move x=\"20\" y=\"50\"/><line x=\"80\" y=\"50\"/></path><stroke/></foreground>",
+      "notes": "An empty background is allowed; then the foreground may start with any element.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<path> with <move>, <line>, <close> (path primitives)",
+      "kind": "format",
+      "description": "Free-form outlines are drawn inside a <path> element with HTML-canvas-like commands: <move x y/> starts a subpath, <line x y/> draws a straight segment to a point, and <close/> closes the current subpath back to its start. A path only becomes visible when followed by <fill/>, <stroke/> or <fillstroke/>.",
+      "usage": "<path>\n  <move x=\"0\" y=\"0\"/>\n  <line x=\"100\" y=\"0\"/>\n  <line x=\"50\" y=\"80\"/>\n  <close/>\n</path>\n<fillstroke/>",
+      "parameters": [
+        {"name": "move", "description": "x, y start point."},
+        {"name": "line", "description": "x, y end point of a straight segment."},
+        {"name": "close", "description": "Closes the subpath."}
+      ],
+      "example": "<path><move x=\"10\" y=\"10\"/><line x=\"90\" y=\"10\"/><line x=\"90\" y=\"90\"/><line x=\"10\" y=\"90\"/><close/></path><fillstroke/>",
+      "notes": "Coordinates are decimals in the shape's w x h space; several subpaths may share one <path>.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<quad>, <curve>, <arc> (curve primitives)",
+      "kind": "format",
+      "description": "Curved path segments: <quad x1 y1 x2 y2/> draws a quadratic Bezier to (x2,y2) via control point (x1,y1); <curve x1 y1 x2 y2 x3 y3/> draws a cubic Bezier to (x3,y3) with two control points; <arc rx ry x-axis-rotation large-arc-flag sweep-flag x y/> follows the SVG arc command exactly. All attributes are required decimals.",
+      "usage": "<path>\n  <move x=\"0\" y=\"50\"/>\n  <quad x1=\"50\" y1=\"0\" x2=\"100\" y2=\"50\"/>\n  <curve x1=\"80\" y1=\"100\" x2=\"20\" y2=\"100\" x3=\"0\" y3=\"50\"/>\n  <close/>\n</path>\n<fillstroke/>",
+      "parameters": [
+        {"name": "quad", "description": "x1, y1 control; x2, y2 end."},
+        {"name": "curve", "description": "x1, y1 and x2, y2 controls; x3, y3 end."},
+        {"name": "arc", "description": "rx, ry, x-axis-rotation, large-arc-flag, sweep-flag, x, y."}
+      ],
+      "example": "<path><move x=\"0\" y=\"50\"/><arc rx=\"50\" ry=\"50\" x-axis-rotation=\"0\" large-arc-flag=\"0\" sweep-flag=\"1\" x=\"100\" y=\"50\"/></path><stroke/>   (upper semicircle)",
+      "notes": "For simple circles and rounded boxes prefer <ellipse> and <roundrect>.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<rect>, <roundrect>, <ellipse> (complex primitives)",
+      "kind": "format",
+      "description": "Convenience elements that draw a whole outline in one tag: <rect x y w h/>, <roundrect x y w h arcsize/> (arcsize as a percentage of the shorter side) and <ellipse x y w h/>. Like paths they must be followed by <fill/>, <stroke/> or <fillstroke/> to become visible.",
+      "usage": "<roundrect x=\"0\" y=\"0\" w=\"100\" h=\"60\" arcsize=\"15\"/>\n<fillstroke/>",
+      "parameters": [
+        {"name": "x, y, w, h", "description": "Position and size (required decimals)."},
+        {"name": "arcsize", "description": "roundrect only: corner size."}
+      ],
+      "example": "<foreground><fillstroke/><ellipse x=\"70\" y=\"5\" w=\"25\" h=\"25\"/><fillcolor color=\"#ff0000\"/><fill/></foreground>   (badge in the corner)",
+      "notes": "Only one of these (or one path) may appear in <background>.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<fill/>, <stroke/>, <fillstroke/> (paint commands)",
+      "kind": "format",
+      "description": "Paint the preceding primitive: <fill/> fills the interior with the current fill colour, <stroke/> outlines it with the current stroke colour and width, <fillstroke/> does both. They consume the current path, so a new primitive must be started for the next drawing operation.",
+      "usage": "<rect x=\"0\" y=\"0\" w=\"100\" h=\"100\"/><fillstroke/>",
+      "parameters": [],
+      "example": "<path><move x=\"0\" y=\"0\"/><line x=\"100\" y=\"100\"/></path><stroke/>   (a diagonal line, stroke only)",
+      "notes": "Fill uses the cell's fillColor unless overridden by <fillcolor>; stroke uses strokeColor/strokeWidth likewise.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<strokecolor>, <fillcolor>, <fontcolor> (colour state)",
+      "kind": "format",
+      "description": "Set the colours used by later paint and text commands: each takes color=\"#RRGGBB\" or one of the keywords fill, stroke, font (use the cell's corresponding style colour) and default (theme background/foreground). A color value naming a custom style key (declared in the cell style as fillColorStyles / strokeColorStyles lists) lets users pick that colour in the Format panel.",
+      "usage": "<fillcolor color=\"#ffffff\"/>\n<strokecolor color=\"stroke\"/>\n<fontcolor color=\"#333333\"/>",
+      "parameters": [
+        {"name": "color", "description": "#RRGGBB, fill, stroke, font, default or a custom style key name."}
+      ],
+      "example": "<fillcolor color=\"ellipseFill\"/><ellipse x=\"10\" y=\"10\" w=\"30\" h=\"30\"/><fill/>   with cell style   fillColorStyles=ellipseFill;ellipseFill=#00cc00;",
+      "notes": "Wrap colour changes in <save/> ... <restore/> to return to the cell's colours afterwards.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<alpha>, <fillalpha>, <strokealpha> (transparency state)",
+      "kind": "format",
+      "description": "Set the opacity for subsequent drawing: <alpha alpha=\"0.0-1.0\"/> for everything, <fillalpha> for fills only and <strokealpha> for strokes only. They multiply with the cell's opacity/fillOpacity/strokeOpacity style keys.",
+      "usage": "<fillalpha alpha=\"0.3\"/><rect x=\"0\" y=\"0\" w=\"100\" h=\"100\"/><fill/>",
+      "parameters": [
+        {"name": "alpha", "description": "1.0 opaque to 0.0 transparent."}
+      ],
+      "example": "<save/><alpha alpha=\"0.5\"/><ellipse x=\"60\" y=\"0\" w=\"40\" h=\"40\"/><fillstroke/><restore/>",
+      "notes": "Transparency is preserved in SVG/PNG export.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<strokewidth>, <dashed>, <dashpattern>, <linejoin>, <linecap>, <miterlimit> (line state)",
+      "kind": "format",
+      "description": "Line styling inside a stencil: <strokewidth width=\"N\" [fixed=\"1\"]/> sets the pen width (fixed=1 keeps it unscaled), <dashed dashed=\"1|0\"/> toggles dashing with the pattern from <dashpattern pattern=\"5 3\"/>, <linejoin join=\"miter|round|bevel\"/>, <linecap cap=\"flat|round|square\"/> and <miterlimit limit=\"N\"/> follow the canvas conventions (flat replaces butt).",
+      "usage": "<strokewidth width=\"2\"/><dashed dashed=\"1\"/><dashpattern pattern=\"4 2\"/><linecap cap=\"round\"/>",
+      "parameters": [
+        {"name": "strokewidth width / fixed", "description": "Pen width and whether it scales."},
+        {"name": "dashed / dashpattern", "description": "Enable dashing and set on/off lengths."},
+        {"name": "linejoin / linecap / miterlimit", "description": "Corner and end rendering."}
+      ],
+      "example": "<save/><dashed dashed=\"1\"/><dashpattern pattern=\"2 2\"/><path><move x=\"0\" y=\"50\"/><line x=\"100\" y=\"50\"/></path><stroke/><restore/>",
+      "notes": "The cell's strokeWidth style multiplies stencil widths unless fixed=1 is used.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<fontsize>, <fontstyle>, <fontfamily> (font state)",
+      "kind": "format",
+      "description": "Font settings for subsequent <text> elements: <fontsize size=\"N\"/> in the shape's units, <fontstyle style=\"bits\"/> with 1 bold, 2 italic, 4 underline (ORed), and <fontfamily family=\"name\"/>. Without them text uses the cell's fontSize/fontStyle/fontFamily style keys.",
+      "usage": "<fontsize size=\"10\"/><fontstyle style=\"1\"/><fontfamily family=\"Helvetica\"/>",
+      "parameters": [
+        {"name": "size", "description": "Font size."},
+        {"name": "style", "description": "Bit mask: 1 bold, 2 italic, 4 underline."},
+        {"name": "family", "description": "Typeface name."}
+      ],
+      "example": "<fontsize size=\"8\"/><fontstyle style=\"3\"/><text str=\"v2\" x=\"90\" y=\"5\" align=\"right\" valign=\"top\"/>",
+      "notes": "Fonts must exist on the viewer's machine or be provided through configuration fonts.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<text> (stencil text element)",
+      "kind": "format",
+      "description": "Draws a fixed string inside the shape (separate from the cell label): <text str=\"...\" x y align=\"left|center|right\" valign=\"top|middle|bottom\" vertical=\"0|1\" rotation=\"deg\" align-shape=\"0|1\" placeholders=\"0|1\"/>. With placeholders=1 the string may contain %property% placeholders resolved from the cell's data, which is how data-driven stencils show values.",
+      "usage": "<text str=\"%name%\" x=\"50\" y=\"30\" align=\"center\" valign=\"middle\" placeholders=\"1\"/>",
+      "parameters": [
+        {"name": "str", "description": "Text to draw (required)."},
+        {"name": "x / y", "description": "Anchor position."},
+        {"name": "align / valign", "description": "Horizontal and vertical alignment relative to the anchor."},
+        {"name": "vertical / rotation / align-shape", "description": "Rotate 90 degrees, rotate by angle, and whether to follow the shape rotation."},
+        {"name": "placeholders", "description": "1 enables %name% substitution."}
+      ],
+      "example": "<fontcolor color=\"#ffffff\"/><text str=\"OK\" x=\"50\" y=\"50\" align=\"center\" valign=\"middle\"/>",
+      "notes": "Text is not editable in place; use the cell label for user-editable captions.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<image> (stencil image element)",
+      "kind": "format",
+      "description": "Places a bitmap or SVG inside the shape: <image src=\"data:...|url\" x y w h flipH=\"0|1\" flipV=\"0|1\"/>. Data URIs keep the stencil self-contained, which matters for libraries shared as files; URLs need CORS for export.",
+      "usage": "<image src=\"data:image/svg+xml;base64,...\" x=\"10\" y=\"10\" w=\"30\" h=\"30\"/>",
+      "parameters": [
+        {"name": "src", "description": "Data URI or absolute URL."},
+        {"name": "x, y, w, h", "description": "Position and size in shape units."},
+        {"name": "flipH / flipV", "description": "Mirror the image."}
+      ],
+      "example": "<foreground><fillstroke/><image src=\"data:image/png;base64,iVBORw0KGgo...\" x=\"5\" y=\"5\" w=\"20\" h=\"20\"/></foreground>",
+      "notes": "Images cannot appear in <background>. Keep embedded images small; each cell using the stencil carries the whole definition.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<include-shape> (embed another stencil)",
+      "kind": "format",
+      "description": "Draws a registered stencil (built-in mxgraph.* name or another shape in the same library) at the given position and size inside this shape, enabling composition of complex symbols from existing ones: <include-shape name=\"mxgraph.basic.star\" x y w h/>.",
+      "usage": "<include-shape name=\"mxgraph.electrical.logic_gates.and\" x=\"20\" y=\"20\" w=\"60\" h=\"40\"/>",
+      "parameters": [
+        {"name": "name", "description": "Registered stencil name."},
+        {"name": "x, y, w, h", "description": "Placement in shape units."}
+      ],
+      "example": "<foreground><fillstroke/><include-shape name=\"mxgraph.basic.cloud_rect\" x=\"10\" y=\"10\" w=\"80\" h=\"40\"/></foreground>",
+      "notes": "The included shape must be loaded (its library registered) when the diagram renders; built-in stencils load on demand.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "<save/> / <restore/> (state stack)",
+      "kind": "format",
+      "description": "Push and pop the current drawing state (colours, alpha, stroke width, dash and font settings) so a temporary style change inside the foreground does not leak into later commands. Every <save/> should have a matching <restore/>.",
+      "usage": "<save/>\n<fillcolor color=\"#ff0000\"/>\n<ellipse x=\"80\" y=\"0\" w=\"20\" h=\"20\"/><fill/>\n<restore/>",
+      "parameters": [],
+      "example": "<foreground><fillstroke/><save/><strokewidth width=\"3\"/><path><move x=\"0\" y=\"50\"/><line x=\"100\" y=\"50\"/></path><stroke/><restore/></foreground>",
+      "notes": "State is per rendering pass; the cell's own style forms the initial state.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "shape=stencil(...) (inline stencil in a style)",
+      "kind": "system-variable",
+      "description": "How a custom shape travels inside a diagram: the Edit Shape dialog deflates the <shape> XML, base64-encodes it and stores it as shape=stencil(<data>) in the cell style, so the file needs no external library. Programs can generate the same value with zlib raw deflate (no header) plus base64; to read one, base64-decode and inflate.",
+      "usage": "style=\"shape=stencil(tZRtb4IwEMc/DW+X0ir...);whiteSpace=wrap;html=1;\"",
+      "parameters": [
+        {"name": "data", "description": "base64(rawDeflate(URL-encoded shape XML))."}
+      ],
+      "example": "Python:\nimport zlib, base64, urllib.parse\nxml = '<shape name=\"tag\" h=\"60\" w=\"120\"><background><rect x=\"0\" y=\"0\" w=\"120\" h=\"60\"/></background><foreground><fillstroke/></foreground></shape>'\nraw = zlib.compress(urllib.parse.quote(xml, safe='').encode())[2:-4]\nstyle = 'shape=stencil(' + base64.b64encode(raw).decode() + ');'",
+      "notes": "Graph.compress/Graph.decompress in the JavaScript API perform the same transformation; the drawio-tools convert page does it interactively.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "Edit Shape dialog (Arrange > Insert > Shape / Edit > Edit Shape)",
+      "kind": "panel",
+      "description": "Text editor with live preview for stencil XML: Arrange > Insert > Shape creates a new custom shape from pasted XML, and Edit > Edit Shape (or the Edit Shape button in the Format panel) reopens the XML of a selected stencil-based cell for modification. Apply writes the encoded stencil back into the cell style; the dialog validates the XML and shows the rendered result.",
+      "usage": "Arrange > Insert > Shape...   |   select a custom shape > Edit > Edit Shape...",
+      "parameters": [
+        {"name": "XML text area", "description": "Stencil <shape> definition."},
+        {"name": "Preview", "description": "Renders the shape with the current style."},
+        {"name": "Apply / Insert", "description": "Encodes and applies the stencil."}
+      ],
+      "example": "Paste the tag stencil from the <shapes>/<shape> entry, press Insert, then drag the new shape into a custom library to reuse it.",
+      "notes": "Built-in mxgraph.* stencils cannot be edited this way (Edit Shape is disabled); copy their XML from the repository's stencils folder instead.",
+      "docs": "https://www.drawio.com/doc/faq/shape-complex-create-edit"
+    },
+    {
+      "name": "mxlibrary file format (.xml custom library)",
+      "kind": "format",
+      "description": "A custom library is an XML file <mxlibrary>[ ...JSON array... ]</mxlibrary> whose array holds one object per entry: {\"xml\": \"<compressed mxGraphModel of the shapes>\", \"w\": width, \"h\": height, \"title\": \"name\", \"aspect\": \"fixed|variable\"} for diagram snippets, or {\"data\": \"data:image/...\", \"w\", \"h\", \"title\", \"aspect\"} for image entries. It is what File > New Library / Save Library writes and what ?clibs=, defaultCustomLibraries and the Open Library dialog read.",
+      "usage": "<mxlibrary>[{\"xml\":\"jZJNT4Qw...\",\"w\":120,\"h\":60,\"title\":\"Tag\",\"aspect\":\"fixed\"},{\"data\":\"data:image/svg+xml;base64,...\",\"w\":48,\"h\":48,\"title\":\"Logo\",\"aspect\":\"fixed\"}]</mxlibrary>",
+      "parameters": [
+        {"name": "xml", "description": "Deflated+base64 mxGraphModel (same encoding as compressed diagrams) containing the entry's cells."},
+        {"name": "data", "description": "Image data URI for image entries."},
+        {"name": "w / h", "description": "Default insert size."},
+        {"name": "title", "description": "Tooltip/search name."},
+        {"name": "aspect", "description": "fixed keeps proportions on insert/resize."}
+      ],
+      "example": "Generate a library programmatically: build each entry's <mxGraphModel> XML, compress it with raw deflate + base64, and write the JSON array between the mxlibrary tags.",
+      "notes": "Uncompressed xml strings are also accepted by current versions. Libraries are stored in the browser (local storage), on the device, or in cloud storage next to diagrams.",
+      "docs": "https://www.drawio.com/doc/faq/custom-libraries"
+    },
+    {
+      "name": "Library panel actions (New Library, Open Library, edit, save, export)",
+      "kind": "tool",
+      "description": "Custom libraries appear as palettes at the top of the sidebar with a toolbar: File > New Library creates an empty library (choose device/browser/cloud storage), File > Open Library loads an .xml file or URL, dragging cells from the canvas into an open library adds entries, the pencil icon opens the library editor to rename, reorder or remove entries, and the save/export icons write the .xml or share it (URL for ?clibs=). The Scratchpad is a built-in library of the same kind.",
+      "usage": "File > New Library > Device...   |   File > Open Library from > Device / URL / Google Drive / GitHub...   |   drag shapes onto the library title bar to add",
+      "parameters": [
+        {"name": "Edit (pencil)", "description": "Rename entries, delete, reorder, set titles."},
+        {"name": "Save / Export", "description": "Write the mxlibrary XML."},
+        {"name": "Share", "description": "Produces a link with clibs= for the library."}
+      ],
+      "example": "Create 'Corp icons' on the device, drag six styled shapes into it, save, commit the .xml to Git and share https://app.diagrams.net/?clibs=Uhttps://.../corp.xml.",
+      "notes": "enableCustomLibraries:false in the configuration hides these actions; in embed mode they need libraries=1.",
+      "docs": "https://www.drawio.com/doc/faq/custom-libraries"
+    },
+    {
+      "name": "ex plugin (Explore from Here)",
+      "kind": "tool",
+      "description": "Built-in plugin id ex (also registered under a long legacy id) that adds 'Explore from Here' to the context menu and a click handler in the lightbox: it opens an exploration window showing the selected cell and its neighbours, expanding the graph step by step, useful for navigating large dependency or network diagrams.",
+      "usage": "?p=ex   |   Extras > Plugins > Add > ex",
+      "parameters": [],
+      "example": "Load https://app.diagrams.net/?p=ex, right-click a node > Explore from Here.",
+      "notes": "Plugins run only in the web app and Docker deployments, not in the desktop app or Atlassian apps.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "svgdata plugin",
+      "kind": "tool",
+      "description": "Adds cell ids and custom data attributes (from Edit Data) to the elements of the SVG export as data-* attributes and ids, so scripts or CSS on a web page can address individual shapes of an exported diagram.",
+      "usage": "?p=svgdata then File > Export as > SVG",
+      "parameters": [],
+      "example": "Export with svgdata loaded and query document.querySelector('[data-cell-id=\"srv1\"]') in the hosting page.",
+      "notes": "Without the plugin, SVG output contains only geometry and styling.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "number plugin",
+      "kind": "tool",
+      "description": "Overlays a running number on every vertex of the page (in model order) so steps can be referenced in documentation; the numbers are visual overlays, not part of the labels. Toggle with Extras > Number Shapes after loading the plugin.",
+      "usage": "?p=number   |   Extras > Number Shapes",
+      "parameters": [],
+      "example": "Load the plugin, enable numbering, then export PNG for a numbered walkthrough.",
+      "notes": "The enumerate=1 style key is the per-cell, persistent alternative.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "sql plugin",
+      "kind": "tool",
+      "description": "Adds Arrange > Insert > Advanced > From SQL, which parses CREATE TABLE statements into entity tables with columns and foreign-key connectors. Current versions ship the SQL importer built in, so the plugin is mainly needed on older deployments.",
+      "usage": "?p=sql   |   Arrange > Insert > Advanced > SQL",
+      "parameters": [],
+      "example": "Paste a pg_dump schema and insert an ER diagram.",
+      "notes": "See the SQL entry in the data-driven category for supported syntax.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "props plugin",
+      "kind": "tool",
+      "description": "Shows a cell's metadata (Edit Data properties) in a panel when the cell is clicked in chromeless/lightbox mode, turning a diagram into a browsable data sheet without editing rights.",
+      "usage": "?p=props&lightbox=1",
+      "parameters": [],
+      "example": "https://viewer.diagrams.net/?lightbox=1&p=props#Uhttps://example.com/inventory.drawio",
+      "notes": "Data must be stored as cell attributes (object element); tooltips remain separate.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "text plugin (Extract Text)",
+      "kind": "tool",
+      "description": "Adds Extras > Extract Text, which collects the plain text of all labels in the diagram into a dialog for copying, useful for spell checking, translation or indexing.",
+      "usage": "?p=text   |   Extras > Extract Text",
+      "parameters": [],
+      "example": "Load the plugin, run Extract Text and paste the result into a translation tool.",
+      "notes": "The embed action textContent provides the same data to host applications.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "anim plugin (Animation)",
+      "kind": "tool",
+      "description": "Adds Extras > Animation, a script-based animation editor (show/hide/flow commands per line such as 'show 3', 'hide 4', 'flow 5', 'wait 1000') that autostarts in chromeless mode to animate the order in which cells and edge flows appear. It predates the JSON page animation and custom-link actions.",
+      "usage": "?p=anim   |   Extras > Animation...",
+      "parameters": [],
+      "example": "Script:\nhide *\nwait 500\nshow 2\nflow 5\nwait 1000\nshow 3",
+      "notes": "Prefer the built-in animation/custom actions for new work; anim remains for existing animated diagrams.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "update plugin (data-driven refresh)",
+      "kind": "tool",
+      "description": "Enables data-driven diagrams in chromeless mode: cells carry an update URL/interval in their data, the plugin polls the JSON endpoint and applies returned style and label changes (e.g. colour a server red when a health check fails), producing live dashboards from a static diagram.",
+      "usage": "?p=update&lightbox=1 with cell data attributes describing the update source",
+      "parameters": [],
+      "example": "Set a cell attribute update=https://api.example.com/status/web1 with a 30 s interval and view the diagram in the lightbox.",
+      "notes": "The endpoint must allow CORS; the response format is documented in the plugin source (plugins/update.js).",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "trees plugin",
+      "kind": "tool",
+      "description": "Keyboard-driven tree editing for org charts and mind maps: with a node selected, Tab inserts a child, Enter a sibling, and moving/deleting a node moves or removes its subtree, complementing the treeFolding/treeMoving style keys.",
+      "usage": "?p=trees",
+      "parameters": [],
+      "example": "Load the plugin, select the root of an org chart, press Tab to add a report and Enter to add a peer.",
+      "notes": "Works with tree containers created by Arrange > Layout > Vertical Tree / the Tree templates.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "replay plugin (Record)",
+      "kind": "tool",
+      "description": "Adds Extras > Record, which captures every change made to a diagram as a sequence and replays it as an animation, useful for producing how-it-was-built walkthroughs.",
+      "usage": "?p=replay   |   Extras > Record",
+      "parameters": [],
+      "example": "Start recording, build the diagram, stop, then use the replay controls to play it back.",
+      "notes": "Recordings are kept in memory for the session.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "anon plugin (Anonymize Current Page)",
+      "kind": "tool",
+      "description": "Adds Extras > Anonymize Current Page, which replaces labels with placeholder text and removes metadata, links and tooltips so a diagram's structure can be shared (for example in a bug report) without disclosing confidential content.",
+      "usage": "?p=anon   |   Extras > Anonymize Current Page",
+      "parameters": [],
+      "example": "Load the plugin, anonymise, then File > Export as > XML and attach the file to the issue.",
+      "notes": "Irreversible on the page; work on a copy.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "webcola plugin (deprecated layout)",
+      "kind": "tool",
+      "description": "Adds Layout > WebCola Layout, an interactive constraint-based force layout (cola.js) that keeps running while nodes are dragged. It is deprecated in favour of the built-in organic/ELK layouts but still loadable for existing workflows.",
+      "usage": "?p=webcola   |   Arrange > Layout > WebCola Layout",
+      "parameters": [],
+      "example": "Load the plugin on a dense dependency graph and drag nodes while the layout settles.",
+      "notes": "Not maintained; results may differ between versions.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "tags plugin",
+      "kind": "tool",
+      "description": "Older tag-management plugin that adds a tags window for assigning tags to cells and toggling their visibility. Current editors have Edit > Edit Tags (Ctrl+K) and the View > Tags panel built in, so the plugin is only needed on legacy deployments.",
+      "usage": "?p=tags",
+      "parameters": [],
+      "example": "Load the plugin on an old self-hosted instance to filter cells by tag.",
+      "notes": "Tags are stored in the tags attribute of the cell as space-separated words.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "Draw.loadPlugin(function(ui) {...})",
+      "kind": "api",
+      "description": "The single global entry point for custom plugins: a plugin file calls Draw.loadPlugin with a callback that receives the EditorUi instance (ui) once the editor is ready. From ui the plugin reaches the graph (ui.editor.graph), actions (ui.actions), menus (ui.menus), sidebar (ui.sidebar) and toolbar. Plugins are loaded through Extras > Plugins (built-in ids or a URL, with a confirmation prompt), the p= URL parameter for built-ins, or by hosting them next to a self-hosted instance.",
+      "usage": "Draw.loadPlugin(function(ui) {\n  var graph = ui.editor.graph;\n  ...\n});",
+      "parameters": [
+        {"name": "ui", "description": "EditorUi instance (editor, graph, actions, menus, sidebar, toolbar, format)."}
+      ],
+      "example": "Draw.loadPlugin(function(ui) {\n  ui.actions.addAction('hello', function() {\n    ui.editor.graph.insertVertex(ui.editor.graph.getDefaultParent(), null, 'Hello', 40, 40, 120, 60, 'rounded=1;whiteSpace=wrap;html=1;');\n  });\n  var menu = ui.menus.get('extras');\n  var oldFunct = menu.funct;\n  menu.funct = function(m, parent) { oldFunct.apply(this, arguments); ui.menus.addMenuItems(m, ['-', 'hello'], parent); };\n});",
+      "notes": "External plugin URLs are blocked by the CSP on app.diagrams.net unless added through the dialog; the desktop app does not load plugins. Plugin code has full access to the diagram, so only trusted sources should be loaded.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "EditorUi and Graph API basics (ui.editor.graph, model, selection, insertVertex/insertEdge)",
+      "kind": "api",
+      "description": "Core objects available to plugins and embedded builds: ui.editor.graph is the Graph (mxGraph subclass) whose graph.getModel() returns the mxGraphModel; graph.getDefaultParent() is the current layer; graph.getSelectionCells() / setSelectionCells(); graph.insertVertex(parent, id, value, x, y, w, h, style) and graph.insertEdge(parent, id, value, source, target, style) create cells; graph.setCellStyles(key, value, cells) changes styles; wrap batches in model.beginUpdate()/endUpdate() for a single undo step; graph.getCellStyle(cell) returns the resolved style object; ui.editor.getGraphXml() returns the current page XML.",
+      "usage": "var graph = ui.editor.graph, model = graph.getModel();\nmodel.beginUpdate();\ntry {\n  var v1 = graph.insertVertex(graph.getDefaultParent(), null, 'A', 20, 20, 80, 40, 'rounded=1;html=1;');\n  var v2 = graph.insertVertex(graph.getDefaultParent(), null, 'B', 200, 20, 80, 40, 'ellipse;html=1;');\n  graph.insertEdge(graph.getDefaultParent(), null, '', v1, v2, 'edgeStyle=orthogonalEdgeStyle;html=1;');\n} finally { model.endUpdate(); }",
+      "parameters": [
+        {"name": "graph.getModel()", "description": "mxGraphModel with cells, getCell(id), getChildren, beginUpdate/endUpdate."},
+        {"name": "insertVertex / insertEdge", "description": "Create cells (id may be null for auto ids)."},
+        {"name": "setCellStyles / setCellStyle", "description": "Change one key or the whole style string of cells."},
+        {"name": "getSelectionCells / setSelectionCells", "description": "Read or set the selection."},
+        {"name": "ui.editor.getGraphXml / ui.editor.setGraphXml", "description": "Serialise or replace the current page."}
+      ],
+      "example": "graph.setCellStyles('fillColor', '#f8cecc', graph.getSelectionCells());   // colour the selection red",
+      "notes": "Cells created programmatically should get object values via graph.createVertex or by wrapping mxCell values in an element (mxUtils.createXmlDocument().createElement('object')) when custom data is needed.",
+      "docs": "https://jgraph.github.io/mxgraph/docs/js-api/files/view/mxGraph-js.html"
+    },
+    {
+      "name": "ui.actions.addAction and menu injection (ui.menus)",
+      "kind": "api",
+      "description": "Actions are the named commands behind menus and shortcuts: ui.actions.addAction(id, funct, enabled, iconCls, shortcut) registers one and ui.actions.get(id).funct() runs it (the same ids work with the embed invokeAction message). Menus are objects in ui.menus with a funct(menu, parent) that builds the items; plugins wrap that function and call ui.menus.addMenuItems(menu, ['id1', '-', 'id2'], parent) to add entries, or ui.menus.addSubmenu for nested menus.",
+      "usage": "ui.actions.addAction('myExport', function() { ... }, null, null, 'Ctrl+Alt+Shift+E');\nvar menu = ui.menus.get('file');\nvar prev = menu.funct;\nmenu.funct = function(m, parent) { prev.apply(this, arguments); ui.menus.addMenuItems(m, ['-', 'myExport'], parent); };",
+      "parameters": [
+        {"name": "id", "description": "Action identifier (also used by hideMenuItems and keyboardShortcuts)."},
+        {"name": "funct", "description": "Handler function."},
+        {"name": "shortcut", "description": "Display string only; bind keys with ui.keyHandler.bindAction(keyCode, control, id, shift)."}
+      ],
+      "example": "ui.keyHandler.bindAction(69, true, 'myExport', true);   // Ctrl+Shift+E now runs myExport",
+      "notes": "Menu ids: file, edit, view, arrange, extras, help, insert, layout, insertAdvanced; resource strings for labels come from mxResources.",
+      "docs": "https://www.drawio.com/doc/faq/plugins"
+    },
+    {
+      "name": "ui.sidebar.addPalette / createVertexTemplate / addPaletteFunctions",
+      "kind": "api",
+      "description": "Sidebar extension points used by library plugins: ui.sidebar.addPalette(id, title, expanded, onInit) adds a collapsible palette and calls onInit(content) to fill it; ui.sidebar.createVertexTemplate(style, width, height, value, title, showLabel, showTitle) and createVertexTemplateFromData(data, ...) build draggable entries (from a style string or compressed cell XML); ui.sidebar.addPaletteFunctions(id, title, expanded, fns) adds a palette from an array of such entry functions; ui.sidebar.createEdgeTemplate does the same for connectors.",
+      "usage": "ui.sidebar.addPaletteFunctions('corp', 'Corporate', true, [\n  ui.sidebar.createVertexTemplate('rounded=1;whiteSpace=wrap;html=1;fillColor=#0B5FFF;fontColor=#ffffff;', 120, 60, 'Service', 'Service box'),\n  ui.sidebar.createEdgeTemplate('edgeStyle=orthogonalEdgeStyle;endArrow=block;html=1;', 100, 0, '', 'Flow')\n]);",
+      "parameters": [
+        {"name": "addPalette(id, title, expanded, onInit)", "description": "Create a palette container."},
+        {"name": "createVertexTemplate(style, w, h, value, title, ...)", "description": "Draggable vertex entry."},
+        {"name": "createVertexTemplateFromData(data, w, h, title, ...)", "description": "Entry from compressed cell XML (as in mxlibrary entries)."},
+        {"name": "addPaletteFunctions(id, title, expanded, fns)", "description": "Palette from an array of entries."}
+      ],
+      "example": "Combine with a fetch() of an .xml library and createVertexTemplateFromData to expose a remote library as a permanent palette.",
+      "notes": "The built-in library plugins in the repository (e.g. plugins/rackF5.js) are good templates for this API.",
+      "docs": "https://github.com/jgraph/drawio/blob/dev/src/main/webapp/js/grapheditor/Sidebar.js"
+    },
+    {
+      "name": "mxCodec, mxUtils.parseXml, mxUtils.getPrettyXml and Graph.zapGremlins (XML codec)",
+      "kind": "api",
+      "description": "Serialising and parsing diagrams in JavaScript: mxUtils.parseXml(text) returns a DOM document; new mxCodec(doc).decode(doc.documentElement, graph.getModel()) loads an <mxGraphModel> into the model and new mxCodec().encode(graph.getModel()) produces the node again; mxUtils.getXml(node) and mxUtils.getPrettyXml(node) turn nodes into strings; Graph.zapGremlins(text) strips control characters that would make the XML invalid. ui.editor.setGraphXml(node) / getGraphXml() wrap the codec for the current page.",
+      "usage": "var doc = mxUtils.parseXml(xmlString);\nvar codec = new mxCodec(doc);\ncodec.decode(doc.documentElement, graph.getModel());\n\nvar node = new mxCodec().encode(graph.getModel());\nvar xml = mxUtils.getPrettyXml(node);",
+      "parameters": [
+        {"name": "mxUtils.parseXml(text)", "description": "String to XML document."},
+        {"name": "mxCodec.decode(node, model) / encode(model)", "description": "Model deserialisation and serialisation."},
+        {"name": "mxUtils.getXml / getPrettyXml(node)", "description": "Node to string (compact or indented)."},
+        {"name": "Graph.zapGremlins(text)", "description": "Remove illegal characters before parsing."}
+      ],
+      "example": "var node = ui.editor.getGraphXml();\nconsole.log(mxUtils.getPrettyXml(node));   // current page as readable XML",
+      "notes": "For multi-page files use ui.getFileData() which returns the complete <mxfile>, and ui.pages for page objects.",
+      "docs": "https://jgraph.github.io/mxgraph/docs/js-api/files/io/mxCodec-js.html"
+    },
+    {
+      "name": "Graph.compress / Graph.decompress (diagram compression)",
+      "kind": "api",
+      "description": "Static helpers implementing draw.io's compression of diagram XML: Graph.compress(data, deflate) URL-encodes the text, raw-deflates it (pako) and base64-encodes the result; Graph.decompress(data, inflate, checked) reverses it. They produce the content of compressed <diagram> elements, mxlibrary xml entries and shape=stencil(...) values, so plugins and hosts can read or write compressed data in the browser.",
+      "usage": "var compressed = Graph.compress(xmlString);\nvar xml = Graph.decompress(compressedString);",
+      "parameters": [
+        {"name": "data", "description": "Text to compress or base64 data to decompress."},
+        {"name": "deflate / inflate", "description": "Optional custom functions (default pako deflateRaw/inflateRaw)."},
+        {"name": "checked", "description": "true validates that the result is well-formed."}
+      ],
+      "example": "Python equivalent: base64.b64encode(zlib.compress(urllib.parse.quote(xml, safe='').encode())[2:-4])   and   urllib.parse.unquote(zlib.decompress(base64.b64decode(data), -15).decode())",
+      "notes": "Extras > Compressed toggles whether saved files use this encoding; the CLI --uncompressed and the drawio-tools convert page perform the transformation outside the editor.",
+      "docs": "https://www.drawio.com/doc/faq/compressed-xml"
+    },
+    {
+      "name": "mxStencilRegistry.loadStencilSet / addStencil (registering stencils from a plugin)",
+      "kind": "api",
+      "description": "Registers stencil XML so that shape=<name> styles resolve: mxStencilRegistry.loadStencilSet(url) fetches a <shapes> file and registers each <shape> under its name (draw.io uses it for stencils/*.xml on demand), while mxStencilRegistry.addStencil(name, new mxStencil(shapeNode)) registers one parsed shape. Plugins use this to ship whole shape sets without embedding stencil(...) data in every cell.",
+      "usage": "mxStencilRegistry.loadStencilSet('https://example.com/stencils/corp.xml');\n// or\nvar doc = mxUtils.parseXml(shapeXml);\nmxStencilRegistry.addStencil('corp.tag', new mxStencil(doc.documentElement));",
+      "parameters": [
+        {"name": "loadStencilSet(url, postStencilLoad, force, async)", "description": "Load and register all shapes in a file."},
+        {"name": "addStencil(name, stencil)", "description": "Register one mxStencil under a name."}
+      ],
+      "example": "After registration, insert a cell with style 'shape=corp.tag;whiteSpace=wrap;html=1;'.",
+      "notes": "Diagrams relying on plugin-registered stencils render as blank rectangles for users without the plugin; use shape=stencil(...) or a custom library for portability.",
+      "docs": "https://jgraph.github.io/mxgraph/docs/js-api/files/shape/mxStencilRegistry-js.html"
+    },
+    {
+      "name": "jgraph/drawio-tools (convert.html) and repository layout",
+      "kind": "reference",
+      "description": "jgraph/drawio-tools provides browser tools, notably convert.html (https://jgraph.github.io/drawio-tools/tools/convert.html), which decodes/encodes compressed diagram data, extracts diagrams from .drawio.png/.svg files and pretty-prints XML. The main jgraph/drawio repository holds the web app under src/main/webapp: js/grapheditor (core editor: Graph, EditorUi, Sidebar, Format, Actions, Menus), js/diagramly (draw.io-specific App, storage, dialogs, sidebar libraries), stencils/*.xml (shape definitions), templates/ (Templates dialog content), img/lib (image-based libraries), plugins/ (built-in plugins), styles/ and resources/ (translations); drawio-desktop wraps it via a git submodule.",
+      "usage": "https://jgraph.github.io/drawio-tools/tools/convert.html   |   git clone --recursive https://github.com/jgraph/drawio-desktop.git",
+      "parameters": [
+        {"name": "convert.html", "description": "Decode/encode compressed XML, extract from PNG/SVG, format XML."},
+        {"name": "src/main/webapp/stencils", "description": "Stencil XML files for mxgraph.* shapes."},
+        {"name": "src/main/webapp/js/diagramly/sidebar", "description": "Sidebar-*.js files defining each library's entries and styles."},
+        {"name": "src/main/webapp/plugins", "description": "Built-in plugin sources."}
+      ],
+      "example": "Paste a compressed <diagram> payload into convert.html and click Decode to get readable mxGraphModel XML.",
+      "notes": "The project is closed to external contributions but the source is the authoritative reference for style keys, library ids and shape names.",
+      "docs": "https://github.com/jgraph/drawio-tools"
+    }
+  ]
+}

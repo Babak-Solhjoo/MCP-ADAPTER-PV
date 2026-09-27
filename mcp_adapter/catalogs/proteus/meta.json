@@ -1,0 +1,85 @@
+{
+  "id": "proteus",
+  "name": "Proteus Design Suite (ISIS schematic capture, VSM simulation, ARES PCB layout)",
+  "vendor": "Labcenter Electronics",
+  "version_reference": "8.17 / 9",
+  "homepage": "https://www.labcenter.com",
+  "docs_root": "https://www.labcenter.com/tutorials",
+  "description": "Proteus is Labcenter's integrated ECAD suite, best known for combining schematic capture with microcontroller co-simulation. Since version 8 the historically separate ISIS (schematic capture) and ARES (PCB layout) programs run as modules inside a single application shell (PDS.EXE) over one project database (.pdsprj), so wiring a schematic updates the PCB's ratsnest and the 3D view live. Its distinctive capability is Proteus VSM: a Berkeley SPICE3F5 mixed-mode simulator combined with cycle-accurate models of PIC, AVR, 8051, ARM Cortex-M, MSP430, Arduino and Raspberry Pi Pico microcontrollers, so a real HEX/ELF firmware image runs against simulated analogue and digital hardware, peripheral models (LCDs, motors, sensors, serial devices) and virtual instruments. The PCB Layout module provides push-and-shove manual routing, a shape-based autorouter, a design rule manager with net classes and rooms, differential pair routing with automatic skew correction, group length matching, copper zones, HDI stackups and the full Gerber X2/ODB++/pick-and-place output set, with 3D visualisation and STEP/IGES exchange.",
+  "automation": {
+    "summary": "Proteus is primarily a GUI application and has no broad public scripting language for the schematic or PCB editors. Its documented programmable surfaces are: (1) the Proteus VSM SDK, a C++ DLL interface (vsm.hpp) used to write custom simulator models — analogue/SPICE, digital, mixed and 'active' (animated) models are exported from a DLL through create/delete entry points and implement the ICOMPONENT, IDSIMMODEL, ISPICEMODEL, IACTIVEMODEL, IINSTANCE and related interfaces; (2) firmware, which is the real behavioural 'script' of a VSM simulation — a HEX, COF, ELF/DWARF or UBROF image is attached to a microcontroller part through its Program File property and executed by the simulator; (3) VSM Studio and Visual Designer, the integrated IDE and flowchart/IoT builder that compile and debug that firmware from inside Proteus using external toolchains (MPLAB XC8, AVR-GCC, Arduino AVR, Keil, GCC for ARM); (4) remote debugging, where an external IDE (MPLAB X, Atmel/Microchip Studio, Keil uVision, STM32CubeIDE via GDB) drives a Proteus simulation as its debug target; and (5) file-level integration through SPICE model/netlist import (SPICEMODEL/SPICEFILE properties, .SDF netlists), EDIF/Eagle/DXF import and the many manufacturing output formats. Batch work inside the GUI is handled by the Output Job Manager rather than by a command line. Proteus is launched as PDS.EXE and will open a project file passed to it; Labcenter does not publish a set of command-line switches, so any flags found in third-party sources should be treated as unverified.",
+    "cli": [
+      {
+        "command": "PDS.EXE",
+        "description": "Launches the Proteus Design Suite application shell, which hosts the Home page and the Schematic Capture, PCB Layout, 3D Visualizer, Source Code and Design Explorer modules."
+      },
+      {
+        "command": "PDS.EXE \"D:\\work\\sensor\\sensor.pdsprj\"",
+        "description": "Opens a Proteus project on startup — the same behaviour as double-clicking the .pdsprj in Explorer, since the extension is registered to PDS.EXE. Labcenter does not publish additional command-line switches (for example for headless simulation, netlisting or output generation); use the Output Job Manager inside the application instead."
+      }
+    ],
+    "apis": [
+      {
+        "name": "Proteus VSM SDK (C++ DLL models)",
+        "description": "The documented way to extend the simulator with custom components. A model is a Windows DLL that includes Labcenter's vsm.hpp header and exports C-linkage create/delete entry points for the model class it implements: `createspicemodel`/`deletespicemodel` for analogue (SPICE) models, `createdsimmodel`/`deletedsimmodel` for digital models, `createmixedmodel`/`deletemixedmodel` for mixed analogue-digital models, and `createactivemodel`/`deleteactivemodel` for active (animated, interactive) models. The model class implements the corresponding interface (ISPICEMODEL, IDSIMMODEL, IMIXEDMODEL, IACTIVEMODEL) plus the common ICOMPONENT behaviour, and receives an IINSTANCE giving access to the schematic instance's pins and properties. Each entry point is passed the device name and an ILICENCESERVER pointer.",
+        "example": "// digital model DLL entry points\nextern \"C\" __declspec(dllexport) IDSIMMODEL* createdsimmodel(CHAR* device, ILICENCESERVER* ils)\n{\n    return new MyCounterModel;\n}\n\nextern \"C\" __declspec(dllexport) VOID deletedsimmodel(IDSIMMODEL* model)\n{\n    delete (MyCounterModel*)model;\n}"
+      },
+      {
+        "name": "VSM model interfaces (ICOMPONENT / IDSIMMODEL / IINSTANCE)",
+        "description": "The interface set a custom model implements and consumes. `IINSTANCE` represents the placed component and exposes its pins and its schematic properties; `IDSIMPIN`/`IACTIVEPIN` represent individual pins, with methods to read and drive logic states and schedule transitions; the digital simulator calls back through `simulate` and through the timed callback registered with `setcallback`, which is how clock generators and timed behaviour are written. Analogue models plug into the SPICE3F5 kernel and contribute to the matrix instead.",
+        "usage": "class MyModel : public IDSIMMODEL { VOID setup(IINSTANCE*, IDSIMCKT*); VOID simulate(ABSTIME, DSIMMODES); VOID callback(ABSTIME, EVENTID); … };",
+        "example": "VOID MyModel::callback(ABSTIME time, EVENTID eventid)\n{\n    // called at the time scheduled with IDSIMCKT::setcallback — used for clocks and timers\n}"
+      },
+      {
+        "name": "Firmware attachment (Program File property)",
+        "description": "The primary automation surface of a VSM simulation: the microcontroller part on the schematic carries a Program File property naming the compiled firmware image, plus a Clock Frequency property and the device's fuse/configuration settings. Proteus executes the machine code and simulates the on-chip peripherals down to pin waveforms, so the program under test is the real deliverable rather than a behavioural stand-in.",
+        "usage": "Double-click the MCU on the schematic > Program File: <path to .hex/.cof/.elf>; set Processor Clock Frequency and the Advanced Properties/fuses",
+        "example": "1. Place a PIC16F877A.\n2. Edit Component > Program File = D:\\fw\\blink.cof (COF/ELF keeps the source-level debug information).\n3. Processor Clock Frequency = 8MHz.\n4. Run the simulation and single-step the source in the Source Code tab."
+      },
+      {
+        "name": "VSM Studio (integrated IDE)",
+        "description": "Proteus's built-in firmware development environment, reached through the Source Code tab. It manages a firmware project alongside the schematic, invokes an external compiler toolchain (Microchip MPLAB XC8/XC16/XC32, AVR-GCC, the Arduino AVR core, Keil, GCC for ARM), and then debugs the resulting image inside the simulation with breakpoints, single stepping, variable and watch windows and register views — all with the simulated hardware responding live.",
+        "usage": "Source Code tab > Project > Add/New Firmware Project; configure the compiler in System > Compilers Configuration; Build, then Debug > Run",
+        "example": "1. Source > Add New Firmware Project > controller PIC16F877A, compiler XC8.\n2. Write main.c, press Build.\n3. Set a breakpoint on the ISR and press Play — the simulation halts there with the LEDs frozen mid-state."
+      },
+      {
+        "name": "Remote debugging from an external IDE",
+        "description": "Proteus can act as the debug target for an external IDE instead of a physical programmer: Microchip MPLAB X, Atmel/Microchip Studio, Keil uVision and (in recent releases) STM32CubeIDE over GDB connect to the running Proteus simulation, so breakpoints and variable inspection happen in the IDE while the circuit responds in Proteus. It suits teams whose firmware build already lives in a vendor IDE.",
+        "usage": "Enable remote debug monitor in Proteus (Debug menu), then configure the external IDE's debug tool to connect to Proteus",
+        "example": "1. In Proteus: Debug > Enable Remote Debug Monitor.\n2. In MPLAB X: select the Proteus VSM debug tool for the project.\n3. Start a debug session — MPLAB drives the simulated chip on the Proteus schematic."
+      },
+      {
+        "name": "Visual Designer / IoT Builder (flowchart programming)",
+        "description": "A graphical programming layer for Arduino, Raspberry Pi and (from Proteus 9.1) MicroPython targets: firmware is built as a flowchart of statements, peripheral method calls and control structures over a chosen hardware shield set, compiled automatically, and simulated on the schematic. IoT Builder extends it with a drag-and-drop dashboard and MQTT so a phone or browser front end can be designed and simulated alongside the firmware.",
+        "usage": "File > New Project > tick 'Create Firmware Project' and choose Visual Designer for Arduino/Raspberry Pi; build the flowchart in the Visual Designer tab",
+        "example": "New project > Visual Designer for Arduino > Arduino Uno + Grove shield > drag a LOOP block, add a 'Digital Write' peripheral call on the LED pin and a DELAY, then Build and Run."
+      },
+      {
+        "name": "SPICE model import (SPICEMODEL / SPICEFILE / .SDF)",
+        "description": "Third-party SPICE models are brought in by attaching them to a schematic part through its properties: SPICEMODEL names a .MODEL or .SUBCKT definition and SPICEFILE points at the file that contains it, while the Model Import wizard automates the pin mapping. Proteus also reads and writes SPICE netlists, and the simulator's internal netlist for a design is the .SDF file.",
+        "usage": "Edit the component > Add property SPICEMODEL / SPICEFILE; or use the Model Import wizard from the Library menu",
+        "example": "Place a generic op-amp, add properties SPICEMODEL=\"OPA2277\" and SPICEFILE=\"opa2277.lib\", and check the simulation log for the model resolution."
+      },
+      {
+        "name": "Output Job Manager",
+        "description": "Proteus 9's batch output mechanism: a saved job definition lists the manufacturing and documentation outputs a project needs (Gerber X2/RS-274X, Excellon drill, ODB++, pick and place, BOM, PDF, 3D exports) and generates them all in one operation, so a release is repeatable rather than a sequence of individual Output-menu commands.",
+        "usage": "PCB Layout module > Output > Output Job Manager; define the job's outputs and destination, then run it",
+        "example": "Output Job Manager > add Gerber X2, Excellon drill, Pick and Place CSV and BOM PDF > Generate — all outputs land in the configured folder."
+      }
+    ],
+    "file_formats": [
+      {"extension": ".pdsprj", "description": "Proteus 8/9 project file: a single container holding the schematic, the PCB layout, the firmware project reference, simulation settings, design notes and the common project database shared by all modules."},
+      {"extension": ".dsn", "description": "Legacy ISIS schematic design file from Proteus 7 and earlier; imported into a .pdsprj through File > Import Legacy Design."},
+      {"extension": ".lyt", "description": "Legacy ARES PCB layout file from Proteus 7 and earlier; paired with a .dsn when importing a legacy project."},
+      {"extension": ".sdf", "description": "Simulator Definition/netlist File — the SPICE-level netlist Proteus generates from the schematic and hands to the simulation kernel. Useful for inspecting exactly what is being simulated."},
+      {"extension": ".lib / .idx", "description": "Proteus library file and its index: .LIB files hold schematic devices, PCB packages, symbols and 2D graphics; the matching .IDX index makes them searchable from the Pick Devices dialog."},
+      {"extension": ".mod / .dll", "description": "VSM simulator model: a DLL built against vsm.hpp that implements a SPICE, digital, mixed or active model and is loaded by the simulation kernel when a part that references it is placed."},
+      {"extension": ".hex", "description": "Intel HEX firmware image attached to a microcontroller through its Program File property. Executes correctly but carries no symbol information, so source-level debugging is unavailable."},
+      {"extension": ".cof / .elf", "description": "COFF and ELF/DWARF firmware images that carry debug symbols, enabling source stepping, breakpoints, variable watches and register views inside Proteus."},
+      {"extension": ".prj", "description": "VSM Studio firmware project file describing the source files, target device and compiler toolchain for the firmware built alongside the schematic."},
+      {"extension": ".dxf", "description": "AutoCAD exchange format imported into the PCB Layout module for board outlines and mechanical geometry, and exported for mechanical documentation."},
+      {"extension": ".step / .stl / .iges", "description": "3D model formats imported for component bodies and exported from the 3D Visualizer for the assembled board, used for enclosure fit checks in mechanical CAD."},
+      {"extension": ".gbr / .gbx", "description": "Gerber photoplot output (RS-274X and Gerber X2) produced by the PCB Layout module's CADCAM output, accompanied by Excellon drill files."}
+    ]
+  }
+}

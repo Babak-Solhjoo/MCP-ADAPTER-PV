@@ -1,0 +1,429 @@
+{
+  "category": "XSim Advanced Usage, Netlist/Timing Simulation & Third-Party Simulators",
+  "description": "Beyond the basic compile/elaborate/run flow: the remaining xsim Tcl commands (waveform organisation, breakpoints and stepping, value inspection, VCD/SAIF logging, tracing), xelab/xsim command-line options for DPI, timing simulation, libraries and coverage, project-mode simulation settings (filesets, generics, defines, xsim.* properties), post-synthesis and post-implementation simulation, and how Vivado hands a design to Questa/ModelSim, VCS, Xcelium and Riviera-PRO.",
+  "tools": [
+    {
+      "name": "Post-synthesis / post-implementation (functional and timing) simulation",
+      "kind": "tcl-command",
+      "description": "Simulate the netlist produced by synthesis or implementation instead of the RTL: -mode post-synthesis or post-implementation with -type functional (gate-level netlist, UNISIM models, no delays) or -type timing (netlist plus SDF back-annotation, including routing delays after implementation, which also models reset/GSR timing and clock skew). Timing simulation is the only way to catch functional issues that depend on real delays (e.g. unconstrained paths, missed multicycle constraints) and to verify I/O timing when the interface cannot be constrained fully. Project Mode does the write_verilog/write_sdf and library setup automatically.",
+      "usage": "launch_simulation -mode post-synthesis|post-implementation -type functional|timing [-simset <simset>] [-scripts_only] [-noclean_dir] [-absolute_path] [-install_path <dir>]\n# non-project equivalent\nopen_checkpoint post_route.dcp\nwrite_verilog -mode timesim -sdf_anno true -sdf_file top_time.sdf -force top_time.v\nwrite_sdf -mode timesim -force top_time.sdf\nxvlog -sv top_time.v tb.sv ; xelab -L simprims_ver -L secureip glbl work.tb -s tb_time -sdfmax /tb/dut=top_time.sdf ; xsim tb_time -R",
+      "parameters": [
+        {"name": "-mode", "description": "behavioral (RTL), post-synthesis, post-implementation."},
+        {"name": "-type", "description": "functional (no delays) or timing (SDF annotated; post-implementation only for accurate routing delays)."},
+        {"name": "-scripts_only", "description": "Generate the compile/elaborate/run scripts without launching, for CI."},
+        {"name": "glbl", "description": "Verilog netlists need the glbl module (GSR/GTS) elaborated alongside the testbench; VHDL netlists use the simprim/unisim libraries."}
+      ],
+      "example": "# Project mode: Flow Navigator > Run Simulation > Run Post-Implementation Timing Simulation\nlaunch_simulation -mode post-implementation -type timing\nrun 20 us\n# The testbench must wait for GSR release (~100 ns) before applying stimulus in timing simulation.",
+      "notes": "Netlist simulation of encrypted IP needs the secureip library and the IP's simulation output products. Timing simulation is slow and uses the worst-case (max) delays by default; check the xelab -sdfmax/-sdfmin selection. VHDL post-implementation timing simulation is not supported for all families (use the Verilog netlist with a VHDL testbench via mixed language).",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Post-Synthesis-and-Post-Implementation-Simulation"
+    },
+    {
+      "name": "xelab DPI-C options (-sv_lib, -sv_root, -dpiheader) and compile_c / xsc",
+      "kind": "command",
+      "description": "SystemVerilog DPI-C support in xsim: C/C++ functions imported into SV are compiled to a shared library with xsc (the xsim C compiler wrapper around gcc/clang, or compile_c from Tcl), xelab -dpiheader generates the C header for exported/imported functions, and -sv_lib <lib> / -sv_root <dir> tell xelab which shared library (without extension) to load at run time. Used for C reference models, file I/O helpers, and co-simulation with host software.",
+      "usage": "xsc -c dpi_model.c -o dpi_model.o ; xsc --shared dpi_model.o -o dpi.so   (dpi.dll on Windows)\nxelab -dpiheader dpi.h work.tb              ;# generate header from SV import/export\nxelab -L uvm -sv_root . -sv_lib dpi -debug typical work.tb -s tb_sim\nxsim tb_sim -R\n# Project mode: set_property -name {xsim.elaborate.xelab.more_options} -value {-sv_lib dpi -sv_root ./dpi} -objects [get_filesets sim_1]",
+      "parameters": [
+        {"name": "-sv_lib <name>", "description": "Shared library name without extension; repeatable."},
+        {"name": "-sv_root <dir>", "description": "Directory searched for the library (default current dir)."},
+        {"name": "-dpiheader <file>", "description": "Write a C header with prototypes for the DPI functions found in the design."},
+        {"name": "-dpi_absolute", "description": "Treat -sv_root as absolute path."},
+        {"name": "xsc options", "description": "-c compile only, --shared link shared library, -i/--gcc_compile_options, --additional_option, -work, -v verbose."}
+      ],
+      "example": "// sv\nimport \"DPI-C\" function int c_checksum(input int data[]);\nexport \"DPI-C\" function sv_report;\n// c: #include \"dpi.h\"  int c_checksum(const svOpenArrayHandle data) { ... }\n$ xsc -c checksum.c -o checksum.o && xsc --shared checksum.o -o checksum.so\n$ xvlog -sv tb.sv && xelab -sv_lib checksum -debug typical tb -s tbsim && xsim tbsim -R",
+      "notes": "The GCC bundled with Vivado (tps/gcc) is used unless --gcc_compile_options points elsewhere; mixing a different compiler version can break the run-time load. In Project Mode add the C files to sim_1 and set the xsim.elaborate.xelab.more_options property; Vivado runs xsc automatically for .c/.cpp sources in the simulation fileset.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Direct-Programming-Interface-DPI-in-Vivado-Simulator"
+    },
+    {
+      "name": "xelab timing-simulation options (-sdfmax, -sdfmin, -sdfroot, -transport_int_delays, -pulse_r/-pulse_e, -notimingchecks)",
+      "kind": "command",
+      "description": "Options that control SDF back-annotation and delay modelling when elaborating a timing netlist: -sdfmax/-sdfmin (or -sdftyp) attach an SDF file to an instance path with the max/min delay set, -sdfroot changes the root instance the SDF paths are relative to, -transport_int_delays selects transport instead of inertial delay on interconnect, -pulse_r/-pulse_e set the reject/error pulse limits as a percentage of the path delay, -pulse_int_r/-pulse_int_e do the same for interconnect, and -notimingchecks or -timescale/-override_timeunit adjust checks and time units. These map to the xsim.elaborate.* properties in Project Mode.",
+      "usage": "xelab -L simprims_ver -L secureip -L unisims_ver glbl work.tb -s tb_time \\\n  -sdfmax /tb/dut=./top_time.sdf -transport_int_delays -pulse_r 0 -pulse_int_r 0 -pulse_e 0 -pulse_int_e 0 \\\n  -debug typical --timescale 1ps/1ps",
+      "parameters": [
+        {"name": "-sdfmax / -sdfmin <instance>=<file.sdf>", "description": "Annotate max (setup-critical) or min (hold-critical) delays onto the named instance."},
+        {"name": "-sdfroot <instance>", "description": "Root instance for the SDF (when the SDF was written for a sub-hierarchy)."},
+        {"name": "-transport_int_delays", "description": "Interconnect delays use transport model (pulses pass); default inertial model swallows narrow pulses."},
+        {"name": "-pulse_r / -pulse_e / -pulse_int_r / -pulse_int_e <0-100>", "description": "Pulse reject and error thresholds in percent of the delay for gates and interconnect."},
+        {"name": "-notimingchecks", "description": "Disable setup/hold/recovery checks (debug only)."},
+        {"name": "--timescale / -override_timeunit / -override_timeprecision", "description": "Default and forced time units."}
+      ],
+      "example": "# Project mode equivalents (Settings > Simulation > Elaboration)\nset_property -name {xsim.elaborate.xelab.more_options} -value {-transport_int_delays -pulse_r 0 -pulse_e 0} -objects [get_filesets sim_1]\nset_property -name {xsim.elaborate.sdf_delay} -value {sdfmin} -objects [get_filesets sim_1]",
+      "notes": "Vivado's default launch_simulation timing settings use max delays, transport interconnect delays and zero pulse thresholds, which matches the recommended sign-off setup in UG900. Setup/hold violations print as $setuphold messages from the SIMPRIM models.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/xelab-Command-Syntax-Options"
+    },
+    {
+      "name": "xsim run-time options (-tclbatch, -wdb, -view, -gui, -R, -onfinish, -log, -testplusarg)",
+      "kind": "command",
+      "description": "Command-line switches of the xsim executable when running a snapshot: -R runs to completion and exits, -gui opens the waveform GUI, -tclbatch <file> runs a Tcl script (typically open_vcd/log_wave/run all) in batch, -wdb names the waveform database to write, -view <wcfg> loads a waveform configuration in the GUI, -onfinish quit|stop controls behaviour at $finish, -onerror quit|stop at errors, -log names the log, -testplusarg name=value passes $test$plusargs/$value$plusargs to the testbench, -sv_seed sets the randomisation seed and -maxdeltaid limits delta cycles to catch zero-delay loops.",
+      "usage": "xsim <snapshot> [-R] [-gui] [-tclbatch <script.tcl>] [-t <script.tcl>] [-wdb <file.wdb>] [-view <file.wcfg>] [-onfinish quit|stop] [-onerror quit|stop] [-log <file>] [-testplusarg <name=value>] [-sv_seed <n>] [-maxdeltaid <n>] [-ieeewarnings] [-nolog] [-stats] [-protoinst <file>] [-vcdfile <file>] [-vcdunit <unit>]",
+      "parameters": [
+        {"name": "-R", "description": "Run all and quit (batch regression)."},
+        {"name": "-tclbatch / -t", "description": "Execute the Tcl file after loading the snapshot; must end with quit for batch runs."},
+        {"name": "-wdb", "description": "Waveform database file (needs log_wave or add_wave in the script)."},
+        {"name": "-view", "description": "Waveform configuration(s) to open with -gui."},
+        {"name": "-testplusarg", "description": "Plusargs for $test$plusargs; repeatable."},
+        {"name": "-sv_seed", "description": "Seed for SystemVerilog randomize()."}
+      ],
+      "example": "# run.tcl\nopen_vcd dump.vcd\nlog_vcd /tb/dut/*\nlog_wave -recursive *\nrun all\nclose_vcd\nquit\n$ xsim tb_sim -tclbatch run.tcl -wdb tb_sim.wdb -testplusarg TESTNAME=smoke -sv_seed 42 -onerror quit\n$ xsim tb_sim -gui -view tb_sim.wcfg   # inspect later",
+      "notes": "-gui with a script: use -t so the script runs before handing over the GUI. Exit codes: non-zero on errors when -onerror quit is used, useful for CI. Vivado's launch_simulation generates <sim>/xsim/*.sh/.bat wrappers that call exactly these commands.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/xsim-Command-Syntax-Options"
+    },
+    {
+      "name": "xelab -L library search, -relax, -mt, -O and the .prj project file (-prj)",
+      "kind": "command",
+      "description": "Elaboration setup options: -L <lib> adds a compiled library to the search order (unisims_ver, unimacro_ver, simprims_ver, secureip, xpm, uvm, plus IP libraries such as axi_vip_v1_1_x and fifo_generator_v13_2_x whose names appear in the IP's simulation scripts), -relax loosens strict LRM checking for legacy code, -mt on|off|<n> controls multithreaded compilation, -O0..3 sets optimisation (-O3 fastest run, -O0 best debug), -debug typical|all|wave|line|off decides what is visible in the waveform/probes, and -prj <file.prj> compiles a list of sources given in a project file (one 'verilog|sv|vhdl|vhdl2008 <lib> <files...>' line each) instead of separate xvlog/xvhdl runs. -a produces a standalone executable, -R runs immediately after elaboration.",
+      "usage": "xelab -prj tb.prj -L unisims_ver -L secureip -L xpm -debug typical -relax -mt 8 -O2 --timescale 1ns/1ps work.tb work.glbl -s tb_sim\n# tb.prj\nsv     work ./tb/tb_top.sv ./tb/pkg.sv\nverilog work ./rtl/top.v\nvhdl2008 mylib ./rtl/pkg.vhd ./rtl/core.vhd\n# library locations from compile_simlib / IP output: xsim.ini (project) or $XILINX_VIVADO/data/xsim/xsim.ini (defaults)",
+      "parameters": [
+        {"name": "-L <library>", "description": "Add a library to the reference search; repeatable. Library paths are resolved via xsim.ini."},
+        {"name": "-prj <file>", "description": "Project file listing sources with language and library."},
+        {"name": "-debug", "description": "off (fastest), typical (signals visible), wave (waveform only), line (line stepping), all."},
+        {"name": "-relax", "description": "Relaxed rule checking (common for vendor netlists and old code)."},
+        {"name": "-mt", "description": "Multi-threading: auto/off/N."},
+        {"name": "-generic_top / -generic", "description": "Override top-level generics/parameters, e.g. -generic_top \"WIDTH=16\"."},
+        {"name": "-d <macro> / -i <dir>", "description": "Verilog defines and include directories (elaboration-time for -prj compiles)."},
+        {"name": "-initfile / -include", "description": "Memory initialisation and include paths."}
+      ],
+      "example": "# Which libraries an IP needs: look at <ip>/sim/... or the generated export_simulation script;\n# e.g. an AXI VIP design needs\nxelab -L xilinx_vip -L axi_vip_v1_1_16 -L smartconnect_v1_0 -L unisims_ver ... work.tb   (library versions differ per release)",
+      "notes": "Library names include the IP version, so scripts break across Vivado releases; use export_simulation or launch_simulation -scripts_only to regenerate them. xsim.ini maps logical library names to directories; a project's xsim.ini is written into <project>.sim/sim_1/behav/xsim.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/xelab-Command-Syntax-Options"
+    },
+    {
+      "name": "add_wave_divider / add_wave_group / add_wave_marker / add_wave_virtual_bus",
+      "kind": "tcl-command",
+      "description": "Organise the waveform window from Tcl: add_wave_divider inserts a labelled separator, add_wave_group creates a collapsible group (into which add_wave -into places signals), add_wave_marker adds a named time marker (cursor) at a time, and add_wave_virtual_bus combines several signals into one bus for display (with -radix). Together with add_wave and save_wave_config they let a script build a reusable, documented waveform layout for a testbench.",
+      "usage": "add_wave_divider [-into <group>] [-at_wave <wave>] [-after_wave <wave>] [-before_wave <wave>] [-color <c>] [<name>]\nadd_wave_group [-into <group>] [-at_wave|-after_wave|-before_wave <wave>] [-color <c>] [<name>]\nadd_wave_marker [-into <group>] [-name <n>] [-color <c>] [-quiet] <time> [<unit>]\nadd_wave_virtual_bus [-into <group>] [-radix <r>] [-color <c>] [-reverse] [-quiet] <name> <hdl_objects>",
+      "parameters": [
+        {"name": "-into", "description": "Group (from add_wave_group) or wave configuration to place the item in."},
+        {"name": "-at_wave / -after_wave / -before_wave", "description": "Position relative to an existing wave object."},
+        {"name": "-radix", "description": "bin, hex, unsigned, signed, ascii, oct, dec for virtual buses."},
+        {"name": "-reverse", "description": "Reverse the bit order of the virtual bus."}
+      ],
+      "example": "set g_axi [add_wave_group \"AXI write\"]\nadd_wave_divider -into $g_axi \"address channel\"\nadd_wave -into $g_axi -radix hex /tb/dut/s_axi_awaddr /tb/dut/s_axi_awvalid /tb/dut/s_axi_awready\nadd_wave_divider -into $g_axi \"data channel\"\nadd_wave -into $g_axi -radix hex /tb/dut/s_axi_wdata /tb/dut/s_axi_wvalid\nadd_wave_virtual_bus -radix hex ctrl_bus {/tb/dut/en /tb/dut/mode[1:0] /tb/dut/rst}\nadd_wave_marker -name \"first write\" 1250 ns\nsave_wave_config ./tb_axi.wcfg",
+      "notes": "Wave objects returned by these commands can be reused as -into targets. In batch mode (no GUI) the commands still work and the layout is saved in the .wcfg for later viewing with xsim -gui -view.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/add_wave_group"
+    },
+    {
+      "name": "save_wave_config / open_wave_config / close_wave_config / current_wave_config / get_wave_configs",
+      "kind": "tcl-command",
+      "description": "Manage waveform configuration files (.wcfg): save_wave_config writes the current window layout (signals, groups, dividers, radixes, markers, zoom), open_wave_config loads one (or creates an empty configuration with create_wave_config), close_wave_config closes it and current_wave_config selects among several open configurations. Vivado adds a saved .wcfg to the simulation fileset so it opens automatically on the next launch_simulation.",
+      "usage": "save_wave_config [-object <wcfg>] [-quiet] [<filename.wcfg>]\nopen_wave_config [-quiet] [<filename.wcfg>]\ncreate_wave_config [-quiet] [<name>]\nclose_wave_config [-force] [-quiet] [<wcfg>]\ncurrent_wave_config [<wcfg>]\nget_wave_configs [-regexp] [-nocase] [-filter <expr>] [<patterns>]",
+      "parameters": [
+        {"name": "<filename.wcfg>", "description": "Path; relative paths resolve from the simulation run directory."},
+        {"name": "-force", "description": "Close without prompting to save."}
+      ],
+      "example": "open_wave_config ./tb_axi.wcfg\nrun 5 us\nsave_wave_config\n# multiple layouts\ncreate_wave_config debug_fifo\nadd_wave /tb/dut/u_fifo/*\nsave_wave_config ./fifo.wcfg\n# project mode: the .wcfg is added with add_files -fileset sim_1 ./tb_axi.wcfg",
+      "notes": "A .wcfg references signals by hierarchical name; renamed instances break entries (they show as missing objects). log_wave is required for signals to have data in a reopened .wdb.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/save_wave_config"
+    },
+    {
+      "name": "remove_forces",
+      "kind": "tcl-command",
+      "description": "Release forces applied with add_force on signals or on all forced objects, returning control to the design drivers (a force that was -cancel_after will expire by itself). It is used in testbench scripts that inject faults or temporarily override inputs and need to restore normal operation.",
+      "usage": "remove_forces [-quiet] [-all] [<force_ids_or_objects>]",
+      "parameters": [
+        {"name": "-all", "description": "Remove every active force."},
+        {"name": "<force_ids>", "description": "Force objects returned by add_force, or the HDL objects being forced."}
+      ],
+      "example": "set f [add_force /tb/dut/link_up 0]\nrun 500 ns\nremove_forces $f\n# or\nadd_force /tb/dut/rst {1 0ns} {0 100ns} -repeat_every 1us\nrun 3 us\nremove_forces -all",
+      "notes": "Forced values ride over any driver, including clocks; forcing a clock net to a constant stops the design.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/remove_forces"
+    },
+    {
+      "name": "add_bp / remove_bps / report_bps",
+      "kind": "tcl-command",
+      "description": "Source-level breakpoints for HDL debugging: add_bp sets a breakpoint at a file and line (the snapshot must be elaborated with -debug typical/all/line), run/step then stop when execution reaches it, report_bps lists active breakpoints and remove_bps deletes them. Combined with step, current_frame, get_value and report_values this gives a debugger-like flow for procedural code and testbenches.",
+      "usage": "add_bp [-quiet] <file_name> <line_number>\nremove_bps [-all] [-file <file> -line <n>] [-quiet] [<bp_ids>]\nreport_bps [-quiet] [<bp_ids>]",
+      "parameters": [
+        {"name": "<file_name> <line_number>", "description": "Source file (as compiled) and line."},
+        {"name": "-all", "description": "Remove every breakpoint."}
+      ],
+      "example": "add_bp ./tb/tb_top.sv 142\nrun all              ;# stops at line 142\nget_value /tb_top/expected\nstep                 ;# execute one statement\nreport_bps\nremove_bps -all\nrun all",
+      "notes": "Breakpoints in always blocks trigger on every activation; use conditional logic in the testbench or add_condition for value-based stops. In Project Mode, breakpoints can also be set by clicking the gutter in the source editor while the simulation is running.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/add_bp"
+    },
+    {
+      "name": "add_condition / remove_conditions / report_conditions",
+      "kind": "tcl-command",
+      "description": "Conditional actions during simulation: add_condition evaluates an HDL boolean expression at every change of its operands and, when it becomes true, runs a Tcl command (e.g. stop, puts, get_value, report_values). It is xsim's equivalent of a watchpoint or a scripted assertion, and is used to stop the simulation on an error flag, dump state when a rare event happens, or count occurrences.",
+      "usage": "add_condition [-name <name>] [-radix <r>] [-notrace] [-quiet] <condition_expression> <tcl_command>\nremove_conditions [-all] [<condition_ids>]\nreport_conditions [<condition_ids>]",
+      "parameters": [
+        {"name": "<condition_expression>", "description": "HDL object comparison such as {/tb/dut/err_flag == 1} or {/tb/dut/state == 3'b101}."},
+        {"name": "<tcl_command>", "description": "Tcl to run; braces allow multi-line scripts."},
+        {"name": "-name", "description": "Name for reporting/removal."}
+      ],
+      "example": "add_condition -name stop_on_err {/tb/dut/err_flag == 1} {puts \"error at [current_time]\"; stop}\nadd_condition {/tb/dut/fifo_full == 1} {incr ::full_events}\nrun all\nputs \"fifo full events: $::full_events\"\nreport_conditions\nremove_conditions -all",
+      "notes": "Conditions are checked in the simulation kernel; many complex conditions slow the run. Objects must be logged/visible (-debug typical) for the expression to bind.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/add_condition"
+    },
+    {
+      "name": "step / current_frame / report_frames",
+      "kind": "tcl-command",
+      "description": "Single-step execution and call-stack inspection: step runs one HDL statement (entering procedures/functions), current_frame selects a stack frame of the current process for value inspection, and report_frames prints the call stack when simulation is stopped at a breakpoint inside nested tasks or functions. They require -debug typical or all (line stepping needs -debug line/all).",
+      "usage": "step [-quiet]\ncurrent_frame [-set] [-up] [-down] [-quiet] [<frame_index>]\nreport_frames [-quiet]",
+      "parameters": [
+        {"name": "-up / -down", "description": "Move one frame towards the caller / callee."},
+        {"name": "<frame_index>", "description": "Absolute frame number from report_frames."}
+      ],
+      "example": "add_bp ./tb/checker.sv 57\nrun all\nreport_frames\ncurrent_frame -up\nget_value expected_word\nstep ; step\ncurrent_scope",
+      "notes": "Stepping through concurrent processes shows one process at a time; the Tcl console prints the file:line reached; step alone advances by one statement.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/step"
+    },
+    {
+      "name": "current_time",
+      "kind": "tcl-command",
+      "description": "Return the current simulation time of the running xsim session as a string with units (e.g. 1250 ns), used in scripts for logging, computing run lengths relative to now, and assertions on when events happen.",
+      "usage": "current_time [-quiet]",
+      "parameters": [],
+      "example": "run 1 us\nputs \"now: [current_time]\"\nset t0 [current_time]\nrun all\n# typical: run until a condition then record the time\nadd_condition {/tb/done == 1} {puts \"done at [current_time]\"; stop}",
+      "notes": "The value is formatted in the simulation's time unit; parse with scan or regexp when arithmetic is needed. Use run <n> <unit> for relative advances rather than absolute times.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/current_time"
+    },
+    {
+      "name": "report_values / get_objects / get_scopes / report_scopes / report_objects",
+      "kind": "tcl-command",
+      "description": "Inspect the design hierarchy and values in an xsim session: get_scopes returns scope (instance/block/process) objects under the current scope, get_objects returns HDL objects (signals, variables, constants, ports) matching a pattern with -filter on type/properties, report_values prints the current value of objects (with -radix), and report_scopes / report_objects print listings. They are the scripted counterpart of the Scope and Objects windows and are used to dump state, verify values in regression scripts and build waveform lists dynamically.",
+      "usage": "get_scopes [-r|-recursive] [-regexp] [-nocase] [-filter <expr>] [-quiet] [<patterns>]\nget_objects [-r|-recursive] [-regexp] [-nocase] [-filter <expr>] [-local] [-quiet] [<patterns>]\nreport_values [-radix <r>] [-quiet] [<hdl_objects>]\nreport_scopes [-quiet] [<scopes>]\nreport_objects [-quiet] [<objects>]",
+      "parameters": [
+        {"name": "-recursive", "description": "Descend into sub-scopes."},
+        {"name": "-filter", "description": "e.g. {type == signal}, {type == port && direction == in}, {name =~ *valid*}."},
+        {"name": "-radix", "description": "Display radix for report_values (bin, hex, unsigned, dec, ascii, ...)."}
+      ],
+      "example": "current_scope /tb/dut\nreport_values -radix hex [get_objects -filter {type == port} *]\nforeach s [get_scopes -r -filter {type == module}] { puts $s }\nadd_wave [get_objects -r -filter {name =~ *axis_tvalid*} /tb/dut/*]\nputs [get_value -radix unsigned /tb/dut/cnt]",
+      "notes": "get_value returns a single value; report_values prints a table. Object types: signal, variable, constant, port, parameter, generic, event, process. Large -r queries on big designs are slow; scope first with current_scope.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_objects"
+    },
+    {
+      "name": "describe",
+      "kind": "tcl-command",
+      "description": "Print the declaration details of an HDL object or scope in the simulation: type, width, range, direction, the source file and line where it is declared, and for scopes the module/entity and its parameters. Used interactively to check a signal's declared width or a parameter's resolved value without opening the source.",
+      "usage": "describe [-quiet] <hdl_objects_or_scopes>",
+      "parameters": [
+        {"name": "<hdl_objects_or_scopes>", "description": "Hierarchical names or objects from get_objects/get_scopes."}
+      ],
+      "example": "describe /tb/dut/rx_data\ndescribe /tb/dut/u_fifo\ndescribe [get_objects -filter {type == parameter} /tb/dut/*]",
+      "notes": "Equivalent to hovering in the Objects window. For parameters the value shown is the elaborated one, including -generic_top overrides.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/describe"
+    },
+    {
+      "name": "open_wave_database / close_sim / relaunch_sim / current_sim",
+      "kind": "tcl-command",
+      "description": "Session management: open_wave_database opens a previously written .wdb file in the waveform viewer (static, no further running) for post-mortem analysis of a batch run, close_sim ends the running simulation and releases the snapshot, relaunch_sim recompiles changed sources and restarts the simulation in Project Mode keeping the waveform layout, and current_sim returns/selects the active simulation when several are open.",
+      "usage": "open_wave_database [-quiet] <file.wdb>\nclose_sim [-force] [-quiet]\nrelaunch_sim [-quiet]\ncurrent_sim [-quiet] [<sim>]",
+      "parameters": [
+        {"name": "<file.wdb>", "description": "Waveform database written by xsim -wdb or launch_simulation (default <top>_behav.wdb)."},
+        {"name": "-force (close_sim)", "description": "Close without prompting about unsaved wave configurations."}
+      ],
+      "example": "# after a batch run: xsim tb_sim -tclbatch run.tcl -wdb regress.wdb\nopen_wave_database ./regress.wdb\nopen_wave_config ./tb_axi.wcfg\n# project mode edit-compile-debug loop\nrelaunch_sim\nrun 10 us\nclose_sim -force",
+      "notes": "A .wdb only contains signals that were logged (log_wave); log_wave -r / everything for post-mortem debugging but expect large files. relaunch_sim is what the GUI 'Relaunch Simulation' button runs.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/open_wave_database"
+    },
+    {
+      "name": "ltrace / ptrace",
+      "kind": "tcl-command",
+      "description": "Execution tracing in xsim: ltrace on prints each HDL source line as it executes (line trace) and ptrace on prints process activations (process trace), both to the console/log; off disables them. They are heavy but useful to understand why a process runs (sensitivity list surprises), to catch zero-delay oscillation, or to see the order of concurrent statements at a time step.",
+      "usage": "ltrace on|off [-quiet]\nptrace on|off [-quiet]",
+      "parameters": [
+        {"name": "on / off", "description": "Enable or disable tracing from the current time."}
+      ],
+      "example": "run 990 ns\nltrace on\nptrace on\nrun 20 ns        ;# every executed line and activated process is printed\nltrace off\nptrace off",
+      "notes": "Requires -debug all or line for line tracing. Combine with -maxdeltaid on xsim to detect infinite delta cycles.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/ltrace"
+    },
+    {
+      "name": "config_wave",
+      "kind": "tcl-command",
+      "description": "Set waveform-window options for the current wave configuration from Tcl: default radix, signal name display (short/long), zoom/time-unit settings, and whether to display in time or delta-cycle mode. It replaces the GUI's Waveform Options for scripted setups.",
+      "usage": "config_wave [-default_radix <radix>] [-signal_name_width <n>] [-name_display short|long] [-quiet]",
+      "parameters": [
+        {"name": "-default_radix", "description": "Radix for objects added without -radix: bin, hex, dec, unsigned, signed, oct, ascii, sfix/ufix."},
+        {"name": "-signal_name_width", "description": "Number of name levels shown (0 = full path)."}
+      ],
+      "example": "config_wave -default_radix hex -signal_name_width 1\nadd_wave /tb/dut/*",
+      "notes": "Run config_wave -help in a session for the exact option set of your release; the same settings are stored in the .wcfg.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/config_wave"
+    },
+    {
+      "name": "open_saif / log_saif / close_saif (SAIF for power analysis)",
+      "kind": "tcl-command",
+      "description": "Record switching activity during an xsim run into a SAIF file for report_power: open_saif creates the file, log_saif selects the objects (usually the DUT's internal nets recursively, on a post-synthesis or post-implementation netlist so names match), the run accumulates toggle counts and close_saif writes the file. Vivado's read_saif then annotates the design; the xsim.simulate.saif* properties automate this in Project Mode.",
+      "usage": "open_saif <file.saif>\nlog_saif [-quiet] <hdl_objects>\nrun <time>\nclose_saif\n# project mode\nset_property -name {xsim.simulate.saif} -value {power.saif} -objects [get_filesets sim_1]\nset_property -name {xsim.simulate.saif_scope} -value {/tb_top/dut} -objects [get_filesets sim_1]\nset_property -name {xsim.simulate.saif_all_signals} -value {true} -objects [get_filesets sim_1]",
+      "parameters": [
+        {"name": "log_saif <objects>", "description": "Typically [get_objects -r /tb/dut/*] to include every net below the DUT."},
+        {"name": "xsim.simulate.saif_scope", "description": "Instance whose activity is logged; used with read_saif -strip_path."}
+      ],
+      "example": "# run.tcl for a post-implementation functional simulation\nopen_saif ./post_impl.saif\nlog_saif [get_objects -r /tb_top/dut/*]\nrun 200 us\nclose_saif\nquit\n# then in Vivado\nopen_checkpoint post_route.dcp\nread_saif -strip_path tb_top/dut ./post_impl.saif\nreport_power -file power_saif.rpt",
+      "notes": "Log only after reset/initialisation and over a representative window; the SAIF averages activity over the logged interval. RTL-level SAIF names rarely match the implemented netlist, so post-synthesis or later is recommended.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/log_saif"
+    },
+    {
+      "name": "open_vcd / log_vcd / close_vcd / flush_vcd / limit_vcd (VCD output)",
+      "kind": "tcl-command",
+      "description": "Write a Value Change Dump from xsim: open_vcd creates the file (or the default dump.vcd), log_vcd chooses the objects (with -level for hierarchy depth), the run records changes, flush_vcd forces buffered data out, limit_vcd caps the file size and close_vcd finalises it. Also reachable through $dumpfile/$dumpvars in Verilog testbenches. Used to hand waveforms to third-party viewers (GTKWave), to compare against other simulators or to feed VCD-based power tools.",
+      "usage": "open_vcd [<file.vcd>]\nlog_vcd [-level <n>] [-quiet] [<hdl_objects>]\nflush_vcd\nlimit_vcd <size_bytes>\nclose_vcd [-quiet]\ncurrent_vcd [<vcd>]\ncheckpoint_vcd",
+      "parameters": [
+        {"name": "-level", "description": "Hierarchy levels below the objects to include (0 = all)."},
+        {"name": "limit_vcd <size>", "description": "Stop dumping once the file exceeds the size."}
+      ],
+      "example": "open_vcd ./waves.vcd\nlog_vcd -level 0 /tb/dut\nrun 50 us\nclose_vcd\n# Verilog alternative in the testbench\ninitial begin $dumpfile(\"waves.vcd\"); $dumpvars(0, tb); end",
+      "notes": "VCD files grow quickly; prefer the native .wdb (log_wave) for xsim-only debugging. Multi-dimensional arrays and some SystemVerilog types are not dumped to VCD.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/log_vcd"
+    },
+    {
+      "name": "report_drivers",
+      "kind": "tcl-command",
+      "description": "List the drivers of a signal in the current simulation: every process/statement (with file and line) and continuous assignment that drives it, with the value each contributes, which resolves X and multiple-driver problems and shows why a net has an unexpected value.",
+      "usage": "report_drivers [-quiet] <hdl_objects>",
+      "parameters": [
+        {"name": "<hdl_objects>", "description": "Signals or nets to analyse."}
+      ],
+      "example": "run 2 us\nreport_drivers /tb/dut/shared_bus\n# shows e.g. two OBUFT-like drivers with conflicting values -> X",
+      "notes": "Equivalent to right-click > Report Drivers in the Objects/Waveform windows.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_drivers"
+    },
+    {
+      "name": "Simulation settings properties (xsim.compile.*, xsim.elaborate.*, xsim.simulate.*)",
+      "kind": "system-variable",
+      "description": "Project Mode stores every option of the three xsim phases as properties on the simulation fileset, editable in Settings > Simulation or with set_property -name ... -objects [get_filesets sim_1]. Compile: xsim.compile.xvlog.more_options, xsim.compile.xvhdl.more_options, xsim.compile.xvlog.relax, xsim.compile.xvlog.nosort, xsim.compile.tcl.pre; elaborate: xsim.elaborate.xelab.more_options, xsim.elaborate.debug_level (typical/all/off), xsim.elaborate.relax, xsim.elaborate.mt_level, xsim.elaborate.load_glbl, xsim.elaborate.sdf_delay (sdfmin/sdfmax), xsim.elaborate.rangecheck, xsim.elaborate.snapshot; simulate: xsim.simulate.runtime, xsim.simulate.log_all_signals, xsim.simulate.wdb, xsim.simulate.custom_tcl, xsim.simulate.tcl.post, xsim.simulate.saif/saif_scope/saif_all_signals, xsim.simulate.xsim.more_options. Equivalent families exist for other simulators (modelsim.*, questa.*, vcs.*, xcelium.*, riviera.*).",
+      "usage": "set_property -name {xsim.simulate.runtime} -value {100us} -objects [get_filesets sim_1]\nset_property -name {xsim.simulate.log_all_signals} -value {true} -objects [get_filesets sim_1]\nset_property -name {xsim.elaborate.debug_level} -value {all} -objects [get_filesets sim_1]\nset_property -name {xsim.compile.xvlog.more_options} -value {-d SIM_FAST=1 -i ./include} -objects [get_filesets sim_1]\nset_property -name {xsim.elaborate.xelab.more_options} -value {-sv_lib dpi -sv_root ./dpi -O2} -objects [get_filesets sim_1]\nset_property -name {xsim.simulate.custom_tcl} -value {./run_regress.tcl} -objects [get_filesets sim_1]\nreport_property [get_filesets sim_1] xsim.*",
+      "parameters": [
+        {"name": "xsim.simulate.runtime", "description": "Time to run after launch (e.g. 1000ns, all for run all)."},
+        {"name": "xsim.simulate.log_all_signals", "description": "log_wave -r on everything so any signal can be added to the wave later."},
+        {"name": "xsim.elaborate.debug_level", "description": "typical (default), all, off (fastest)."},
+        {"name": "xsim.simulate.custom_tcl / xsim.simulate.tcl.post", "description": "Tcl scripts run instead of / after the default run."},
+        {"name": "xsim.elaborate.load_glbl", "description": "Include glbl for Verilog netlist/IP simulation (default true)."},
+        {"name": "*.more_options", "description": "Pass-through strings appended to xvlog/xvhdl/xelab/xsim command lines."}
+      ],
+      "example": "set_property -name {xsim.simulate.runtime} -value {all} -objects [get_filesets sim_1]\nset_property -name {xsim.simulate.saif} -value {activity.saif} -objects [get_filesets sim_1]\nlaunch_simulation -mode post-implementation -type functional",
+      "notes": "Property names are release-dependent (list them with report_property [get_filesets sim_1] xsim.*). Every launch regenerates <project>.sim/sim_1/<mode>/xsim/ scripts from these settings; launch_simulation -scripts_only writes them without running.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Using-Simulation-Settings"
+    },
+    {
+      "name": "Simulation fileset: sim_1, simulation top, generics, defines, include dirs (create_fileset -simset, set_property top/generic/verilog_define/include_dirs)",
+      "kind": "tcl-command",
+      "description": "Simulation sources live in simulation filesets (sim_1 by default; more with create_fileset -simset for different testbenches) which inherit the design sources and add testbench files, .wcfg, .mem/.dat data and C DPI sources. The fileset's top property names the testbench top, generic passes top-level generics/parameters (-generic_top), verilog_define and include_dirs set macros and include paths for compilation (also settable on sources_1 for synthesis), and current_fileset -simset / launch_simulation -simset choose which set runs. Files can be marked simulation-only with USED_IN or by living only in the sim fileset.",
+      "usage": "create_fileset -simset sim_axi\nadd_files -fileset sim_axi -norecurse {./tb/tb_axi.sv ./tb/axi_pkg.sv ./tb/stimulus.mem}\nset_property top tb_axi [get_filesets sim_axi]\nset_property top_lib xil_defaultlib [get_filesets sim_axi]\nset_property generic {WIDTH=16 USE_FAST=1} [get_filesets sim_axi]\nset_property verilog_define {SIMULATION=1 SEED=7} [get_filesets sim_axi]\nset_property include_dirs [list ./tb/include ./rtl/include] [get_filesets sim_axi]\nset_property -name {xsim.simulate.runtime} -value {all} -objects [get_filesets sim_axi]\ncurrent_fileset -simset [get_filesets sim_axi]\nlaunch_simulation -simset sim_axi",
+      "parameters": [
+        {"name": "top / top_lib", "description": "Testbench top module/entity and its library."},
+        {"name": "generic", "description": "List of NAME=VALUE generics/parameters for the top."},
+        {"name": "verilog_define", "description": "List of NAME or NAME=VALUE macros passed as xvlog -d."},
+        {"name": "include_dirs", "description": "Directories for `include; files can also be marked IS_GLOBAL_INCLUDE for automatic inclusion."},
+        {"name": "source_set", "description": "Design fileset the simset builds on (default sources_1)."}
+      ],
+      "example": "# Global include header and a simulation-only file\nset_property IS_GLOBAL_INCLUDE true [get_files ./rtl/include/defines.vh]\nset_property USED_IN {simulation} [get_files ./tb/sim_models.sv]\nupdate_compile_order -fileset sim_1\nreport_compile_order -fileset sim_1",
+      "notes": "A testbench file placed in sources_1 will be synthesized (or error) unless USED_IN excludes synthesis. Generics on the fileset apply only to simulation; synthesis generics are set with synth_design -generic or the run's STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Adding-or-Creating-Simulation-Source-Files"
+    },
+    {
+      "name": "Third-party simulators: set_property target_simulator (ModelSim/Questa, VCS, Xcelium, Riviera-PRO) and compiled-library settings",
+      "kind": "system-variable",
+      "description": "Vivado can drive Siemens ModelSim/Questa, Synopsys VCS, Cadence Xcelium (and legacy IES) and Aldec Riviera-PRO/Active-HDL instead of xsim: set target_simulator on the project, point compxlib.modelsim_compiled_library_dir (or the questa/vcs/xcelium/riviera variants) at the libraries produced by compile_simlib, optionally set the simulator's install path, and launch_simulation then generates that simulator's compile/elaborate/run scripts (vlog/vcom/vsim, vlogan/vhdlan/vcs, xmvlog/xmvhdl/xmelab/xmsim, vlog/vcom/vsim for Riviera) and starts it. Per-simulator properties mirror the xsim.* ones (modelsim.simulate.runtime, questa.compile.vlog.more_options, vcs.elaborate.vcs.more_options, xcelium.simulate.xmsim.more_options ...). Version support is listed in the release notes (UG973).",
+      "usage": "set_property target_simulator Questa [current_project]      ;# XSim, ModelSim, Questa, VCS, Xcelium, Riviera, ActiveHDL\nset_property compxlib.questa_compiled_library_dir /tools/simlibs/questa_2024.3 [current_project]\nset_property -name {questa.simulate.runtime} -value {all} -objects [get_filesets sim_1]\nset_property -name {questa.compile.vlog.more_options} -value {-suppress 2892} -objects [get_filesets sim_1]\nlaunch_simulation -simset sim_1\n# script-only for CI / other hosts\nexport_simulation -simulator questa -lib_map_path /tools/simlibs/questa_2024.3 -directory ./export_sim -of_objects [get_filesets sim_1]",
+      "parameters": [
+        {"name": "target_simulator", "description": "Project property choosing the simulator."},
+        {"name": "compxlib.<sim>_compiled_library_dir", "description": "Location of the unisim/simprim/secureip/xpm and IP libraries compiled with compile_simlib for that simulator version."},
+        {"name": "<sim>.simulate.runtime / <sim>.compile.*.more_options / <sim>.elaborate.*.more_options", "description": "Per-phase options for each simulator."},
+        {"name": "Tools > Settings > Simulation > Simulator", "description": "GUI location; also the 'Simulator executable path' field (simulator install)."}
+      ],
+      "example": "compile_simlib -simulator questa -simulator_exec_path /tools/questa/bin -family all -language all -library all -directory /tools/simlibs/questa_2024.3\nset_property target_simulator Questa [current_project]\nset_property compxlib.questa_compiled_library_dir /tools/simlibs/questa_2024.3 [current_project]\nlaunch_simulation",
+      "notes": "Encrypted IP requires the secureip library compiled for the exact simulator version supported by the Vivado release. modelsim.ini / cds.lib / synopsys_sim.setup files are generated in the simulation run directory; export_simulation packages everything for a machine without Vivado.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Using-Third-Party-Simulators"
+    },
+    {
+      "name": "SystemVerilog and UVM support in xsim",
+      "kind": "reference",
+      "description": "xsim supports SystemVerilog for both design and verification: classes, interfaces with modports, packages, constrained randomisation (randomize with, rand/randc, constraints), covergroups and coverpoints (functional coverage with xcrg reporting), immediate and concurrent assertions (SVA, including sequences and properties in checkers), DPI-C, clocking blocks, program blocks, and the precompiled UVM 1.2 library (xelab -L uvm, `include \"uvm_macros.svh\"`, import uvm_pkg::*) with run_test and +UVM_TESTNAME via -testplusarg. It is sufficient for typical IP-level UVM environments; the AXI VIP and other AMD VIP are built on it.",
+      "usage": "xvlog -sv -L uvm tb_pkg.sv tb_top.sv\nxelab -L uvm -debug typical -timescale 1ns/1ps work.tb_top -s uvm_sim\nxsim uvm_sim -testplusarg UVM_TESTNAME=axi_smoke_test -testplusarg UVM_VERBOSITY=UVM_MEDIUM -R\n# project mode: set_property -name {xsim.elaborate.xelab.more_options} -value {-L uvm} ...; add -L uvm to xvlog via xsim.compile.xvlog.more_options",
+      "parameters": [
+        {"name": "-L uvm", "description": "Use the precompiled UVM library shipped in <install>/data/system_verilog/uvm_1.2."},
+        {"name": "-testplusarg UVM_TESTNAME=<test>", "description": "Select the UVM test at run time."},
+        {"name": "xelab -cc_type / xcrg", "description": "Code (line/branch/condition/toggle) and functional coverage collection and reporting (2022.2 and later)."},
+        {"name": "-sv_seed", "description": "Randomisation seed."}
+      ],
+      "example": "// tb_top.sv\n`include \"uvm_macros.svh\"\nimport uvm_pkg::*;\nmodule tb_top; axi_if vif(clk); dut u_dut(.axi(vif)); initial begin uvm_config_db#(virtual axi_if)::set(null, \"*\", \"vif\", vif); run_test(); end endmodule",
+      "notes": "Unsupported or limited constructs are listed per release in UG900's SystemVerilog chapter (e.g. some dynamic-array constraint forms, checker instantiation limits). Performance is lower than commercial simulators for large UVM benches; export_simulation to Questa/VCS/Xcelium for regressions.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/SystemVerilog-Support-in-Vivado-Simulator"
+    },
+    {
+      "name": "Code coverage in xsim (xelab -cc_type / -cc_db, xcrg)",
+      "kind": "command",
+      "description": "Code and functional coverage support added to xsim in the 2022.2 timeframe: enable collection at elaboration with -cc_type selecting line (l), branch (b), condition (c), toggle (t) and statement (s) coverage, name the coverage database with -cc_db and directory with -cc_dir, run the simulation to accumulate data, then merge and report databases with the xcrg utility (HTML or text report). Functional coverage from covergroups is stored alongside.",
+      "usage": "xelab -cc_type lbct -cc_db cov_run1 -cc_dir ./coverage -debug typical work.tb -s tb_cov\nxsim tb_cov -R\nxcrg -report_format html -dir ./coverage -report_dir ./coverage/html\nxcrg -merge_dir ./coverage -merge_db_name merged -dir ./coverage_run1 ./coverage_run2\n# project mode\nset_property -name {xsim.elaborate.xelab.more_options} -value {-cc_type lbct -cc_db cov} -objects [get_filesets sim_1]",
+      "parameters": [
+        {"name": "-cc_type <letters>", "description": "Any combination of l (line), b (branch), c (condition), t (toggle), s (statement)."},
+        {"name": "-cc_db <name> / -cc_dir <dir>", "description": "Coverage database name and location."},
+        {"name": "xcrg -report_format html|text", "description": "Report generator; -merge_dir/-merge_db_name merge several runs (see xcrg -help for exclusion options)."}
+      ],
+      "example": "# regression loop collecting one database per seed then merging\nforeach seed {1 2 3} { exec xsim tb_cov -R -sv_seed $seed -tclbatch run.tcl }\nexec xcrg -report_format html -dir ./coverage",
+      "notes": "Feature details and option names evolve between releases (check xelab -help and xcrg -help); the Vivado GUI has no coverage viewer, the HTML report is the primary view. export_xsim_coverage is the Tcl-side helper in recent releases.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Code-Coverage"
+    },
+    {
+      "name": "Protected (encrypted) IP and secureip simulation",
+      "kind": "reference",
+      "description": "Encrypted simulation models are used for hard blocks (transceivers, PCIe, MMCM/PLL behavioural details, DDR PHYs) and for licensed IP: the models are IEEE 1735 encrypted and shipped precompiled for xsim (secureip library) and compiled by compile_simlib for third-party simulators, so they simulate but cannot be inspected or dumped below the encrypted boundary. Simulating a design with such IP requires -L secureip (and -L unisims_ver/unisim, simprims_ver, xpm), the IP's generated simulation output products (generate_target simulation) and, for third-party tools, a simulator version supported by the release (encryption keys are tool-specific). User RTL can be protected the same way with the encrypt Tcl command (IEEE 1735 with the vendor keys) before delivery.",
+      "usage": "xelab -L unisims_ver -L secureip -L xpm -L <ip_library_from_the_generated_sim_scripts> glbl work.tb -s sim\n# protect your own RTL for delivery\nencrypt -key <keyfile> -lang verilog [glob ./deliver/*.v]\n# IP simulation products\ngenerate_target simulation [get_ips gtwizard_ultrascale_0]\nexport_ip_user_files -of_objects [get_ips gtwizard_ultrascale_0] -no_script -sync -force",
+      "parameters": [
+        {"name": "-L secureip", "description": "Encrypted primitive models (GT, PCIe, etc.)."},
+        {"name": "encrypt -key <file> -lang verilog|vhdl", "description": "Encrypt sources with the AMD (xilinx) public key so Vivado and supported simulators can consume them."},
+        {"name": "export_ip_user_files", "description": "Regenerates <project>.ip_user_files with the sim scripts and per-simulator library mapping."}
+      ],
+      "example": "# Typical failure: 'Library secureip not found' -> add -L secureip, or for Questa ensure compile_simlib included -library secureip\ncompile_simlib -simulator questa -family kintexuplus -language verilog -library secureip -library unisim -library simprim",
+      "notes": "Encrypted models cannot be traced with ltrace/ptrace or dumped internally; waveform access stops at the wrapper ports. Protected IP with time-limited (evaluation) licenses also stops toggling in hardware after the timeout, not in simulation.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Encrypting-IP-Sources-and-Netlists"
+    },
+    {
+      "name": "Mixed-language simulation (VHDL/Verilog/SystemVerilog boundaries)",
+      "kind": "reference",
+      "description": "xsim (and the supported third-party simulators via Vivado's scripts) simulate mixed VHDL, Verilog and SystemVerilog hierarchies: a Verilog module can instantiate a VHDL entity and vice versa, with type mapping at the boundary (std_logic/std_logic_vector to wire/reg vectors, integer/natural to integer, generics of type integer/string/boolean/std_logic_vector to parameters), and VHDL-2008 features enabled per file with the file_type VHDL 2008 property (or xvhdl -2008). Restrictions: VHDL cannot see SystemVerilog interfaces, packages or classes, records/unconstrained arrays across the boundary are not supported, and Verilog parameters of real type are not passed into VHDL generics.",
+      "usage": "set_property file_type {VHDL 2008} [get_files core.vhd]\nxvhdl -2008 -work mylib core.vhd\nxvlog -sv -work work tb_top.sv wrapper.v\nxelab -L mylib work.tb_top -s mixed_sim     ;# libraries resolved through xsim.ini\n# generic override across languages\nxelab -generic_top \"DATA_WIDTH=32\" work.tb_top",
+      "parameters": [
+        {"name": "file_type property", "description": "Verilog, SystemVerilog, VHDL, VHDL 2008, VHDL 2019 per source file (also controls synthesis parsing)."},
+        {"name": "library property", "description": "Library a source is compiled into (default xil_defaultlib / work)."},
+        {"name": "Type mapping", "description": "std_logic <-> 1-bit, std_logic_vector <-> vector, signed/unsigned <-> vector, integer <-> integer, boolean <-> 1-bit (see the UG900 mixed-language table for the exact rules)."}
+      ],
+      "example": "-- VHDL top instantiating a Verilog module: declare a component with matching port types\ncomponent axis_filter is generic (TAPS : integer := 16); port (aclk : in std_logic; s_tdata : in std_logic_vector(31 downto 0); ...); end component;\n// Verilog testbench instantiating the VHDL top\ntop_vhdl #(.DATA_WIDTH(32)) u_dut (.clk(clk), .din(din), .dout(dout));",
+      "notes": "Case sensitivity: Verilog names are case-sensitive, VHDL are not; Vivado matches ports case-insensitively at the boundary but two Verilog ports differing only in case cannot be bound from VHDL. Use SystemVerilog packages for SV<->SV type sharing and plain vectors at VHDL boundaries.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Mixed-Language-Simulation"
+    },
+    {
+      "name": "XSim Waveform / Scope / Objects windows",
+      "kind": "panel",
+      "description": "The simulation GUI layout that opens with launch_simulation (or xsim -gui): the Scope window shows the design hierarchy (instances, blocks, processes) and selecting a scope fills the Objects window with its signals, variables and constants (drag to the waveform or right-click Add to Wave Window / Log to Wave Database); the Waveform window displays logged signals with cursors, markers, groups, dividers, virtual buses, radix/analog display, zoom-to-cursor, search for value/transition (Find Value), Go To Time, and the Save Waveform Configuration button; the toolbar has Restart, Run All, Run For, Step, Break and Relaunch, mirrored by the Tcl commands. Breakpoints are set in the text editor gutter and hit lines are highlighted.",
+      "usage": "Flow Navigator > Simulation > Run Simulation > Run Behavioral Simulation; Window > Waveform / Scope / Objects; toolbar Run All (F3), Run For, Restart, Relaunch Simulation (key bindings in Tools > Settings > Shortcuts)",
+      "parameters": [
+        {"name": "Objects window filters", "description": "Show only inputs/outputs/internal signals/constants/variables; search field."},
+        {"name": "Waveform right-click", "description": "Radix, Waveform Style (digital/analog), Signal Name Width, New Group/Divider/Virtual Bus, Show Drivers, Go To Source Code."},
+        {"name": "Cursor and markers", "description": "Main and secondary cursor with delta time readout; Add Marker button."}
+      ],
+      "example": "1. launch_simulation (the testbench top is set in Settings > Simulation)\n2. Scope: expand tb_top > dut > u_fifo, select it; Objects: select wr_en, din, full; drag into Waveform\n3. Right-click din > Radix > Hexadecimal; New Group 'write side'\n4. Run For 2 us; Zoom Fit; add a marker at the first full assertion\n5. File > Simulation Waveform > Save Configuration As... (tb_fifo.wcfg is added to sim_1)",
+      "notes": "Signals added after the simulation ran show no history unless log_all_signals (xsim.simulate.log_all_signals) was set; use Relaunch or Restart + Run. The Waveform window can also open a .wdb from a batch run (File > Simulation Waveform > Open Waveform Database).",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Using-the-Vivado-Simulator-GUI"
+    },
+    {
+      "name": ".wcfg / .wdb (waveform configuration and database)",
+      "kind": "format",
+      "description": "The two waveform files of xsim: .wcfg is an XML waveform configuration describing which objects are displayed, their order, groups, dividers, virtual buses, radixes, colours, markers and zoom state (saved by save_wave_config and reusable across runs and designs with matching names); .wdb is the binary waveform database holding the logged value changes of the simulation (written when log_wave / log_all_signals is used, named with xsim -wdb or defaulting to <top>_behav.wdb in the run directory) and can be reopened read-only with open_wave_database for post-mortem inspection. Neither is human-readable in a useful way except for editing signal paths in a .wcfg after a rename.",
+      "usage": "save_wave_config ./layouts/tb_top.wcfg      ;# XML layout\nxsim tb_sim -tclbatch run.tcl -wdb ./runs/tb_top_$seed.wdb\nopen_wave_database ./runs/tb_top_42.wdb\nopen_wave_config ./layouts/tb_top.wcfg",
+      "parameters": [
+        {"name": ".wcfg", "description": "Add to the simulation fileset (add_files -fileset sim_1) so it opens automatically."},
+        {"name": ".wdb", "description": "Grows with logged signal count and run length; can reach gigabytes with log_wave -r on large designs."}
+      ],
+      "example": "# regression: keep the wdb only on failure\nif {[catch {exec xsim tb_sim -R -wdb fail.wdb -onerror quit}]} { puts \"kept fail.wdb for analysis\" } else { file delete fail.wdb }",
+      "notes": "A .wcfg saved from a different design still loads; missing objects are flagged. .wdb files are release-specific (open with the same Vivado version that wrote them).",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Saving-the-Waveform-Configuration"
+    },
+    {
+      "name": "Settings > Simulation dialog (Run Simulation menu)",
+      "kind": "menu",
+      "description": "Project-level simulation settings dialog (Flow Navigator > Settings > Simulation, or Tools > Settings > Project Settings > Simulation): choose Target simulator, Simulator language (Mixed/Verilog/VHDL), Simulation set (sim_1 ...), Simulation top module name, Generate scripts only, Clean up simulation files, and the compiled library location; the Compilation, Elaboration, Simulation, Netlist and Advanced tabs expose the xsim.compile.*/xsim.elaborate.*/xsim.simulate.* properties (runtime, log all signals, debug level, more options, SAIF, SDF delay, netlist generation options such as unifast and process corner). The Run Simulation button's dropdown (Flow Navigator > Simulation) offers Run Behavioral, Post-Synthesis Functional/Timing and Post-Implementation Functional/Timing Simulation.",
+      "usage": "Flow Navigator > Settings > Simulation > tabs: Compilation | Elaboration | Simulation | Netlist | Advanced; Flow Navigator > Simulation > Run Simulation > Run Behavioral Simulation / Run Post-Synthesis Functional Simulation / Run Post-Synthesis Timing Simulation / Run Post-Implementation Functional Simulation / Run Post-Implementation Timing Simulation",
+      "parameters": [
+        {"name": "Netlist tab", "description": "xsim.netlist.* options for post-synthesis/implementation: unifast library, process corner (slow/fast), write netlist with SDF, rename top."},
+        {"name": "Advanced tab", "description": "Include all design sources for simulation, enable incremental compilation, use custom xsim.ini/-L paths."},
+        {"name": "Simulation set / top", "description": "current_fileset -simset and the top property."}
+      ],
+      "example": "1. Settings > Simulation: Target simulator = Vivado Simulator, Simulation top = tb_top\n2. Simulation tab: xsim.simulate.runtime = all, xsim.simulate.log_all_signals = true\n3. OK; Run Simulation > Run Behavioral Simulation\n4. Later: Run Post-Implementation Timing Simulation (the Netlist tab's SDF delay = sdfmax)",
+      "notes": "Each GUI change echoes the corresponding set_property on the fileset in the Tcl console. Settings are stored in the .xpr; export_simulation captures them into standalone scripts.",
+      "docs": "https://docs.amd.com/r/en-US/ug900-vivado-logic-simulation/Using-Simulation-Settings"
+    }
+  ]
+}

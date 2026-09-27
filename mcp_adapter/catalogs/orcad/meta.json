@@ -1,0 +1,99 @@
+{
+  "id": "orcad",
+  "name": "Cadence OrCAD / OrCAD X (Capture, PSpice, PCB Editor)",
+  "vendor": "Cadence Design Systems",
+  "version_reference": "OrCAD X 23.1 / 24.1",
+  "homepage": "https://www.orcad.com/",
+  "docs_root": "https://www.cadence.com/en_US/home/tools/pcb-design-and-analysis.html",
+  "description": "OrCAD is Cadence's mainstream PCB design suite. It is built from three loosely coupled applications that share a design database: OrCAD Capture (hierarchical schematic entry, part libraries, the CIS component database, netlisting, BOM and DRC), PSpice A/D and PSpice Advanced Analysis (analog, digital and mixed-signal SPICE simulation with the Probe waveform viewer, Monte Carlo, worst-case, sensitivity, optimizer and Smoke reliability analysis), and OrCAD PCB Editor / OrCAD X Presto (the Allegro-derived layout engine with constraint-driven placement, interactive and auto-interactive routing, dynamic copper shapes, a Constraint Manager, 3D canvas and the full Gerber/ODB++/IPC-2581 manufacturing output flow). The OrCAD X generation adds a unified front end, live BOM, cloud workspaces and a rebuilt Presto PCB editor, but the underlying file formats (.dsn, .olb, .brd, .dra) and the Tcl, SKILL and command-line automation surfaces are shared with the wider Allegro X product line.",
+  "automation": {
+    "summary": "OrCAD has three separate automation surfaces, one per application. (1) OrCAD Capture embeds a Tcl/Tk interpreter reached through the Command Window (View > Command Window, or right-click any toolbar > Command Window). Every GUI action is registered with the interpreter and echoed in that window when journaling is on, and scripts are run with the standard Tcl `source` command. The Capture database is exposed through SWIG-generated `Dbo*` Tcl commands (DboSession, DboLib, DboPage, DboNet, DboPart, DboTclHelper) that let a script enumerate and edit libraries, pages, parts, nets and properties. (2) PSpice A/D is fully driven from the command line: `pspice [options] [input file(s)]` accepts documented switches for running, naming the output and waveform files, running a Probe command file and exiting, so an external program can netlist from Capture, simulate headless and parse the .out/.dat results. Probe itself is scriptable with recorded command files (File > Log Commands / Run Commands). (3) OrCAD PCB Editor is automated with Cadence SKILL (the `axl*` API) loaded from the command window or `allegro.pcbenv`/`skill` directories, and with recorded `.scr` scripts replayed from the built-in command line (`replay`, `alias`, `scriptmode +invisible`). Cadence also ships standalone command-line utilities (extracta, netrev, dbdoctor, a2dxf, artwork-related batch programs) for extracting, translating and repairing board databases without opening the GUI.",
+    "cli": [
+      {
+        "command": "pspice [options] [input file(s)]",
+        "description": "Documented PSpice / PSpice A/D command-line form. The input file may be a simulation file (.sim, .cir, .net), a waveform data file (.dat), an output file (.out) or any other file; wildcards are accepted and multiple input files may be listed. Options use either a dash or a slash separator."
+      },
+      {
+        "command": "pspice -r amplifier.cir -o amplifier.out -d amplifier.dat -e",
+        "description": "Headless batch simulation: `-r` actually runs the simulation (without it the file is only opened), `-o` names the text output/log file, `-d` names the binary waveform data file, and `-e` exits PSpice when all listed files have been simulated. This is the standard way to drive PSpice from a build script."
+      },
+      {
+        "command": "pspice -c makeplot.cmd -l session.log amplifier.cir",
+        "description": "Run a Probe command file (`-c`) that replays recorded Probe actions such as `Trace Add`, `Pause` and `File Exit`, while logging every command executed to a log file (`-l`) that can itself be replayed later."
+      },
+      {
+        "command": "pspice -p goals.prb -t D:\\temp -bf 5 design.cir",
+        "description": "`-p` loads an extra .prb file of goal functions, macros and display configurations on top of the global and local .prb files; `-t` sets the scratch directory for temporary files; `-bf` sets how often (in minutes, 0-1440) the waveform buffers are flushed to disk so a long overnight run survives a crash."
+      },
+      {
+        "command": "extracta.exe board.brd extract.cmd output.txt",
+        "description": "Cadence's configurable binary-to-ASCII extraction utility. A command file lists the database classes and fields to pull out of a binary .brd or .dra file; the result is a delimited text report. It is the documented way for third-party tools (including the Altium importer) to read Allegro/OrCAD binary boards. `extracta -version` prints the version, which must be at least as new as the board it reads."
+      },
+      {
+        "command": "capture.exe design.dsn",
+        "description": "Open a design in OrCAD Capture from a shell or another program. Additional Capture command-line switches exist in the product but are not publicly documented; drive Capture through the Tcl Command Window instead of guessing switches."
+      }
+    ],
+    "apis": [
+      {
+        "name": "Capture Tcl/Tk Command Window",
+        "description": "Capture embeds a Tcl/Tk interpreter. Open it with View > Command Window (or right-click a toolbar and tick Command Window). Type Tcl directly, run a file with `source`, clear the window with `cls`, and discover database commands with `info commands <substring>`. Turning journaling on with `SetOptionBool Journaling TRUE` makes Capture echo the Tcl equivalent of every manual action, which is the practical way to learn the command for a GUI operation.",
+        "example": "cls\nSetOptionBool Journaling TRUE\nsource {C:/scripts/rename_nets.tcl}\ninfo commands DboPage*"
+      },
+      {
+        "name": "Capture database Tcl commands (Dbo* family)",
+        "description": "The Capture object database is exposed to Tcl as a flat set of SWIG-style commands named after the C++ classes: DboSession, DboLib, DboSchematic, DboPage, DboPart, DboNet, DboAlias, DboWire and the helper class DboTclHelper. The active session pointer lives in the global `::DboSession_s_pDboSession`. Strings must be wrapped with `DboTclHelper_sMakeCString`, and most calls take a `DboState` status object as their last argument. Iterators (`New...Iter` / `Next...`) walk collections.",
+        "example": "set lSession $::DboSession_s_pDboSession\nset lStatus [DboState]\nset lPath [DboTclHelper_sMakeCString C:/work/DISCRETES.OLB]\nset lLib [DboSession_GetLibAndSchematics $lSession $lPath $lStatus]\nset iter [$lLib NewPackageNamesIter $lStatus]\nset name [DboTclHelper_sMakeCString]\nwhile {[$iter NextName $name] == 0} { puts [DboTclHelper_sGetConstCharPtr $name] }"
+      },
+      {
+        "name": "Capture Tcl auto-load directory",
+        "description": "Tcl/Tk scripts placed under the user's Cadence setup directory (`%HOME%\\cdssetup\\OrCAD_Capture\\tclscripts\\capAutoLoad`) are sourced automatically when Capture starts, which is how add-on commands and extra right-click menu entries are installed. A companion `capUserMenu`-style registration inside the script adds the command to Capture's menus.",
+        "example": "# %HOME%/cdssetup/OrCAD_Capture/tclscripts/capAutoLoad/hello.tcl\nproc hello_orcad {} { puts \"Capture session ready\" }\nhello_orcad"
+      },
+      {
+        "name": "PCB Editor SKILL (axl* API)",
+        "description": "OrCAD PCB Editor / Allegro is scripted in Cadence SKILL, a Lisp dialect. The board API is the `axl` namespace: `axlDBGetDesign` returns the design DBID, attributes are read with the `->` operator (`design->components`), selection is driven with `axlSetFindFilter` and `axlSingleSelectBox`/`axlAddSelectAll`, geometry is created with `axlDBCreate*` functions, forms are built with `axlFormCreate`/`axlFormGetField`, user prompts come from `axlUIPrompt` and `axlUIYesNo`, and a procedure becomes a real PCB Editor command with `axlCmdRegister`. Scripts are loaded with `load` or `skill load` from the command window, or automatically from the `pcbenv`/`skill` directory via an `allegro.ilinit` file.",
+        "example": ";; report every component and its XY location\nprocedure( comp_loc()\n  let( (design)\n    design = axlDBGetDesign()\n    foreach( comp design->components\n      printf(\"%s  %L\\n\" comp->refdes comp->xy)\n    )\n  )\n)\ncomp_loc()"
+      },
+      {
+        "name": "PCB Editor script files (.scr) and the command line",
+        "description": "PCB Editor records GUI actions to an ASCII `.scr` script from File > Script: name the script, press Record, perform the actions, press Stop. Replay it from the same dialog or by typing `replay <file>.scr` in the board command window. `alias <key> replay ./file.scr` binds it to a shortcut for the session, and adding `scriptmode +invisible` as the first line suppresses the dialogs while it plays back. This is the lowest-effort automation path for repetitive setup tasks such as grid or via-style changes.",
+        "example": "# in the PCB Editor command window\nreplay ./grid_5.scr\nalias grid5 replay ./grid_5.scr"
+      },
+      {
+        "name": "PSpice netlist / circuit file language",
+        "description": "The real interface to the simulator is the SPICE netlist itself. Device cards (R, C, L, D, Q, M, J, X, V, I, E, F, G, H, K, T) describe topology, dot commands (.MODEL, .SUBCKT, .LIB, .INC, .PARAM, .STEP, .TRAN, .AC, .DC, .TEMP, .MC, .WCASE, .PROBE, .PRINT, .OPTIONS) describe models and analyses. Any program that can write text can therefore generate a simulation, and `pspice -r` runs it.",
+        "example": "* RC step response\nVin in 0 PULSE(0 5 0 1n 1n 1m 2m)\nR1 in out 1k\nC1 out 0 100n\n.TRAN 1u 2m\n.PROBE V(out)\n.END"
+      },
+      {
+        "name": "PSpice Probe command files",
+        "description": "The Probe waveform viewer records its own actions to an ASCII command file: File > Log Commands starts logging, File > Run Commands replays a file. The same files are accepted on the command line with `-c`/`-l`. Commands are the menu names (`Trace Add`, `File Open`, `Pause`, `File Exit`), one per line, with `*` comments and `@CR`, `@UP`, `@ESC` standing for keystrokes.",
+        "example": "* plot the output and quit\nFile Open\n./amplifier.dat\nOK\nTrace Add\nV(out)\nOK\nFile Exit"
+      },
+      {
+        "name": "PSpice / MATLAB-Simulink co-simulation (SLPS)",
+        "description": "The PSpice Systems Option adds bidirectional co-simulation with MathWorks MATLAB and Simulink: a PSpice circuit is wrapped as an SLPS block inside a Simulink model so electrical, mechanical, thermal and control behaviour solve together. It is configured from the PSpice Simulation Settings and from the SLPS block mask on the Simulink side rather than from a text API.",
+        "example": "1. Install the PSpice Systems Option and run the SLPS setup for your MATLAB release.\n2. In Simulink, place the SLPS block and point it at the PSpice .dsn/.cir design.\n3. Map Simulink signals to PSpice input/output ports in the block dialog.\n4. Run the Simulink model; PSpice solves the electrical section each timestep."
+      }
+    ],
+    "file_formats": [
+      {"extension": ".dsn", "description": "OrCAD Capture design file. A binary database holding every schematic folder, page, part instance, net, property and the design cache for one design."},
+      {"extension": ".opj", "description": "OrCAD Capture project file. Text/INI-like wrapper that lists the .dsn, the configured libraries, output files, PSpice simulation profiles and project type (Analog/Mixed A-D, PC Board, Programmable Logic, Schematic)."},
+      {"extension": ".olb", "description": "Capture part library (object library) holding schematic symbols and their properties, including PSpice model references and PCB footprint names."},
+      {"extension": ".lib", "description": "PSpice model library: plain-text .MODEL and .SUBCKT definitions. Configured per simulation profile and indexed by a companion .ind file for fast lookup."},
+      {"extension": ".cir", "description": "PSpice circuit/simulation file. Holds the analysis dot commands, library and include statements and a reference to the netlist; it is the file passed to `pspice -r`."},
+      {"extension": ".net", "description": "Flat SPICE netlist generated by Capture from the schematic, listing every device card. Included by the .cir file."},
+      {"extension": ".out", "description": "PSpice text output file: the echoed netlist, bias point solution, .PRINT/.PLOT tables, warnings, convergence messages and analysis summaries."},
+      {"extension": ".dat", "description": "PSpice binary waveform data file read by the Probe viewer. A .csd (CSDF) text variant can be requested for portability between machines."},
+      {"extension": ".prb", "description": "Probe configuration file storing display setups, macros and Performance Analysis goal functions; loaded globally, per-design and via the `-p` command-line option."},
+      {"extension": ".mdl", "description": "PSpice Model Editor file describing a device model being characterised from datasheet curves; exports .lib model text."},
+      {"extension": ".stl", "description": "PSpice Stimulus Editor file holding named analog and digital stimulus definitions (PWL, PULSE, SIN, EXP, SFFM, digital patterns) referenced by V/I sources."},
+      {"extension": ".brd", "description": "OrCAD PCB Editor / Allegro board database: stackup, padstacks, placed symbols, routing, shapes, constraints and DRC markers in one binary file."},
+      {"extension": ".dra", "description": "PCB Editor drawing file used to author a footprint or mechanical symbol. Saving it also writes the compiled .psm/.pad companions."},
+      {"extension": ".pad", "description": "Padstack definition file created by the Padstack Editor: pad, thermal, anti-pad and soldermask geometry per layer plus drill data."},
+      {"extension": ".psm", "description": "Compiled package (footprint) symbol produced from a .dra file and loaded when components are placed on the board."},
+      {"extension": ".scr", "description": "PCB Editor script file of recorded commands, replayed with the `replay` command or the File > Script dialog."},
+      {"extension": ".il / .ile", "description": "Cadence SKILL source and encrypted SKILL files loaded into PCB Editor to add custom commands and automation."}
+    ]
+  }
+}

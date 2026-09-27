@@ -1,0 +1,342 @@
+{
+  "category": "System Identification & Wavelet Toolboxes",
+  "description": "Estimating dynamic models from measured input-output data, validating and comparing them, and multiresolution signal analysis and denoising with continuous and discrete wavelet transforms.",
+  "tools": [
+    {
+      "name": "iddata",
+      "kind": "script-object",
+      "description": "Package measured input and output signals with their sample time, names and units into the data object that every System Identification Toolbox estimator expects. It supports multi-experiment data, detrending, resampling and frequency-domain representations. Building a properly labelled iddata object is the first step of any identification workflow.",
+      "usage": "data = iddata(y, u, Ts)\ndata = iddata(y, u, Ts, Name, Value)\ndata = iddata(y, [], Ts)\nplot(data)\ndata = detrend(data)\ndataTrain = data(1:500)",
+      "parameters": [
+        {"name": "y, u", "description": "Output and input sample matrices, one column per channel."},
+        {"name": "Ts", "description": "Sample time in seconds."},
+        {"name": "'InputName' / 'OutputName'", "description": "Channel names used in plots and reports."},
+        {"name": "'InputUnit' / 'OutputUnit'", "description": "Physical units of the signals."},
+        {"name": "'Tstart' / 'ExperimentName'", "description": "Start time and multi-experiment labelling."}
+      ],
+      "example": "Ts = 0.05;\nN = 2000;\nu = idinput(N, 'prbs', [0 0.3], [-1 1]);\nsysTrue = c2d(tf(2, [1 1.2 4]), Ts);\ny = lsim(sysTrue, u) + 0.02*randn(N, 1);\ndata = iddata(y, u, Ts, 'InputName', 'force', 'OutputName', 'displacement');\ndata = detrend(data);\ndataTrain = data(1:1400);\ndataVal = data(1401:end);\nplot(dataTrain)",
+      "notes": "Always detrend (or at least remove means) before estimation, and keep a separate validation segment.",
+      "docs": "https://www.mathworks.com/help/ident/ref/iddata.html"
+    },
+    {
+      "name": "tfest",
+      "kind": "function",
+      "description": "Estimate a continuous or discrete transfer function model with a specified number of poles and zeros from time-domain or frequency-domain data. It handles input delays, can enforce stability, and supports multi-input multi-output structures. Use it when a low-order transfer function is the most natural description of the system.",
+      "usage": "sys = tfest(data, np)\nsys = tfest(data, np, nz)\nsys = tfest(data, np, nz, ioDelay)\nsys = tfest(___, options)\n[sys, ic] = tfest(___)",
+      "parameters": [
+        {"name": "np, nz", "description": "Number of poles and zeros; nz defaults to np-1."},
+        {"name": "ioDelay", "description": "Transport delay in seconds, or NaN to estimate it."},
+        {"name": "'Ts'", "description": "Sample time; 0 gives a continuous-time model even from discrete data."},
+        {"name": "options", "description": "tfestOptions controlling 'InitialCondition', 'EnforceStability', 'SearchMethod', 'Focus'."}
+      ],
+      "example": "opt = tfestOptions('InitMethod', 'iv', 'EnforceStability', true, 'Display', 'on');\nsys = tfest(dataTrain, 2, 0, NaN, opt);\ndisp(sys)\nfprintf('Fit on validation data: ');\ncompare(dataVal, sys);\nfprintf('%.1f%%\\n', sys.Report.Fit.FitPercent);",
+      "docs": "https://www.mathworks.com/help/ident/ref/tfest.html"
+    },
+    {
+      "name": "ssest",
+      "kind": "function",
+      "description": "Estimate a continuous or discrete state-space model of a chosen order from measured data, using prediction error minimization initialized by a subspace method. Passing a vector of orders opens an interactive plot of the singular values to help you choose. State-space form handles MIMO systems naturally and feeds directly into control design.",
+      "usage": "sys = ssest(data, nx)\nsys = ssest(data, nx, Name, Value)\nsys = ssest(data, nx, opt)\n[sys, x0] = ssest(___)",
+      "parameters": [
+        {"name": "nx", "description": "Model order, a vector of candidate orders, or 'best' for automatic selection."},
+        {"name": "'Ts'", "description": "0 for a continuous-time model, or the data's sample time."},
+        {"name": "'Form'", "description": "'free' (default), 'modal', 'companion' or 'canonical'."},
+        {"name": "'DisturbanceModel'", "description": "'estimate' (default) or 'none'."},
+        {"name": "'Feedthrough'", "description": "Logical; allow a direct D term."},
+        {"name": "opt", "description": "ssestOptions with 'Focus', 'SearchMethod', 'InitialState'."}
+      ],
+      "example": "sys = ssest(dataTrain, 1:8);        % choose the order interactively\nsys4 = ssest(dataTrain, 4, 'Ts', 0, 'DisturbanceModel', 'estimate');\ncompare(dataVal, sys4);\nfigure, resid(dataVal, sys4);\nfprintf('Order %d, fit %.1f%%\\n', order(sys4), sys4.Report.Fit.FitPercent);",
+      "docs": "https://www.mathworks.com/help/ident/ref/ssest.html"
+    },
+    {
+      "name": "arx",
+      "kind": "function",
+      "description": "Estimate a polynomial ARX model A(q)y(t) = B(q)u(t-nk) + e(t) by linear least squares, which is fast and always converges. Because the noise model is constrained to 1/A it is biased when the true noise is coloured, but it is an excellent starting point and initializer. Order selection is usually done with arxstruc and selstruc or by scanning a grid.",
+      "usage": "sys = arx(data, [na nb nk])\nsys = arx(data, orders, Name, Value)\nsys = arx(data, orders, opt)",
+      "parameters": [
+        {"name": "na", "description": "Number of poles (order of the A polynomial)."},
+        {"name": "nb", "description": "Number of zeros plus one (order of the B polynomial)."},
+        {"name": "nk", "description": "Input-output delay in samples."},
+        {"name": "'IntegrateNoise'", "description": "Logical; add an integrator to the noise model (ARIX structure)."},
+        {"name": "opt", "description": "arxOptions with 'Focus' and 'OutputWeight'."}
+      ],
+      "example": "NN = struc(1:6, 1:6, 1:3);\nV = arxstruc(dataTrain, dataVal, NN);\norders = selstruc(V, 'aic');\nfprintf('Selected [na nb nk] = %s\\n', mat2str(orders));\nsys = arx(dataTrain, orders);\ncompare(dataVal, sys);",
+      "docs": "https://www.mathworks.com/help/ident/ref/arx.html"
+    },
+    {
+      "name": "armax",
+      "kind": "function",
+      "description": "Estimate an ARMAX model A(q)y(t) = B(q)u(t-nk) + C(q)e(t), which adds a moving-average noise polynomial to the ARX structure. The extra C polynomial models coloured measurement noise and removes the bias that ARX suffers from. Estimation is iterative, so it needs a good initialization and can fail to converge.",
+      "usage": "sys = armax(data, [na nb nc nk])\nsys = armax(data, orders, Name, Value)\nsys = armax(data, orders, opt)",
+      "parameters": [
+        {"name": "na, nb, nk", "description": "Denominator order, numerator order and input delay, as in arx."},
+        {"name": "nc", "description": "Order of the noise-model C polynomial."},
+        {"name": "opt", "description": "armaxOptions with 'SearchMethod', 'Focus', 'InitialCondition'."}
+      ],
+      "example": "sysArx = arx(dataTrain, [2 2 1]);\nsysArmax = armax(dataTrain, [2 2 2 1]);\ncompare(dataVal, sysArx, sysArmax);\nlegend show\nfigure, resid(dataVal, sysArmax);\nfprintf('ARX %.1f%%, ARMAX %.1f%%\\n', ...\n    sysArx.Report.Fit.FitPercent, sysArmax.Report.Fit.FitPercent);",
+      "notes": "bj (Box-Jenkins) and oe (output error) offer alternative noise-model structures.",
+      "docs": "https://www.mathworks.com/help/ident/ref/armax.html"
+    },
+    {
+      "name": "n4sid",
+      "kind": "function",
+      "description": "Estimate a state-space model directly by a subspace identification algorithm, which uses QR and SVD factorizations rather than iterative optimization. It is fast, needs no initial guess and cannot get stuck in a local minimum, which makes it ideal for initializing ssest. The singular value plot it produces is the standard tool for choosing model order.",
+      "usage": "sys = n4sid(data, nx)\nsys = n4sid(data, nx, Name, Value)\n[sys, x0] = n4sid(___)\nsys = n4sid(data, 'best')",
+      "parameters": [
+        {"name": "nx", "description": "Model order, a vector of candidates, or 'best'."},
+        {"name": "'Ts'", "description": "Sample time; 0 for continuous time."},
+        {"name": "'Form' / 'Feedthrough' / 'DisturbanceModel'", "description": "Model structure options."},
+        {"name": "'N4Horizon'", "description": "[r sy su] prediction and past horizons of the subspace algorithm."}
+      ],
+      "example": "sys = n4sid(dataTrain, 1:10);     % shows the singular value plot\nsysInit = n4sid(dataTrain, 4);\nopt = ssestOptions('SearchMethod', 'lm');\nsysRefined = ssest(dataTrain, sysInit, opt);\ncompare(dataVal, sysInit, sysRefined);",
+      "docs": "https://www.mathworks.com/help/ident/ref/n4sid.html"
+    },
+    {
+      "name": "procest",
+      "kind": "function",
+      "description": "Estimate a low-order process model described in familiar engineering terms: gain, one to three time constants, an optional integrator, a zero and a dead time. The compact 'P2DZ'-style type strings make the structure explicit and easy to communicate. It is the natural model form for process control and PID tuning.",
+      "usage": "sys = procest(data, type)\nsys = procest(data, type, Name, Value)\nsys = procest(data, initSys, opt)",
+      "parameters": [
+        {"name": "type", "description": "String such as 'P1D' (one pole plus delay), 'P2DZ', 'P1DI' (with integrator), 'P3Z'."},
+        {"name": "'Kp' / 'Tp1' / 'Tp2' / 'Td' / 'Tz'", "description": "Structure fields whose values can be fixed, bounded or given initial guesses."},
+        {"name": "opt", "description": "procestOptions with 'SearchMethod', 'InitialCondition', 'DisturbanceModel'."}
+      ],
+      "example": "sys = procest(dataTrain, 'P2DZ');\ndisp(sys)\nfprintf('Kp = %.3f, Tp1 = %.3f s, Td = %.3f s\\n', sys.Kp, sys.Tp1, sys.Td);\ncompare(dataVal, sys);\nC = pidtune(tf(sys), 'PID');",
+      "docs": "https://www.mathworks.com/help/ident/ref/procest.html"
+    },
+    {
+      "name": "nlarx",
+      "kind": "function",
+      "description": "Estimate a nonlinear ARX model, which combines a linear regressor set with a nonlinear mapping function such as a wavelet network, sigmoid network, tree partition or neural network. Use it when linear models leave obvious structure in the residuals. Custom regressors let you inject physical knowledge such as products or saturations.",
+      "usage": "sys = nlarx(data, [na nb nk])\nsys = nlarx(data, orders, nlMapping)\nsys = nlarx(data, regressors, nlMapping, Name, Value)",
+      "parameters": [
+        {"name": "orders", "description": "[na nb nk] regressor specification, as for arx."},
+        {"name": "nlMapping", "description": "idWaveletNetwork, idSigmoidNetwork, idTreePartition, idNeuralNetwork, idLinear, or 'idWaveletNetwork'."},
+        {"name": "'CustomRegressors'", "description": "Cell array of expressions such as {'y1(t-1)^2', 'u1(t-1)*y1(t-2)'}."},
+        {"name": "'NonlinearRegressors'", "description": "Which regressors feed the nonlinear block."}
+      ],
+      "example": "sysLin = arx(dataTrain, [2 2 1]);\nsysNL = nlarx(dataTrain, [2 2 1], idWaveletNetwork(8));\nsysCustom = nlarx(dataTrain, [2 2 1], idLinear, ...\n    'CustomRegressors', {'u1(t-1)^2', 'y1(t-1)*u1(t-1)'});\ncompare(dataVal, sysLin, sysNL, sysCustom);\nlegend show",
+      "notes": "Nonlinear models overfit easily; always judge them on a held-out validation set with compare.",
+      "docs": "https://www.mathworks.com/help/ident/ref/nlarx.html"
+    },
+    {
+      "name": "compare",
+      "kind": "function",
+      "description": "Compare the simulated or predicted output of one or more identified models against measured data, reporting a normalized fit percentage for each. It is the primary model validation tool, and should always be run on data that was not used for estimation. The prediction horizon argument switches between k-step prediction and pure simulation.",
+      "usage": "compare(data, sys1, sys2, ...)\ncompare(data, sys, kstep)\n[y, fit, x0] = compare(data, sys)\ncompare(___, opt)",
+      "parameters": [
+        {"name": "data", "description": "Validation iddata object."},
+        {"name": "sys1, sys2", "description": "Identified models to compare."},
+        {"name": "kstep", "description": "Prediction horizon; Inf (default) means pure simulation, 1 means one-step prediction."},
+        {"name": "opt", "description": "compareOptions with 'InitialCondition', 'Samples', 'OutputWeight'."}
+      ],
+      "example": "[yh, fit, x0] = compare(dataVal, sysArmax, Inf);\nfprintf('Simulation fit: %.2f%%\\n', fit);\ncompare(dataVal, sysArx, sysArmax, sysNL);\nlegend show\ncompare(dataVal, sysArmax, 1);   % one-step-ahead prediction",
+      "notes": "A high one-step-prediction fit with a poor simulation fit usually means the model is relying on the noise model rather than the dynamics.",
+      "docs": "https://www.mathworks.com/help/ident/ref/compare.html"
+    },
+    {
+      "name": "resid",
+      "kind": "function",
+      "description": "Perform residual analysis on an identified model, plotting the autocorrelation of the residuals and their cross-correlation with the inputs along with confidence bounds. Residuals that stay inside the bounds indicate that the model has captured all the dynamics. Cross-correlation excursions at positive lags point to unmodelled input dynamics.",
+      "usage": "resid(data, sys)\nresid(data, sys, type)\n[res, x0] = resid(data, sys)\nresid(___, opt)",
+      "parameters": [
+        {"name": "data", "description": "Validation data set."},
+        {"name": "sys", "description": "Identified model."},
+        {"name": "type", "description": "'corr' (default, correlation plots), 'ir' (impulse response) or 'fr' (frequency response)."},
+        {"name": "opt", "description": "residOptions with 'MaxLag', 'InitialCondition'."}
+      ],
+      "example": "resid(dataVal, sysArmax, 'corr');\nres = resid(dataVal, sysArmax);\nfprintf('Residual std: %.4f\\n', std(res.OutputData));\nfigure, resid(dataVal, sysArx);    % ARX residuals will look worse",
+      "docs": "https://www.mathworks.com/help/ident/ref/resid.html"
+    },
+    {
+      "name": "goodnessOfFit",
+      "kind": "function",
+      "description": "Compute a numeric goodness-of-fit measure between reference and estimated data using normalized RMSE, mean-squared error or normalized mean-squared error. Unlike compare it returns a plain number with no plot, which makes it suitable for automated model selection loops. It works on ordinary arrays as well as iddata objects.",
+      "usage": "fit = goodnessOfFit(x, xref, cost_func)",
+      "parameters": [
+        {"name": "x", "description": "Estimated or simulated data."},
+        {"name": "xref", "description": "Reference (measured) data of the same size."},
+        {"name": "cost_func", "description": "'MSE', 'NRMSE' (normalized, 1 is perfect) or 'NMSE'."}
+      ],
+      "example": "orders = 1:8;\nfits = zeros(size(orders));\nfor k = orders\n    m = ssest(dataTrain, k);\n    ysim = sim(m, dataVal);\n    fits(k) = goodnessOfFit(ysim.OutputData, dataVal.OutputData, 'NRMSE');\nend\nplot(orders, fits, 'o-'); xlabel('Model order'); ylabel('NRMSE fit')\n[~, best] = max(fits);\nfprintf('Best order: %d\\n', orders(best));",
+      "docs": "https://www.mathworks.com/help/ident/ref/goodnessoffit.html"
+    },
+    {
+      "name": "systemIdentification",
+      "kind": "function",
+      "description": "Open the System Identification app, which guides you through importing data, preprocessing, estimating many model structures and comparing them side by side. Estimated models and preprocessed data can be dragged back to the workspace. It is the fastest way to survey which model structure suits a dataset.",
+      "usage": "systemIdentification\nsystemIdentification(sessionFile)\nsystemIdentification(sessionName, pathName)",
+      "parameters": [
+        {"name": "sessionFile", "description": "A previously saved .sid session file."}
+      ],
+      "example": "Ts = 0.05;\nu = idinput(2000, 'prbs');\ny = lsim(c2d(tf(2, [1 1.2 4]), Ts), u) + 0.02*randn(2000,1);\ndata = iddata(y, u, Ts);\nsystemIdentification\n% Import 'data', preprocess, estimate several structures, compare",
+      "notes": "Requires a display. The app can generate equivalent MATLAB code for the estimation steps.",
+      "docs": "https://www.mathworks.com/help/ident/ref/systemidentification-app.html"
+    },
+    {
+      "name": "cwt",
+      "kind": "function",
+      "description": "Compute the continuous wavelet transform, giving a highly redundant time-frequency representation with good frequency resolution at low frequencies and good time resolution at high frequencies. Called with no output arguments it plots the scalogram. It is the tool of choice for locating transients, chirps and non-stationary oscillations.",
+      "usage": "wt = cwt(x)\n[wt, f] = cwt(x, fs)\n[wt, period] = cwt(x, ts)\n[wt, f, coi] = cwt(___)\ncwt(x, fs)",
+      "parameters": [
+        {"name": "'Wavelet'", "description": "'morse' (default), 'amor' (Morlet) or 'bump'."},
+        {"name": "'VoicesPerOctave'", "description": "Scale resolution, 4 to 48 (default 10)."},
+        {"name": "'FrequencyLimits'", "description": "[fmin fmax] range of interest in Hz."},
+        {"name": "'TimeBandwidth'", "description": "Morse wavelet time-bandwidth product."},
+        {"name": "coi", "description": "Cone of influence, outside which edge effects contaminate the coefficients."}
+      ],
+      "example": "fs = 1000;\nt = (0:1/fs:2-1/fs)';\nx = chirp(t, 20, 2, 200) + 0.5*sin(2*pi*80*t).*(t > 1);\ncwt(x, fs)\n[wt, f, coi] = cwt(x, fs, 'amor', 'VoicesPerOctave', 16);\nfprintf('%d scales from %.1f to %.1f Hz\\n', numel(f), min(f), max(f));",
+      "notes": "Interpret coefficients only inside the cone of influence; icwt inverts the transform for filtering applications.",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/cwt.html"
+    },
+    {
+      "name": "icwt",
+      "kind": "function",
+      "description": "Invert the continuous wavelet transform to reconstruct a signal, optionally keeping only a chosen band of frequencies or scales. This gives a wavelet-based bandpass filter that follows the signal's time-frequency structure. Reconstruction is approximate because the CWT is redundant and non-orthogonal.",
+      "usage": "xrec = icwt(wt)\nxrec = icwt(wt, [], f, freqrange)\nxrec = icwt(wt, [], period, periodrange)\nxrec = icwt(___, Name, Value)",
+      "parameters": [
+        {"name": "wt", "description": "CWT coefficient matrix from cwt."},
+        {"name": "f, freqrange", "description": "Frequency vector and the [fmin fmax] band to retain."},
+        {"name": "'SignalMean'", "description": "Mean value to add back to the reconstruction."},
+        {"name": "'ScalingCoefficients'", "description": "Scaling coefficients returned by cwt, for a more accurate inversion."}
+      ],
+      "example": "fs = 1000;\nt = (0:1/fs:2-1/fs)';\nx = sin(2*pi*10*t) + sin(2*pi*200*t) + 0.2*randn(size(t));\n[wt, f] = cwt(x, fs);\nxLow = icwt(wt, [], f, [5 30], 'SignalMean', mean(x));\nplot(t, x, t, xLow, 'LineWidth', 1.5)\nlegend('original','5-30 Hz band')",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/icwt.html"
+    },
+    {
+      "name": "dwt",
+      "kind": "function",
+      "description": "Perform a single-level discrete wavelet decomposition, splitting a signal into approximation and detail coefficients, each downsampled by two. It is the building block of multiresolution analysis and of wavelet compression. The extension mode controls how the signal boundaries are handled.",
+      "usage": "[cA, cD] = dwt(x, wname)\n[cA, cD] = dwt(x, LoD, HiD)\n[cA, cD] = dwt(___, 'mode', extmode)",
+      "parameters": [
+        {"name": "wname", "description": "Wavelet name such as 'db4', 'sym8', 'coif3', 'haar', 'bior3.5'."},
+        {"name": "LoD, HiD", "description": "Explicit decomposition filters, typically from wfilters."},
+        {"name": "extmode", "description": "Boundary handling: 'sym' (default), 'zpd', 'per', 'spd'."}
+      ],
+      "example": "load noisdopp\n[cA, cD] = dwt(noisdopp, 'db4');\nfprintf('%d samples -> %d approx + %d detail\\n', ...\n    numel(noisdopp), numel(cA), numel(cD));\nxr = idwt(cA, cD, 'db4');\nfprintf('Reconstruction error: %.2e\\n', max(abs(noisdopp(:) - xr(1:numel(noisdopp))')));",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/dwt.html"
+    },
+    {
+      "name": "idwt",
+      "kind": "function",
+      "description": "Reconstruct a signal from one level of approximation and detail coefficients, the inverse of dwt. Passing an empty array for one of the inputs reconstructs only the other component, which is a simple way to isolate a frequency band. The wavelet and extension mode must match those used in the decomposition.",
+      "usage": "x = idwt(cA, cD, wname)\nx = idwt(cA, cD, LoR, HiR)\nx = idwt(___, L)\nx = idwt(___, 'mode', extmode)",
+      "parameters": [
+        {"name": "cA, cD", "description": "Approximation and detail coefficients; either may be [] to suppress that component."},
+        {"name": "wname", "description": "Wavelet name, matching the decomposition."},
+        {"name": "L", "description": "Length of the reconstructed signal."}
+      ],
+      "example": "load noisdopp\n[cA, cD] = dwt(noisdopp, 'sym4');\napproxOnly = idwt(cA, [], 'sym4');\ndetailOnly = idwt([], cD, 'sym4');\nplot(1:numel(noisdopp), noisdopp, 1:numel(approxOnly), approxOnly)\nlegend('original','lowpass part')",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/idwt.html"
+    },
+    {
+      "name": "wavedec",
+      "kind": "function",
+      "description": "Perform a multilevel 1-D discrete wavelet decomposition, returning all coefficients packed into a single vector plus a bookkeeping vector of segment lengths. Use appcoef and detcoef to pull out individual levels, and waverec to reconstruct. It is the standard front end for wavelet denoising and compression.",
+      "usage": "[c, l] = wavedec(x, n, wname)\n[c, l] = wavedec(x, n, LoD, HiD)\ncA = appcoef(c, l, wname, k)\ncD = detcoef(c, l, k)",
+      "parameters": [
+        {"name": "n", "description": "Number of decomposition levels; at most floor(log2(numel(x)))."},
+        {"name": "wname", "description": "Wavelet name."},
+        {"name": "l", "description": "Bookkeeping vector giving the length of each coefficient segment."}
+      ],
+      "example": "load noisdopp\n[c, l] = wavedec(noisdopp, 5, 'sym6');\ncA5 = appcoef(c, l, 'sym6', 5);\n[cD1, cD2, cD3] = detcoef(c, l, [1 2 3]);\nfprintf('Level-5 approximation has %d coefficients\\n', numel(cA5));\nxrec = waverec(c, l, 'sym6');",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/wavedec.html"
+    },
+    {
+      "name": "waverec",
+      "kind": "function",
+      "description": "Reconstruct a signal from a multilevel wavelet decomposition produced by wavedec. Modifying the coefficient vector before reconstruction is how wavelet thresholding, denoising and compression are implemented. Reconstruction is exact to within numerical round-off when the coefficients are unchanged.",
+      "usage": "x = waverec(c, l, wname)\nx = waverec(c, l, LoR, HiR)",
+      "parameters": [
+        {"name": "c, l", "description": "Coefficient and bookkeeping vectors from wavedec."},
+        {"name": "wname", "description": "Wavelet name, matching the decomposition."}
+      ],
+      "example": "load noisdopp\n[c, l] = wavedec(noisdopp, 5, 'db6');\nthr = 2.5 * median(abs(c(l(1)+1:end))) / 0.6745;\ncThresh = wthresh(c, 's', thr);\ncThresh(1:l(1)) = c(1:l(1));     % keep the approximation untouched\nclean = waverec(cThresh, l, 'db6');\nplot(1:numel(noisdopp), noisdopp, 1:numel(clean), clean, 'LineWidth', 1.2)",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/waverec.html"
+    },
+    {
+      "name": "wdenoise",
+      "kind": "function",
+      "description": "Denoise a signal with wavelet thresholding in a single call, automatically choosing levels, thresholds and noise estimates. Several threshold rules and noise models are available, including level-dependent estimation for non-stationary noise. It replaces the manual wavedec/wthresh/waverec sequence for most practical use.",
+      "usage": "xden = wdenoise(x)\nxden = wdenoise(x, level)\n[xden, denoisedCfs, origCfs] = wdenoise(___, Name, Value)",
+      "parameters": [
+        {"name": "level", "description": "Number of decomposition levels; defaults to floor(log2(N))."},
+        {"name": "'Wavelet'", "description": "Wavelet name, default 'sym4'."},
+        {"name": "'DenoisingMethod'", "description": "'BlockJS' (default), 'Bayes', 'FDR', 'Minimax', 'SURE', 'UniversalThreshold'."},
+        {"name": "'ThresholdRule'", "description": "'Soft' or 'Hard' (depends on the method)."},
+        {"name": "'NoiseEstimate'", "description": "'LevelIndependent' (default) or 'LevelDependent'."}
+      ],
+      "example": "load noisdopp\nxden1 = wdenoise(noisdopp, 5, 'Wavelet', 'sym6', ...\n    'DenoisingMethod', 'Bayes', 'ThresholdRule', 'Median');\nxden2 = wdenoise(noisdopp, 'DenoisingMethod', 'SURE', ...\n    'NoiseEstimate', 'LevelDependent');\nplot(1:1024, noisdopp, 1:1024, xden1, 1:1024, xden2)\nlegend('noisy','Bayes','SURE')",
+      "notes": "wdenoise2 handles images. The Wavelet Signal Denoiser app lets you compare settings interactively.",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/wdenoise.html"
+    },
+    {
+      "name": "modwt",
+      "kind": "function",
+      "description": "Compute the maximal overlap discrete wavelet transform, a shift-invariant, non-decimated transform in which every level has the same length as the input. Because nothing is downsampled, coefficients align in time with signal features, which makes it far better than dwt for analysis and variance decomposition. It works with any sample count, not only powers of two.",
+      "usage": "w = modwt(x)\nw = modwt(x, wname)\nw = modwt(x, wname, lev)\nw = modwt(___, 'reflection')",
+      "parameters": [
+        {"name": "wname", "description": "Wavelet name, default 'sym4'."},
+        {"name": "lev", "description": "Number of levels, default floor(log2(numel(x)))."},
+        {"name": "'reflection'", "description": "Use reflection boundary handling to reduce edge effects."}
+      ],
+      "example": "load wecg\nfs = 180;\nw = modwt(wecg, 'sym4', 5);\nmra = modwtmra(w, 'sym4');\nt = (0:numel(wecg)-1)/fs;\nfor k = 1:6\n    subplot(6,1,k), plot(t, mra(k,:)), ylabel(sprintf('L%d', k))\nend\nvar_by_level = modwtvar(w, 'sym4');",
+      "notes": "modwtmra produces an additive multiresolution decomposition whose levels sum exactly to the original signal.",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/modwt.html"
+    },
+    {
+      "name": "imodwt",
+      "kind": "function",
+      "description": "Invert the maximal overlap discrete wavelet transform, optionally reconstructing from a subset of levels to isolate a frequency band. Because the MODWT is shift invariant, band-limited reconstructions have no phase distortion. It is the wavelet counterpart of zero-phase bandpass filtering.",
+      "usage": "xrec = imodwt(w)\nxrec = imodwt(w, wname)\nxrec = imodwt(w, lev)\nxrec = imodwt(___, 'reflection')",
+      "parameters": [
+        {"name": "w", "description": "MODWT coefficient matrix; zero out rows to suppress those levels."},
+        {"name": "wname", "description": "Wavelet name, matching the forward transform."},
+        {"name": "lev", "description": "Reconstruct using only levels above this one."}
+      ],
+      "example": "load wecg\nw = modwt(wecg, 'sym4', 6);\nwBand = zeros(size(w));\nwBand(3:5, :) = w(3:5, :);      % keep only levels 3 to 5\nqrs = imodwt(wBand, 'sym4');\nplot(1:numel(wecg), wecg, 1:numel(qrs), qrs + 2)\nlegend('ECG','levels 3-5')",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/imodwt.html"
+    },
+    {
+      "name": "wavedec2",
+      "kind": "function",
+      "description": "Perform a multilevel 2-D discrete wavelet decomposition of an image into approximation coefficients plus horizontal, vertical and diagonal details at each level. It is the basis of wavelet image compression, denoising and fusion. Extract individual subbands with appcoef2 and detcoef2, and reconstruct with waverec2.",
+      "usage": "[c, s] = wavedec2(X, n, wname)\n[c, s] = wavedec2(X, n, LoD, HiD)\ncA = appcoef2(c, s, wname, k)\n[cH, cV, cD] = detcoef2('all', c, s, k)",
+      "parameters": [
+        {"name": "X", "description": "Input image (2-D matrix)."},
+        {"name": "n", "description": "Number of decomposition levels."},
+        {"name": "wname", "description": "Wavelet name such as 'bior3.7' or 'db4'."},
+        {"name": "s", "description": "Bookkeeping matrix giving the subband sizes."}
+      ],
+      "example": "X = im2double(imread('cameraman.tif'));\n[c, s] = wavedec2(X, 3, 'bior3.7');\ncA3 = appcoef2(c, s, 'bior3.7', 3);\n[cH1, cV1, cD1] = detcoef2('all', c, s, 1);\nthr = 0.05;\ncComp = c .* (abs(c) > thr);\nXrec = waverec2(cComp, s, 'bior3.7');\nfprintf('Kept %.1f%% of coefficients, PSNR %.1f dB\\n', ...\n    100*nnz(cComp)/numel(c), psnr(Xrec, X));",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/wavedec2.html"
+    },
+    {
+      "name": "wthresh",
+      "kind": "function",
+      "description": "Apply soft or hard thresholding to wavelet coefficients. Hard thresholding zeroes small coefficients and leaves the rest untouched, while soft thresholding also shrinks the survivors toward zero, giving smoother reconstructions. It is the core operation of wavelet denoising and compression.",
+      "usage": "Y = wthresh(X, sorh, T)",
+      "parameters": [
+        {"name": "X", "description": "Coefficient vector or matrix."},
+        {"name": "sorh", "description": "'s' for soft thresholding or 'h' for hard."},
+        {"name": "T", "description": "Threshold value; often estimated as sigma*sqrt(2*log(N))."}
+      ],
+      "example": "load noisdopp\n[c, l] = wavedec(noisdopp, 5, 'sym6');\nsigma = median(abs(c(end-l(end)+1:end))) / 0.6745;\nT = sigma * sqrt(2*log(numel(noisdopp)));\ncSoft = wthresh(c, 's', T);\ncHard = wthresh(c, 'h', T);\nplot(1:1024, waverec(cSoft, l, 'sym6'), 1:1024, waverec(cHard, l, 'sym6'))\nlegend('soft','hard')",
+      "notes": "thselect computes standard threshold values using the 'rigrsure', 'sqtwolog', 'heursure' and 'minimaxi' rules.",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/wthresh.html"
+    },
+    {
+      "name": "wfilters",
+      "kind": "function",
+      "description": "Return the decomposition and reconstruction filter pairs associated with a named wavelet. Inspecting these filters shows a wavelet's length, symmetry and vanishing moments, which determine how it behaves on your data. The filters can be passed directly to dwt, wavedec and their inverses.",
+      "usage": "[LoD, HiD, LoR, HiR] = wfilters(wname)\n[F1, F2] = wfilters(wname, type)",
+      "parameters": [
+        {"name": "wname", "description": "Wavelet name such as 'db4', 'sym8', 'coif5', 'bior4.4', 'haar'."},
+        {"name": "type", "description": "'d' (decomposition), 'r' (reconstruction), 'l' (lowpass) or 'h' (highpass)."}
+      ],
+      "example": "[LoD, HiD, LoR, HiR] = wfilters('db4');\nsubplot(2,2,1), stem(LoD), title('Lowpass decomposition')\nsubplot(2,2,2), stem(HiD), title('Highpass decomposition')\nsubplot(2,2,3), stem(LoR), title('Lowpass reconstruction')\nsubplot(2,2,4), stem(HiR), title('Highpass reconstruction')\nfprintf('Filter length: %d\\n', numel(LoD));\n[cA, cD] = dwt(randn(256,1), LoD, HiD);",
+      "notes": "waveinfo('db') prints the properties of a wavelet family; wavemngr lists all available families.",
+      "docs": "https://www.mathworks.com/help/wavelet/ref/wfilters.html"
+    }
+  ]
+}

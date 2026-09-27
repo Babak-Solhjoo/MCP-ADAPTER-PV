@@ -1,0 +1,444 @@
+{
+  "category": "User Language: builtin functions (network, strings, time, objects, XML)",
+  "description": "ULP builtin functions, part 2: network requests (netget, netpost, neterror), formatted printing (printf, sprintf), string functions (strchr ... strxstr), URN functions for managed-library objects, time functions and conversions, object functions for groups and assembly variants (clrgroup, ingroup, setgroup, setvariant, variant) and XML parsing functions. Source: EAGLE 9.6.0 built-in help.",
+  "tools": [
+    {
+      "name": "neterror",
+      "kind": "function",
+      "description": "Returns a text describing the error of the most recent network function call, or an empty string if it succeeded. Call it after netget() or netpost() returned a negative value and show the message to the user.",
+      "usage": "string neterror(void);",
+      "example": "string Result;\nif (netget(Result, \"https://example.com/stock?part=BC547\") < 0)\n   dlgMessageBox(\":\" + neterror());",
+      "notes": "For HTTPS failures the message usually points to missing or expired certificates on the system."
+    },
+    {
+      "name": "netget",
+      "kind": "function",
+      "description": "Sends an HTTP, HTTPS or FTP GET request and stores the response in the destination variable, returning the number of objects read or a negative value on error. As with fileread(), the destination type selects binary (char array), line-wise text (string array) or whole-text (string) mode. The connection is dropped after the optional timeout in seconds without network activity (default 20).",
+      "usage": "int netget(dest, string url[, int timeout]);   // dest: char[] | string[] | string",
+      "parameters": [
+        {
+          "name": "dest",
+          "description": "char array, string array or string receiving the response."
+        },
+        {
+          "name": "url",
+          "description": "Full URL with protocol (http, https or ftp)."
+        },
+        {
+          "name": "timeout",
+          "description": "Seconds without activity before the connection is terminated (default 20)."
+        }
+      ],
+      "example": "string Lines[];\nint n = netget(Lines, \"https://example.com/data/parts.txt\", 30);\nif (n < 0) { dlgMessageBox(\":\" + neterror()); exit(1); }\nfor (int i = 0; i < n; ++i) { /* process Lines[i] */ }",
+      "notes": "The url must include the protocol and may carry name=value parameters or userid:password@ credentials (avoid putting secrets into ULPs). A string destination is truncated at the first 0x00 byte, so use a char array for binary data. Proxies are configured in the Control Panel under Help/Check for Update/Configure. Network access sends data off the machine; only use it where that is allowed."
+    },
+    {
+      "name": "netpost",
+      "kind": "function",
+      "description": "Sends data with an HTTP or HTTPS POST request and stores the response in the destination variable, returning the number of objects read or a negative value on error. The default content type is \"text/html; charset=utf-8\" and can be overridden; timeout and destination types work as in netget().",
+      "usage": "int netpost(dest, string url, string data[, int timeout[, string content_type]]);",
+      "parameters": [
+        {
+          "name": "dest",
+          "description": "char array, string array or string receiving the response."
+        },
+        {
+          "name": "url",
+          "description": "Target URL (http or https)."
+        },
+        {
+          "name": "data",
+          "description": "Request body."
+        },
+        {
+          "name": "timeout",
+          "description": "Inactivity timeout in seconds (default 20)."
+        },
+        {
+          "name": "content_type",
+          "description": "Overrides the default content type."
+        }
+      ],
+      "example": "string Reply;\nstring Json = \"{\\\"parts\\\": [\\\"BC547\\\", \\\"1N4148\\\"]}\";\nif (netpost(Reply, \"https://example.com/api/check\", Json, 20, \"application/json\") >= 0)\n   dlgMessageBox(Reply);\nelse\n   dlgMessageBox(\":\" + neterror());",
+      "notes": "Only HTTP and HTTPS are supported for POST. The same SSL and proxy notes as for netget() apply."
+    },
+    {
+      "name": "printf",
+      "kind": "function",
+      "description": "Writes formatted text to the file opened by the most recent (innermost active) output() statement and returns the number of characters written, or -1 on error. The format string contains plain characters and % conversion specifications; argument count and types are checked against the format, and mismatches are reported as errors. Unlike sprintf(), printf can write binary zero characters.",
+      "usage": "int printf(string format[, argument, ...]);\nformat spec: %[flags][width][.prec]type\n  type:  d o u x X (int)  f e E g G (real)  c (char)  s (string)  %% (percent sign)\n  flags: -  left-justify   +  always sign   ' ' blank before positive values\n  width: n  (pad with blanks)   0n (pad with zeros)   *  (taken from an int argument)\n  .prec: .n  decimals for e/E/f, significant digits for g/G, max. characters for s, min. digits for d/o/u/x/X",
+      "parameters": [
+        {
+          "name": "format",
+          "description": "Format string with plain text and % specifications."
+        },
+        {
+          "name": "argument",
+          "description": "Values matching the specifications in number and type."
+        }
+      ],
+      "example": "board(B) output(filesetext(B.name, \".txt\"), \"wt\") {\n  printf(\"%-8s %-12s %8s %8s\\n\", \"Name\", \"Value\", \"X[mm]\", \"Y[mm]\");\n  B.elements(E)\n    printf(\"%-8s %-12s %8.3f %8.3f\\n\", E.name, E.value, u2mm(E.x), u2mm(E.y));\n  printf(\"%d%% done\\n\", 100);\n  }",
+      "notes": "Use printf inside an output() block (or a function called from one). Default precision is 6 for e/E/f; .0 suppresses the decimal point for reals. Width never truncates a value. Coordinates must be converted with u2mm() etc. before printing with %f."
+    },
+    {
+      "name": "sprintf",
+      "kind": "function",
+      "description": "Formats values into a string variable using the same format specifications as printf() and returns the number of characters written, or -1 on error. It is the way to turn numbers into text for dialogs, command strings for exit() and file names.",
+      "usage": "int sprintf(string result, string format[, argument, ...]);",
+      "parameters": [
+        {
+          "name": "result",
+          "description": "String variable that receives the formatted text."
+        },
+        {
+          "name": "format",
+          "description": "Format string as for printf()."
+        },
+        {
+          "name": "argument",
+          "description": "Values to format."
+        }
+      ],
+      "example": "string Cmd;\nboard(B) B.elements(E)\n  if (E.name == \"U1\") {\n     sprintf(Cmd, \"MOVE %s (%.4f %.4f);\", E.name, u2mm(E.x) + 5.0, u2mm(E.y));\n     }\nif (Cmd) exit(\"GRID MM; \" + Cmd);",
+      "notes": "The result cannot contain binary zero characters: everything after a 0x00 is dropped (use printf for binary output). result is overwritten, not appended - use a temporary string and += to build longer texts."
+    },
+    {
+      "name": "strchr",
+      "kind": "function",
+      "description": "Returns the position of the first occurrence of a character in a string, or -1 if it does not occur. An optional start index begins the search at that position; negative values count from the end of the string.",
+      "usage": "int strchr(string s, char c[, int index]);",
+      "parameters": [
+        {
+          "name": "s",
+          "description": "String to search."
+        },
+        {
+          "name": "c",
+          "description": "Character to find."
+        },
+        {
+          "name": "index",
+          "description": "Optional start position; negative counts from the end."
+        }
+      ],
+      "example": "string Pin = \"VCC@2\";\nint at = strchr(Pin, '@');\nstring Base = at >= 0 ? strsub(Pin, 0, at) : Pin;     // VCC",
+      "notes": "See strrchr() for the last occurrence and strstr() for substrings."
+    },
+    {
+      "name": "strjoin",
+      "kind": "function",
+      "description": "Joins all elements of a string array into one string, separated by the given character. With '\\n' as separator the result also ends with a newline, which makes it the inverse of reading a text file with fileread() and splitting it with strsplit().",
+      "usage": "string strjoin(string array[], char separator);",
+      "example": "string Fields[] = { \"R1\", \"10k\", \"0603\" };\nstring Line = strjoin(Fields, ';');        // \"R1;10k;0603\"\nstring Lines[];\nint n = fileread(Lines, \"list.txt\");\nstring Text = strjoin(Lines, '\\n');         // original text again",
+      "notes": "The separator is a single char, not a string. See strsplit() for the reverse operation."
+    },
+    {
+      "name": "strlen",
+      "kind": "function",
+      "description": "Returns the number of characters in a string. Use it for loops over characters, padding and truncation.",
+      "usage": "int strlen(string s);",
+      "example": "string Name = \"C123\";\nint n = strlen(Name);                  // 4\nchar Last = Name[n - 1];               // '3'",
+      "notes": "s[strlen(s)] is always 0, so for (i = 0; s[i]; ++i) iterates without calling strlen."
+    },
+    {
+      "name": "strlwr",
+      "kind": "function",
+      "description": "Returns a copy of the string with all upper-case letters converted to lower case; the argument itself is not changed. Use it for case-insensitive comparisons and normalized file names.",
+      "usage": "string strlwr(string s);",
+      "example": "string f = \"D:/Work/BOARD.BRD\";\nif (strlwr(fileext(f)) == \".brd\") dlgMessageBox(\"board file\");",
+      "notes": "See strupr() and tolower()."
+    },
+    {
+      "name": "strrchr",
+      "kind": "function",
+      "description": "Returns the position of the last occurrence of a character in a string, or -1. An optional index sets where the search starts, negative values counting from the end. It is useful for splitting at the last separator, e.g. directory or suffix delimiters.",
+      "usage": "int strrchr(string s, char c[, int index]);",
+      "example": "string Net = \"BUS:DATA_7\";\nint p = strrchr(Net, '_');\nstring Bit = p >= 0 ? strsub(Net, p + 1) : \"\";      // 7",
+      "notes": "See strchr() and strrstr()."
+    },
+    {
+      "name": "strrstr",
+      "kind": "function",
+      "description": "Returns the position of the last occurrence of a substring in a string, or -1. An optional index sets the start position (negative from the end).",
+      "usage": "int strrstr(string s1, string s2[, int index]);",
+      "example": "string Path = \"a/b/c/lib/lib/x.lbr\";\nint p = strrstr(Path, \"/lib/\");          // 9 (start of the last /lib/)",
+      "notes": "See strstr() for the first occurrence."
+    },
+    {
+      "name": "strsplit",
+      "kind": "function",
+      "description": "Splits a string at a separator character into the elements of a string array and returns the number of fields. With '\\n' as separator a trailing empty field is dropped, so splitting a text file's content gives one element per line; with other separators a trailing empty field counts (\"a:b:c:\" gives 4 fields).",
+      "usage": "int strsplit(string &array[], string s, char separator);",
+      "parameters": [
+        {
+          "name": "array",
+          "description": "Receives the fields."
+        },
+        {
+          "name": "s",
+          "description": "String to split."
+        },
+        {
+          "name": "separator",
+          "description": "Field separator character."
+        }
+      ],
+      "example": "string Techs[];\nlibrary(L) L.devicesets(DS) DS.devices(D) {\n  int n = strsplit(Techs, D.technologies, ' ');\n  for (int i = 0; i < n; ++i) { /* D.attributes(A, Techs[i]) ... */ }\n  }\nstring f[];\nint k = strsplit(f, \"R1;10k;0603\", ';');   // 3 fields",
+      "notes": "The separator is a single char; quoted fields are not recognized (use lookup() for quoted CSV-like records)."
+    },
+    {
+      "name": "strstr",
+      "kind": "function",
+      "description": "Returns the position of the first occurrence of a substring in a string, or -1 if it does not occur. An optional index sets the start position (negative counts from the end). Comparing the result with 0 is a simple starts-with test.",
+      "usage": "int strstr(string s1, string s2[, int index]);",
+      "example": "board(B) output(\"test-points.txt\", \"wt\") B.elements(E)\n  if (strstr(E.name, \"TP\") == 0)             // name starts with TP\n     printf(\"%s (%.3f %.3f)\\n\", E.name, u2mm(E.x), u2mm(E.y));",
+      "notes": "Case-sensitive; combine with strupr() for case-insensitive search. strxstr() searches with regular expressions."
+    },
+    {
+      "name": "strsub",
+      "kind": "function",
+      "description": "Returns the substring starting at a position with an optional length; without length the rest of the string is returned. An empty string results if start lies outside the string or the length is not positive.",
+      "usage": "string strsub(string s, int start[, int length]);",
+      "example": "string s = \"This is a string\";\nstring t = strsub(s, 5, 2);        // is\nstring Tail = strsub(s, 10);       // string (rest from index 10)",
+      "notes": "Positions are 0-based."
+    },
+    {
+      "name": "strtod",
+      "kind": "function",
+      "description": "Converts the leading part of a string to a real number, stopping at the first character that does not fit a real constant; returns 0.0 if nothing can be converted. Use it to parse numbers from dialogs, attributes or data files.",
+      "usage": "real strtod(string s);",
+      "parameters": [
+        {
+          "name": "s",
+          "description": "String starting with a real number."
+        }
+      ],
+      "example": "board(B) output(\"tolerances.txt\", \"wt\") B.elements(E) {\n  real Tol = strtod(E.attribute[\"TOLERANCE\"]);   // \"1.5%\" -> 1.5\n  if (Tol > 1.0) printf(\"%s: %.1f %%\\n\", E.name, Tol);\n  }",
+      "notes": "Returns 0.0 on errors, which cannot be distinguished from a real 0 - validate input if that matters. Unit suffixes such as 'k' or 'u' in part values are not interpreted."
+    },
+    {
+      "name": "strtol",
+      "kind": "function",
+      "description": "Converts the leading part of a string to an int, stopping at the first character that does not fit an integer constant; returns 0 if nothing can be converted. Leading 0 and 0x select octal and hexadecimal as for integer constants.",
+      "usage": "int strtol(string s);",
+      "parameters": [
+        {
+          "name": "s",
+          "description": "String starting with an integer."
+        }
+      ],
+      "example": "string Name = \"R47\";\nint Num = strtol(strsub(Name, 1));     // 47\nint Mask = strtol(\"0x1F\");             // 31",
+      "notes": "Because a leading zero means octal, \"010\" converts to 8 - strip leading zeros from numeric text first."
+    },
+    {
+      "name": "strupr",
+      "kind": "function",
+      "description": "Returns a copy of the string with all lower-case letters converted to upper case; the argument is not changed. Typical use is case-insensitive matching of names and options.",
+      "usage": "string strupr(string s);",
+      "example": "if (argc > 1 && strupr(argv[1]) == \"/HELP\") { dlgMessageBox(usage); exit(0); }\nboard(B) B.signals(S) if (strupr(S.name) == \"GND\") { /* ... */ }",
+      "notes": "See strlwr() and toupper()."
+    },
+    {
+      "name": "strxstr",
+      "kind": "function",
+      "description": "Searches a string for the first match of a regular expression and returns its position, or -1. An optional start index works as for strstr(), and an optional int variable receives the length of the matched text.",
+      "usage": "int strxstr(string s1, string s2[, int index[, int &length]]);",
+      "parameters": [
+        {
+          "name": "s1",
+          "description": "String to search."
+        },
+        {
+          "name": "s2",
+          "description": "Regular expression."
+        },
+        {
+          "name": "index",
+          "description": "Start position (negative counts from the end)."
+        },
+        {
+          "name": "length",
+          "description": "Receives the length of the matching substring."
+        }
+      ],
+      "example": "board(B) output(\"resistors.txt\", \"wt\") B.elements(E) {\n  int len = 0;\n  if (strxstr(E.name, \"^R[0-9]+$\", 0, len) == 0)   // R followed by digits only\n     printf(\"%s = %s\\n\", E.name, E.value);\n  }",
+      "notes": "s2 is a regular expression: '.' any character, '*' repetition etc. (e.g. \"i.*a\" matches \"is a\"). Escape regex special characters when searching literally."
+    },
+    {
+      "name": "urnbase",
+      "kind": "function",
+      "description": "Returns the base part of a URN without the trailing /version, e.g. urn:adsk.eagle:footprint:123 for urn:adsk.eagle:footprint:123/4. URNs identify managed-library objects (device sets, footprints, symbols, 3D packages); if no version is present the input is returned unchanged.",
+      "usage": "string urnbase(string urn);",
+      "example": "board(B) output(\"3d-urns.txt\", \"wt\") B.elements(E)\n  if (E.package3d) printf(\"%s %s v%d\\n\", E.name, urnbase(E.package3d.urn), urnversion(E.package3d.urn));",
+      "notes": "See urnversion()."
+    },
+    {
+      "name": "urnversion",
+      "kind": "function",
+      "description": "Returns the version number that follows the '/' of a URN, or -1 if the URN has no version. Use it to compare the library object versions used in a design.",
+      "usage": "int urnversion(string urn);",
+      "example": "string urn = \"urn:adsk.eagle:footprint:123/4\";\nint v = urnversion(urn);               // 4",
+      "notes": "See urnbase()."
+    },
+    {
+      "name": "time",
+      "kind": "function",
+      "description": "Returns the current system time as seconds since a system-dependent reference date. The value can be broken down or formatted with the t2... functions and compared with filetime().",
+      "usage": "int time(void);",
+      "example": "int Now = time();\noutput(\"log.txt\", \"at\") printf(\"%s  run by %s\\n\", t2string(Now, \"yyyy-MM-dd hh:mm:ss\"), argv[0]);",
+      "notes": "Resolution is one second; for measuring durations use timems(). time is a builtin name and cannot be used for a variable."
+    },
+    {
+      "name": "timems",
+      "kind": "function",
+      "description": "Returns the number of milliseconds elapsed since the ULP was started. Use it to measure how long parts of a program take; the counter wraps to 0 every 24 hours.",
+      "usage": "int timems(void);",
+      "example": "int t0 = timems();\nint n = 0;\nboard(B) B.signals(S) S.wires(W) ++n;\nstring s;\nsprintf(s, \"%d wires counted in %d ms\", n, timems() - t0);\nstatus(s);",
+      "notes": "Wraps around after 86400000 ms."
+    },
+    {
+      "name": "t2day, t2dayofweek, t2hour, t2minute, t2month, t2second, t2year",
+      "kind": "function",
+      "description": "Break a time value (from time() or filetime()) into its parts in local time: day of month 1..31, day of week 0 (Sunday)..6, hour 0..23, minute 0..59, month 0..11, second 0..59 and the four-digit year.",
+      "usage": "int t2day(int t);   int t2dayofweek(int t);   int t2hour(int t);   int t2minute(int t);\nint t2month(int t); int t2second(int t);      int t2year(int t);",
+      "example": "int t = time();\nstring Stamp;\nsprintf(Stamp, \"%04d%02d%02d_%02d%02d\", t2year(t), t2month(t) + 1, t2day(t), t2hour(t), t2minute(t));\nboard(B) output(filesetext(B.name, \"_\" + Stamp + \".txt\"), \"wt\") printf(\"%s\\n\", B.name);",
+      "notes": "t2month is 0-based (0 = January): add 1 for display. For formatted strings t2string() with a format is simpler."
+    },
+    {
+      "name": "t2string",
+      "kind": "function",
+      "description": "Converts a time value into a formatted date/time string. Without a format a country-specific local time string is produced; with a format string, expressions such as yyyy, MM, dd, hh, mm, ss, ddd/MMM names and AP are replaced, and a leading U produces UTC.",
+      "usage": "string t2string(int t[, string format]);\nformat: d dd ddd dddd | M MM MMM MMMM | yy yyyy | h hh | m mm | s ss | z zzz | AP ap | U (first char: UTC)\n        '...' literal text, '' single quote",
+      "parameters": [
+        {
+          "name": "t",
+          "description": "Time value from time() or filetime()."
+        },
+        {
+          "name": "format",
+          "description": "Optional format string; omitted = localized default."
+        }
+      ],
+      "example": "int t = time();\nstring Iso = t2string(t, \"Uyyyy-MM-dd hh:mm:ss\");      // UTC, ISO-like\nstring Local = t2string(t, \"dddd, d. MMMM yyyy\");\nboard(B) output(filesetext(B.name, \".info\"), \"wt\")\n  printf(\"Board saved: %s\\n\", t2string(filetime(B.name), \"yyyy-MM-dd hh:mm\"));",
+      "notes": "Characters that are not format expressions are copied as-is; quote literal text containing letters like d, M, h, m, s in single quotes. z/zzz are always 0 because the time has one-second resolution."
+    },
+    {
+      "name": "clrgroup",
+      "kind": "function",
+      "description": "Clears the group flags of an object so it is no longer part of the group defined in the editor. Applied to a container such as UL_BOARD or UL_NET it clears the flags of all contained objects recursively.",
+      "usage": "void clrgroup(object);",
+      "example": "board(B) {\n  clrgroup(B);                                  // empty the group\n  B.elements(E)\n    if (strstr(E.name, \"C\") == 0) setgroup(E);  // group all capacitors\n  }\ndlgMessageBox(\"All capacitors are now in the group.\");",
+      "notes": "The same limitations as for setgroup() apply to recursive clearing (not UL_LIBRARY/UL_SCHEMATIC, not non-selectable sub-objects)."
+    },
+    {
+      "name": "ingroup",
+      "kind": "function",
+      "description": "Tells whether an object belongs to the group currently defined in the editor, so a ULP can process only the user's selection. When a ULP is started from a context menu, the clicked object forms a one-element group and ingroup() identifies it. For wires the result tells which end points are in the group.",
+      "usage": "int ingroup(object);",
+      "example": "string Cmd = \"\";\nboard(B) B.elements(E)\n  if (ingroup(E)) Cmd += \"LOCK \" + E.name + \";\\n\";\nif (!Cmd) { dlgMessageBox(\"!Define a group first (GROUP command).\"); exit(1); }\nexit(Cmd);",
+      "notes": "Point objects (texts, vias, circles...) are in the group if their coordinate is. UL_WIRE returns 0-3 (bit 0 = first, bit 1 = second end point). UL_RECTANGLE/UL_FRAME return corner bits (0 upper right, 1 upper left, 2 lower left, 3 lower right). Containers (UL_NET, UL_SEGMENT, UL_SIGNAL, UL_POLYGON, UL_SHEET, UL_DEVICESET, UL_SYMBOL, UL_FOOTPRINT) are non-zero if any contained object is; UL_CONTACTREF/UL_PINREF follow the referenced contact/pin. For UL_GRID, UL_VARIANT and text/frame wires the result is undefined."
+    },
+    {
+      "name": "setgroup",
+      "kind": "function",
+      "description": "Adds an object to the editor's group, as a whole or only selected points (for a wire: 1 = first, 2 = second, 3 = both end points). Applied to a container like UL_BOARD or UL_NET, all selectable contained objects are added recursively. After the ULP ends the group can be used by commands such as MOVE, CHANGE or DELETE with the group mouse click.",
+      "usage": "void setgroup(object[, int flags]);",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "Any selectable object or container."
+        },
+        {
+          "name": "flags",
+          "description": "Optional point mask; for UL_WIRE 1 = first, 2 = second, 3 = both end points."
+        }
+      ],
+      "example": "board(B) {\n  clrgroup(B);\n  B.signals(S)\n    if (S.name == \"GND\") setgroup(S);         // all wires, vias, polygons of GND\n  }",
+      "notes": "Previously set group flags stay set. Not recursive for UL_LIBRARY and UL_SCHEMATIC; non-selectable parts (UL_GRID, UL_VARIANT, wires of texts/frames) are not flagged."
+    },
+    {
+      "name": "setvariant",
+      "kind": "function",
+      "description": "Makes the named assembly variant current for the rest of the ULP, so that populate flags, values and technologies of parts are seen as defined in that variant. Returns non-zero if the variant exists. The drawing's own variant is restored when the ULP ends.",
+      "usage": "int setvariant(string name);",
+      "parameters": [
+        {
+          "name": "name",
+          "description": "Name of an assembly variant defined in the current drawing."
+        }
+      ],
+      "example": "schematic(SCH) {\n  if (!setvariant(\"Lite\")) { dlgMessageBox(\":Variant 'Lite' not found\"); exit(1); }\n  output(filesetext(SCH.name, \"_lite_bom.txt\"), \"wt\")\n    SCH.allparts(P) if (P.populate) printf(\"%s\\t%s\\n\", P.name, P.value);\n  }",
+      "notes": "In a board, setting a variant only works if the consistent schematic is loaded. Loop over variantdefs() to process all variants; save variant() first to know the original one."
+    },
+    {
+      "name": "variant",
+      "kind": "function",
+      "description": "Returns the name of the current assembly variant, or an empty string if none is selected. Use it to label outputs or to restore the variant after switching with setvariant().",
+      "usage": "string variant(void);",
+      "example": "string Current = variant();\nboard(B) output(filesetext(B.name, \"_\" + (Current ? Current : \"default\") + \".xy\"), \"wt\")\n  B.elements(E) if (E.populate) printf(\"%s %.3f %.3f\\n\", E.name, u2mm(E.x), u2mm(E.y));",
+      "notes": "variant is a builtin name and cannot be used for a variable. The shipped save-brd-variants.ulp additionally treats the literal string '' as the default variant, so test for both when naming files."
+    },
+    {
+      "name": "xmlattribute",
+      "kind": "function",
+      "description": "Returns the value of one attribute of a tag within XML text. The tag is given as a path such as \"eagle/drawing/board\"; if the attribute occurs more than once in the tag, the last value is used. Together with fileread() it lets a ULP read XML files, including EAGLE's own .brd/.sch/.lbr files.",
+      "usage": "string xmlattribute(string xml, string tag, string attribute);",
+      "parameters": [
+        {
+          "name": "xml",
+          "description": "XML text."
+        },
+        {
+          "name": "tag",
+          "description": "Path of the tag, e.g. \"root/body\"."
+        },
+        {
+          "name": "attribute",
+          "description": "Attribute name."
+        }
+      ],
+      "example": "string Xml;\nfileread(Xml, \"D:/work/board.brd\");\nstring Ver = xmlattribute(Xml, \"eagle\", \"version\");      // file format version\ndlgMessageBox(\"Saved with EAGLE \" + Ver);",
+      "notes": "Malformed XML makes every XML function return an empty result and shows a warning with the line/column inside the given string. The path refers to the first matching element; use xmlelements() to visit repeated tags."
+    },
+    {
+      "name": "xmlattributes",
+      "kind": "function",
+      "description": "Stores the names of all attributes of a tag in a string array and returns their number. The order does not necessarily follow the XML text, and each name appears once even if repeated.",
+      "usage": "int xmlattributes(string &array[], string xml, string tag);",
+      "example": "string Xml = \"<root><body abc=\\\"def\\\" xyz=\\\"123\\\"/></root>\";\nstring Names[];\nint n = xmlattributes(Names, Xml, \"root/body\");         // { \"abc\", \"xyz\" }\nfor (int i = 0; i < n; ++i)\n    printf(\"%s=%s\\n\", Names[i], xmlattribute(Xml, \"root/body\", Names[i]));",
+      "notes": "The tag is a path; see xmlattribute() for reading values."
+    },
+    {
+      "name": "xmlelement",
+      "kind": "function",
+      "description": "Returns the complete first element with the given tag path, including its outer tags, so it can be processed further with the other XML functions. Plain-text whitespace is kept, although tag formatting and attribute order may differ from the original.",
+      "usage": "string xmlelement(string xml, string tag);",
+      "example": "string Xml;\nfileread(Xml, \"D:/work/board.brd\");\nstring Rules = xmlelement(Xml, \"eagle/drawing/board/designrules\");\nstring Name = xmlattribute(Rules, \"designrules\", \"name\");",
+      "notes": "Only the first occurrence is returned; use xmlelements() for all of them. Paths inside the returned element start at its own tag."
+    },
+    {
+      "name": "xmlelements",
+      "kind": "function",
+      "description": "Like xmlelement(), but stores every element matching the tag path in a string array and returns how many were found. It is the way to iterate over repeated XML elements such as the parts, signals or settings of a file.",
+      "usage": "int xmlelements(string &array[], string xml, string tag);",
+      "example": "string Xml, Parts[];\nfileread(Xml, \"D:/work/design.sch\");\nint n = xmlelements(Parts, Xml, \"eagle/drawing/schematic/parts/part\");\noutput(\"parts-from-xml.txt\", \"wt\")\n  for (int i = 0; i < n; ++i)\n      printf(\"%s\\t%s\\n\", xmlattribute(Parts[i], \"part\", \"name\"), xmlattribute(Parts[i], \"part\", \"value\"));",
+      "notes": "Each array element contains the element with its outer tag, so subsequent paths start with that tag name."
+    },
+    {
+      "name": "xmltags",
+      "kind": "function",
+      "description": "Stores the distinct tag names found directly below the given tag path in a string array and returns their number. With an empty path it returns the root tag name. Use it to explore unknown XML structures.",
+      "usage": "int xmltags(string &array[], string xml, string tag);",
+      "example": "string Xml, Tags[];\nfileread(Xml, \"D:/work/board.brd\");\nint n = xmltags(Tags, Xml, \"eagle/drawing\");          // e.g. settings, grid, layers, board\nstring Root[];\nxmltags(Root, Xml, \"\");                              // { \"eagle\" }",
+      "notes": "Each tag name is reported once, even if it occurs several times."
+    },
+    {
+      "name": "xmltext",
+      "kind": "function",
+      "description": "Returns the text content of an element with all inner tags stripped; whitespace including newlines is kept. Use it for elements such as descriptions whose content is text.",
+      "usage": "string xmltext(string xml, string tag);",
+      "example": "string Xml;\nfileread(Xml, \"D:/work/board.brd\");\nstring Desc = xmltext(Xml, \"eagle/drawing/board/description\");\ndlgMessageBox(Desc ? Desc : \"no description\");",
+      "notes": "Returns the text of the first matching element; combine with xmlelements() for repeated ones."
+    }
+  ]
+}

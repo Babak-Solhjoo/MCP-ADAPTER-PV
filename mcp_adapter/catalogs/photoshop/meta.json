@@ -1,0 +1,84 @@
+{
+  "id": "photoshop",
+  "name": "Adobe Photoshop",
+  "vendor": "Adobe",
+  "version_reference": "2025 (v26)",
+  "homepage": "https://www.adobe.com/products/photoshop.html",
+  "docs_root": "https://helpx.adobe.com/photoshop/user-guide.html",
+  "description": "Adobe Photoshop is the industry-standard raster image editor, used for photo retouching, compositing, digital painting, graphic design, matte painting, web and UI mockups, and print production. It is built around a layered document model: pixel layers, adjustment layers, smart objects, shape and type layers, layer styles, masks (pixel, vector and clipping) and blend modes, all stacked inside a document with one or more artboards. Around that model sit a toolbar of roughly sixty tools, a menu system covering selection, image, layer, type, filter and view operations, dozens of dockable panels, and a growing set of Adobe Firefly generative AI features (Generative Fill, Generative Expand, Generate Image, Generate Background, Remove tool). Photoshop reads and writes its own layered .psd/.psb formats plus every common raster and camera raw format, and integrates with Camera Raw, Adobe Bridge, Creative Cloud Libraries and the Photoshop cloud API.",
+  "automation": {
+    "summary": "Photoshop is automated in five main ways. (1) ExtendScript (JSX): the classic ES3-based JavaScript DOM (`app`, `app.activeDocument`, `ArtLayer`, `Selection`, `PathItem`, `TextItem`), run from File > Scripts > Browse..., from the Scripts menu when the .jsx file is placed in Presets/Scripts, by double-clicking a .jsx whose first line is `#target photoshop`, or by passing the script path to the executable (`Photoshop.exe \"C:\\path\\script.jsx\"`). (2) Action Manager / batchPlay descriptors, which reach every command the DOM does not expose, via `executeAction`/`executeActionGet` with `stringIDToTypeID`. (3) UXP: the modern plugin and scripting runtime (`require('photoshop').app`, `action.batchPlay`, `core.executeAsModal`), with .psjs script files and UXP plugins built in the UXP Developer Tool. (4) COM automation on Windows through the `Photoshop.Application` ProgID, whose `Open`, `DoJavaScript`, `DoJavaScriptFile`, `DoAction` and `ActiveDocument` members let Python (pywin32), C#, VBScript or PowerShell drive a running Photoshop. (5) No-code automation: recorded Actions (.atn) played through File > Automate > Batch, droplets, and the Image Processor. Separately, the cloud-hosted Photoshop API (part of Adobe Firefly Services) performs PSD edits server-side over REST with no desktop install.",
+    "cli": [
+      {
+        "command": "Photoshop.exe \"C:\\scripts\\resize.jsx\"",
+        "description": "Launch Photoshop (or hand the file to an already-running instance) and execute an ExtendScript file. The script should start with `#target photoshop` so the file type is routed to Photoshop. Photoshop may show the \"You should only run scripts from a trusted source\" alert the first time; launching via `start \"\" photoshop.exe script.jsx` or from the Scripts menu avoids it."
+      },
+      {
+        "command": "start \"\" \"C:\\Program Files\\Adobe\\Adobe Photoshop 2025\\Photoshop.exe\" \"C:\\scripts\\batch_export.jsx\"",
+        "description": "Fire-and-forget launch from a .bat file or CI job. Photoshop is a GUI application with no true headless mode, so an interactive desktop session must be available."
+      },
+      {
+        "command": "Photoshop.exe \"C:\\images\\shot.psd\"",
+        "description": "Open a document from the command line. Combine with a Script Events Manager event (File > Scripts > Script Events Manager, event \"Open Document\") to run a script automatically on every opened file."
+      },
+      {
+        "command": "python -c \"import win32com.client as w; a=w.Dispatch('Photoshop.Application'); a.DoJavaScriptFile(r'C:\\scripts\\job.jsx')\"",
+        "description": "Drive Photoshop from an external process on Windows through COM without writing a .jsx launcher. `DoJavaScript(code)` runs a string of ExtendScript instead of a file."
+      }
+    ],
+    "apis": [
+      {
+        "name": "ExtendScript (JSX) DOM",
+        "description": "The long-standing scripting interface. `app` is the Application object; `app.documents`, `app.activeDocument`, `Document.artLayers`, `layerSets`, `channels`, `pathItems`, `selection` and `TextItem` form the object tree. Units follow `app.preferences.rulerUnits`, so set it explicitly; suppress modal dialogs with `app.displayDialogs = DialogModes.NO`. Scripts are ES3 JavaScript with Adobe's File/Folder objects and the ScriptUI dialog toolkit.",
+        "example": "#target photoshop\napp.displayDialogs = DialogModes.NO;\napp.preferences.rulerUnits = Units.PIXELS;\nvar doc = app.open(new File(\"C:/in/shot.psd\"));\ndoc.resizeImage(UnitValue(1920, \"px\"), null, 72, ResampleMethod.BICUBICSHARPER);\ndoc.flatten();\nvar opts = new JPEGSaveOptions();\nopts.quality = 10;\ndoc.saveAs(new File(\"C:/out/shot.jpg\"), opts, true, Extension.LOWERCASE);\ndoc.close(SaveOptions.DONOTSAVECHANGES);"
+      },
+      {
+        "name": "Action Manager (executeAction)",
+        "description": "Low-level descriptor API that plays the same internal commands the UI uses, covering everything the DOM omits. Build an `ActionDescriptor`, address targets with `ActionReference`, convert names to integer type IDs with `stringIDToTypeID` (or the legacy `charIDToTypeID`), then call `executeAction`. `executeActionGet` reads document, layer and application properties back. The ScriptingListener plugin records the descriptors for any UI action.",
+        "example": "var idFill = stringIDToTypeID(\"fill\");\nvar d = new ActionDescriptor();\nd.putEnumerated(stringIDToTypeID(\"using\"),\n                stringIDToTypeID(\"fillContents\"),\n                stringIDToTypeID(\"foregroundColor\"));\nd.putUnitDouble(stringIDToTypeID(\"opacity\"), stringIDToTypeID(\"percentUnit\"), 100);\nexecuteAction(idFill, d, DialogModes.NO);"
+      },
+      {
+        "name": "UXP scripting and plugins",
+        "description": "The modern runtime (Photoshop 22+ for plugins, 23.3+ for .psjs scripts). `require('photoshop').app` exposes a promise-based DOM; `action.batchPlay(descriptors, options)` plays actionJSON descriptors; anything that changes the document must run inside `core.executeAsModal(fn, {commandName})`. File access goes through `require('uxp').storage.localFileSystem`. UXP plugins add panels built with HTML/CSS/JS and are debugged with the UXP Developer Tool.",
+        "example": "const { app, core, action } = require(\"photoshop\");\nasync function run() {\n  const doc = app.activeDocument;\n  await action.batchPlay([{\n    _obj: \"gaussianBlur\",\n    radius: { _unit: \"pixelsUnit\", _value: 4 }\n  }], {});\n  doc.activeLayers[0].name = \"blurred\";\n}\nawait core.executeAsModal(run, { commandName: \"Blur layer\" });"
+      },
+      {
+        "name": "COM automation (Windows)",
+        "description": "Photoshop registers the `Photoshop.Application` ProgID (version-specific ProgIDs such as `Photoshop.Application.180` also exist). Any COM client can create it, open documents, play recorded Actions with `DoAction(actionName, actionSetName)` and evaluate ExtendScript with `DoJavaScript(code)` or `DoJavaScriptFile(path, args, execMode)`. The return value of `DoJavaScript` is the value of the last expression, which is the usual way to get data back out.",
+        "example": "import win32com.client as win32\nps = win32.Dispatch(\"Photoshop.Application\")\nps.Visible = True\nps.Open(r\"C:\\in\\shot.psd\")\nps.DoAction(\"Web export\", \"My Actions\")\nn = ps.DoJavaScript(\"app.activeDocument.layers.length\")\nps.ActiveDocument.Close(2)  # 2 = do not save changes"
+      },
+      {
+        "name": "Actions, Batch and Droplets",
+        "description": "The no-code automation layer. Record a sequence in the Actions panel, save the set as an .atn file, then replay it over a folder with File > Automate > Batch, or export it as a droplet executable that processes any files dropped onto it. Actions can call scripts (Insert Menu Item > File > Scripts), so the two layers compose.",
+        "example": "1. Actions panel > New Set \"Web\" > New Action \"Export 1200px\", press Record.\n2. Run Image > Image Size (1200 px wide) and File > Save As (JPEG), then press Stop.\n3. File > Automate > Batch: Set = Web, Action = Export 1200px, Source = Folder, Destination = Folder, tick \"Override Action Save As Commands\"."
+      },
+      {
+        "name": "Photoshop API (cloud REST)",
+        "description": "Server-side PSD manipulation in Adobe Firefly Services, with no Photoshop installation. Requests are JSON: inputs and outputs are presigned storage URLs (S3, Azure, Dropbox or Adobe's own), the call returns a job URL that is polled for status. v1 exposes `/pie/psdService/documentCreate`, `/documentOperations`, `/renditionCreate`, `/smartObject` and `/text`; v2 unifies them behind `/v2/create-composite`. Authentication is an Adobe IMS OAuth server-to-server token plus the `x-api-key` header.",
+        "example": "curl -X POST https://image.adobe.io/pie/psdService/documentOperations \\\n  -H \"Authorization: Bearer $TOKEN\" -H \"x-api-key: $CLIENT_ID\" \\\n  -H \"Content-Type: application/json\" -d '{\n    \"inputs\": [{\"href\": \"<presigned-get-url>\", \"storage\": \"external\"}],\n    \"options\": {\"layers\": [{\"name\": \"Headline\", \"text\": {\"content\": \"Spring sale\"}}]},\n    \"outputs\": [{\"href\": \"<presigned-put-url>\", \"storage\": \"external\", \"type\": \"image/jpeg\"}]\n  }'"
+      },
+      {
+        "name": "Photoshop plugins (UXP, CEP, C++ SDK)",
+        "description": "Three plugin surfaces coexist. UXP is the current one for panels and automation; CEP (HTML/CSS/JS extensions with a Node.js host) is legacy but still loads in current versions; the C++ Photoshop SDK builds file-format, filter, automation and selection plugins as native .8bi/.8be/.8ba modules. Plugins are distributed through Adobe Exchange and the Creative Cloud Desktop marketplace.",
+        "example": "1. Install the UXP Developer Tool from Creative Cloud Desktop.\n2. Create a plugin from the \"Photoshop panel\" template; edit manifest.json (entrypoints, requiredPermissions).\n3. Click Load in UDT to side-load it into Photoshop, then Watch for hot reload while you edit."
+      }
+    ],
+    "file_formats": [
+      {"extension": ".psd", "description": "Photoshop Document: the native layered format holding layers, groups, masks, layer styles, smart objects, text, paths, channels, colour profile and metadata. Limited to 30,000 px per side and 2 GB."},
+      {"extension": ".psb", "description": "Large Document Format. Same feature set as .psd but supports documents up to 300,000 px per side and files larger than 2 GB. Enable \"Maximize Compatibility\" or 32-bit work to see it offered."},
+      {"extension": ".abr", "description": "Brush preset file: brush tips, dynamics, texture and dual-brush settings. Loaded from the Brushes panel menu > Import Brushes."},
+      {"extension": ".atn", "description": "Actions set file. Holds one or more recorded actions; loaded from the Actions panel menu > Load Actions and required by Batch and droplets."},
+      {"extension": ".asl", "description": "Layer Styles file containing one or more style presets (drop shadow, bevel, overlays). Loaded from the Styles panel menu."},
+      {"extension": ".grd", "description": "Gradient preset file used by the Gradient tool, Gradient Map adjustment and Gradient Overlay layer effect."},
+      {"extension": ".pat", "description": "Pattern preset file used by the Pattern Stamp tool, Fill > Pattern, Pattern Overlay and pattern fill layers."},
+      {"extension": ".acv", "description": "Curves preset. Saved from the Curves dialog/adjustment and reloadable there; .acs, .ahu, .ale and similar hold other adjustment presets."},
+      {"extension": ".aco", "description": "Colour swatches file loaded and saved from the Swatches panel."},
+      {"extension": ".jsx", "description": "ExtendScript file. Run from File > Scripts > Browse..., from the Scripts menu when placed in Presets/Scripts, or by passing the path to Photoshop.exe. `.jsxbin` is the compiled, obfuscated form."},
+      {"extension": ".psjs", "description": "UXP script file (Photoshop 23.3 and later). Modern JavaScript with `require('photoshop')`; run from File > Scripts and debuggable in the UXP Developer Tool."},
+      {"extension": ".atn/.exe droplet", "description": "Droplet: a small executable produced by File > Automate > Create Droplet that runs a chosen action over any files or folders dropped onto it."},
+      {"extension": ".ccx", "description": "Creative Cloud plugin package (UXP or CEP) installed through Creative Cloud Desktop or Adobe Exchange."},
+      {"extension": ".tif", "description": "TIFF, which Photoshop can write with layers, transparency and a colour profile; the usual lossless interchange format for print."},
+      {"extension": ".dng / camera raw", "description": "Adobe Digital Negative and vendor raw files (.cr3, .nef, .arw, .raf). Opened through the Camera Raw plug-in, which can also be applied to any layer as Filter > Camera Raw Filter."}
+    ]
+  }
+}

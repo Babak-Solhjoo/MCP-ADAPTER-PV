@@ -1,0 +1,420 @@
+{
+  "category": "DSP System Toolbox & Audio Toolbox > Streaming Filters, Scopes & Audio I/O",
+  "description": "Stateful streaming filter and transform System objects, real-time scopes, multirate and adaptive filtering, audio device and file I/O, and audio feature extraction.",
+  "tools": [
+    {
+      "name": "dsp.FIRFilter",
+      "kind": "script-object",
+      "description": "A stateful FIR filter System object that maintains its internal delay line between calls, so successive frames of a streaming signal are filtered correctly with no discontinuity at frame boundaries. Structures include direct form, transposed and symmetric variants, and coefficients can be changed at run time through an input port. Use it instead of the filter function in any frame-based processing loop.",
+      "usage": "firFilt = dsp.FIRFilter(coeffs)\nfirFilt = dsp.FIRFilter(Name, Value)\ny = firFilt(x)\nreset(firFilt); release(firFilt)",
+      "parameters": [
+        {"name": "'Numerator'", "description": "FIR coefficient vector."},
+        {"name": "'Structure'", "description": "'Direct form' (default), 'Direct form transposed', 'Direct form symmetric', 'Direct form antisymmetric', 'Lattice MA'."},
+        {"name": "'NumeratorSource'", "description": "'Property' (default) or 'Input port' for time-varying coefficients."},
+        {"name": "'InitialConditions'", "description": "Starting state of the delay line."}
+      ],
+      "example": "fs = 48000;\nb = fir1(128, 4000/(fs/2));\nfirFilt = dsp.FIRFilter('Numerator', b, 'Structure', 'Direct form symmetric');\nscope = spectrumAnalyzer('SampleRate', fs);\nfor k = 1:200\n    x = randn(1024, 1);\n    y = firFilt(x);\n    scope(y);\nend\nrelease(firFilt); release(scope);",
+      "notes": "Call release before changing non-tunable properties, and reset to clear the state without discarding the object.",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.firfilter-system-object.html"
+    },
+    {
+      "name": "dsp.IIRFilter",
+      "kind": "script-object",
+      "description": "A stateful IIR filter System object supporting direct form I and II structures and their transposed variants. Like all System objects it preserves filter state across frames, which is required for correct streaming. For orders above about four, prefer dsp.BiquadFilter for numerical robustness.",
+      "usage": "iirFilt = dsp.IIRFilter(Name, Value)\ny = iirFilt(x)\nreset(iirFilt); release(iirFilt)",
+      "parameters": [
+        {"name": "'Numerator' / 'Denominator'", "description": "Transfer-function coefficients."},
+        {"name": "'Structure'", "description": "'Direct form II transposed' (default), 'Direct form I', 'Direct form II', 'Direct form I transposed'."},
+        {"name": "'NumeratorSource' / 'DenominatorSource'", "description": "'Property' or 'Input port'."},
+        {"name": "'InitialConditions'", "description": "Initial filter state."}
+      ],
+      "example": "fs = 8000;\n[b, a] = butter(4, 1000/(fs/2));\niir = dsp.IIRFilter('Numerator', b, 'Denominator', a);\nsig = dsp.SineWave('Frequency', 500, 'SampleRate', fs, 'SamplesPerFrame', 512);\nfor k = 1:50\n    y = iir(sig());\nend\nrelease(iir);",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.iirfilter-system-object.html"
+    },
+    {
+      "name": "dsp.BiquadFilter",
+      "kind": "script-object",
+      "description": "Implement an IIR filter as a cascade of second-order sections, which is far less sensitive to coefficient quantization than a single high-order transfer function. It supports per-section scale values and fixed-point arithmetic, which makes it the right choice for hardware implementation. Feed it the sos matrix from zp2sos or a designfilt object.",
+      "usage": "biquad = dsp.BiquadFilter(Name, Value)\ny = biquad(x)\nfvtool(biquad)",
+      "parameters": [
+        {"name": "'SOSMatrix'", "description": "L-by-6 second-order-section coefficient matrix."},
+        {"name": "'ScaleValues'", "description": "Per-section scale factors plus an overall output scale."},
+        {"name": "'Structure'", "description": "'Direct form II transposed' (default), 'Direct form I', 'Direct form II', 'Direct form I transposed'."},
+        {"name": "'SOSMatrixSource'", "description": "'Property' or 'Input port' for run-time coefficient updates."}
+      ],
+      "example": "fs = 44100;\n[z, p, k] = ellip(10, 0.5, 80, 5000/(fs/2));\n[sos, g] = zp2sos(z, p, k);\nbiquad = dsp.BiquadFilter('SOSMatrix', sos, ...\n    'ScaleValues', [ones(size(sos,1),1); g]);\nfvtool(biquad, 'Fs', fs)\ny = biquad(randn(4096, 1));",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.biquadfilter-system-object.html"
+    },
+    {
+      "name": "dsp.FIRDecimator",
+      "kind": "script-object",
+      "description": "Filter and downsample a signal by an integer factor in a single efficient polyphase operation, computing only the samples that survive decimation. This is several times faster than filtering at the full rate and then discarding samples. It maintains state, so it works correctly frame by frame.",
+      "usage": "decim = dsp.FIRDecimator(M, num)\ndecim = dsp.FIRDecimator(Name, Value)\ny = decim(x)",
+      "parameters": [
+        {"name": "'DecimationFactor'", "description": "Integer downsampling factor M."},
+        {"name": "'Numerator'", "description": "Anti-aliasing FIR coefficients, designed for the input rate."},
+        {"name": "'Structure'", "description": "'Direct form' (default) or 'Direct form transposed'."}
+      ],
+      "example": "fs = 96000; M = 4;\nb = fir1(96, 1/M);\ndecim = dsp.FIRDecimator('DecimationFactor', M, 'Numerator', b);\nx = randn(4096, 1);\ny = decim(x);\nfprintf('%d in -> %d out (fs %d -> %d)\\n', numel(x), numel(y), fs, fs/M);",
+      "notes": "The input frame length must be a multiple of the decimation factor.",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.firdecimator-system-object.html"
+    },
+    {
+      "name": "dsp.FIRInterpolator",
+      "kind": "script-object",
+      "description": "Upsample and interpolate a signal by an integer factor using an efficient polyphase FIR structure. Only the necessary multiplications are performed, skipping the zero-valued inserted samples. It is the natural complement to dsp.FIRDecimator in multirate chains.",
+      "usage": "interp = dsp.FIRInterpolator(L, num)\ninterp = dsp.FIRInterpolator(Name, Value)\ny = interp(x)",
+      "parameters": [
+        {"name": "'InterpolationFactor'", "description": "Integer upsampling factor L."},
+        {"name": "'Numerator'", "description": "Interpolation FIR coefficients, designed at the output rate."}
+      ],
+      "example": "L = 3;\nb = L * fir1(60, 1/L);       % gain L compensates the upsampling loss\ninterp = dsp.FIRInterpolator('InterpolationFactor', L, 'Numerator', b);\nx = sin(2*pi*(0:511)'/64);\ny = interp(x);\nfprintf('%d -> %d samples\\n', numel(x), numel(y));",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.firinterpolator-system-object.html"
+    },
+    {
+      "name": "dsp.SampleRateConverter",
+      "kind": "script-object",
+      "description": "Convert between arbitrary input and output sample rates using an automatically designed multistage filter chain. You specify the input rate, output rate, bandwidth of interest and stopband attenuation, and it works out the stages. Use it for rational or near-arbitrary rate changes such as 44.1 kHz to 48 kHz.",
+      "usage": "src = dsp.SampleRateConverter(Name, Value)\ny = src(x)\ninfo(src)\ncost(src)",
+      "parameters": [
+        {"name": "'InputSampleRate' / 'OutputSampleRate'", "description": "Rates in Hz."},
+        {"name": "'Bandwidth'", "description": "Bandwidth of interest to preserve, in Hz."},
+        {"name": "'StopbandAttenuation'", "description": "Attenuation in dB outside the band of interest."},
+        {"name": "'OutputRateTolerance'", "description": "Allowed relative deviation from the exact output rate; a small nonzero value can simplify the design greatly."}
+      ],
+      "example": "src = dsp.SampleRateConverter('InputSampleRate', 44100, ...\n    'OutputSampleRate', 48000, 'Bandwidth', 20000, ...\n    'StopbandAttenuation', 80);\ninfo(src)\n[L, M] = getRateChangeFactors(src);\nfprintf('Rate change %d/%d\\n', L, M);\nframeIn = 147 * 10;\ny = src(randn(frameIn, 1));",
+      "notes": "Call info(src) to see the generated multistage filter chain and cost(src) for its computational cost."
+    },
+    {
+      "name": "dsp.FFT",
+      "kind": "script-object",
+      "description": "Compute the discrete Fourier transform of each frame of a streaming signal, with options for bit-reversed output order, fixed-point arithmetic and zero padding to a specified length. It is optimized for repeated fixed-size transforms and supports HDL and C code generation. Use it inside frame-based processing loops rather than calling fft repeatedly.",
+      "usage": "ft = dsp.FFT(Name, Value)\nY = ft(X)",
+      "parameters": [
+        {"name": "'FFTLengthSource'", "description": "'Auto' (default, use the frame length) or 'Property'."},
+        {"name": "'FFTLength'", "description": "Explicit transform length when the source is 'Property'."},
+        {"name": "'FFTImplementation'", "description": "'Auto' (default), 'Radix-2' or 'FFTW'."},
+        {"name": "'Normalize'", "description": "Logical; divide the output by the FFT length."},
+        {"name": "'BitReversedOutput'", "description": "Logical; leave the output in bit-reversed order."}
+      ],
+      "example": "ft = dsp.FFT('FFTLengthSource', 'Property', 'FFTLength', 2048);\nift = dsp.IFFT('FFTLengthSource', 'Property', 'FFTLength', 2048);\nx = randn(1024, 1);\nX = ft(x);\nxr = real(ift(X));\nfprintf('Reconstruction error: %.2e\\n', max(abs(x - xr(1:1024))));",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.fft-system-object.html"
+    },
+    {
+      "name": "dsp.IFFT",
+      "kind": "script-object",
+      "description": "Compute the inverse discrete Fourier transform of each input frame, with matching options to dsp.FFT for length, implementation and bit-reversed input. The conjugate-symmetric option produces a strictly real output, which avoids tiny imaginary residues. Together with dsp.FFT it forms the core of overlap-add and OFDM processing chains.",
+      "usage": "ift = dsp.IFFT(Name, Value)\nx = ift(X)",
+      "parameters": [
+        {"name": "'FFTLengthSource' / 'FFTLength'", "description": "Transform length configuration."},
+        {"name": "'ConjugateSymmetricInput'", "description": "Logical; assume the input is conjugate symmetric so the output is real."},
+        {"name": "'Normalize'", "description": "Logical; apply the 1/N scaling (true by default)."},
+        {"name": "'BitReversedInput'", "description": "Logical; input arrives in bit-reversed order."}
+      ],
+      "example": "N = 512;\nft = dsp.FFT('FFTLengthSource', 'Property', 'FFTLength', N);\nift = dsp.IFFT('ConjugateSymmetricInput', true, ...\n    'FFTLengthSource', 'Property', 'FFTLength', N);\nx = sin(2*pi*(0:N-1)'/32);\nX = ft(x);\nX(abs(X) < 1) = 0;            % spectral gating\nxClean = ift(X);\nplot(1:N, x, 1:N, xClean)",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.ifft-system-object.html"
+    },
+    {
+      "name": "spectrumAnalyzer",
+      "kind": "script-object",
+      "description": "A real-time spectrum scope that displays power spectrum, power spectral density, spectrogram or RBW-based views of streaming data. It includes peak finders, distortion and channel-power measurements, and CCDF analysis. It is the standard visualization tool for streaming DSP and communications simulations.",
+      "usage": "sa = spectrumAnalyzer(Name, Value)\nsa(x)\nsa(x1, x2)\nrelease(sa)",
+      "parameters": [
+        {"name": "'SampleRate'", "description": "Input sample rate in Hz."},
+        {"name": "'ViewType'", "description": "'Spectrum' (default), 'Spectrogram' or 'Spectrum and spectrogram'."},
+        {"name": "'SpectrumType'", "description": "'Power' (default), 'Power density' or 'RMS'."},
+        {"name": "'RBWSource' / 'RBW'", "description": "Resolution bandwidth control."},
+        {"name": "'AveragingMethod' / 'SpectralAverages'", "description": "'Running' or 'Exponential' averaging over N spectra."},
+        {"name": "'PlotAsTwoSidedSpectrum'", "description": "Logical; show negative frequencies."},
+        {"name": "'ChannelNames' / 'YLimits'", "description": "Display configuration."}
+      ],
+      "example": "fs = 44100;\nsa = spectrumAnalyzer('SampleRate', fs, 'SpectrumType', 'Power density', ...\n    'RBWSource', 'Property', 'RBW', 10, 'SpectralAverages', 20, ...\n    'ChannelNames', {'input','filtered'});\nb = fir1(100, 5000/(fs/2));\nfor k = 1:100\n    x = randn(2048, 1);\n    sa(x, filter(b, 1, x));\nend\nrelease(sa);",
+      "notes": "Replaces the older dsp.SpectrumAnalyzer System object, which is still supported.",
+      "docs": "https://www.mathworks.com/help/dsp/ref/spectrumanalyzer.html"
+    },
+    {
+      "name": "timescope",
+      "kind": "script-object",
+      "description": "A time-domain oscilloscope for streaming signals, with triggering, cursors, multiple channels and scrolling or sweeping display modes. It behaves like a bench scope and updates continuously as frames are pushed in. Use it to watch transients, envelopes and control signals during a simulation.",
+      "usage": "scope = timescope(Name, Value)\nscope(x)\nscope(x1, x2)\nrelease(scope)",
+      "parameters": [
+        {"name": "'SampleRate'", "description": "Input sample rate in Hz."},
+        {"name": "'TimeSpan'", "description": "Seconds of data shown on screen."},
+        {"name": "'YLimits'", "description": "Vertical axis limits."},
+        {"name": "'TimeSpanOverrunAction'", "description": "'Scroll' or 'Wrap'."},
+        {"name": "'ChannelNames' / 'ShowLegend'", "description": "Trace labelling."},
+        {"name": "'TriggerType' / 'TriggerSource'", "description": "Triggering configuration."}
+      ],
+      "example": "fs = 10000;\nscope = timescope('SampleRate', fs, 'TimeSpan', 0.1, ...\n    'YLimits', [-2 2], 'ShowLegend', true, ...\n    'ChannelNames', {'input','envelope'});\nfor k = 0:99\n    t = (k*256:(k+1)*256-1)'/fs;\n    x = sin(2*pi*200*t) .* (1 + 0.5*sin(2*pi*5*t));\n    scope(x, abs(hilbert(x)));\nend\nrelease(scope);",
+      "docs": "https://www.mathworks.com/help/dsp/ref/timescope.html"
+    },
+    {
+      "name": "dsp.ArrayPlot",
+      "kind": "script-object",
+      "description": "Display vectors or matrices as a continuously updating line or stem plot, indexed by sample rather than time. It is the natural scope for spectra, filter coefficients, correlation sequences and adaptive filter weights. Custom x-axis offset and spacing let you label the axis in physical units.",
+      "usage": "ap = dsp.ArrayPlot(Name, Value)\nap(x)\nrelease(ap)",
+      "parameters": [
+        {"name": "'XOffset' / 'SampleIncrement'", "description": "Starting value and spacing of the x-axis."},
+        {"name": "'YLimits' / 'XLabel' / 'YLabel'", "description": "Axis configuration."},
+        {"name": "'PlotType'", "description": "'Line' (default), 'Stem' or 'Stairs'."},
+        {"name": "'ChannelNames' / 'ShowLegend'", "description": "Trace labelling."},
+        {"name": "'Title'", "description": "Plot title."}
+      ],
+      "example": "fs = 8000; N = 512;\nap = dsp.ArrayPlot('XOffset', 0, 'SampleIncrement', fs/N, ...\n    'YLimits', [-80 20], 'XLabel', 'Frequency (Hz)', ...\n    'YLabel', 'Magnitude (dB)', 'Title', 'Live spectrum');\nfor k = 1:200\n    x = randn(N, 1) + sin(2*pi*1000*(0:N-1)'/fs);\n    ap(20*log10(abs(fft(x.*hann(N)))));\nend\nrelease(ap);",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.arrayplot-system-object.html"
+    },
+    {
+      "name": "dsp.LMSFilter",
+      "kind": "script-object",
+      "description": "An adaptive FIR filter that minimizes the mean-square error between its output and a desired signal using LMS, normalized LMS, sign-error or sign-data algorithms. It returns the output, the error signal and the evolving coefficient vector. It is the workhorse of system identification, echo cancellation, noise cancellation and channel equalization.",
+      "usage": "lms = dsp.LMSFilter(L)\nlms = dsp.LMSFilter(Name, Value)\n[y, err, wts] = lms(x, d)\nreset(lms)",
+      "parameters": [
+        {"name": "'Length'", "description": "Number of adaptive filter taps."},
+        {"name": "'Method'", "description": "'LMS' (default), 'Normalized LMS', 'Sign-Error LMS', 'Sign-Data LMS', 'Sign-Sign LMS'."},
+        {"name": "'StepSize'", "description": "Adaptation rate; larger converges faster but is less stable."},
+        {"name": "'LeakageFactor'", "description": "Slightly below 1 to prevent coefficient drift."},
+        {"name": "'WeightsOutputPort'", "description": "Logical; return the filter weights."},
+        {"name": "'AdaptInputPort'", "description": "Logical; add an input that freezes adaptation."}
+      ],
+      "example": "rng(0)\nunknown = fir1(31, 0.4)';\nx = randn(8000, 1);\nd = filter(unknown, 1, x) + 0.01*randn(8000, 1);\nlms = dsp.LMSFilter('Length', 32, 'Method', 'Normalized LMS', ...\n    'StepSize', 0.1, 'WeightsOutputPort', true);\n[y, err, w] = lms(x, d);\nplot(unknown, 'o-'); hold on; plot(w, 'x--')\nlegend('true','identified')\nfprintf('Final MSE: %.2e\\n', mean(err(end-999:end).^2));",
+      "notes": "dsp.RLSFilter converges faster at higher computational cost; dsp.FrequencyDomainAdaptiveFilter suits very long filters.",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.lmsfilter-system-object.html"
+    },
+    {
+      "name": "dsp.VariableFractionalDelay",
+      "kind": "script-object",
+      "description": "Delay a signal by a non-integer, possibly time-varying number of samples using linear, FIR or Farrow interpolation. Fractional delay is essential for symbol timing recovery, beamforming, and Doppler and pitch effects. The delay value is supplied as an input on every call, so it can change continuously.",
+      "usage": "vfd = dsp.VariableFractionalDelay(Name, Value)\ny = vfd(x, delay)\nreset(vfd)",
+      "parameters": [
+        {"name": "'InterpolationMethod'", "description": "'Linear' (default), 'FIR' or 'Farrow'."},
+        {"name": "'FilterLength'", "description": "Number of taps for FIR interpolation."},
+        {"name": "'FilterHalfLength'", "description": "Half-length for the Farrow method."},
+        {"name": "'MaximumDelay'", "description": "Largest delay in samples the buffer must support."},
+        {"name": "'FarrowSmallDelayAction'", "description": "How to handle delays smaller than the filter can represent."}
+      ],
+      "example": "vfd = dsp.VariableFractionalDelay('InterpolationMethod', 'Farrow', ...\n    'MaximumDelay', 100, 'FilterHalfLength', 4);\nfs = 8000;\nt = (0:4095)'/fs;\nx = sin(2*pi*300*t);\ndelays = 10 + 5*sin(2*pi*2*t);   % vibrato-style modulated delay\ny = vfd(x, delays);\nplot(t(1:500), x(1:500), t(1:500), y(1:500))",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.variablefractionaldelay-system-object.html"
+    },
+    {
+      "name": "dsp.Delay",
+      "kind": "script-object",
+      "description": "Delay a signal by a fixed integer number of samples while preserving state across frames. This is more reliable than shifting arrays by hand in a streaming loop, where frame boundaries otherwise corrupt the delay. Initial conditions define what comes out before the delayed data arrives.",
+      "usage": "dly = dsp.Delay(Name, Value)\ny = dly(x)\nreset(dly)",
+      "parameters": [
+        {"name": "'Length'", "description": "Delay in samples, scalar or one value per channel."},
+        {"name": "'InitialConditions'", "description": "Values output before the delayed input arrives (default 0)."},
+        {"name": "'InitialConditionsPerChannel'", "description": "Logical; allow different initial conditions per channel."}
+      ],
+      "example": "dly = dsp.Delay('Length', 5, 'InitialConditions', 0);\nout = [];\nfor k = 1:4\n    frame = (1:8)' + (k-1)*8;\n    out = [out; dly(frame)];\nend\ndisp(out')     % 0 0 0 0 0 1 2 3 ... correctly delayed across frames",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.delay-system-object.html"
+    },
+    {
+      "name": "dsp.MovingAverage",
+      "kind": "script-object",
+      "description": "Compute a running average over a sliding window or an exponentially weighted average of a streaming signal. It maintains state between frames, so the result is continuous across frame boundaries. Use it for smoothing, envelope estimation and trend extraction in real-time pipelines.",
+      "usage": "mavg = dsp.MovingAverage(L)\nmavg = dsp.MovingAverage(Name, Value)\ny = mavg(x)",
+      "parameters": [
+        {"name": "'WindowLength'", "description": "Number of samples in the sliding window."},
+        {"name": "'Method'", "description": "'Sliding window' (default) or 'Exponential weighting'."},
+        {"name": "'ForgettingFactor'", "description": "Decay factor for exponential weighting, close to 1."},
+        {"name": "'SpecifyWindowLength'", "description": "Logical; false computes a cumulative average."}
+      ],
+      "example": "mavg = dsp.MovingAverage(50);\nema = dsp.MovingAverage('Method', 'Exponential weighting', ...\n    'ForgettingFactor', 0.98);\nscope = timescope('SampleRate', 1000, 'TimeSpan', 2, 'ShowLegend', true);\nfor k = 1:200\n    x = randn(100, 1) + 2;\n    scope(x, mavg(x), ema(x));\nend\nrelease(scope);",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.movingaverage-system-object.html"
+    },
+    {
+      "name": "fdesign",
+      "kind": "function",
+      "description": "Create a filter specification object describing what a filter must achieve, independent of how it is implemented. You then call design on it to generate one or more filters meeting the specification with different methods. This separation lets you compare Butterworth, elliptic and equiripple solutions to the same requirement side by side.",
+      "usage": "d = fdesign.lowpass(spec, ...)\nd = fdesign.bandpass(spec, ...)\nd = fdesign.highpass(...)\nd = fdesign.decimator(M, ...)\nHd = design(d, method)\ndesignmethods(d)",
+      "parameters": [
+        {"name": "response", "description": "lowpass, highpass, bandpass, bandstop, decimator, interpolator, arbmag, differentiator, hilbert, nyquist, notch, peak."},
+        {"name": "spec", "description": "Specification string such as 'Fp,Fst,Ap,Ast' or 'N,F3dB' defining which quantities you supply."},
+        {"name": "method", "description": "'butter', 'cheby1', 'cheby2', 'ellip', 'equiripple', 'kaiserwin', 'window', or 'FIR'/'IIR' for the default."},
+        {"name": "'SystemObject'", "description": "Logical; return a System object rather than a dfilt object."}
+      ],
+      "example": "fs = 48000;\nd = fdesign.lowpass('Fp,Fst,Ap,Ast', 6000, 8000, 0.5, 80, fs);\ndesignmethods(d)\nHfir = design(d, 'equiripple', 'SystemObject', true);\nHiir = design(d, 'ellip', 'SystemObject', true);\nfvtool(Hfir, Hiir, 'Fs', fs)\nfprintf('FIR order %d\\n', numel(Hfir.Numerator)-1);",
+      "docs": "https://www.mathworks.com/help/dsp/ref/fdesign.html"
+    },
+    {
+      "name": "filterDesigner",
+      "kind": "function",
+      "description": "Open the Filter Designer app for interactive filter design, with live magnitude, phase, group delay, impulse and pole-zero views. It covers FIR and IIR methods, multirate designs and fixed-point quantization analysis. Designs can be exported to the workspace, to a System object, or as generated MATLAB code.",
+      "usage": "filterDesigner\nfilterDesigner(filterObject)",
+      "parameters": [
+        {"name": "filterObject", "description": "An existing filter or System object to load into the app."}
+      ],
+      "example": "filterDesigner\n% Specify a lowpass, Fs = 48000, Fpass = 6000, Fstop = 8000,\n% Apass = 0.5 dB, Astop = 80 dB, method equiripple.\n% Then File > Export or Targets > Generate MATLAB Code",
+      "notes": "Replaces the older fdatool. Requires a display; for scripted design use designfilt or fdesign plus design.",
+      "docs": "https://www.mathworks.com/help/dsp/ref/filterdesigner-app.html"
+    },
+    {
+      "name": "dsp.AudioFileReader",
+      "kind": "script-object",
+      "description": "Read an audio file frame by frame, which lets you process files far larger than memory and keeps streaming code identical to a live-input version. It reports end-of-file through an optional output and can loop the file indefinitely. Supports WAV, FLAC, OGG, MP3, MP4 and M4A.",
+      "usage": "reader = dsp.AudioFileReader(filename)\nreader = dsp.AudioFileReader(Name, Value)\naudio = reader()\n[audio, eof] = reader()\nrelease(reader)",
+      "parameters": [
+        {"name": "'Filename'", "description": "Path to the audio file."},
+        {"name": "'SamplesPerFrame'", "description": "Frame size in samples (default 1024)."},
+        {"name": "'PlayCount'", "description": "How many times to loop the file; Inf loops forever."},
+        {"name": "'OutputDataType'", "description": "'double' (default), 'single', 'int16', 'uint8'."},
+        {"name": "'ReadRange'", "description": "[start stop] sample range to read."}
+      ],
+      "example": "reader = dsp.AudioFileReader('guitartune.wav', 'SamplesPerFrame', 1024);\nwriter = audioDeviceWriter('SampleRate', reader.SampleRate);\nwhile ~isDone(reader)\n    frame = reader();\n    writer(frame);\nend\nrelease(reader); release(writer);",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.audiofilereader-system-object.html"
+    },
+    {
+      "name": "dsp.AudioFileWriter",
+      "kind": "script-object",
+      "description": "Write audio data to a file frame by frame in WAV, FLAC, OGG or MPEG-4 AAC format. Streaming writes avoid holding the whole signal in memory and let you record indefinitely. Always release the object so the file header is finalized correctly.",
+      "usage": "writer = dsp.AudioFileWriter(filename, Name, Value)\nwriter(audio)\nrelease(writer)",
+      "parameters": [
+        {"name": "'Filename'", "description": "Output file path."},
+        {"name": "'SampleRate'", "description": "Sample rate in Hz (default 44100)."},
+        {"name": "'FileFormat'", "description": "'WAV' (default), 'FLAC', 'OGG', 'MPEG4'."},
+        {"name": "'DataType'", "description": "'int16' (default), 'int24', 'single', 'uint8'."},
+        {"name": "'Compression'", "description": "Format-specific compression settings."}
+      ],
+      "example": "reader = dsp.AudioFileReader('guitartune.wav');\nwriter = dsp.AudioFileWriter('filtered.wav', ...\n    'SampleRate', reader.SampleRate, 'DataType', 'int16');\nb = fir1(200, 2000/(reader.SampleRate/2), 'high');\nfirFilt = dsp.FIRFilter('Numerator', b);\nwhile ~isDone(reader)\n    writer(firFilt(reader()));\nend\nrelease(reader); release(writer); release(firFilt);",
+      "notes": "Failing to call release can leave the output file truncated or with an invalid header.",
+      "docs": "https://www.mathworks.com/help/dsp/ref/dsp.audiofilewriter-system-object.html"
+    },
+    {
+      "name": "audioDeviceReader",
+      "kind": "script-object",
+      "description": "Acquire audio from a sound card or microphone in real time, frame by frame. It reports the number of dropped samples so you can detect whether your processing is keeping up with the input. Channel mapping, driver selection and bit depth are configurable.",
+      "usage": "deviceReader = audioDeviceReader\ndeviceReader = audioDeviceReader(Name, Value)\naudio = deviceReader()\n[audio, numOverrun] = deviceReader()\nrelease(deviceReader)\ngetAudioDevices(deviceReader)",
+      "parameters": [
+        {"name": "'SampleRate'", "description": "Acquisition rate in Hz (default 44100)."},
+        {"name": "'SamplesPerFrame'", "description": "Frame size; smaller means lower latency but higher overrun risk."},
+        {"name": "'Device'", "description": "Device name from getAudioDevices."},
+        {"name": "'NumChannels'", "description": "Number of input channels."},
+        {"name": "'Driver'", "description": "'DirectSound' (default on Windows), 'ASIO', 'WASAPI'."},
+        {"name": "'BitDepth'", "description": "'16-bit integer' (default), '24-bit integer', '32-bit float'."}
+      ],
+      "example": "reader = audioDeviceReader('SampleRate', 44100, 'SamplesPerFrame', 512);\nsa = spectrumAnalyzer('SampleRate', 44100);\ntic\nwhile toc < 10\n    [x, overrun] = reader();\n    if overrun > 0, fprintf('Dropped %d samples\\n', overrun); end\n    sa(x);\nend\nrelease(reader); release(sa);",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiodevicereader-system-object.html"
+    },
+    {
+      "name": "audioDeviceWriter",
+      "kind": "script-object",
+      "description": "Play audio to a sound card in real time, frame by frame, reporting the number of underrun samples. Pairing it with audioDeviceReader gives a full live input-to-output processing chain. The ASIO driver gives the lowest latency on Windows when available.",
+      "usage": "deviceWriter = audioDeviceWriter\ndeviceWriter = audioDeviceWriter(Name, Value)\ndeviceWriter(audio)\nnumUnderrun = deviceWriter(audio)\nrelease(deviceWriter)",
+      "parameters": [
+        {"name": "'SampleRate'", "description": "Playback rate in Hz."},
+        {"name": "'Device'", "description": "Output device name."},
+        {"name": "'Driver'", "description": "'DirectSound', 'ASIO', 'WASAPI'."},
+        {"name": "'ChannelMappingSource' / 'ChannelMapping'", "description": "Map signal channels to device channels."},
+        {"name": "'SupportVariableSizeInput' / 'BufferSize'", "description": "Allow varying frame sizes."}
+      ],
+      "example": "fs = 48000;\nreader = audioDeviceReader('SampleRate', fs, 'SamplesPerFrame', 256);\nwriter = audioDeviceWriter('SampleRate', fs);\nb = fir1(128, [300 3400]/(fs/2));\nfilt = dsp.FIRFilter('Numerator', b);\ntic\nwhile toc < 15\n    underrun = writer(filt(reader()));\nend\nrelease(reader); release(writer); release(filt);",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiodevicewriter-system-object.html"
+    },
+    {
+      "name": "audioPlayerRecorder",
+      "kind": "script-object",
+      "description": "Simultaneously play and record audio through a single full-duplex device, which guarantees that input and output are sample-aligned. This is essential for latency measurement, acoustic impulse-response capture and real-time effects. It reports both overruns and underruns.",
+      "usage": "aPR = audioPlayerRecorder\naPR = audioPlayerRecorder(Name, Value)\naudioFromDevice = aPR(audioToDevice)\n[audioFromDevice, nUnderrun, nOverrun] = aPR(audioToDevice)\nrelease(aPR)",
+      "parameters": [
+        {"name": "'SampleRate'", "description": "Rate in Hz for both directions."},
+        {"name": "'Device'", "description": "Full-duplex device name; must support simultaneous I/O."},
+        {"name": "'PlayerChannelMapping' / 'RecorderChannelMapping'", "description": "Channel routing."},
+        {"name": "'BitDepth'", "description": "Sample format."}
+      ],
+      "example": "fs = 48000;\naPR = audioPlayerRecorder('SampleRate', fs);\nsweep = chirp((0:fs-1)'/fs, 20, 1, 20000);\nrec = zeros(fs, 1);\nN = fs/1024;\nfor k = 1:N\n    idx = (k-1)*1024 + (1:1024);\n    [rec(idx), nU, nO] = aPR(sweep(idx));\nend\nrelease(aPR);\nir = ifft(fft(rec) ./ fft(sweep));",
+      "notes": "Requires a device that supports full duplex; ASIO drivers are usually needed on Windows.",
+      "docs": "https://www.mathworks.com/help/audio/ref/audioplayerrecorder-system-object.html"
+    },
+    {
+      "name": "audioDatastore",
+      "kind": "script-object",
+      "description": "Create a datastore over a collection of audio files, with labels taken from folder names and lazy, memory-efficient reading. It supports shuffling, subsetting, stratified splitting and parallel reading, which makes it the standard data source for audio machine learning. Combine it with audioFeatureExtractor in a transform for a full training pipeline.",
+      "usage": "ads = audioDatastore(location)\nads = audioDatastore(location, Name, Value)\n[data, info] = read(ads)\n[adsTrain, adsTest] = splitEachLabel(ads, p)\ntbl = countEachLabel(ads)",
+      "parameters": [
+        {"name": "location", "description": "Folder, file list or datastore URL."},
+        {"name": "'IncludeSubfolders'", "description": "Logical; recurse into subfolders."},
+        {"name": "'LabelSource'", "description": "'none' (default) or 'foldernames'."},
+        {"name": "'FileExtensions'", "description": "Which audio extensions to include."},
+        {"name": "'OutputDataType'", "description": "'double' (default) or 'single'."}
+      ],
+      "example": "ads = audioDatastore('speech_commands', 'IncludeSubfolders', true, ...\n    'LabelSource', 'foldernames');\ndisp(countEachLabel(ads))\n[adsTrain, adsVal] = splitEachLabel(ads, 0.8, 'randomized');\n[x, info] = read(adsTrain);\nfprintf('%s: %d samples at %d Hz\\n', string(info.Label), numel(x), info.SampleRate);",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiodatastore.html"
+    },
+    {
+      "name": "audioFeatureExtractor",
+      "kind": "script-object",
+      "description": "Extract many audio features in one efficient pass by sharing intermediate computations such as the spectrum and mel spectrogram. Turn features on with logical name/value pairs and query the output column layout with info. It is the standard feature front end for audio classification and analysis.",
+      "usage": "aFE = audioFeatureExtractor(Name, Value)\nfeatures = extract(aFE, audioIn)\nidx = info(aFE)\nsetExtractorParameters(aFE, featureName, Name, Value)",
+      "parameters": [
+        {"name": "'SampleRate'", "description": "Input sample rate in Hz."},
+        {"name": "'Window' / 'OverlapLength'", "description": "Analysis window and hop configuration."},
+        {"name": "'mfcc' / 'mfccDelta' / 'mfccDeltaDelta'", "description": "Enable cepstral features and their derivatives."},
+        {"name": "'spectralCentroid' / 'spectralRolloffPoint' / 'spectralFlux' / 'spectralEntropy'", "description": "Spectral shape descriptors."},
+        {"name": "'pitch' / 'harmonicRatio' / 'zerocrossrate' / 'shortTimeEnergy'", "description": "Other common descriptors."},
+        {"name": "'melSpectrum' / 'barkSpectrum' / 'linearSpectrum'", "description": "Spectral representations."}
+      ],
+      "example": "[audioIn, fs] = audioread('Counting-16-44p1-mono-15secs.wav');\naFE = audioFeatureExtractor('SampleRate', fs, ...\n    'Window', hann(round(0.03*fs), 'periodic'), ...\n    'OverlapLength', round(0.02*fs), ...\n    'mfcc', true, 'mfccDelta', true, ...\n    'spectralCentroid', true, 'pitch', true);\nfeatures = extract(aFE, audioIn);\nidx = info(aFE);\nfprintf('%d frames x %d features\\n', size(features));\ndisp(idx)",
+      "docs": "https://www.mathworks.com/help/audio/ref/audiofeatureextractor.html"
+    },
+    {
+      "name": "mfcc",
+      "kind": "function",
+      "description": "Compute mel-frequency cepstral coefficients, the classic compact representation of the spectral envelope of speech and audio. It also returns the delta and delta-delta coefficients that capture temporal dynamics. MFCCs remain a strong baseline feature for speech and speaker recognition.",
+      "usage": "coeffs = mfcc(audioIn, fs)\n[coeffs, delta, deltaDelta, loc] = mfcc(audioIn, fs)\n[___] = mfcc(___, Name, Value)",
+      "parameters": [
+        {"name": "'Window'", "description": "Analysis window, default hamming(round(0.03*fs), 'periodic')."},
+        {"name": "'OverlapLength'", "description": "Overlap in samples between frames."},
+        {"name": "'NumCoeffs'", "description": "Number of coefficients to return (default 13)."},
+        {"name": "'LogEnergy'", "description": "'append' (default), 'replace' or 'ignore'."},
+        {"name": "'DeltaWindowLength'", "description": "Frames used to compute the deltas (default 9)."}
+      ],
+      "example": "[x, fs] = audioread('Counting-16-44p1-mono-15secs.wav');\n[coeffs, delta, deltaDelta, loc] = mfcc(x, fs, ...\n    'NumCoeffs', 13, 'LogEnergy', 'replace');\nfeatures = [coeffs delta deltaDelta];\nimagesc(loc, 1:size(coeffs,2), coeffs'); axis xy\nxlabel('Time (s)'); ylabel('Coefficient')",
+      "docs": "https://www.mathworks.com/help/audio/ref/mfcc.html"
+    },
+    {
+      "name": "melSpectrogram",
+      "kind": "function",
+      "description": "Compute a mel-scale spectrogram, in which the frequency axis is warped to match human pitch perception. It is the standard input representation for deep learning audio models, usually converted to dB. Called with no output arguments it plots the spectrogram directly.",
+      "usage": "S = melSpectrogram(audioIn, fs)\n[S, F, T] = melSpectrogram(audioIn, fs, Name, Value)\nmelSpectrogram(audioIn, fs)",
+      "parameters": [
+        {"name": "'Window'", "description": "Analysis window (default hann(round(0.03*fs), 'periodic'))."},
+        {"name": "'OverlapLength'", "description": "Frame overlap in samples."},
+        {"name": "'NumBands'", "description": "Number of mel bands (default 32)."},
+        {"name": "'FrequencyRange'", "description": "[low high] band edges in Hz."},
+        {"name": "'FFTLength'", "description": "DFT length."},
+        {"name": "'SpectrumType'", "description": "'power' (default) or 'magnitude'."}
+      ],
+      "example": "[x, fs] = audioread('Counting-16-44p1-mono-15secs.wav');\n[S, F, T] = melSpectrogram(x, fs, 'NumBands', 64, ...\n    'FrequencyRange', [50 8000], 'OverlapLength', round(0.02*fs));\nimagesc(T, F, 10*log10(S + eps)); axis xy\nxlabel('Time (s)'); ylabel('Frequency (Hz)'); colorbar",
+      "docs": "https://www.mathworks.com/help/audio/ref/melspectrogram.html"
+    },
+    {
+      "name": "pitch",
+      "kind": "function",
+      "description": "Estimate the fundamental frequency of an audio signal over time using normalized correlation, PEF, CEP, LHS or SRH methods. The search range and window parameters should be matched to the expected voice or instrument register. Return the per-frame locations to align the estimate with other features.",
+      "usage": "f0 = pitch(audioIn, fs)\n[f0, loc] = pitch(audioIn, fs, Name, Value)",
+      "parameters": [
+        {"name": "'Method'", "description": "'NCF' (default), 'PEF', 'CEP', 'LHS', 'SRH'."},
+        {"name": "'Range'", "description": "[min max] search range in Hz, default [50 400]."},
+        {"name": "'WindowLength' / 'OverlapLength'", "description": "Analysis frame configuration."},
+        {"name": "'MedianFilterLength'", "description": "Smooth the pitch contour over this many frames."}
+      ],
+      "example": "[x, fs] = audioread('Counting-16-44p1-mono-15secs.wav');\n[f0, loc] = pitch(x, fs, 'Method', 'SRH', 'Range', [60 300], ...\n    'MedianFilterLength', 5);\nplot(loc/fs, f0)\nxlabel('Time (s)'); ylabel('F0 (Hz)')",
+      "notes": "Combine with voiceActivityDetector or harmonicRatio to discard pitch estimates from unvoiced frames.",
+      "docs": "https://www.mathworks.com/help/audio/ref/pitch.html"
+    },
+    {
+      "name": "voiceActivityDetector",
+      "kind": "script-object",
+      "description": "Detect the presence of speech in an audio stream using a statistical model with adaptive noise estimation. It returns a probability of speech per frame, which you threshold to segment the signal. Use it to trim silence, gate a recognizer, or restrict feature extraction to voiced regions.",
+      "usage": "VAD = voiceActivityDetector\nVAD = voiceActivityDetector(Name, Value)\nprobability = VAD(audioIn)\n[probability, noiseEstimate] = VAD(audioIn)",
+      "parameters": [
+        {"name": "'InputDomain'", "description": "'Time' (default) or 'Frequency'."},
+        {"name": "'Window' / 'FFTLength'", "description": "Analysis configuration for time-domain input."},
+        {"name": "'SilenceToSpeechProbability' / 'SpeechToSilenceProbability'", "description": "Hidden Markov transition probabilities controlling how sticky the decision is."},
+        {"name": "'NoiseEstimateOutputPort'", "description": "Logical; also return the noise power spectrum estimate."}
+      ],
+      "example": "[x, fs] = audioread('Counting-16-44p1-mono-15secs.wav');\nVAD = voiceActivityDetector('SilenceToSpeechProbability', 0.1);\nframeLen = 256;\nnFrames = floor(numel(x)/frameLen);\np = zeros(nFrames, 1);\nfor k = 1:nFrames\n    p(k) = VAD(x((k-1)*frameLen + (1:frameLen)));\nend\nplot((0:nFrames-1)*frameLen/fs, p)\nylabel('P(speech)'); xlabel('Time (s)')",
+      "docs": "https://www.mathworks.com/help/audio/ref/voiceactivitydetector-system-object.html"
+    }
+  ]
+}

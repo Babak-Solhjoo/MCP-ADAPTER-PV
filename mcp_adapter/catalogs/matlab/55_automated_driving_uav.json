@@ -1,0 +1,449 @@
+{
+  "category": "Automated Driving Toolbox & UAV Toolbox > Scenarios, Sensor Simulation, Perception, Planning & Flight Guidance",
+  "description": "Automated Driving Toolbox functions for building driving scenarios, simulating camera/radar/lidar sensors, bird's-eye visualization, monocular camera perception, lane detection and vehicle path planning; UAV Toolbox functions for UAV scenarios, guidance models, waypoint/orbit following, trajectory generation, flight-log import and geodetic frame conversions.",
+  "tools": [
+    {
+      "name": "drivingScenario",
+      "kind": "function",
+      "description": "Creates a cuboid driving scenario containing roads, lanes, vehicles, pedestrians and barriers with trajectories. Scenarios generate ground-truth actor poses for sensor models and are the basis for testing ADAS and automated driving algorithms.",
+      "usage": "scenario = drivingScenario\nscenario = drivingScenario(Name=Value)",
+      "parameters": [
+        {"name": "SampleTime", "description": "Simulation step (default 0.01 s)."},
+        {"name": "StopTime", "description": "Stop time (default Inf)."},
+        {"name": "GeoReference", "description": "[lat lon alt] origin when importing geographic road data."}
+      ],
+      "example": "scenario = drivingScenario(SampleTime=0.05, StopTime=10);\nroad(scenario, [0 0; 100 0], Lanes=lanespec(2));\nego = vehicle(scenario, ClassID=1);\ntrajectory(ego, [5 -1.8 0; 95 -1.8 0], 20);\nplot(scenario)\nwhile advance(scenario), pause(0.01); end",
+      "notes": "Export to OpenDRIVE/OpenSCENARIO with export(scenario, ...). Use targetPoses(ego) to feed sensors in ego coordinates. drivingScenarioDesigner edits scenarios interactively and generates MATLAB code.",
+      "docs": "https://www.mathworks.com/help/driving/ref/drivingscenario.html"
+    },
+    {
+      "name": "road",
+      "kind": "function",
+      "description": "Adds a road to a driving scenario from road center points, with a width or a lane specification (number of lanes, widths, markings) and optional banking angles.",
+      "usage": "road(scenario, roadCenters)\nroad(scenario, roadCenters, roadWidth)\nroad(scenario, roadCenters, Lanes=lspec)\nrd = road(___, Name=Value)",
+      "parameters": [
+        {"name": "roadCenters", "description": "N-by-2 or N-by-3 road center points (m); curves are interpolated with clothoids."},
+        {"name": "roadWidth", "description": "Road width (default 6 m)."},
+        {"name": "Lanes", "description": "lanespec object describing lanes and markings."},
+        {"name": "Name / BankAngle", "description": "Road name and banking angles at centers."}
+      ],
+      "example": "scenario = drivingScenario;\nrc = [0 0; 50 0; 100 20; 150 60];\nroad(scenario, rc, Lanes=lanespec([1 2], Width=3.5));\nplot(scenario, RoadCenters=\"on\")",
+      "notes": "Use roadNetwork to import OpenDRIVE or HERE HD Live Map / OpenStreetMap roads; roadBoundaries returns road edges.",
+      "docs": "https://www.mathworks.com/help/driving/ref/drivingscenario.road.html"
+    },
+    {
+      "name": "lanespec",
+      "kind": "function",
+      "description": "Creates a lane specification for a road: number of lanes per direction, lane widths and lane markings (solid, dashed, double lines, Botts dots). Passed to road via the Lanes argument.",
+      "usage": "lspec = lanespec(numLanes)\nlspec = lanespec(numLanes, Name=Value)",
+      "parameters": [
+        {"name": "numLanes", "description": "Scalar total lanes or [numLeft numRight] for two-way roads."},
+        {"name": "Width", "description": "Lane width(s) in meters (default 3.6)."},
+        {"name": "Marking", "description": "Array of lane marking objects from laneMarking."}
+      ],
+      "example": "marks = [laneMarking(\"Solid\") laneMarking(\"Dashed\") laneMarking(\"DoubleSolid\", Color=\"yellow\") ...\n         laneMarking(\"Dashed\") laneMarking(\"Solid\")];\nls = lanespec([2 2], Width=3.5, Marking=marks);",
+      "notes": "The number of markings must equal the number of lanes + 1.",
+      "docs": "https://www.mathworks.com/help/driving/ref/lanespec.html"
+    },
+    {
+      "name": "vehicle",
+      "kind": "function",
+      "description": "Adds a vehicle actor to a driving scenario with dimensions, class ID and initial pose. Vehicles are then given trajectories and can carry sensors when used as the ego vehicle.",
+      "usage": "v = vehicle(scenario)\nv = vehicle(scenario, Name=Value)",
+      "parameters": [
+        {"name": "ClassID", "description": "Numeric class (1 = car, 2 = truck, 3 = bicycle, 4 = pedestrian by convention)."},
+        {"name": "Position / Yaw / Velocity", "description": "Initial state (m, deg, m/s)."},
+        {"name": "Length / Width / Height / FrontOverhang / RearOverhang", "description": "Vehicle dimensions (defaults ~4.7 x 1.8 x 1.4 m)."}
+      ],
+      "example": "scenario = drivingScenario;\nroad(scenario, [0 0; 100 0]);\nego = vehicle(scenario, ClassID=1, Position=[5 0 0]);\nlead = vehicle(scenario, ClassID=1, Position=[30 0 0]);\ntrajectory(lead, [30 0 0; 90 0 0], 15);",
+      "notes": "Use actor for pedestrians, cyclists or static objects; chasePlot(ego) shows a follow camera view.",
+      "docs": "https://www.mathworks.com/help/driving/ref/drivingscenario.vehicle.html"
+    },
+    {
+      "name": "smoothTrajectory",
+      "kind": "function",
+      "description": "Assigns a jerk-limited, smooth trajectory to an actor through waypoints with specified speeds, producing realistic acceleration profiles. trajectory is the simpler piecewise-linear-speed variant.",
+      "usage": "smoothTrajectory(ac, waypoints, speed)\nsmoothTrajectory(ac, waypoints, speed, waittime)\nsmoothTrajectory(___, Name=Value)",
+      "parameters": [
+        {"name": "waypoints", "description": "N-by-2 or N-by-3 positions (m)."},
+        {"name": "speed", "description": "Scalar or per-waypoint speeds (m/s)."},
+        {"name": "Jerk / Yaw", "description": "Maximum longitudinal jerk (m/s^3) and yaw at waypoints."}
+      ],
+      "example": "wp = [0 0; 40 0; 70 5; 100 10];\nsmoothTrajectory(ego, wp, [15 15 12 12], Jerk=0.6);\nrecord(scenario);",
+      "notes": "Introduced R2021a. Waypoints that require unrealistic accelerations cause an error; adjust speeds or jerk.",
+      "docs": "https://www.mathworks.com/help/driving/ref/drivingscenario.smoothtrajectory.html"
+    },
+    {
+      "name": "drivingScenarioDesigner",
+      "kind": "tool",
+      "description": "Opens the Driving Scenario Designer app for interactively drawing roads and lanes, placing actors, defining trajectories, mounting camera/radar/lidar sensors and generating synthetic detections, then exporting MATLAB code or Simulink models.",
+      "usage": "drivingScenarioDesigner\ndrivingScenarioDesigner(scenario)\ndrivingScenarioDesigner(scenarioFileName)",
+      "parameters": [
+        {"name": "scenario", "description": "Existing drivingScenario object to open."},
+        {"name": "scenarioFileName", "description": "Saved .mat session file."}
+      ],
+      "example": "drivingScenarioDesigner('EgoVehicleGoesStraight.mat')",
+      "notes": "Includes prebuilt Euro NCAP and other test scenarios. Export > MATLAB Function creates a function that rebuilds the scenario and sensors.",
+      "docs": "https://www.mathworks.com/help/driving/ref/drivingscenariodesigner-app.html"
+    },
+    {
+      "name": "birdsEyePlot",
+      "kind": "function",
+      "description": "Creates a bird's-eye plot in vehicle coordinates for visualizing sensor coverage areas, detections, tracks, lane boundaries and actor outlines around the ego vehicle.",
+      "usage": "bep = birdsEyePlot\nbep = birdsEyePlot(Name=Value)",
+      "parameters": [
+        {"name": "XLim / YLim", "description": "Plot limits in meters (x forward, y left)."},
+        {"name": "Parent", "description": "Parent axes."},
+        {"name": "Plotters", "description": "coverageAreaPlotter, detectionPlotter, trackPlotter, laneBoundaryPlotter, laneMarkingPlotter, outlinePlotter, pathPlotter."}
+      ],
+      "example": "bep = birdsEyePlot(XLim=[0 60], YLim=[-20 20]);\ncap = coverageAreaPlotter(bep, DisplayName=\"Radar\", FaceColor=\"red\");\nplotCoverageArea(cap, [3.7 0], 100, 0, 20);\ndetP = detectionPlotter(bep, DisplayName=\"Detections\");\nplotDetection(detP, [20 1; 35 -2]);",
+      "notes": "Update plotters every time step; clearData clears plotter content.",
+      "docs": "https://www.mathworks.com/help/driving/ref/birdseyeplot.html"
+    },
+    {
+      "name": "visionDetectionGenerator",
+      "kind": "function",
+      "description": "System object that generates statistical camera (vision) detections of vehicles, pedestrians and lane boundaries from scenario ground truth, modeling camera intrinsics, range limits, occlusion, detection probability and false positives.",
+      "usage": "sensor = visionDetectionGenerator(Name=Value)\n[dets, numValidDets, isValidTime] = sensor(actorPoses, simTime)\n[dets, ~, ~, lanes] = sensor(actorPoses, laneBoundaries, simTime)",
+      "parameters": [
+        {"name": "SensorIndex / SensorLocation / Height / Yaw / Pitch", "description": "Sensor identity and mounting on the ego vehicle."},
+        {"name": "Intrinsics", "description": "cameraIntrinsics object."},
+        {"name": "MaxRange / DetectionProbability / FalsePositivesPerImage", "description": "Detection performance."},
+        {"name": "DetectorOutput", "description": "\"Objects only\", \"Lanes only\", \"Lanes and objects\", \"Lanes with occlusion\"."}
+      ],
+      "example": "cam = visionDetectionGenerator(SensorIndex=1, SensorLocation=[1.9 0], ...\n    MaxRange=100, Intrinsics=cameraIntrinsics([800 800], [320 240], [480 640]));\ndets = cam(targetPoses(ego), scenario.SimulationTime);",
+      "notes": "Detections are objectDetection objects usable directly with multi-object trackers.",
+      "docs": "https://www.mathworks.com/help/driving/ref/visiondetectiongenerator-system-object.html"
+    },
+    {
+      "name": "drivingRadarDataGenerator",
+      "kind": "function",
+      "description": "System object generating automotive radar detections, clustered detections or tracks from scenario actors, modeling field of view, resolution, accuracy, detection probability, false alarms and optional elevation/range-rate.",
+      "usage": "radar = drivingRadarDataGenerator(Name=Value)\n[dets, numDets, isValidTime] = radar(actorPoses, simTime)",
+      "parameters": [
+        {"name": "SensorIndex / MountingLocation / MountingAngles", "description": "Sensor pose on the ego vehicle."},
+        {"name": "FieldOfView / RangeLimits", "description": "[az el] FOV (deg) and [min max] range (m)."},
+        {"name": "TargetReportFormat", "description": "\"Clustered detections\" (default), \"Detections\" or \"Tracks\"."},
+        {"name": "HasRangeRate / HasElevation / HasFalseAlarms", "description": "Measurement options."}
+      ],
+      "example": "radar = drivingRadarDataGenerator(SensorIndex=2, MountingLocation=[3.7 0 0.2], ...\n    RangeLimits=[0 150], FieldOfView=[20 5], TargetReportFormat=\"Detections\");\ndets = radar(targetPoses(ego), scenario.SimulationTime);",
+      "notes": "Introduced R2021a replacing radarDetectionGenerator. Add radar(s) to the scenario with addSensors for automatic target pose handling.",
+      "docs": "https://www.mathworks.com/help/driving/ref/drivingradardatagenerator-system-object.html"
+    },
+    {
+      "name": "lidarPointCloudGenerator",
+      "kind": "function",
+      "description": "System object generating synthetic lidar point clouds from actor meshes and roads in a driving scenario, with configurable range, resolution, noise and mounting pose.",
+      "usage": "lidar = lidarPointCloudGenerator(Name=Value)\n[ptCloud, isValidTime, clusters] = lidar(targets, rdMesh, simTime)",
+      "parameters": [
+        {"name": "SensorIndex / SensorLocation / Height", "description": "Mounting pose."},
+        {"name": "MaxRange / RangeAccuracy / HasNoise", "description": "Range characteristics."},
+        {"name": "AzimuthResolution / ElevationLimits / ElevationResolution", "description": "Scan pattern."},
+        {"name": "HasOrganizedOutput", "description": "Return organized (M-by-N-by-3) point clouds."}
+      ],
+      "example": "lidar = lidarPointCloudGenerator(SensorIndex=1, SensorLocation=[1.5 0], Height=1.8, ...\n    ActorProfiles=actorProfiles(scenario));\nadvance(scenario);\nptCloud = lidar(targetPoses(ego), roadMesh(ego), scenario.SimulationTime);\npcshow(ptCloud)",
+      "notes": "Point clouds are pointCloud objects in ego coordinates; process them with Point Cloud Toolbox functions (pcsegdist, segmentGroundFromLidarData).",
+      "docs": "https://www.mathworks.com/help/driving/ref/lidarpointcloudgenerator-system-object.html"
+    },
+    {
+      "name": "monoCamera",
+      "kind": "function",
+      "description": "Configures a monocular camera sensor with intrinsics, mounting height and pitch/yaw/roll relative to the vehicle, and converts between image and vehicle coordinates on the road plane.",
+      "usage": "sensor = monoCamera(intrinsics, height)\nsensor = monoCamera(intrinsics, height, Name=Value)\nvehiclePoints = imageToVehicle(sensor, imagePoints)\nimagePoints = vehicleToImage(sensor, vehiclePoints)",
+      "parameters": [
+        {"name": "intrinsics", "description": "cameraIntrinsics object."},
+        {"name": "height", "description": "Camera height above the ground (m)."},
+        {"name": "Pitch / Yaw / Roll / SensorLocation", "description": "Mounting angles (deg) and [x y] location."}
+      ],
+      "example": "intr = cameraIntrinsics([309.4 344.2], [318.9 257.1], [480 640]);\ncam = monoCamera(intr, 2.18, Pitch=14);\nxyVehicle = imageToVehicle(cam, [320 400])     % meters ahead/left",
+      "notes": "Assumes a flat road. Use with birdsEyeView for top-down lane detection.",
+      "docs": "https://www.mathworks.com/help/driving/ref/monocamera.html"
+    },
+    {
+      "name": "birdsEyeView",
+      "kind": "function",
+      "description": "Creates an object that warps camera images into a bird's-eye (top-down) view of a specified area in front of the vehicle using monoCamera geometry, simplifying lane marker detection and distance measurement.",
+      "usage": "birdsEyeConfig = birdsEyeView(sensor, outView, imageSize)\nBEV = transformImage(birdsEyeConfig, I)",
+      "parameters": [
+        {"name": "sensor", "description": "monoCamera object."},
+        {"name": "outView", "description": "[xmin xmax ymin ymax] area in vehicle coordinates (m)."},
+        {"name": "imageSize", "description": "Output image size [rows cols] (NaN allowed for one dimension)."}
+      ],
+      "example": "bevCfg = birdsEyeView(cam, [3 30 -6 6], [NaN 250]);\nBEV = transformImage(bevCfg, frame);\nimshow(BEV)",
+      "notes": "imageToVehicle(bevCfg, pts) converts bird's-eye pixels back to vehicle coordinates.",
+      "docs": "https://www.mathworks.com/help/driving/ref/birdseyeview.html"
+    },
+    {
+      "name": "segmentLaneMarkerRidge",
+      "kind": "function",
+      "description": "Detects candidate lane-marker pixels in a grayscale bird's-eye-view image using a ridge detector tuned to an approximate marker width.",
+      "usage": "birdsEyeBW = segmentLaneMarkerRidge(birdsEyeImage, birdsEyeConfig, approxMarkerWidth)\nbirdsEyeBW = segmentLaneMarkerRidge(___, Name=Value)",
+      "parameters": [
+        {"name": "approxMarkerWidth", "description": "Expected marker width in meters (e.g. 0.25)."},
+        {"name": "ROI / Sensitivity", "description": "Region of interest in vehicle coordinates and detection sensitivity (default 0.25)."}
+      ],
+      "example": "BEVgray = im2gray(transformImage(bevCfg, frame));\nbw = segmentLaneMarkerRidge(BEVgray, bevCfg, 0.25, Sensitivity=0.4);",
+      "notes": "Follow with findParabolicLaneBoundaries on the extracted points.",
+      "docs": "https://www.mathworks.com/help/driving/ref/segmentlanemarkerridge.html"
+    },
+    {
+      "name": "findParabolicLaneBoundaries",
+      "kind": "function",
+      "description": "Fits parabolic lane boundary models to candidate lane marker points in vehicle coordinates using RANSAC, returning parabolicLaneBoundary objects with strength and x-extent.",
+      "usage": "boundaries = findParabolicLaneBoundaries(xyBoundaryPoints, approxBoundaryWidth)\n[boundaries, boundaryPoints] = findParabolicLaneBoundaries(___, Name=Value)",
+      "parameters": [
+        {"name": "xyBoundaryPoints", "description": "N-by-2 candidate points (m) in vehicle coordinates."},
+        {"name": "approxBoundaryWidth", "description": "Approximate marker width (m)."},
+        {"name": "MaxNumBoundaries / ValidateBoundaryFcn / MaxSamplingAttempts", "description": "Search controls."}
+      ],
+      "example": "[r, c] = find(bw);\nxy = imageToVehicle(bevCfg, [c r]);\nlanes = findParabolicLaneBoundaries(xy, 0.25, MaxNumBoundaries=2);\nbep = birdsEyePlot; lbp = laneBoundaryPlotter(bep);\nplotLaneBoundary(lbp, lanes)",
+      "notes": "findCubicLaneBoundaries fits cubic models; computeBoundaryModel evaluates y at x.",
+      "docs": "https://www.mathworks.com/help/driving/ref/findparaboliclaneboundaries.html"
+    },
+    {
+      "name": "vehicleCostmap",
+      "kind": "function",
+      "description": "Creates a 2-D occupancy costmap of the planning space around a vehicle with an inflation-based collision checker that accounts for vehicle dimensions. Used by pathPlannerRRT for parking and low-speed planning.",
+      "usage": "costmap = vehicleCostmap(C)\ncostmap = vehicleCostmap(occMap)\ncostmap = vehicleCostmap(mapWidth, mapLength)\ncostmap = vehicleCostmap(___, Name=Value)",
+      "parameters": [
+        {"name": "C", "description": "Matrix of cell costs in [0,1]."},
+        {"name": "CellSize / MapLocation", "description": "Cell size (m) and bottom-left location."},
+        {"name": "CollisionChecker", "description": "inflationCollisionChecker with vehicleDimensions and number of circles."},
+        {"name": "FreeThreshold / OccupiedThreshold", "description": "Cost thresholds."}
+      ],
+      "example": "data = load(\"parkingLotCostmapReducedInflation.mat\");\ncostmap = data.parkingLotCostmapReducedInflation;\nplot(costmap)\ncheckFree(costmap, [4 12 0])",
+      "notes": "setCosts/getCosts edit cell values; vehicleDimensions describes the ego vehicle footprint.",
+      "docs": "https://www.mathworks.com/help/driving/ref/vehiclecostmap.html"
+    },
+    {
+      "name": "pathPlannerRRT",
+      "kind": "function",
+      "description": "Configures an optimal rapidly-exploring random tree (RRT*) planner on a vehicleCostmap using Dubins or Reeds-Shepp connections, producing drivable driving.Path objects between start and goal poses.",
+      "usage": "planner = pathPlannerRRT(costmap)\nplanner = pathPlannerRRT(costmap, Name=Value)\n[refPath, tree] = plan(planner, startPose, goalPose)",
+      "parameters": [
+        {"name": "ConnectionMethod", "description": "\"Dubins\" (default) or \"Reeds-Shepp\"."},
+        {"name": "MinTurningRadius / ConnectionDistance / MinIterations / MaxIterations", "description": "Planner settings."},
+        {"name": "GoalTolerance", "description": "[x y theta] tolerance."}
+      ],
+      "example": "planner = pathPlannerRRT(costmap, MinTurningRadius=4, ConnectionMethod=\"Reeds-Shepp\");\nrefPath = plan(planner, [4 12 0], [56 11 0]);\ncheckPathValidity(refPath, costmap)\nplot(planner)",
+      "notes": "Smooth the result with smoothPathSpline and follow it with lateralControllerStanley.",
+      "docs": "https://www.mathworks.com/help/driving/ref/pathplannerrrt.html"
+    },
+    {
+      "name": "smoothPathSpline",
+      "kind": "function",
+      "description": "Smooths a planned vehicle path using cubic spline interpolation through reference poses, returning poses and directions at a specified number of points suitable for tracking controllers.",
+      "usage": "[poses, directions] = smoothPathSpline(refPoses, refDirections, numSmoothPoses)\n[poses, directions, cumLengths, curvatures] = smoothPathSpline(___, minSeparation)",
+      "parameters": [
+        {"name": "refPoses / refDirections", "description": "Reference [x y theta] poses and driving directions (1 forward, -1 reverse)."},
+        {"name": "numSmoothPoses", "description": "Number of output poses."}
+      ],
+      "example": "poses = interpolate(refPath);\n[smooth, dirs] = smoothPathSpline(poses, ones(size(poses,1),1), 200);",
+      "notes": "Curvature output helps velocity profile generation.",
+      "docs": "https://www.mathworks.com/help/driving/ref/smoothpathspline.html"
+    },
+    {
+      "name": "lateralControllerStanley",
+      "kind": "function",
+      "description": "Computes a steering angle command that makes a vehicle follow a reference path using the Stanley method, based on cross-track and heading errors and current speed.",
+      "usage": "steerCmd = lateralControllerStanley(refPose, currPose, currVelocity)\nsteerCmd = lateralControllerStanley(___, Name=Value)",
+      "parameters": [
+        {"name": "refPose / currPose", "description": "[x y theta] reference and current poses (m, deg)."},
+        {"name": "currVelocity", "description": "Current longitudinal velocity (m/s)."},
+        {"name": "PositionGain / Wheelbase / MaxSteeringAngle / Direction", "description": "Controller tuning and vehicle parameters."}
+      ],
+      "example": "steer = lateralControllerStanley([10 2 5], [9.5 1.6 3], 5, Wheelbase=2.8, PositionGain=2.5)",
+      "notes": "The Simulink Lateral Controller Stanley block provides the same algorithm.",
+      "docs": "https://www.mathworks.com/help/driving/ref/lateralcontrollerstanleyfunction.html"
+    },
+    {
+      "name": "roadrunner",
+      "kind": "function",
+      "description": "Launches the RoadRunner scene editor from MATLAB (or connects to it) and returns an object to open/save scenes and scenarios, import/export files and start co-simulation with RoadRunner Scenario.",
+      "usage": "rrApp = roadrunner(projectFolder)\nrrApp = roadrunner(projectFolder, InstallationFolder=folder)",
+      "parameters": [
+        {"name": "projectFolder", "description": "RoadRunner project folder."},
+        {"name": "InstallationFolder", "description": "RoadRunner installation path (or set once with roadrunnerSetup)."}
+      ],
+      "example": "rrApp = roadrunner(\"C:/RR/MyProject\", InstallationFolder=\"C:/Program Files/RoadRunner R2025a/bin/win64\");\nopenScene(rrApp, \"FourWaySignal.rrscene\");\nexportScene(rrApp, \"FourWaySignal.xodr\", \"OpenDRIVE\");\nclose(rrApp)",
+      "notes": "Requires a RoadRunner license. Scenario simulation uses openScenario and createSimulation.",
+      "docs": "https://www.mathworks.com/help/driving/ref/roadrunner.html"
+    },
+    {
+      "name": "uavScenario",
+      "kind": "function",
+      "description": "Creates a UAV scenario with static meshes (buildings, terrain), UAV platforms with trajectories and mounted sensors (lidar, GPS, IMU, INS), for simulating flights and generating synthetic sensor data.",
+      "usage": "scene = uavScenario\nscene = uavScenario(Name=Value)",
+      "parameters": [
+        {"name": "UpdateRate / StopTime", "description": "Rate (Hz, default 10) and stop time (s)."},
+        {"name": "ReferenceLocation", "description": "Geodetic origin [lat lon alt] of the ENU/NED frame."},
+        {"name": "HistoryBufferSize", "description": "Number of stored platform poses."}
+      ],
+      "example": "scene = uavScenario(UpdateRate=200, StopTime=2);\naddMesh(scene, \"Polygon\", {[-100 0; 100 0; 100 100; -100 100], [-5 0]});\ntraj = waypointTrajectory(Waypoints=[0 -20 -5; 20 -20 -5; 20 0 -5]);\nuavPlatform(\"UAV\", scene, Trajectory=traj);\nsetup(scene);\nwhile advance(scene)\n    updateSensors(scene);\n    show3D(scene); drawnow limitrate\nend",
+      "notes": "Terrain from DTED/GeoTIFF and OSM buildings can be added with addMesh(\"terrain\"/\"buildings\"). Use uavPlatform and uavSensor to define vehicles and sensors.",
+      "docs": "https://www.mathworks.com/help/uav/ref/uavscenario.html"
+    },
+    {
+      "name": "uavPlatform",
+      "kind": "function",
+      "description": "Adds a UAV platform to a uavScenario with a reference frame, trajectory or manually updated poses, body mesh and mounted sensors.",
+      "usage": "platform = uavPlatform(name, scene)\nplatform = uavPlatform(name, scene, Name=Value)\nmove(platform, motion)\nupdateMesh(platform, type, geometries, color, position, orientation)",
+      "parameters": [
+        {"name": "Trajectory", "description": "waypointTrajectory, polynomialTrajectory or other trajectory object."},
+        {"name": "ReferenceFrame", "description": "Frame name, default \"ENU\"."},
+        {"name": "InitialPosition / InitialOrientation / InitialVelocity", "description": "Initial state when not trajectory-driven."}
+      ],
+      "example": "plat = uavPlatform(\"UAV1\", scene, InitialPosition=[0 0 -10]);\nupdateMesh(plat, \"quadrotor\", {1.2}, [1 0 0], eye(4));\nmotion = [1 0 -10, zeros(1,6), 1 0 0 0, zeros(1,3)];   % [pos vel acc quat(wxyz) angvel]\nmove(plat, motion);",
+      "notes": "Use move to drive the platform from your own flight dynamics (e.g. multirotor guidance model).",
+      "docs": "https://www.mathworks.com/help/uav/ref/uavplatform.html"
+    },
+    {
+      "name": "uavSensor",
+      "kind": "function",
+      "description": "Mounts a sensor model (lidar, GPS, IMU, INS) on a UAV platform in a uavScenario so that updateSensors produces readings along the flight.",
+      "usage": "sensor = uavSensor(name, platform, sensorModel)\nsensor = uavSensor(___, Name=Value)\n[isUpdated, t, data] = read(sensor)",
+      "parameters": [
+        {"name": "sensorModel", "description": "uavLidarPointCloudGenerator, gpsSensor, imuSensor, insSensor, or custom uav.SensorAdaptor."},
+        {"name": "MountingLocation / MountingAngles", "description": "Pose relative to the platform body."},
+        {"name": "UpdateRate", "description": "Sensor update rate (Hz)."}
+      ],
+      "example": "lidarModel = uavLidarPointCloudGenerator(MaxRange=50, AzimuthResolution=0.5);\nlidar = uavSensor(\"Lidar\", plat, lidarModel, MountingLocation=[0 0 -0.4]);\nsetup(scene); advance(scene); updateSensors(scene);\n[ok, t, pc] = read(lidar);",
+      "notes": "uavLidarPointCloudGenerator simulates lidar against scenario meshes.",
+      "docs": "https://www.mathworks.com/help/uav/ref/uavsensor.html"
+    },
+    {
+      "name": "multirotor",
+      "kind": "function",
+      "description": "Creates a reduced-order guidance model for multirotor UAVs that responds to roll, pitch, yaw-rate and thrust commands, for fast mission-level simulation with ode45 or in Simulink.",
+      "usage": "model = multirotor\nmodel = multirotor(DataType)\ns = state(model); u = control(model); e = environment(model)\nstateDerivative = derivative(model, s, u, e)",
+      "parameters": [
+        {"name": "Configuration", "description": "Model parameters (mass, time constants for roll/pitch/yaw rate/thrust)."},
+        {"name": "DataType", "description": "\"double\" (default) or \"single\"."}
+      ],
+      "example": "model = multirotor;\ns = state(model); s(3) = 100;           % altitude\nu = control(model); u.Thrust = 1;\ne = environment(model);\n[t, y] = ode45(@(~, x) derivative(model, x, u, e), [0 10], s);\nplot(t, y(:,3))",
+      "notes": "fixedwing is the fixed-wing counterpart (airspeed, height, course commands). For full 6-DOF dynamics use Aerospace Blockset or your own model.",
+      "docs": "https://www.mathworks.com/help/uav/ref/multirotor.html"
+    },
+    {
+      "name": "fixedwing",
+      "kind": "function",
+      "description": "Creates a reduced-order guidance model for fixed-wing UAVs driven by height, airspeed and course (or roll) commands, for mission and guidance-law simulation.",
+      "usage": "model = fixedwing\nmodel = fixedwing(DataType)\ns = state(model); u = control(model); e = environment(model)\nstateDerivative = derivative(model, s, u, e)",
+      "parameters": [
+        {"name": "Configuration", "description": "Gains and limits (PDRoll, PHeight, FlightPathAngleLimits, ...)."},
+        {"name": "ControlInputs", "description": "Height, AirSpeed, RollAngle (or CourseAngle, depending on configuration)."}
+      ],
+      "example": "model = fixedwing;\ns = state(model); s(4) = 5;              % initial airspeed\nu = control(model); u.Height = 100; u.AirSpeed = 12; u.RollAngle = 0.2;\ne = environment(model);\n[t, y] = ode45(@(~, x) derivative(model, x, u, e), [0 50], s);",
+      "notes": "Combine with uavWaypointFollower or uavOrbitFollower to close the guidance loop.",
+      "docs": "https://www.mathworks.com/help/uav/ref/fixedwing.html"
+    },
+    {
+      "name": "uavWaypointFollower",
+      "kind": "function",
+      "description": "System object that computes a lookahead point, desired course and yaw for a UAV to follow a sequence of waypoints using a lookahead (carrot-chasing) guidance law with transition radii.",
+      "usage": "wpFollower = uavWaypointFollower(Name=Value)\n[lookaheadPoint, desiredCourse, desiredYaw, lookaheadDistFlag, crossTrackError, status] = wpFollower(currentPose, lookaheadDistance)",
+      "parameters": [
+        {"name": "UAVType", "description": "\"fixed-wing\" or \"multirotor\"."},
+        {"name": "Waypoints / YawAngle", "description": "N-by-3 waypoints and desired yaw per waypoint."},
+        {"name": "TransitionRadius / StartFrom", "description": "Switching radius and \"first\" or \"closest\" start."}
+      ],
+      "example": "wpf = uavWaypointFollower(UAVType=\"multirotor\", ...\n    Waypoints=[0 0 -10; 50 0 -10; 50 50 -10], TransitionRadius=5);\n[lap, course, yaw, ~, xtrack, status] = wpf([0 0 -10 0], 8);",
+      "notes": "Pose is [x y z course] in NED. status = 1 when the final waypoint is reached. uavPathManager sequences mission modes (takeoff, waypoint, orbit, land).",
+      "docs": "https://www.mathworks.com/help/uav/ref/uavwaypointfollower-system-object.html"
+    },
+    {
+      "name": "uavOrbitFollower",
+      "kind": "function",
+      "description": "System object that guides a UAV to orbit a location of interest at a given radius and direction, returning lookahead point, desired course and cross-track error.",
+      "usage": "orbFollower = uavOrbitFollower(Name=Value)\n[lookaheadPoint, desiredCourse, desiredYaw, orbitRadiusFlag, lookaheadDistFlag, crossTrackError, numTurns] = orbFollower(currentPose, center, radius, turnDirection, lookaheadDistance)",
+      "parameters": [
+        {"name": "UAVType", "description": "\"fixed-wing\" or \"multirotor\"."},
+        {"name": "center / radius / turnDirection", "description": "Orbit center [x y z], radius (m) and +1 clockwise / -1 counterclockwise."}
+      ],
+      "example": "orb = uavOrbitFollower(UAVType=\"fixed-wing\");\n[lap, course] = orb([20 0 -50 0], [0 0 -50], 30, 1, 15);",
+      "notes": "numTurns counts completed revolutions for mission logic.",
+      "docs": "https://www.mathworks.com/help/uav/ref/uavorbitfollower-system-object.html"
+    },
+    {
+      "name": "uavDubinsConnection",
+      "kind": "function",
+      "description": "Creates a Dubins path connection type for UAVs with airspeed, maximum roll angle and flight path angle limits, and connects start and goal poses [x y z heading] with minimum-length 3-D Dubins paths.",
+      "usage": "connectionObj = uavDubinsConnection(Name=Value)\n[pathSegObj, pathCosts] = connect(connectionObj, start, goal)",
+      "parameters": [
+        {"name": "AirSpeed / MaxRollAngle / FlightPathAngleLimit", "description": "Kinematic constraints."},
+        {"name": "DisabledPathTypes", "description": "Path types to exclude (e.g. \"LRL\")."}
+      ],
+      "example": "conn = uavDubinsConnection(AirSpeed=15, MaxRollAngle=deg2rad(30));\nseg = connect(conn, [0 0 -100 0], [200 150 -120 pi/2]);\nshow(seg{1})",
+      "notes": "Used with planners (e.g. plannerRRT with a custom state space) for fixed-wing path planning.",
+      "docs": "https://www.mathworks.com/help/uav/ref/uavdubinsconnection.html"
+    },
+    {
+      "name": "minsnappolytraj",
+      "kind": "function",
+      "description": "Generates a minimum-snap polynomial trajectory through waypoints at given times, returning positions and derivatives at sample times. Minimum-snap trajectories are standard for smooth multirotor flight.",
+      "usage": "[q, qd, qdd, qddd, qdddd, pp, tPoints, tSamples] = minsnappolytraj(waypoints, timePoints, numSamples)\n[___] = minsnappolytraj(___, Name=Value)",
+      "parameters": [
+        {"name": "waypoints", "description": "n-by-p waypoints (n dimensions, p points)."},
+        {"name": "timePoints", "description": "1-by-p times of arrival."},
+        {"name": "numSamples", "description": "Number of output samples."},
+        {"name": "VelocityBoundaryCondition / AccelerationBoundaryCondition / TimeAllocation", "description": "Boundary constraints and optional time optimization."}
+      ],
+      "example": "wp = [0 5 10 15; 0 5 0 5; -10 -10 -12 -10];\n[q, qd] = minsnappolytraj(wp, [0 3 6 9], 200);\nplot3(q(1,:), q(2,:), -q(3,:))",
+      "notes": "minjerkpolytraj is the minimum-jerk variant; polynomialTrajectory wraps pp for scenario use.",
+      "docs": "https://www.mathworks.com/help/uav/ref/minsnappolytraj.html"
+    },
+    {
+      "name": "uavCoveragePlanner",
+      "kind": "function",
+      "description": "Plans lawnmower-style coverage paths for a UAV over polygonal areas defined with uavCoverageSpace, for mapping, inspection and agriculture missions.",
+      "usage": "cp = uavCoveragePlanner(space)\ncp = uavCoveragePlanner(space, Name=Value)\n[waypoints, solnInfo] = plan(cp, start)\n[waypoints, solnInfo] = plan(cp, start, goal)",
+      "parameters": [
+        {"name": "space", "description": "uavCoverageSpace with polygons, sensor footprint width and height."},
+        {"name": "Algorithm", "description": "\"MinTraversal\" (default) or \"Exhaustive\"."}
+      ],
+      "example": "cs = uavCoverageSpace(Polygons={[0 0; 100 0; 100 60; 0 60]}, UnitWidth=10, Sidelap=0.2);\ncp = uavCoveragePlanner(cs);\nwp = plan(cp, [0 0 0]);\nshow(cs); hold on; plot(wp(:,1), wp(:,2))",
+      "notes": "Concave regions can be decomposed with coverageDecomposition. Export missions with exportWaypointsPlan (QGroundControl format).",
+      "docs": "https://www.mathworks.com/help/uav/ref/uavcoverageplanner.html"
+    },
+    {
+      "name": "ulogreader",
+      "kind": "function",
+      "description": "Reads PX4 ULog flight log files and provides access to logged topics as timetables, system information, parameters and log messages for flight analysis.",
+      "usage": "ulog = ulogreader(filePath)\nmsg = readTopicMsgs(ulog, Name=Value)\nparams = readParameters(ulog)",
+      "parameters": [
+        {"name": "filePath", "description": "Path to a .ulg file."},
+        {"name": "TopicNames / InstanceID / Time", "description": "Filters for readTopicMsgs."}
+      ],
+      "example": "ulog = ulogreader(\"flight.ulg\");\nmsgs = readTopicMsgs(ulog, TopicNames=\"vehicle_attitude\");\natt = msgs.TopicMessages{1};\nplot(att.timestamp, att.q)",
+      "notes": "mavlinktlog reads MAVLink TLOG files and ardupilotreader reads ArduPilot logs; the Flight Log Analyzer app provides interactive plotting.",
+      "docs": "https://www.mathworks.com/help/uav/ref/ulogreader.html"
+    },
+    {
+      "name": "mavlinkio",
+      "kind": "function",
+      "description": "Creates a MAVLink client/communication interface that connects over UDP or serial to autopilots and ground stations, sending and receiving MAVLink messages defined by a dialect.",
+      "usage": "mavlink = mavlinkio(dialect)\nmavlink = mavlinkio(dialect, Name=Value)\nconnect(mavlink, \"UDP\", LocalPort=port)\nsendudpmsg(mavlink, msg, remoteHost, remotePort)",
+      "parameters": [
+        {"name": "dialect", "description": "mavlinkdialect object, e.g. mavlinkdialect(\"common.xml\")."},
+        {"name": "SystemID / ComponentID / ComponentType / AutopilotType", "description": "Identity of this MAVLink node."}
+      ],
+      "example": "dialect = mavlinkdialect(\"common.xml\");\nio = mavlinkio(dialect);\nconnect(io, \"UDP\", LocalPort=14550);\nsub = mavlinksub(io, \"HEARTBEAT\");\npause(2); latestmsgs(sub, 1)\ndisconnect(io)",
+      "notes": "mavlinksub subscribes to message types; createmsg builds messages from the dialect.",
+      "docs": "https://www.mathworks.com/help/uav/ref/mavlinkio.html"
+    },
+    {
+      "name": "lla2ned",
+      "kind": "function",
+      "description": "Transforms geodetic coordinates (latitude, longitude, altitude) into local north-east-down coordinates relative to a reference origin, using flat-Earth or ellipsoid methods. ned2lla, lla2enu and enu2lla are the companion conversions.",
+      "usage": "xyzNED = lla2ned(lla, lla0, method)",
+      "parameters": [
+        {"name": "lla", "description": "N-by-3 [lat lon alt] (deg, deg, m)."},
+        {"name": "lla0", "description": "Reference origin [lat0 lon0 alt0]."},
+        {"name": "method", "description": "\"flat\" (flat-Earth approximation) or \"ellipsoid\"."}
+      ],
+      "example": "lla0 = [46.017 7.750 1673];\nxyzNED = lla2ned([46.0175 7.7512 1700], lla0, \"ellipsoid\")\nlla = ned2lla(xyzNED, lla0, \"ellipsoid\");",
+      "notes": "Available in UAV and Navigation Toolboxes. Aerospace Toolbox provides lla2flat/flat2lla with heading-rotated frames.",
+      "docs": "https://www.mathworks.com/help/uav/ref/lla2ned.html"
+    }
+  ]
+}

@@ -1,0 +1,421 @@
+{
+  "category": "Solvers and solution methods",
+  "description": "Feko's defining feature is that several full-wave and asymptotic solvers can be hybridised in one model: the right method is chosen per region or face (Solve with: MoM, PO, LE-PO, RL-GO, UTD, FEM) and MLFMM accelerates the MoM part. This category explains what each solver computes, when it is the right choice and its main limits, plus the special techniques (Green's functions, CMA, periodic boundaries, cables, sources, symmetry, parallelisation) that sit on top of them. Lua snippets use the CADFEKO API as installed (cf.GetApplication(), project.SolutionSettings.SolverSettings...); the online reference documents the same properties under project.Contents.SolutionSettings.",
+  "tools": [
+    {
+      "name": "Method of Moments (MoM)",
+      "kind": "solver",
+      "description": "Feko's default full-wave frequency-domain solver. Metallic surfaces are meshed into triangles and wires into segments; the surface current coefficients are found by solving a dense matrix equation, so only the structure (not the surrounding air) is meshed and radiation/open boundaries are exact. Dielectrics are handled with the surface (SEP) or volume (VEP) equivalence principle or with planar Green's functions. Very accurate for antennas, wire structures, and scattering up to a few tens of wavelengths; memory grows with N^2 and direct LU time with N^3.",
+      "usage": "Default: every face/wire uses MoM unless another method is assigned (face properties > Solve with).",
+      "parameters": [
+        {"name": "mesh size", "description": "Standard mesh = about lambda/10 triangle edges at the highest frequency; Fine/Coarse or custom sizes per face."},
+        {"name": "solver", "description": "Direct (LU) by default; an iterative or direct sparse solver can be selected under PreconditionerSettings.AdvancedSolverType."}
+      ],
+      "example": "-- CADFEKO Lua: nothing to enable; mesh and solve\nproject.Mesher:Mesh()\nresult = project.Launcher:RunFEKO()\nprint(result.Succeeded, result.ExitCode)",
+      "notes": "Rule of thumb: N unknowns need about 16*N^2 bytes (double precision); above ~50k unknowns switch on MLFMM or ACA. Use symmetry planes to cut the matrix size.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/solver_solution_methods/solver_method_general_feko_c.htm"
+    },
+    {
+      "name": "Multilevel Fast Multipole Method (MLFMM)",
+      "kind": "solver",
+      "description": "An acceleration of the MoM for electrically large problems (typically larger than ~10 wavelengths): the matrix is never stored explicitly, interactions between distant groups are computed through multipole expansions and the system is solved iteratively. Memory and time scale roughly with N log N, which makes full-wave analysis of aircraft, ships, cars and large reflector antennas at their operating frequencies possible. The results are full-wave (same physics as MoM), only the solution method changes.",
+      "usage": "Solve/Run tab > Solution settings > MLFMM (CADFEKO) or the FM card in EDITFEKO; Lua: project.SolutionSettings.SolverSettings.MLFMMACASettings.ModelSolutionSolveType = cf.Enums.ModelSolutionSolveTypeEnum.MLFMM",
+      "parameters": [
+        {"name": "preconditioner", "description": "PreconditionerSettings.IterativeSolverSettings.PreconditionerType (Default, SparseApproxInverse, BlockJacobiLU, MultiLevelILU ...); 2025.1 added the domain-level preconditioner and the FGMRES iterative solver."},
+        {"name": "box size / residuum / max iterations", "description": "MLFMMSettings.BoxSizeSpecificationType and ManuallySpecifiedBoxSize (default 0.23 lambda); IterativeSolverSettings.MaxIterations and StoppingCriterion."}
+      ],
+      "example": "s = project.SolutionSettings.SolverSettings.MLFMMACASettings\ns.ModelSolutionSolveType = cf.Enums.ModelSolutionSolveTypeEnum.MLFMM\ns.MLFMMSettings.FarFieldCalculationMethod = cf.Enums.MLFMMFarFieldCalculationMethodEnum.Default",
+      "notes": "Iterative solvers can stall on multi-scale geometry (fine wires plus huge plates); use the CFIE on closed PEC parts, the NGF, or clean up sliver triangles. MLFMM supports dielectrics (SEP) and the FEM/MLFMM hybrid.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/mlfmmacasettings.htm"
+    },
+    {
+      "name": "Finite Element Method (FEM)",
+      "kind": "solver",
+      "description": "Volumetric frequency-domain solver on tetrahedra for regions with inhomogeneous, anisotropic or lossy dielectrics (human phantoms, dielectric-loaded horns, waveguide filters, complex feeds). In Feko the FEM region is enclosed by a MoM boundary (FEM/MoM hybrid), so the exterior radiation is still exact and no absorbing boundary is needed; FEM regions can also be combined with MLFMM for electrically large exteriors. Ports inside FEM regions use FEM modal ports (waveguides), FEM line ports (coax pins, feeds) or, since 2025.1, FEM distributed line ports.",
+      "usage": "Region properties > Solve with FEM (CADFEKO); Lua: region.SolutionMethod = cf.Enums.RegionSolutionMethodEnum.FEM; the region is meshed with tetrahedra automatically.",
+      "parameters": [
+        {"name": "FEM mesh size", "description": "Tetrahedron edge length relative to the wavelength inside the medium (Mesher.Settings.TetrahedronEdgeLength when MeshSizeOption is Custom)."},
+        {"name": "element order / decoupling", "description": "SolverSettings.FEMSettings.ElementOrder (cf.Enums.FEMElementOrderEnum.Auto/First/Second) and DecoupleFEMFromMoM."}
+      ],
+      "example": "box = project.Geometry:AddCuboid(cf.Point(0,0,0), 0.1, 0.1, 0.05)\nbox.Regions[1].Medium = phantom  -- a Dielectric object\nbox.Regions[1].SolutionMethod = cf.Enums.RegionSolutionMethodEnum.FEM\nport = project.Ports:AddFEMLinePortBetweenPoints(cf.Point(0.05,0.05,0), cf.Point(0.05,0.05,0.01))",
+      "notes": "Choose FEM over SEP when a dielectric has several materials or a lossy inhomogeneous interior; SEP is cheaper for homogeneous bodies.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/regionsolutionmethodenum.htm"
+    },
+    {
+      "name": "Finite Difference Time Domain (FDTD)",
+      "kind": "solver",
+      "description": "Time-domain solver on a Cartesian voxel grid that computes a whole frequency band in a single run by exciting the model with a pulse. Suited to wideband and highly inhomogeneous problems (bio-electromagnetics, dielectric-loaded devices, transient/EMP studies) and scales well on parallel hardware. Staircase voxel meshes are less accurate on curved metal than MoM triangles, and thin wires/edges need fine voxels.",
+      "usage": "Solve/Run > Solution settings > FDTD; Lua: project.SolutionSettings.SolverSettings.FDTDSettings.FDTDEnabled = true; the frequency range defines the pulse bandwidth and the grid size.",
+      "parameters": [
+        {"name": "voxel size", "description": "Derived from the mesh settings and the highest frequency (project.Mesher.VoxelSettings); local refinement around small features."},
+        {"name": "boundary", "description": "project.SolutionSettings.FDTDBoundary: open (CPML), PEC or PMC per bounding-box face (BC card)."}
+      ],
+      "example": "project.SolutionSettings.SolverSettings.FDTDSettings.FDTDEnabled = true\nproject.Mesher:Mesh()  -- voxel mesh is generated for FDTD",
+      "notes": "Not every source/request type is available in FDTD (e.g. some special sources and cable modelling); the FD card / Frequency.Advanced.FDTD settings control the simulated time interval and convergence threshold.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/fdtdsettings.htm"
+    },
+    {
+      "name": "Physical Optics (PO)",
+      "kind": "solver",
+      "description": "Asymptotic high-frequency method for electrically large metallic structures: currents on illuminated faces are approximated from the incident field (2 n x H) instead of solved for. Hybridised with MoM the antenna (MoM) illuminates the platform (PO) and the PO currents radiate back, giving antenna placement and RCS results with a fraction of the memory. Options include full ray tracing for shadowing, 'always illuminated' and 'front illuminated' variants, edge/wedge correction terms (KA/KL cards) and Fock currents.",
+      "usage": "Face properties > Solve with > Physical optics; Lua: face.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.POFullRayTracing | POAlwaysIlluminated | POFrontIlluminated; the PO card in EDITFEKO.",
+      "parameters": [
+        {"name": "ray tracing", "description": "POFullRayTracing determines which PO faces are illuminated (shadowing); POAlwaysIlluminated skips it."},
+        {"name": "coupling", "description": "SolverSettings.HighFrequencySettings.HighFrequencyPOMoMCouplingType = cf.Enums.HighFrequencyPOMoMCouplingTypeEnum.Full | Iterative | Decoupled."}
+      ],
+      "example": "for _, f in pairs(fuselage.Faces) do\n  f.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.POFullRayTracing\nend",
+      "notes": "PO faces must be electrically large and smooth; keep the antenna and nearby detailed structure in MoM. Coupling from PO back to MoM can be decoupled to save time.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/facesolutionmethodenum.htm"
+    },
+    {
+      "name": "Large Element Physical Optics (LE-PO)",
+      "kind": "solver",
+      "description": "A PO variant whose mesh elements can be much larger than a wavelength (the phase variation is handled analytically), so extremely large platforms are meshed with a few hundred triangles instead of millions. The fastest way to get antenna placement or RCS trends on aircraft, ships and satellites at high frequencies; hybridises with MoM in the same way as PO.",
+      "usage": "Face properties > Solve with > Large element PO; Lua: face.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.LEPOFullRayTracing | LEPOAlwaysIlluminated | LEPOFrontIlluminated.",
+      "parameters": [
+        {"name": "mesh", "description": "Coarse, geometry-driven mesh; curvature still needs to be represented."}
+      ],
+      "example": "reflector.Faces[1].SolutionMethod = cf.Enums.FaceSolutionMethodEnum.LEPOFullRayTracing",
+      "notes": "Same accuracy limits as PO (no diffraction from edges unless the correction terms are used, no creeping waves). Example H.3.1 in the Example Guide feeds an LE-PO reflector with a MoM horn.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/facesolutionmethodenum.htm"
+    },
+    {
+      "name": "Ray Launching Geometrical Optics (RL-GO)",
+      "kind": "solver",
+      "description": "Ray-based asymptotic solver: rays are launched from the MoM sources or the plane wave, reflected and refracted at metallic and dielectric faces (including transmission through dielectric lenses and radomes) and their contributions summed. Used for very large lenses, reflectors, radomes and vehicles where PO would still be too expensive or where dielectric transmission matters; 2025.1 made plane-wave RL-GO several orders of magnitude faster.",
+      "usage": "Face properties > Solve with > Ray launching GO; Lua: face.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.RLGO; ray options under SolverSettings.HighFrequencySettings.",
+      "parameters": [
+        {"name": "ray density / max interactions", "description": "HighFrequencySettings.RLGOIncrementType (Automatic or SpecifyIncrements with ThetaIncrement/PhiIncrement/UIncrement/VIncrement), MaxRLGORayInteractions, AdaptiveRayLaunchingAccuracy."},
+        {"name": "face absorption", "description": "face.FaceAbsorbingSettings (RLGO reflection/transmission/absorption of rays)."}
+      ],
+      "example": "lens.Faces[1].SolutionMethod = cf.Enums.FaceSolutionMethodEnum.RLGO\nhf = project.SolutionSettings.SolverSettings.HighFrequencySettings\nhf.MaxRLGORayInteractionsEnabled = true; hf.MaxRLGORayInteractions = 4",
+      "notes": "No diffraction; geometry must be large compared with the wavelength; combine with MoM for the feed (DecoupleRLGOFromMoM switches the coupling off).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/highfrequencysettings.htm"
+    },
+    {
+      "name": "Uniform Theory of Diffraction (UTD)",
+      "kind": "solver",
+      "description": "High-frequency method that models reflection, diffraction at edges/corners and creeping waves analytically on canonical shapes (flat polygonal plates, cylinders) so the structure size hardly affects the cost; faceted UTD extends it to curved triangulated surfaces. Classic use: antenna coupling and pattern distortion on ships or aircraft represented by plates and cylinders. Hybridised with MoM (the antenna) as MoM/UTD.",
+      "usage": "Faces must be flat polygons or cylinders; Solve with > UTD; Lua: face.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.UTD | FacetedUTD; region.SolutionMethod = cf.Enums.RegionSolutionMethodEnum.UTD for cylinders; UT card in EDITFEKO.",
+      "parameters": [
+        {"name": "ray contributions", "description": "HighFrequencySettings.UTDRayContributionsType (Default/Advanced) with RayContributionsUTD (reflections, diffractions, creeping waves), MaxUTDRayInteractions, EnableFacetedUTDAcceleration."}
+      ],
+      "example": "plate.Faces[1].SolutionMethod = cf.Enums.FaceSolutionMethodEnum.UTD",
+      "notes": "Only PEC canonical shapes (UTD cannot be combined with a real ground); for detailed CAD platforms use PO/LE-PO/RL-GO instead.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/facesolutionmethodenum.htm"
+    },
+    {
+      "name": "Hybrid MoM/FEM",
+      "kind": "solver",
+      "description": "The MoM boundary surrounds one or more FEM regions and the two systems are solved together, so inhomogeneous dielectrics get FEM accuracy while the free-space exterior and the metallic structure keep MoM accuracy without absorbing boundaries. Typical for horns with dielectric lenses, patch antennas on finite substrates with mixed materials, SAR in phantoms next to a handset.",
+      "usage": "Assign FEM to dielectric regions and leave the rest in MoM; Feko couples them automatically.",
+      "parameters": [
+        {"name": "DecoupleFEMFromMoM", "description": "SolverSettings.FEMSettings.DecoupleFEMFromMoM = true solves the MoM first and applies it as impressed excitation with an ABC or PMC boundary (FEMBoundaryCondition)."}
+      ],
+      "example": "See 'Finite Element Method (FEM)'; decoupled: project.SolutionSettings.SolverSettings.FEMSettings.DecoupleFEMFromMoM = true",
+      "notes": "Iterative solution by default; decoupled hybrid available when the FEM region is far from the MoM structure (example F.1 in the Example Guide).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/femsettings.htm"
+    },
+    {
+      "name": "Hybrid MoM with asymptotic methods (PO, LE-PO, RL-GO, UTD)",
+      "kind": "solver",
+      "description": "Antenna placement workflow: the antenna and its immediate surroundings are solved with MoM (or MLFMM), the electrically large platform with PO, LE-PO, RL-GO or UTD, and the coupling between them is included (full hybrid) or neglected (decoupled). This is the basis of Feko's reputation for installed antenna performance, co-site interference and RCS of large targets.",
+      "usage": "Set 'Solve with' per face; choose full, iterative or decoupled coupling in SolverSettings.HighFrequencySettings.",
+      "parameters": [
+        {"name": "coupling", "description": "HighFrequencyPOMoMCouplingType Full/Iterative/Decoupled for PO; DecoupleRLGOFromMoM and DecoupleUTDFromMoM for RL-GO and UTD."}
+      ],
+      "example": "for _, face in pairs(fuselage.Faces) do face.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.POFullRayTracing end\nproject.SolutionSettings.SolverSettings.HighFrequencySettings.HighFrequencyPOMoMCouplingType = cf.Enums.HighFrequencyPOMoMCouplingTypeEnum.Decoupled",
+      "notes": "Validate on a reduced model (MoM everywhere at a lower frequency) before trusting an asymptotic setup; examples A.3.4-A.3.7 compare UTD, RL-GO, PO and LE-PO on the same dipole-plate problem.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/highfrequencysettings.htm"
+    },
+    {
+      "name": "Hybrid FEM/MLFMM",
+      "kind": "solver",
+      "description": "Combines FEM regions (dielectric detail) with MLFMM on the surrounding electrically large metallic structure, e.g. a dielectric-loaded antenna on a vehicle or a human body inside a car cabin. Retains full-wave accuracy at sizes where MoM/FEM would exhaust memory.",
+      "usage": "Enable MLFMM in solver settings with FEM regions present.",
+      "parameters": [],
+      "example": "project.SolutionSettings.SolverSettings.MLFMMACASettings.ModelSolutionSolveType = cf.Enums.ModelSolutionSolveTypeEnum.MLFMM  -- with FEM regions defined",
+      "notes": "Convergence of the coupled iterative solver depends on the preconditioner (MultilevelFEMMLFMMLU or the 2025.1 FGMRES solver); keep FEM regions compact.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/preconditionertypeenum.htm"
+    },
+    {
+      "name": "Surface Equivalence Principle (SEP)",
+      "kind": "solver",
+      "description": "Dielectric bodies in the MoM are represented by equivalent electric and magnetic surface currents on their boundary, so only the surface is meshed. Best for homogeneous dielectric or magnetic bodies (radomes, lenses, dielectric resonators, finite substrates) of moderate loss; each dielectric interface roughly doubles the unknowns on that surface.",
+      "usage": "Default for a region whose medium is a dielectric when the region is solved with MoM (region.SolutionMethod = cf.Enums.RegionSolutionMethodEnum.SEP).",
+      "parameters": [],
+      "example": "teflon = project.Media:AddDielectric(2.1, 0.0002, 2200)  -- (epsr, tan delta, mass density)\nteflon.Label = \"Teflon\"\nradome.Regions[1].Medium = teflon  -- region stays in MoM -> SEP",
+      "notes": "Very high permittivity or thin layers can be ill-conditioned; consider FEM or the thin dielectric sheet approximation.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/regionsolutionmethodenum.htm"
+    },
+    {
+      "name": "Volume Equivalence Principle (VEP)",
+      "kind": "solver",
+      "description": "Dielectric volumes meshed into cuboids or tetrahedra carry equivalent volume currents in the MoM system. Practical only for electrically small dielectric bodies (chip antennas, small phantoms, dielectric inserts) because the number of unknowns grows with the volume; it does allow inhomogeneous dielectrics without a FEM region.",
+      "usage": "Region properties > Solve with > VEP in CADFEKO; Lua: region.SolutionMethod = cf.Enums.RegionSolutionMethodEnum.VEP.",
+      "parameters": [],
+      "example": "chip.Regions[1].SolutionMethod = cf.Enums.RegionSolutionMethodEnum.VEP",
+      "notes": "SAR requests are supported inside VEP regions; VEP cannot be combined with SEP bodies, FEM or special Green's functions in the same model.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/regionsolutionmethodenum.htm"
+    },
+    {
+      "name": "Planar multilayer substrate (Green's function)",
+      "kind": "solver",
+      "description": "Infinite planar layered media (substrate stacks with optional ground plane) are included analytically through a special Green's function, so microstrip antennas, patches, planar filters and arrays are solved by meshing only the metallisation. Accurate and fast for infinite substrates; finite substrate edges need SEP or FEM instead (a finite substrate is obtained by enclosing the stack in a MoM/SEP region).",
+      "usage": "Construct > Planes/arrays > Plane/ground > Planar multilayer substrate: define layers (thickness, medium) and optional ground at layer bottoms (GF card in EDITFEKO); Lua: project.SolutionSettings.GroundPlane with DefinitionMethod = cf.Enums.GroundPlaneDefinitionMethodEnum.MultilayerSubstrate.",
+      "parameters": [
+        {"name": "layers", "description": "PlanarSubstrate items with Medium, Thickness and GroundBottom (cf.Enums.GroundBottomTypeEnum.PEC or None); layer 1 is at the top, ZValue gives the z of its top."}
+      ],
+      "example": "fr4 = project.Media:AddDielectric(4.4, 0.02, 1850)\ngp = project.SolutionSettings.GroundPlane\ngp:SetProperties({DefinitionMethod = cf.Enums.GroundPlaneDefinitionMethodEnum.MultilayerSubstrate})\ngp.Layers:Add(2, cf.Enums.GroundBottomTypeEnum.PEC, 1.6e-3, fr4)  -- legacy API: (index, ground bottom, thickness, medium)",
+      "notes": "Metallic faces must lie in a layer interface; use microstrip ports for feeding. Combine with periodic boundaries for infinite planar arrays. In the new-format API the layer list is GroundPlane.Layers:Append() with .Medium/.Thickness/.GroundBottom.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/groundplane.htm"
+    },
+    {
+      "name": "Thin dielectric sheets, coatings and impedance sheets",
+      "kind": "solver",
+      "description": "Approximations that avoid meshing thin layers: a thin dielectric sheet models radome walls or windscreen glass as a surface with layered properties, a dielectric coating models paint/absorber layers on metal (electrically thin or thick), and an impedance sheet models a surface impedance (resistive sheets, R-cards, characterised surfaces from measurements or a unit-cell .tr file). Each replaces many SEP unknowns with a modified surface condition.",
+      "usage": "Face properties > Face medium: layered dielectric / impedance sheet / characterised surface, or Coating on a metallic face; Lua: face.Medium = sheet; face.Coating = layered (sets CoatingEnabled); CO and SK cards in EDITFEKO.",
+      "parameters": [
+        {"name": "layer definition", "description": "project.Media:AddLayeredDielectric({thicknesses}, {media}) used as a face medium (thin sheet) or as face.Coating."},
+        {"name": "impedance", "description": "project.Media:AddImpedanceSheet(realImpedance, imagImpedance) in Ohm."}
+      ],
+      "example": "rcard = project.Media:AddImpedanceSheet(377, 0)\nrcard.Label = \"R377\"\nface.Medium = rcard\nglass = project.Media:AddLayeredDielectric({2.1e-3, 0.76e-3, 2.1e-3}, {glassMedium, pvb, glassMedium})\nradomeFace.Medium = glass",
+      "notes": "Valid while the layer is thin compared with the wavelength in the material; face.SurfaceCoatingType selects thin/thick coating behaviour.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/face.htm"
+    },
+    {
+      "name": "Characteristic Mode Analysis (CMA)",
+      "kind": "solver",
+      "description": "Solves the generalized eigenvalue problem of the MoM matrix to obtain the natural (characteristic) modes of a structure independent of any excitation: eigenvalues, modal significance, characteristic angles and modal currents/far fields. Used to understand which modes a chassis or platform supports, where to place feeds for a desired mode, and how to design multi-band or MIMO antennas systematically. Supported for MoM/SEP models (metal and dielectrics, planar Green's function); not with VEP, waveguide ports, MLFMM or FEM.",
+      "usage": "Request > Configurations > Characteristic modes (OM card); Lua: cma = project.SolutionConfigurations:AddCharacteristicModes(numberOfModes); results in POSTFEKO under CharacteristicModes.",
+      "parameters": [
+        {"name": "NumberOfModes", "description": "cma.CharacteristicModes.NumberOfModes: how many modes to compute (ordered by modal significance)."},
+        {"name": "CoefficientsComputed", "description": "Also compute modal excitation/weighting coefficients when sources exist; the 2025.1 mode tracker writes resonant-frequency estimates to the .out file."}
+      ],
+      "example": "cma = project.SolutionConfigurations:AddCharacteristicModes(6)\ncma.CharacteristicModes.NumberOfModes = 8\ncma.CharacteristicModes.CoefficientsComputed = true",
+      "notes": "The POSTFEKO application macros 'Characteristic Mode Analysis plotter' and 'Characteristic Mode Synthesis and Design' post-process the modes; examples A.12.3/A.12.4 and A.15 use CMA.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/characteristicmodes.htm"
+    },
+    {
+      "name": "Periodic boundary conditions (PBC)",
+      "kind": "solver",
+      "description": "Models an infinite 1D or 2D periodic structure from a single unit cell: frequency selective surfaces, metamaterials, electromagnetic band-gap structures and infinite phased arrays. Plane-wave incidence with arbitrary angle and array scanning (phase shift between cells or a beam squint angle) are supported; results include reflection/transmission coefficients and the array element pattern. Lattice vectors need not be orthogonal and geometry may cross the boundary if it lines up on the opposite side.",
+      "usage": "Construct > Planes/arrays > Periodic boundary; Lua: pbc = project.SolutionSettings.PeriodicBoundary; pbc:SetOneDimension(start, end) | pbc:SetTwoDimensions(start, endOne, endTwo) | pbc:ClearDimensions(); PE/PP cards in EDITFEKO.",
+      "parameters": [
+        {"name": "lattice vectors", "description": "Start point and one or two end points (cf.Point) spanning the unit cell."},
+        {"name": "phase shift / scan angle", "description": "pbc.PhaseShiftMethod = cf.Enums.PeriodicBoundaryPhaseShiftMethodEnum.PlaneWaveSource | BeamSquintAngle | SpecifyManually with pbc.BeamSquintAngle or pbc.PhaseShift."}
+      ],
+      "example": "pbc = project.SolutionSettings.PeriodicBoundary\npbc:SetTwoDimensions(cf.Point(-0.005,-0.005,0), cf.Point(0.005,-0.005,0), cf.Point(-0.005,0.005,0))\npbc:SetProperties({PhaseShiftMethod = cf.Enums.PeriodicBoundaryPhaseShiftMethodEnum.PlaneWaveSource})",
+      "notes": "PBC works with the MoM (sequential and parallel) but not with MLFMM, PO, UTD or VEP; triangles may touch but not cross the cell boundary. Examples A.16.x and C.3-C.5 use PBC.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/periodicboundary.htm"
+    },
+    {
+      "name": "Infinite ground planes (PEC, PMC, real ground, reflection coefficient)",
+      "kind": "solver",
+      "description": "An infinite plane at z=0 can be modelled analytically: a perfect electric or perfect magnetic conductor (exact reflection), a homogeneous half space z<0 with the exact Sommerfeld integrals (soil, sea water; structures may cross or lie below the boundary), or the faster reflection-coefficient approximation (structures must stay above, ideally more than lambda/10 away). Saves meshing large finite planes and is the standard setup for HF/VHF antennas, vehicles on a road and ground-based radar targets.",
+      "usage": "Construct > Planes/arrays > Plane/ground; Lua: project.SolutionSettings.GroundPlane.DefinitionMethod = cf.Enums.GroundPlaneDefinitionMethodEnum.PEC | PMC | HalfspaceSommerfeld | HalfspaceReflectionCoefficient | Homogeneous | MultilayerSubstrate; BO/GF cards in EDITFEKO.",
+      "parameters": [
+        {"name": "Medium", "description": "GroundPlane.Medium: dielectric of the half space for the Sommerfeld and reflection-coefficient grounds."}
+      ],
+      "example": "gp = project.SolutionSettings.GroundPlane\ngp:SetProperties({DefinitionMethod = cf.Enums.GroundPlaneDefinitionMethodEnum.HalfspaceSommerfeld, Medium = soil})",
+      "notes": "Wires touching a PEC plane are grounded; fields cannot be computed below a reflection-coefficient ground; MoM/UTD cannot be used with a real ground. Example A.5 (Yagi-Uda above a real ground).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/infinite_plane_feko_c-cadfeko.htm"
+    },
+    {
+      "name": "Higher-order basis functions (HOBF)",
+      "kind": "solver",
+      "description": "MoM option that uses hierarchical higher-order polynomial current expansions (orders 0.5, 1.5, 2.5, 3.5 or automatic) on larger curvilinear triangles instead of the standard RWG functions, reducing the number of unknowns and memory for smooth structures by several times at the same accuracy. Useful for large reflectors, radomes and smooth platforms when MLFMM is not desired.",
+      "usage": "Solve/Run > Solution settings > Basis function (FP card); Lua: project.SolutionSettings.SolverSettings.GeneralSettings.BasisFunctionSettings.HOBFEnabled = true; ElementOrder = cf.Enums.HOBFElementOrderEnum.Auto; per face via face.BasisFunctionSettings.",
+      "parameters": [
+        {"name": "ElementOrder", "description": "Auto, Order0_5, Order1_5, Order2_5, Order3_5."},
+        {"name": "RangeSelection", "description": "cf.Enums.BasisFunctionAccuracyEnum.Low/Normal/High: prefer lower or higher orders for a given triangle size."}
+      ],
+      "example": "bf = project.SolutionSettings.SolverSettings.GeneralSettings.BasisFunctionSettings\nbf.HOBFEnabled = true\nbf.ElementOrder = cf.Enums.HOBFElementOrderEnum.Auto",
+      "notes": "Mesh with larger elements (lambda/3 to lambda/2) to benefit; small detailed features gain little. Example A.3.2 (dipole in front of a plate, HOBF).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/basisfunctionglobalsolversettings.htm"
+    },
+    {
+      "name": "Adaptive Cross Approximation (ACA)",
+      "kind": "solver",
+      "description": "Matrix compression for the MoM (low-rank approximation of off-diagonal blocks, sparse H-matrix) that reduces memory and time for mid-size problems, including cases where MLFMM does not apply well (low frequencies, planar Green's functions, multi-scale). A good first choice between plain MoM and MLFMM.",
+      "usage": "Solve/Run > Solution settings > MLFMM/ACA (FM card); Lua: project.SolutionSettings.SolverSettings.MLFMMACASettings.ModelSolutionSolveType = cf.Enums.ModelSolutionSolveTypeEnum.ACA.",
+      "parameters": [],
+      "example": "project.SolutionSettings.SolverSettings.MLFMMACASettings.ModelSolutionSolveType = cf.Enums.ModelSolutionSolveTypeEnum.ACA",
+      "notes": "Solved iteratively or with the direct sparse solver (PreconditionerSettings.AdvancedSolverType = cf.Enums.AdvancedSolverTypeEnum.DirectSparse).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/modelsolutionsolvetypeenum.htm"
+    },
+    {
+      "name": "Numerical Green's Function (NGF)",
+      "kind": "solver",
+      "description": "Splits the model into a static part (platform) whose MoM matrix and LU factors are computed once and stored (.ngf), and a dynamic part (antenna, its position, small changes) that is solved quickly against the stored data. Ideal for antenna placement studies where many candidate positions or designs are evaluated on the same vehicle or aircraft.",
+      "usage": "Solve/Run > Solution settings > Domains (DD card); Lua: ngf = project.SolutionSettings.NumericalGreensFunction; ngf.StaticParts = {parts}; ngf.Enabled = true; ngf.SolutionControl = cf.Enums.NGFControlTypeEnum.ReadFromOrCreate.",
+      "parameters": [
+        {"name": "StaticParts", "description": "List of geometry parts stored in the .ngf file; everything else is dynamic."},
+        {"name": "SolutionControl", "description": "NoAction, Save, Read or ReadFromOrCreate for the .ngf file."}
+      ],
+      "example": "ngf = project.SolutionSettings.NumericalGreensFunction\nngf.StaticParts = {platform}\nngf.Enabled = true\nngf.SolutionControl = cf.Enums.NGFControlTypeEnum.ReadFromOrCreate",
+      "notes": "The static mesh must not change between runs; MoM only (not MLFMM); only one DD card per model.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/numericalgreensfunction.htm"
+    },
+    {
+      "name": "Domain Green's Function Method (DGFM)",
+      "kind": "solver",
+      "description": "Approximate method for large finite antenna arrays: each element is solved with an approximation of the coupling from all others, turning one huge MoM problem into many small ones. Gives embedded element patterns and array performance (self-coupling, mutual coupling and edge effects) for arrays with thousands of elements at a fraction of the cost of the full solution.",
+      "usage": "Solve/Run > Solution settings > Domain Green's function method with a finite antenna array (FA card); Lua: project.SolutionSettings.SolverSettings.DomainDecompositionSettings.DGFMEnabled = true.",
+      "parameters": [
+        {"name": "CouplingDisabled", "description": "Ignore coupling between elements (not recommended)."}
+      ],
+      "example": "arr = project.SolutionSettings.AntennaArrays:AddPlanarArray(8, \"dx\", 8, \"dy\")\nproject.SolutionSettings.SolverSettings.DomainDecompositionSettings.DGFMEnabled = true",
+      "notes": "The base element encompasses all structures in the model; validate on a smaller array against full MoM. Example A.17 (finite array with non-linear spacing).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/domaindecompositionsettings.htm"
+    },
+    {
+      "name": "Equivalent sources (far field, near field, spherical modes)",
+      "kind": "solver",
+      "description": "Replace an antenna by its measured or simulated data: a far-field radiation pattern source (.ffe, CST .ffs or ASCII), a near-field aperture source (.efe/.hfe on a plane, cylinder, sphere or Cartesian boundary, CST NFS, Sigrity .nfd, MVG .mfxml), a spherical mode expansion (TICRA .sph), a PCB current source (PollEx .rei) or model solution coefficients (.sol). This decouples antenna design from platform integration and protects vendor IP; sources can be positioned and rotated freely on the platform.",
+      "usage": "Source/Load > Equivalent sources; Lua: data = project.FieldDataList:AddFarFieldData(file); src = cfg.Sources:AddFarFieldSource(data); AR/AP/AS/AJ/AM cards in EDITFEKO.",
+      "parameters": [
+        {"name": "field data", "description": "FieldDataList:AddFarFieldData, AddNearFieldDataFullImport, AddNearFieldDataFileStructure, AddSphericalModesData, AddPCBCurrentData, AddSolutionCoefficientData."},
+        {"name": "position / orientation", "description": "src.Position, src.Theta, src.Phi, src.Magnitude, src.Phase (and LocalWorkplane)."}
+      ],
+      "example": "ffd = project.FieldDataList:AddFarFieldData([[D:/ant/blade.ffe]])\nsrc = cfg.Sources:AddFarFieldSource(ffd)\nsrc.Theta = 90; src.Phi = 0",
+      "notes": "Near-field sources must enclose the antenna (closed surface) for accurate coupling; far-field sources ignore near-field coupling. Examples B.3.x and H.3.4-H.3.6 build reflector feeds from equivalent sources.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/farfieldsource.htm"
+    },
+    {
+      "name": "Cable modelling (MTL and combined MoM/MTL)",
+      "kind": "solver",
+      "description": "Cable harnesses (single wires, twisted pairs, coax, ribbon, shielded bundles) are modelled with multiconductor transmission line theory along a cable path; the combined MoM/MTL solution couples the 3D field solution with the harness in both directions (irradiation into cables and radiation from cables, or circuit crosstalk only). Includes a cable schematic editor for connectors, terminations, pigtails and shield transfer impedance, which makes Feko a reference tool for automotive and aerospace EMC.",
+      "usage": "Cables tab: define cable paths, cross sections, harnesses with connectors and cable instances, then loads/sources/probes in the schematic; Lua: project.Cable.Paths:Add({points}), project.Cable.CrossSections:AddCoaxial(...), project.Cable.Harnesses:Add(...); harness.CableCoupling and harness.SolutionMethod.",
+      "parameters": [
+        {"name": "cable path", "description": "Route in 3D, within lambda/5 of conducting ground for the MTL method; the MoM method (shielded cables only) allows arbitrary paths."},
+        {"name": "cross section", "description": "Conductors, insulation, shields with transfer impedance/admittance (SH/SD cards)."}
+      ],
+      "example": "path = project.Cable.Paths:Add({cf.Point(0,0,0.05), cf.Point(1,0,0.05)})\nharness = project.Cable.Harnesses:Add()\nharness.SolutionMethod = cf.Enums.CableHarnessSolutionMethodEnum.MTL\nharness.CableCoupling = cf.Enums.CableHarnessCouplingEnum.RadiatingWithIrradiating",
+      "notes": "Cable probes (harness.Probes:Add(path)) give currents/voltages along the path; example D.2 (field coupling into a shielded cable) and the Getting Started example GS5.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/cables_intro_feko_c-cadfeko.htm"
+    },
+    {
+      "name": "Windscreen antenna modelling",
+      "kind": "solver",
+      "description": "Dedicated technique for antennas printed on or embedded in automotive windscreens: the layered glass (with PVB, coatings) is handled by a special Green's function on a reference surface so the antenna wires and the vehicle can be solved without meshing the thin glass layers. Standard for FM/DAB/TV/GNSS/LTE glass antennas.",
+      "usage": "Media > Windscreen (layered dielectric + offset) and faces/edges with the Windscreen solution method (face.SolutionMethod = cf.Enums.FaceSolutionMethodEnum.Windscreen, face.Windscreen settings with the reference face); WR/WA/WD cards in EDITFEKO; the Windscreen tools create work surfaces and curved elements.",
+      "parameters": [
+        {"name": "layers", "description": "project.Media:AddWindscreen(layeredDielectric, offset): glass/PVB stack and offset of layer 1 from the reference surface."}
+      ],
+      "example": "glassStack = project.Media:AddLayeredDielectric({2.1e-3, 0.76e-3, 2.1e-3}, {glass, pvb, glass})\nws = project.Media:AddWindscreen(glassStack, 0.0)\n-- assign FaceSolutionMethodEnum.Windscreen to the antenna faces and set their reference face",
+      "notes": "Requires the windscreen reference geometry to be a face of the model; example A.14 (windscreen antenna on an automobile).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/windscreen_tools_intro_feko_c.dita-cadfeko.htm"
+    },
+    {
+      "name": "Low-frequency stabilisation",
+      "kind": "solver",
+      "description": "MoM formulation option that keeps the matrix well conditioned at very low frequencies (structure much smaller than the wavelength), e.g. for kHz-MHz EMC problems, lightning or low-frequency coupling, where the standard RWG formulation breaks down. Auto lets the solver decide, Always on forces it; double precision helps before that.",
+      "usage": "EG card options / Solver settings > General; Lua: gs = project.SolutionSettings.SolverSettings.GeneralSettings; gs.LowFrequencyStabilisationEnabled = true; gs.LowFrequencyStabilisationMode = cf.Enums.LowFrequencyStabilisationModeEnum.Auto | AlwaysOn.",
+      "parameters": [
+        {"name": "DataStoragePrecision", "description": "cf.Enums.PrecisionSettingsEnum.Double doubles memory but extends the valid frequency range."}
+      ],
+      "example": "gs = project.SolutionSettings.SolverSettings.GeneralSettings\ngs.DataStoragePrecision = cf.Enums.PrecisionSettingsEnum.Double\ngs.LowFrequencyStabilisationEnabled = true",
+      "notes": "Not required at higher frequencies and increases runtime; the problem is conditioning, not size.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/generalsolversettings.htm"
+    },
+    {
+      "name": "Symmetry planes",
+      "kind": "solver",
+      "description": "Geometric, electric or magnetic symmetry in the x=0, y=0 and z=0 planes reduces the number of unknowns (electric/magnetic symmetry halve the matrix per plane; geometric symmetry saves matrix fill time only). Sources and loads must respect the same symmetry.",
+      "usage": "Solve/Run > Symmetry (SY card); Lua: project.SolutionSettings.ModelSymmetry:SetProperties({PlaneX = cf.Enums.ModelSymmetryTypeEnum.Electric}); properties PlaneX, PlaneY, PlaneZ.",
+      "parameters": [
+        {"name": "plane type", "description": "cf.Enums.ModelSymmetryTypeEnum.NoSymmetry | Geometric | Electric (PEC wall) | Magnetic (PMC wall)."}
+      ],
+      "example": "project.SolutionSettings.ModelSymmetry:SetProperties({PlaneY = cf.Enums.ModelSymmetryTypeEnum.Magnetic})",
+      "notes": "A dipole along z above the x=0 plane: electric symmetry in x=0 halves the model; wrong symmetry silently changes the physics, so check the currents plot. The CFIE switches symmetry off.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/modelsymmetry.htm"
+    },
+    {
+      "name": "Parallel solving (MPI) and GPU acceleration",
+      "kind": "tool",
+      "description": "All main solvers run in parallel across cores and cluster nodes with MPI (runfeko -np N, or -np all with a machines file listing host:processes) and the MoM/MLFMM dense operations can additionally use NVIDIA CUDA GPUs (--use-gpu). Memory per process and total memory are reported in the .out file, which is the first thing to inspect when a run is slow or fails. Job schedulers (PBS Professional, HPC Pack, Torque, OpenPBS, LSF, NQS, SLURM, Grid Engine) are supported with --use-job-scheduler.",
+      "usage": "runfeko model.cfx -np 8 [--machines-file hosts] [--use-gpu [N][:id,id]] [--priority 0..4]; CADFEKO: Solve/Run > Run/Launch dialog launcher (Parallel), Lua: project.Launcher.Settings.FEKO.Parallel.Enabled = true; ProcessCount = 8.",
+      "parameters": [
+        {"name": "-np", "description": "Number of MPI processes (usually one per physical core); -np all uses the whole machines file."},
+        {"name": "--use-gpu", "description": "[NUM_GPUS][:GPU_1[,GPU_N]]; --use-gpu 0 disables GPU detection; Lua: Launcher.Settings.FEKO.GPU.NVIDIAEnabled."}
+      ],
+      "example": "runfeko antenna_on_car.cfx -np 16 --use-gpu 2:0,2",
+      "notes": "Licensing: parallel runs consume more Altair Units; the .out file lists the license features drawn. The machines file (host:N per line) lives in FEKO_USER_HOME/machines.feko or is given by FEKO_MACHFILE.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/utilities/run_parallel_feko_c.htm"
+    },
+    {
+      "name": "Adaptive frequency sampling (continuous frequency range)",
+      "kind": "tool",
+      "description": "With a continuous frequency range Feko chooses the sample frequencies automatically, fitting rational-function models to the requested quantities (S-parameters, impedance, far fields) until the interpolation converges. Resonant devices (filters, antennas with sharp matching) get resolved with far fewer solver runs than a fine linear sweep. The adaptive driver runs inside runfeko; there is no separate adaptfeko executable in current installations.",
+      "usage": "Frequency > Continuous (interpolated) range with start/end (FR card 'continuous data'); Lua: cfg.Frequency.RangeType = cf.Enums.FrequencyRangeTypeEnum.Continuous; cfg.Frequency.Start/End; advanced settings under cfg.Frequency.Advanced (max sample points, minimum increment, quantities).",
+      "parameters": [
+        {"name": "max. number of sample points / minimum increment", "description": "Bound the adaptive process (default 1000 points)."}
+      ],
+      "example": "f = cfg.Frequency\nf.RangeType = cf.Enums.FrequencyRangeTypeEnum.Continuous\nf.Start = 1e9; f.End = 3e9",
+      "notes": "Requests with many outputs (full 3D far-field patterns) slow the convergence check; continuous results cannot be used in an optimisation. Example H.1 (forked dipole, continuous range).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/enum/frequencyrangetypeenum.htm"
+    },
+    {
+      "name": "SAR and bio-electromagnetic analysis",
+      "kind": "tool",
+      "description": "Specific absorption rate (spatial-peak 1 g and 10 g cube-averaged, volume/whole-body average) is computed in lossy dielectric regions (FEM, FDTD, VEP or layered Green's functions) with imported anatomical phantoms (voxel models) or CAD phantoms. Used for handset/wearable compliance, MRI coil design and implant studies.",
+      "usage": "Request > SAR (SA card); Lua: sar = cfg.SAR:Add(); sar.CalculationType = cf.Enums.SARCalculationTypeEnum.SpatialPeak1g | SpatialPeak10g | VolumeAverage; sar.RegionType = cf.Enums.SARRegionTypeEnum.EntireModel | Medium | Position | Substrate.",
+      "parameters": [
+        {"name": "averaging", "description": "SpatialPeak1g, SpatialPeak10g (cube search, max. 20 % air fraction) or VolumeAverage."},
+        {"name": "region", "description": "EntireModel, a specified medium (sar.SpecifiedMedium), a specified position (sar.SpecifiedPosition) or a substrate layer."}
+      ],
+      "example": "sar = cfg.SAR:Add()\nsar.CalculationType = cf.Enums.SARCalculationTypeEnum.SpatialPeak10g\nsar.RegionType = cf.Enums.SARRegionTypeEnum.EntireModel\ncfg.Power.ScaleSettings = cf.Enums.PowerScaleSettingsEnum.TotalSourcePower\ncfg.Power.SourcePower = 0.25",
+      "notes": "Voxel phantoms are imported through the mesh import (Voxel mesh format); power scaling normalises to a fixed input power. Examples F.1 (muscle tissue, MoM/FEM) and F.2 (MRI birdcage coil).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/sar.htm"
+    },
+    {
+      "name": "Non-radiating networks: transmission lines and general networks",
+      "kind": "tool",
+      "description": "Circuit elements can be connected to ports without being meshed: ideal transmission lines (length, complex Z0, attenuation, velocity of propagation or a dielectric medium) and general networks defined by S-, Y- or Z-parameter files (Touchstone) or SPICE circuits, with optional voltage/current probes. This lets feed networks, matching circuits, baluns and amplifiers be included in an antenna simulation; field coupling of the network itself is neglected.",
+      "usage": "Source/Load > Loads/networks (TL and NW cards); Lua: cfg.Networks:AddTransmissionLine(length, z0Real, z0Imag, attenuation) | (length, z0Real, z0Imag, medium) | (length, z0Real, z0Imag, attenuation, velocity); cfg.Networks:AddGeneralNetwork(cf.Enums.GeneralNetworkDataTypeEnum.SMatrix, 2, [[match.s2p]]).",
+      "parameters": [
+        {"name": "GeneralNetworkDataTypeEnum", "description": "SMatrix, YMatrix, ZMatrix (Touchstone) or SPICENetwork (.cir)."},
+        {"name": "terminals", "description": "Network/line terminals are connected to port terminals in the network schematic (app.Views:ShowNetworkSchematic())."}
+      ],
+      "example": "tl = cfg.Networks:AddTransmissionLine(0.1, 50, 0, 0)\nnet = cfg.Networks:AddGeneralNetwork(cf.Enums.GeneralNetworkDataTypeEnum.SMatrix, 2, [[D:/nets/match.s2p]])",
+      "notes": "The combined S-parameters include the networks; AN sources and LN loads attach to network ports in EDITFEKO. Examples E.3.1/E.3.2 (dipole matching with SPICE / S-parameter networks) and E.4.x (feed networks).",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/collection/networkcollection.htm"
+    },
+    {
+      "name": "Lossy metals, finite conductivity and skin effect",
+      "kind": "tool",
+      "description": "Metallic faces and wires can have finite conductivity, thickness and surface roughness (skin-effect losses, static or high-frequency approximation, exact expression) instead of PEC, which matters for efficiency, Q-factor and resonator loss calculations. Defined as a metallic medium (relative permeability, magnetic loss tangent, conductivity) and assigned to faces/wires; the face thickness is a face property.",
+      "usage": "Media > Metal; face.Medium = metal; face.Thickness = t (sets ThicknessEnabled); SK card in EDITFEKO.",
+      "parameters": [
+        {"name": "AddMetal(relativepermeability, losstangent, conductivity)", "description": "Argument order of project.Media:AddMetal; e.g. copper 1, 0, 5.8e7."},
+        {"name": "SurfaceRoughness", "description": "metal.SurfaceRoughness (RMS in m) sets SurfaceRoughnessEnabled."}
+      ],
+      "example": "cu = project.Media:AddMetal(1, 0, 5.8e7)\ncu.Label = \"Copper\"\nface.Medium = cu\nface.Thickness = 35e-6",
+      "notes": "Losses appear in the 'POWER LOSS METAL' and 'SUMMARY OF LOSSES' blocks of the .out file and in POSTFEKO 'Power' results; the media library (app.MediaLibrary:AddToModel(\"Copper\")) has common metals.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/metal.htm"
+    },
+    {
+      "name": "Error estimation and convergence checks",
+      "kind": "tool",
+      "description": "An error estimation request reports an a-posteriori error indicator per mesh element (triangles, segments, tetrahedra) showing where local refinement should be considered; AMRFEKO can refine FEM meshes automatically from it. The .out file lists iterative-solver residuals, and comparing results at two mesh densities remains the definitive convergence test. Use these before trusting gain or S-parameter values to a fraction of a dB.",
+      "usage": "Request > Error estimation (EE card); Lua: cfg.ErrorEstimations:Add(); inspect POSTFEKO 'Error estimates' on a 3D view and the .out file convergence lines.",
+      "parameters": [
+        {"name": "CalculationScope", "description": "Element types / scoped entities considered (ErrorEstimationCalculationScopeEnum, ScopedEntities)."}
+      ],
+      "example": "ee = cfg.ErrorEstimations:Add()\nee.ExportEnabled = true  -- also write the estimates to the .out file",
+      "notes": "Mesh refinement of one face at a time (face.LocalMeshSize) is cheaper than refining the whole model; project.MeshRefinementRules:AddErrorEstimateRefinement() creates an adaptive rule from a solved model.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/appendix/api_cadfeko_auto_generated/object/errorestimation.htm"
+    },
+    {
+      "name": "Solver selection guide",
+      "kind": "reference",
+      "description": "Rules of thumb for picking the solution method: MoM for antennas, wires and structures up to ~10-20 wavelengths; MLFMM (or ACA/HOBF) for larger metallic problems that must stay full-wave; FEM for inhomogeneous or lossy dielectric volumes; FDTD for wideband/time-domain and voxel phantoms; PO/LE-PO/RL-GO/UTD for electrically huge platforms, reflectors, radomes and RCS trends when full-wave is unaffordable; planar Green's function for microstrip on infinite substrates; CMA for chassis-mode antenna design; MTL cables for harness EMC. Solvers are set per model (MLFMM, FEM, FDTD, ACA), per face (PO, LE-PO, RL-GO, UTD, faceted UTD, windscreen) or per region (FEM, VEP, SEP, UTD cylinder).",
+      "usage": "Read this before setting 'Solve with' on faces/regions.",
+      "parameters": [],
+      "example": "Aircraft (60 m) with a blade antenna at 1 GHz -> antenna MoM, fuselage LE-PO or MLFMM; SAR of a handset -> FEM or FDTD with phantom; 8x8 patch array on FR4 -> planar Green's function + DGFM or MLFMM.",
+      "notes": "Always cross-check an asymptotic setup against MoM/MLFMM on a reduced problem; the Example Guide (A.3.x) shows the same dipole-plate problem solved with MoM, HOBF, FDTD, UTD, RL-GO, PO and LE-PO.",
+      "docs": "https://help.altair.com/feko/topics/feko/user_guide/cadfeko/solver_settings_intro_feko_c-cadfeko.htm"
+    }
+  ]
+}

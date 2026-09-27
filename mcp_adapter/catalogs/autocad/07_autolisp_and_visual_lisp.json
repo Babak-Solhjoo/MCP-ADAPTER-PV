@@ -1,0 +1,1154 @@
+{
+  "category": "AutoLISP & Visual LISP",
+  "description": "The AutoLISP language that ships inside AutoCAD, and the Visual LISP (vl-, vlax-, vla-) extensions that expose the ActiveX object model to it. These are the functions used to define custom commands, prompt the user, build and filter selection sets, read and write entity data as DXF group-code lists, and drive the drawing through either the command line or the COM API.",
+  "tools": [
+    {
+      "name": "defun",
+      "kind": "function",
+      "description": "Define a function. Prefixing the name with C: makes it a command that the user can type at the AutoCAD prompt, and the special name *error* defines the error handler that AutoCAD calls when the routine fails or the user presses Escape. Everything after the / in the argument list is a local variable, which is the only thing that stops a routine from leaving global symbols behind. A robust command defines a local *error* that restores every system variable the routine changed.",
+      "usage": "(defun name ([arg1 arg2 ...] [/ local1 local2 ...]) expr1 expr2 ...)\n(defun C:MYCMD ( / a b) ...)          ; typed as MYCMD at the command prompt\n(defun *error* (msg) ...)              ; error handler, receives the message string",
+      "parameters": [
+        {
+          "name": "name",
+          "description": "Symbol the function is bound to. C:NAME becomes a command; names are not case sensitive."
+        },
+        {
+          "name": "arguments",
+          "description": "Formal parameters before the slash. A C: function must take no arguments (an optional argument list is allowed only in AutoCAD 2018 and later, and users cannot pass them)."
+        },
+        {
+          "name": "/ locals",
+          "description": "Symbols after the slash are local to the call and are restored to their previous values on exit, including on error. Always declare every setq target here."
+        },
+        {
+          "name": "*error*",
+          "description": "Defined as a local so that it is automatically restored when the command ends. It receives one argument, the error message string."
+        },
+        {
+          "name": "return value",
+          "description": "The value of the last expression evaluated. End a command with (princ) so nothing is echoed back to the command line."
+        }
+      ],
+      "example": "(defun C:WALLTAG ( / *error* os ech p)\n\n  (defun *error* (msg)\n    (if os  (setvar \"OSMODE\" os))\n    (if ech (setvar \"CMDECHO\" ech))\n    (if (and msg (not (wcmatch msg \"Function cancelled,quit / exit abort\")))\n      (princ (strcat \"\\nError: \" msg)))\n    (princ)\n  )\n\n  (setq os  (getvar \"OSMODE\")\n        ech (getvar \"CMDECHO\"))\n  (setvar \"OSMODE\" 0)\n  (setvar \"CMDECHO\" 0)\n\n  (if (setq p (getpoint \"\\nPick tag point: \"))\n    (command-s \"_TEXT\" p 2.5 0 \"W-01\"))\n\n  (setvar \"OSMODE\" os)\n  (setvar \"CMDECHO\" ech)\n  (princ)\n)",
+      "notes": "Forgetting the / locals list is the classic AutoLISP bug: the routine works once, then collides with another routine that used the same symbol name. *error* must be defined as a local of the command, otherwise it stays installed and swallows errors from unrelated code. Use defun-q instead of defun only when the function body has to be manipulated as a list (for example with defun-q-list-set for saved-in-drawing startup routines)."
+    },
+    {
+      "name": "command",
+      "kind": "function",
+      "description": "Run an AutoCAD command by feeding it arguments exactly as if they were typed. command submits its arguments one at a time and supports PAUSE for user input, but from AutoCAD 2015 onward it fails when called from a context where AutoCAD is already mid-command - a reactor callback, an ObjectARX callback, or a function invoked while another command is running. command-s and vl-cmdf are the safe replacements: command-s must receive the whole command in one call and evaluates synchronously, and vl-cmdf evaluates all of its arguments before submitting them.",
+      "usage": "(command [arg1 arg2 ...])\n(command-s [arg1 arg2 ...])\n(vl-cmdf  [arg1 arg2 ...])",
+      "parameters": [
+        {
+          "name": "command name",
+          "description": "String such as \"_LINE\". Prefix with an underscore for language independence and with a hyphen (\"_-INSERT\") to force the command-line version that shows no dialog."
+        },
+        {
+          "name": "\"\" (empty string)",
+          "description": "Equivalent to pressing Enter, used to end an open-ended prompt such as Select objects."
+        },
+        {
+          "name": "PAUSE",
+          "description": "Predefined symbol that suspends the command so the user can pick. Works with command and vl-cmdf; command-s does not support it."
+        },
+        {
+          "name": "points",
+          "description": "Pass as lists, '(10.0 20.0 0.0), not as strings. Points are interpreted in the current UCS."
+        },
+        {
+          "name": "selection sets",
+          "description": "A selection set from ssget can be given directly where a command prompts Select objects; follow it with \"\" to end the selection."
+        },
+        {
+          "name": "(command)",
+          "description": "With no arguments, cancels the command in progress - the equivalent of pressing Escape."
+        }
+      ],
+      "example": "(setvar \"CMDECHO\" 0)\n\n; Safe in any context\n(command-s \"_.LINE\" '(0.0 0.0 0.0) '(100.0 0.0 0.0) \"\")\n\n; Move everything on layer OLD by a user-picked displacement\n(if (setq ss (ssget \"_X\" '((8 . \"OLD\"))))\n  (command \"_.MOVE\" ss \"\" '(0.0 0.0 0.0) pause))\n\n; vl-cmdf checks its arguments first, so a bad value fails before the command starts\n(vl-cmdf \"_.CIRCLE\" '(50.0 50.0 0.0) 25.0)",
+      "notes": "Always prefix command names with a period as well as an underscore (\"_.LINE\") so a redefined command cannot hijack the call. Set CMDECHO to 0 around command calls to keep the command line clean, and restore it in *error*. Where performance matters or where no command context exists at all, entmake and the vla-Add* functions are far faster than driving the command line."
+    },
+    {
+      "name": "setq",
+      "kind": "function",
+      "description": "Assign values to symbols; the only assignment function in AutoLISP. It takes any number of symbol/value pairs and returns the last value assigned, so it is commonly wrapped in an if or while test to assign and test in one step. Symbols not declared in a defun's local list become global and persist for the whole drawing session.",
+      "usage": "(setq sym1 expr1 [sym2 expr2] ...)",
+      "parameters": [
+        {
+          "name": "sym",
+          "description": "Symbol to set. It is not evaluated; use set with a quoted symbol when the name itself is computed."
+        },
+        {
+          "name": "expr",
+          "description": "Expression whose value is assigned. Evaluated left to right, so later pairs can use earlier ones in the same setq."
+        },
+        {
+          "name": "return value",
+          "description": "The last value assigned, which makes (if (setq e (entsel)) ...) the idiomatic assign-and-test pattern."
+        }
+      ],
+      "example": "(setq p1  (getpoint \"\\nStart point: \")\n      p2  (getpoint p1 \"\\nEnd point: \")\n      len (distance p1 p2)\n      msg (strcat \"\\nLength = \" (rtos len 2 3)))\n(princ msg)\n\n; Assign and test together\n(if (setq ss (ssget \"_X\" '((0 . \"CIRCLE\"))))\n  (princ (strcat \"\\n\" (itoa (sslength ss)) \" circles found.\"))\n  (princ \"\\nNo circles.\"))",
+      "notes": "Declare every setq target in the defun local list unless it is deliberately global. AutoLISP has no type declaration: a symbol can hold a real one moment and a string the next, and mixing integers with reals silently changes arithmetic results (1 / 2 is 0, 1.0 / 2 is 0.5)."
+    },
+    {
+      "name": "cond",
+      "kind": "function",
+      "description": "Evaluate a list of test/result clauses and run the body of the first clause whose test is non-nil. It is the multi-way branch of AutoLISP and replaces nested if expressions; a final clause with T as the test acts as the else branch. Each clause may contain several expressions, so unlike if it needs no progn.",
+      "usage": "(cond (test1 expr ...) (test2 expr ...) ... (T expr ...))",
+      "parameters": [
+        {
+          "name": "test",
+          "description": "Any expression. The clause runs if it returns anything other than nil."
+        },
+        {
+          "name": "expr ...",
+          "description": "Body of the clause; all expressions run and the value of the last one is returned by cond."
+        },
+        {
+          "name": "T clause",
+          "description": "Catch-all default. Omitting it means cond returns nil when nothing matches, which silently hides unhandled cases."
+        },
+        {
+          "name": "clause with no body",
+          "description": "(cond (expr)) returns the value of the test itself, useful for returning the first non-nil result of several alternatives."
+        }
+      ],
+      "example": "(setq etype (cdr (assoc 0 (entget (car (entsel))))))\n(cond\n  ((= etype \"LINE\")\n   (princ \"\\nA line.\"))\n  ((member etype '(\"LWPOLYLINE\" \"POLYLINE\"))\n   (princ \"\\nA polyline.\"))\n  ((wcmatch etype \"*TEXT\")\n   (princ \"\\nText or mtext.\"))\n  (T\n   (princ (strcat \"\\nUnhandled type: \" etype)))\n)",
+      "notes": "if takes only one expression per branch, so (if test (progn a b c) d) is the equivalent form; cond is usually clearer. Remember that in AutoLISP only nil is false - 0, the empty string and '() as a value of nil are the traps, since the empty list IS nil."
+    },
+    {
+      "name": "while",
+      "kind": "function",
+      "description": "Repeat a body of expressions for as long as the test expression returns non-nil. It is the standard loop for walking a selection set by index, stepping through the entity database with entnext, and for repeat-until-the-user-presses-Enter prompt loops, because a get* function returning nil ends the loop naturally. Returns the value of the last expression evaluated in the body.",
+      "usage": "(while testexpr expr1 expr2 ...)",
+      "parameters": [
+        {
+          "name": "testexpr",
+          "description": "Evaluated before every pass; the loop ends as soon as it returns nil."
+        },
+        {
+          "name": "expr ...",
+          "description": "Loop body. It must eventually change whatever the test depends on, or the loop never ends."
+        },
+        {
+          "name": "counter idiom",
+          "description": "(setq i 0) then (while (< i n) ... (setq i (1+ i))) - the usual way to index a selection set."
+        },
+        {
+          "name": "prompt idiom",
+          "description": "(while (setq p (getpoint \"\\nNext point: \")) ...) exits cleanly when the user presses Enter or Escape."
+        }
+      ],
+      "example": "; Renumber every TEXT object on layer TAGS\n(setq ss (ssget \"_X\" '((0 . \"TEXT\") (8 . \"TAGS\")))\n      i  0\n      n  1)\n(while (< i (sslength ss))\n  (setq e  (ssname ss i)\n        el (entget e))\n  (entmod (subst (cons 1 (strcat \"T-\" (itoa n)))\n                 (assoc 1 el)\n                 el))\n  (setq i (1+ i)\n        n (1+ n)))\n(princ)",
+      "notes": "A runaway while loop can only be stopped with Escape and may leave the drawing half-edited, so guard the test carefully. repeat is simpler when the count is fixed, and foreach is simpler when iterating a list. Wrapping a long loop in (setvar \"CMDECHO\" 0) and undo marks (command \"_.UNDO\" \"_BE\" ... \"_.UNDO\" \"_E\") makes the whole run undoable in one step."
+    },
+    {
+      "name": "foreach",
+      "kind": "function",
+      "description": "Bind a symbol to each element of a list in turn and evaluate the body for each one. It is the cleanest way to walk an entity data list from entget, a list of layer names, or a list of entity names built from a selection set. Returns the value of the last expression evaluated on the last element.",
+      "usage": "(foreach name list expr1 expr2 ...)",
+      "parameters": [
+        {
+          "name": "name",
+          "description": "Symbol bound to each element in turn. It is local to the foreach."
+        },
+        {
+          "name": "list",
+          "description": "Any list. A non-list argument is an error; nil (the empty list) simply runs the body zero times."
+        },
+        {
+          "name": "expr ...",
+          "description": "Body evaluated once per element; several expressions are allowed with no progn."
+        }
+      ],
+      "example": "; Create a standard layer set\n(foreach lay '((\"WALLS\"  . 1)\n               (\"DOORS\"  . 3)\n               (\"TEXT\"   . 7)\n               (\"HIDDEN\" . 8))\n  (if (not (tblsearch \"LAYER\" (car lay)))\n    (command-s \"_.-LAYER\" \"_M\" (car lay) \"_C\" (cdr lay) \"\" \"\")))\n\n; Print every DXF group code of a picked entity\n(foreach pair (entget (car (entsel)))\n  (princ (strcat \"\\n\" (vl-princ-to-string pair))))\n(princ)",
+      "notes": "foreach always returns the value from the last element, never the collected results - use mapcar when a list of results is wanted. To turn a selection set into a list first, build it with a while/ssname loop; a selection set is not a list and foreach cannot iterate it directly."
+    },
+    {
+      "name": "mapcar",
+      "kind": "function",
+      "description": "Apply a function to the corresponding elements of one or more lists and return the list of results. With lambda it replaces most short loops: extracting one DXF value from every entity, adding an offset to every coordinate, or converting a list of numbers to strings. With several lists the function is called with one element from each, and iteration stops at the shortest list.",
+      "usage": "(mapcar function list1 [list2 ... listn])\n(mapcar '(lambda (x) expr) list)",
+      "parameters": [
+        {
+          "name": "function",
+          "description": "A quoted symbol ('car, 'cdr, '1+), a lambda expression, or a user-defined function name."
+        },
+        {
+          "name": "list1 ... listn",
+          "description": "One list per argument the function takes. The result has as many elements as the shortest list."
+        },
+        {
+          "name": "lambda",
+          "description": "(lambda (args) body) defines an anonymous function inline; it is the usual second argument to mapcar, vl-sort, vl-remove-if and vl-some."
+        }
+      ],
+      "example": "; Add a 100-unit X offset to a point\n(setq p  '(10.0 20.0 0.0)\n      p2 (mapcar '+ p '(100.0 0.0 0.0)))\n\n; Midpoint of two points\n(defun mid (a b) (mapcar '(lambda (x y) (/ (+ x y) 2.0)) a b))\n\n; Collect the layer of every entity in a selection set\n(setq ss   (ssget \"_X\" '((0 . \"CIRCLE\")))\n      i    -1\n      lst  '())\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq lst (cons e lst)))\n(setq layers\n  (mapcar '(lambda (en) (cdr (assoc 8 (entget en)))) lst))",
+      "notes": "(mapcar '+ p1 p2) and (mapcar '- p2 p1) are the standard point arithmetic idioms; there is no built-in point addition. apply is the related function that passes a whole list as the arguments of a single call, for example (apply 'max lst). Use vl-remove-if or vl-remove-if-not to filter, since mapcar always returns one result per input element."
+    },
+    {
+      "name": "initget",
+      "kind": "function",
+      "description": "Set the keywords and input restrictions that apply to the very next user-input function. Bit flags forbid null, zero or negative answers and control the rubber-band display, and the keyword string defines the words shown in square brackets that the user can type or pick. It applies to exactly one following get* call and is then cleared automatically.",
+      "usage": "(initget [bits] [keyword-string])",
+      "parameters": [
+        {
+          "name": "1",
+          "description": "Disallow a null response (pressing Enter without typing anything)."
+        },
+        {
+          "name": "2",
+          "description": "Disallow zero."
+        },
+        {
+          "name": "4",
+          "description": "Disallow negative values."
+        },
+        {
+          "name": "8",
+          "description": "Do not check the value against the drawing limits, so a point outside them is accepted."
+        },
+        {
+          "name": "32",
+          "description": "Draw the rubber-band line or box with dashed rather than solid lines."
+        },
+        {
+          "name": "128",
+          "description": "Accept arbitrary typed input and return it as if it were a keyword, which is how free-form answers are captured."
+        },
+        {
+          "name": "keyword-string",
+          "description": "Space-separated keywords, for example \"Width Height eXit\". Uppercase letters are the abbreviation the user may type; put a _ before an English keyword list for language-independent macros."
+        }
+      ],
+      "example": "(initget 1 \"Line Arc Circle\")\n(setq opt (getkword \"\\nEntity type [Line/Arc/Circle]: \"))\n\n; Positive, non-zero radius only\n(initget (+ 1 2 4))\n(setq r (getreal \"\\nRadius: \"))\n\n; Keyword mixed with a point - getpoint returns a string when a keyword is chosen\n(initget \"Center\")\n(setq ans (getpoint \"\\nStart point or [Center]: \"))\n(if (= ans \"Center\") (princ \"\\nCentre mode\") (princ \"\\nPoint picked\"))",
+      "notes": "initget affects getint, getreal, getdist, getangle, getorient, getpoint, getcorner and getkword, but has no effect at all on getstring. When a keyword is chosen the get* function returns the full keyword as a string rather than its normal data type, so always test the type of the result. Bit 1 (no null) combined with a keyword list is the usual way to force a valid answer."
+    },
+    {
+      "name": "getpoint",
+      "kind": "function",
+      "description": "Prompt the user to pick a point or type coordinates, returning a 3D point as a list of three reals in the current UCS. Supplying a base point draws a rubber-band line from it and lets the user answer with relative coordinates such as @100,0. It returns nil if the user presses Enter (unless initget bit 1 forbids it) and raises a cancel if Escape is pressed.",
+      "usage": "(getpoint [basepoint] [prompt])",
+      "parameters": [
+        {
+          "name": "basepoint",
+          "description": "Optional 3D point from which the rubber-band line is drawn and to which relative input (@dx,dy) is referred."
+        },
+        {
+          "name": "prompt",
+          "description": "Message shown at the command line. Start it with \\n so it appears on its own line."
+        },
+        {
+          "name": "return value",
+          "description": "A list (x y z) of reals in the current UCS, nil for a null response, or a keyword string when initget keywords were set."
+        },
+        {
+          "name": "related prompts",
+          "description": "getcorner draws a rubber-band box from a base point, getdist returns a distance, getangle an angle in radians, getreal / getint / getstring return numbers and text."
+        }
+      ],
+      "example": "(setq p1 (getpoint \"\\nFirst corner: \"))\n(setq p2 (getcorner p1 \"\\nOpposite corner: \"))\n(if (and p1 p2)\n  (progn\n    (command-s \"_.RECTANG\" p1 p2)\n    (princ (strcat \"\\nArea = \"\n                   (rtos (abs (* (- (car p2) (car p1))\n                                 (- (cadr p2) (cadr p1)))) 2 2)))))\n(princ)",
+      "notes": "The returned point is in the current UCS; pass it through (trans p 1 0) before storing it in entity data, which is always in WCS or the object's OCS. Running object snaps affect the pick, so set OSMODE to 0 first when an exact typed coordinate is required. getdist accepts either two picked points or a typed number, which makes it the friendliest way to ask for a length."
+    },
+    {
+      "name": "getstring",
+      "kind": "function",
+      "description": "Prompt for a text string and return it. By default the space bar ends the input, so the optional first argument must be non-nil whenever the answer may contain spaces - a description, a note or a file path. The result is always a string, never converted to a number.",
+      "usage": "(getstring [cr] [prompt])",
+      "parameters": [
+        {
+          "name": "cr",
+          "description": "If non-nil, spaces are allowed and only Enter ends the input. Omitted or nil, a space terminates the string."
+        },
+        {
+          "name": "prompt",
+          "description": "Message displayed; begin with \\n for a fresh line."
+        },
+        {
+          "name": "return value",
+          "description": "The typed string, or an empty string \"\" if the user just pressed Enter - note that this is not nil, so test with (= s \"\")."
+        },
+        {
+          "name": "length limit",
+          "description": "Input longer than 132 characters is truncated."
+        }
+      ],
+      "example": "(setq note (getstring T \"\\nDrawing note: \"))\n(if (/= note \"\")\n  (entmake (list '(0 . \"TEXT\")\n                 '(100 . \"AcDbEntity\")\n                 '(8 . \"NOTES\")\n                 '(100 . \"AcDbText\")\n                 (cons 10 (getvar \"VIEWCTR\"))\n                 (cons 40 (* 2.5 (getvar \"DIMSCALE\")))\n                 (cons 1 note))))\n(princ)",
+      "notes": "initget has no effect on getstring, so restrictions must be checked by hand. A null answer is an empty string and not nil, which is the most common bug in string prompts. Use getkword when the answer must be one of a fixed set of options, and getfiled when a file name is wanted with a browse dialog."
+    },
+    {
+      "name": "entsel",
+      "kind": "function",
+      "description": "Ask the user to pick a single object and return a two-element list containing the entity name and the point that was used to select it. The pick point matters for commands such as TRIM, BREAK and FILLET, which behave differently depending on which side of an object was clicked. Only objects in the current space can be picked, and the function returns nil if the user misses or presses Enter.",
+      "usage": "(entsel [prompt])",
+      "parameters": [
+        {
+          "name": "prompt",
+          "description": "Message shown; defaults to \"Select object:\" when omitted."
+        },
+        {
+          "name": "return value",
+          "description": "A list (ename pickpoint), so (car (entsel)) gives the entity name and (cadr (entsel)) the point, in the current UCS."
+        },
+        {
+          "name": "initget keywords",
+          "description": "Keywords set with initget are accepted, in which case entsel returns the keyword string instead of a list."
+        },
+        {
+          "name": "nentsel",
+          "description": "The nested variant: picks entities inside blocks and xrefs and additionally returns the transformation matrix from the block's coordinates to the current UCS."
+        }
+      ],
+      "example": "(initget \"Multiple\")\n(setq sel (entsel \"\\nSelect a line or [Multiple]: \"))\n(cond\n  ((= sel \"Multiple\") (setq ss (ssget)))\n  ((null sel) (princ \"\\nNothing selected.\"))\n  (T\n   (setq e  (car sel)\n         el (entget e))\n   (princ (strcat \"\\nType: \" (cdr (assoc 0 el))\n                  \"  Layer: \" (cdr (assoc 8 el))))))\n(princ)",
+      "notes": "entsel obeys the PICKBOX aperture and only sees the current space, so it cannot pick a model-space object while a paper-space layout is active. Use nentsel or nentselp to reach geometry inside a block reference, and ssget when more than one object is needed."
+    },
+    {
+      "name": "princ",
+      "kind": "function",
+      "description": "Print an expression to the command line or to an open file, with strings shown without their surrounding quotation marks and control characters interpreted. Called with no arguments it prints nothing and returns a null symbol, which is why (princ) is the conventional last expression of every command function - it stops the return value of the previous expression being echoed to the user.",
+      "usage": "(princ [expr [file-descriptor]])",
+      "parameters": [
+        {
+          "name": "expr",
+          "description": "Any value. Strings print raw, so \\n produces a real newline and \\\" a quotation mark."
+        },
+        {
+          "name": "file-descriptor",
+          "description": "Optional handle from open; the output is written to that file instead of the command line."
+        },
+        {
+          "name": "(princ)",
+          "description": "No arguments: prints nothing and returns a null symbol. Use it to end a command quietly."
+        },
+        {
+          "name": "prin1 / print / prompt",
+          "description": "prin1 prints strings with quotes and escape codes, print adds a leading newline, and prompt writes a message with no return value at all."
+        }
+      ],
+      "example": "(defun C:CNT ( / ss)\n  (if (setq ss (ssget \"_X\" '((0 . \"INSERT\"))))\n    (princ (strcat \"\\n\" (itoa (sslength ss)) \" block references.\"))\n    (princ \"\\nNo block references found.\"))\n  (princ)      ; quiet exit - nothing is echoed\n)\n\n; Write to a file instead\n(setq f (open \"C:/temp/report.txt\" \"w\"))\n(princ \"Layer report\\n\" f)\n(close f)",
+      "notes": "Without a trailing (princ), a command function echoes whatever its last expression returned - typically a raw entity name or a T - which looks like an error to users. prompt is the better choice for a message that is purely informational, and alert raises a modal message box that stops a script dead, so avoid it in batch routines."
+    },
+    {
+      "name": "getvar",
+      "kind": "function",
+      "description": "Read the value of an AutoCAD system variable, returning it in its natural LISP type: an integer, a real, a string, or a point as a list. It is how a routine discovers the current layer, text height, units, drawing name and osnap settings before changing anything. An unknown variable name returns nil rather than raising an error.",
+      "usage": "(getvar varname)",
+      "parameters": [
+        {
+          "name": "varname",
+          "description": "System variable name as a string, not case sensitive: \"OSMODE\", \"CLAYER\", \"DIMSCALE\", \"CMDECHO\", \"DWGPREFIX\"."
+        },
+        {
+          "name": "return value",
+          "description": "Integer, real, string or 2D/3D point list depending on the variable; nil if the name is not recognised."
+        },
+        {
+          "name": "common variables",
+          "description": "CLAYER current layer, OSMODE running object snaps, CMDECHO command echo, DIMSCALE annotation scale, LUNITS/LUPREC linear units, INSUNITS drawing units, DWGNAME and DWGPREFIX file name and path."
+        },
+        {
+          "name": "getenv / setenv",
+          "description": "The related pair that reads and writes AutoCAD environment settings stored in the registry rather than the drawing."
+        }
+      ],
+      "example": "(setq old-osmode (getvar \"OSMODE\")\n      old-layer  (getvar \"CLAYER\")\n      dwg        (strcat (getvar \"DWGPREFIX\") (getvar \"DWGNAME\")))\n(princ (strcat \"\\nEditing \" dwg\n               \"\\nCurrent layer: \" old-layer))\n(princ)",
+      "notes": "Store and restore every variable the routine changes, and do the restoring in the *error* handler as well as at the normal exit. (getvar \"CMDNAMES\") tells you which command is currently active, which is the usual test for whether command can safely be called. Some variables are read-only and setvar will refuse them."
+    },
+    {
+      "name": "setvar",
+      "kind": "function",
+      "description": "Set an AutoCAD system variable and return the value that was set. It is how a routine turns off object snaps, suppresses command echo, switches the current layer, or sets dimension and text defaults before drawing. Read-only variables raise an error, and the value must be of the right type - a point variable needs a list, not three separate numbers.",
+      "usage": "(setvar varname value)",
+      "parameters": [
+        {
+          "name": "varname",
+          "description": "System variable name as a string."
+        },
+        {
+          "name": "value",
+          "description": "New value in the variable's own type: integer, real, string, or a list for point variables such as \"LASTPOINT\" and \"INSBASE\"."
+        },
+        {
+          "name": "\"CMDECHO\" 0",
+          "description": "Suppresses the command-line echo of everything a command function does; restore the old value on exit."
+        },
+        {
+          "name": "\"OSMODE\" 0",
+          "description": "Turns off all running object snaps so typed coordinates land exactly where intended."
+        },
+        {
+          "name": "\"CLAYER\"",
+          "description": "Sets the current layer by name. The layer must already exist or setvar fails."
+        }
+      ],
+      "example": "(defun C:BOX100 ( / os ech)\n  (setq os  (getvar \"OSMODE\")\n        ech (getvar \"CMDECHO\"))\n  (setvar \"OSMODE\" 0)\n  (setvar \"CMDECHO\" 0)\n  (if (not (tblsearch \"LAYER\" \"OUTLINE\"))\n    (command-s \"_.-LAYER\" \"_M\" \"OUTLINE\" \"\"))\n  (setvar \"CLAYER\" \"OUTLINE\")\n  (command-s \"_.RECTANG\" '(0.0 0.0 0.0) '(100.0 100.0 0.0))\n  (setvar \"OSMODE\" os)\n  (setvar \"CMDECHO\" ech)\n  (princ)\n)",
+      "notes": "setvar on a read-only variable such as DWGNAME throws an error that only an *error* handler will survive. Changing OSMODE without restoring it is the single most common complaint users have about home-grown LISP. Some variables are stored in the drawing and some in the profile or registry, so a change may or may not persist to the next session."
+    },
+    {
+      "name": "vl-load-com",
+      "kind": "function",
+      "description": "Load the extended AutoLISP functions - the ActiveX (vla-, vlax-), reactor (vlr-) and dictionary/utility (vl-) families. No vla- or vlax- function exists until this has been called, so it belongs at the top of any file that uses the COM object model. It is harmless to call repeatedly: if the extensions are already loaded it does nothing.",
+      "usage": "(vl-load-com)",
+      "parameters": [
+        {
+          "name": "return value",
+          "description": "Unspecified; the function is called purely for its effect of loading the extensions."
+        },
+        {
+          "name": "placement",
+          "description": "Put it at the top level of the LISP file, not inside a command function, so the functions exist as soon as the file is loaded."
+        },
+        {
+          "name": "what it enables",
+          "description": "vlax-get-acad-object and the whole vla-* object model, vlax-ename->vla-object, the vl-catch-all-* error handlers, vl-sort, vl-remove, vl-string-* and the vlr-* reactors."
+        }
+      ],
+      "example": "(vl-load-com)\n\n(defun C:ZOOMALL ( / acad doc)\n  (setq acad (vlax-get-acad-object)\n        doc  (vla-get-ActiveDocument acad))\n  (vla-ZoomExtents acad)\n  (vla-Regen doc acAllViewports)\n  (princ)\n)",
+      "notes": "The error \"no function definition: VLAX-GET-ACAD-OBJECT\" almost always means vl-load-com was never called. A handful of vl- functions (vl-princ-to-string, vl-filename-base and similar) are available without it, but relying on that is fragile - always call it. The companion vl-load-all loads a LISP file into every open document."
+    },
+    {
+      "name": "ssget",
+      "kind": "function",
+      "description": "Build a selection set, either interactively or silently from the drawing database. The optional mode string chooses the selection method, and the filter list restricts the result by DXF group codes, which is what makes ssget the workhorse of AutoCAD automation: one call can return every red LWPOLYLINE on layer WALLS in model space. It returns nil, not an empty set, when nothing matches.",
+      "usage": "(ssget [mode] [point1 [point2]] [pt-list] [filter-list])",
+      "parameters": [
+        {
+          "name": "\"_X\"",
+          "description": "Every entity in the database that passes the filter, with no user interaction - including objects on layers that are off or frozen, and objects in every layout. Add (410 . \"Model\") to restrict it to model space."
+        },
+        {
+          "name": "\"_P\" / \"_L\" / \"_I\"",
+          "description": "The previous selection set, the last entity created, and the implied (pre-picked) selection."
+        },
+        {
+          "name": "\"_W\" / \"_C\"",
+          "description": "Window and Crossing, each followed by two corner points: (ssget \"_C\" p1 p2 filter)."
+        },
+        {
+          "name": "\"_F\"",
+          "description": "Fence: everything crossed by the polyline given as a list of points, (ssget \"_F\" (list p1 p2 p3) filter)."
+        },
+        {
+          "name": "\"_WP\" / \"_CP\"",
+          "description": "Window polygon and crossing polygon, also taking a list of points."
+        },
+        {
+          "name": "filter-list",
+          "description": "Association list of DXF codes: 0 entity type, 8 layer, 2 block name, 62 colour, 6 linetype, 70 flags, 410 layout. String values accept wildcards (\"WALL*\", \"~DEFPOINTS\")."
+        },
+        {
+          "name": "logical operators",
+          "description": "Code -4 introduces operators: \"<OR\"/\"OR>\", \"<AND\"/\"AND>\", \"<NOT\"/\"NOT>\", \"<XOR\"/\"XOR>\", and the relational tests \"=\", \"<\", \">\", \"<=\", \">=\", \"*\" for numeric codes."
+        }
+      ],
+      "example": "; Every circle and arc on layers starting with PIPE, in model space only\n(setq ss (ssget \"_X\"\n  '((-4 . \"<OR\") (0 . \"CIRCLE\") (0 . \"ARC\") (-4 . \"OR>\")\n    (8 . \"PIPE*\")\n    (410 . \"Model\"))))\n\n; Text taller than 5 units\n(setq ss2 (ssget \"_X\"\n  '((0 . \"TEXT\") (-4 . \">\") (40 . 5.0))))\n\n; Interactive crossing window with a filter\n(setq ss3 (ssget \"_C\" '(0 0) '(1000 1000) '((0 . \"LWPOLYLINE\") (8 . \"WALLS\"))))\n\n; Let the user select freely, filtered\n(setq ss4 (ssget '((0 . \"INSERT\"))))",
+      "notes": "Always test for nil before using the result: (if ss (progn ...)). Prefix the modes with an underscore so the code works in localised versions. \"_X\" ignores the current space and picks up paper-space objects too, which is a frequent cause of routines that mysteriously modify the title block. ssgetfirst and sssetfirst read and set the grip-selected objects."
+    },
+    {
+      "name": "sslength",
+      "kind": "function",
+      "description": "Return the number of entities in a selection set as an integer. It is the loop bound for every index-based walk of a selection set, and it is also the quickest way to count objects matching a filter without touching them. Applied to nil it raises an error, so always guard it with a test that ssget actually returned a set.",
+      "usage": "(sslength selection-set)",
+      "parameters": [
+        {
+          "name": "selection-set",
+          "description": "A selection set from ssget, ssadd or ssgetfirst. Passing nil or any other type is an error."
+        },
+        {
+          "name": "return value",
+          "description": "An integer count. For sets larger than 32767 the value is returned as a real, which matters when it is used as an index."
+        },
+        {
+          "name": "loop bound",
+          "description": "Used as the upper limit of a while loop over ssname indices, which run from 0 to (1- (sslength ss))."
+        }
+      ],
+      "example": "(if (setq ss (ssget \"_X\" '((0 . \"INSERT\") (2 . \"VALVE*\"))))\n  (princ (strcat \"\\n\" (itoa (sslength ss)) \" valve blocks in the drawing.\"))\n  (princ \"\\nNo valve blocks found.\"))\n(princ)",
+      "notes": "Calling sslength on nil gives \"bad argument type: lselsetp nil\", which is the signature of an unguarded ssget. Selection sets are a limited resource in a single session (historically 128 open at once), so set unused ones to nil when a long routine finishes with them."
+    },
+    {
+      "name": "ssname",
+      "kind": "function",
+      "description": "Return the entity name at a given index in a selection set, counting from zero. Combined with sslength and a while loop it is the standard way to process every object in a set, and it returns nil once the index runs past the end, which makes it usable as the loop test on its own. The entity name it gives is what entget, entmod and vlax-ename->vla-object all expect.",
+      "usage": "(ssname selection-set index)",
+      "parameters": [
+        {
+          "name": "selection-set",
+          "description": "The set to read from."
+        },
+        {
+          "name": "index",
+          "description": "Zero-based position. Give it as a real number when the set has more than 32767 members."
+        },
+        {
+          "name": "return value",
+          "description": "An entity name, or nil when the index is out of range - so (while (setq e (ssname ss (setq i (1+ i)))) ...) terminates by itself."
+        },
+        {
+          "name": "ssadd / ssdel",
+          "description": "(ssadd [ename [ss]]) creates a set or adds to one, and (ssdel ename ss) removes a member - the way to build a filtered subset by hand."
+        }
+      ],
+      "example": "; Move every object found onto layer CHECK, building a second set as we go\n(setq ss  (ssget \"_X\" '((0 . \"TEXT\")))\n      new (ssadd)\n      i   -1)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq el (entget e))\n  (entmod (subst (cons 8 \"CHECK\") (assoc 8 el) el))\n  (ssadd e new))\n(princ (strcat \"\\n\" (itoa (sslength new)) \" objects moved.\"))\n(princ)",
+      "notes": "Deleting entities while walking a selection set is safe - the set keeps the names but entdel on an already-deleted name errors, so track what you have removed. ssname returns an entity name (an ename), not an entity data list; call entget on it to see the data."
+    },
+    {
+      "name": "entget",
+      "kind": "function",
+      "description": "Return the definition data of an entity as an association list keyed by DXF group codes. Every property of the object is there: (0 . type), (8 . layer), (10 x y z) for the primary point, (40 . radius or height), (62 . colour), (1 . text string). This list is the input to entmod, so entget/subst/entmod is the fundamental read-modify-write cycle of AutoLISP.",
+      "usage": "(entget ename [application-list])",
+      "parameters": [
+        {
+          "name": "ename",
+          "description": "Entity name from ssname, entsel, entlast, entnext or handent."
+        },
+        {
+          "name": "application-list",
+          "description": "List of registered application names whose extended entity data should be included, for example '(\"*\") for all xdata or '(\"ACAD\")."
+        },
+        {
+          "name": "(-1 . ename)",
+          "description": "First element of the returned list: the entity name itself. entmod needs it, so never strip it."
+        },
+        {
+          "name": "(0 . \"TYPE\")",
+          "description": "Entity type string - \"LINE\", \"CIRCLE\", \"LWPOLYLINE\", \"INSERT\", \"TEXT\", \"MTEXT\", \"DIMENSION\"."
+        },
+        {
+          "name": "(100 . \"AcDb...\")",
+          "description": "Subclass markers separating the AcDbEntity properties from the class-specific ones. They appear more than once, so assoc finds only the first."
+        },
+        {
+          "name": "(5 . \"handle\")",
+          "description": "The persistent handle as a hex string. Unlike the entity name it survives saving and reopening the drawing - use handent to turn it back into an ename."
+        }
+      ],
+      "example": "(setq e  (car (entsel \"\\nSelect a circle: \"))\n      el (entget e))\n\n(princ (strcat \"\\nType   : \" (cdr (assoc 0 el))\n               \"\\nLayer  : \" (cdr (assoc 8 el))\n               \"\\nRadius : \" (rtos (cdr (assoc 40 el)) 2 3)\n               \"\\nCentre : \" (vl-princ-to-string (cdr (assoc 10 el)))\n               \"\\nHandle : \" (cdr (assoc 5 el))))\n(princ)",
+      "notes": "Point values come back as full lists, so (cdr (assoc 10 el)) is a point, not a number. Coordinates are in WCS for most entities but in the object's own OCS for LWPOLYLINE, INSERT, TEXT, CIRCLE and ARC, so use trans with the entity name as the from-coordinate-system when an extrusion direction is not (0 0 1). Codes that occur many times (10 in a polyline, 330 for owners) cannot be reached with assoc alone - filter the list instead."
+    },
+    {
+      "name": "entmod",
+      "kind": "function",
+      "description": "Write a modified entity data list back to the drawing. The list must be one obtained from entget, still carrying its (-1 . ename) element, with individual pairs replaced using subst. It is the fastest way to change layer, colour, text content, radius or position without invoking a command, and it returns the list on success or nil if the change was rejected.",
+      "usage": "(entmod entity-data-list)",
+      "parameters": [
+        {
+          "name": "entity-data-list",
+          "description": "The list from entget with the desired pairs substituted. The -1 element identifies which entity is updated."
+        },
+        {
+          "name": "what cannot change",
+          "description": "The entity type (code 0), the handle (5) and the entity name (-1). Changing a layer or linetype to a name that does not exist also fails."
+        },
+        {
+          "name": "sub-entities",
+          "description": "Vertices of an old-style POLYLINE and ATTRIB entities inside an INSERT can be modified, but the parent must then be redrawn with entupd."
+        },
+        {
+          "name": "return value",
+          "description": "The modified list if accepted, nil if rejected - test it, because a silent nil is the usual sign of a bad layer name or a locked layer."
+        }
+      ],
+      "example": "; Change every 0.25-radius circle on layer HOLES to radius 0.5 and colour red\n(setq ss (ssget \"_X\" '((0 . \"CIRCLE\") (8 . \"HOLES\")))\n      i  -1)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq el (entget e))\n  (if (equal (cdr (assoc 40 el)) 0.25 1e-8)\n    (progn\n      (setq el (subst (cons 40 0.5) (assoc 40 el) el))\n      (setq el (if (assoc 62 el)\n                 (subst (cons 62 1) (assoc 62 el) el)\n                 (append el (list (cons 62 1)))))\n      (entmod el))))\n(princ)",
+      "notes": "A code that is not already present cannot be substituted - subst silently does nothing - so append the pair instead, as with colour 62 above. Call entupd after modifying a vertex or an attribute so the parent entity is regenerated on screen. entdel deletes an entity (and, called again on the same name in the same session, restores it); entmake creates a new one from scratch."
+    },
+    {
+      "name": "entmake",
+      "kind": "function",
+      "description": "Create a new entity directly in the drawing database from a DXF group-code list, with no command, no prompt and no effect on the undo stack beyond a single step. It is dramatically faster than driving the command line and it works in contexts where command is unavailable. The list must start with (0 . \"TYPE\") and, for anything derived from AcDbEntity, carry the correct (100 . \"AcDb...\") subclass markers in order.",
+      "usage": "(entmake [entity-data-list])",
+      "parameters": [
+        {
+          "name": "(0 . \"TYPE\")",
+          "description": "Required first pair giving the entity type: \"LINE\", \"CIRCLE\", \"LWPOLYLINE\", \"TEXT\", \"INSERT\", \"POINT\"."
+        },
+        {
+          "name": "(100 . \"AcDbEntity\")",
+          "description": "Common subclass marker, followed by the general properties (8 layer, 62 colour, 6 linetype), then the class marker such as (100 . \"AcDbCircle\")."
+        },
+        {
+          "name": "(8 . \"LAYER\")",
+          "description": "Target layer. It must already exist, otherwise entmake fails - create it first with entmake on a LAYER table record or with the -LAYER command."
+        },
+        {
+          "name": "(10 x y z)",
+          "description": "Primary point, in WCS or the entity's OCS. Build it with (cons 10 pt), not with a quoted literal, when the coordinates are computed."
+        },
+        {
+          "name": "(90 . n) and (10 ...) repeated",
+          "description": "For an LWPOLYLINE: (100 . \"AcDbPolyline\"), the vertex count in 90, the closed flag in 70, and one (10 x y) pair per vertex."
+        },
+        {
+          "name": "return value",
+          "description": "The entity data list on success, nil on failure. A nil almost always means a missing subclass marker, a missing mandatory code or a non-existent layer."
+        }
+      ],
+      "example": "; A circle\n(entmake (list '(0 . \"CIRCLE\")\n               '(100 . \"AcDbEntity\")\n               '(8 . \"HOLES\")\n               '(100 . \"AcDbCircle\")\n               (cons 10 (list 50.0 50.0 0.0))\n               (cons 40 8.0)))\n\n; A closed 3-vertex lightweight polyline\n(entmake (append\n  (list '(0 . \"LWPOLYLINE\")\n        '(100 . \"AcDbEntity\")\n        '(8 . \"OUTLINE\")\n        '(100 . \"AcDbPolyline\")\n        '(90 . 3)\n        '(70 . 1))\n  (mapcar '(lambda (p) (cons 10 p))\n          '((0.0 0.0) (100.0 0.0) (50.0 80.0)))))\n\n(setq newent (entlast))",
+      "notes": "The order of the pairs matters: type first, then AcDbEntity and its properties, then the class marker and its properties. entmakex is the identical function that returns the new entity name instead of the list, which saves a call to entlast. To create non-graphical objects such as dictionary entries or layer table records, use entmakex with the (100 . \"AcDbSymbolTableRecord\") pattern, or the dictionary functions."
+    },
+    {
+      "name": "entlast",
+      "kind": "function",
+      "description": "Return the name of the last main entity added to the drawing database. It is how a routine gets hold of the object a command just created, since command returns nothing useful. Deleted entities are skipped, and sub-entities such as polyline vertices and block attributes are not returned - entnext is needed for those.",
+      "usage": "(entlast)",
+      "parameters": [
+        {
+          "name": "return value",
+          "description": "The entity name of the most recently created non-deleted main entity, or nil in an empty drawing."
+        },
+        {
+          "name": "entnext",
+          "description": "(entnext [ename]) walks the database: with no argument it returns the first entity, with one it returns the following entity, including sub-entities such as VERTEX, ATTRIB and SEQEND."
+        },
+        {
+          "name": "typical use",
+          "description": "Call a command that draws something, then call entlast to capture what it made and edit it with entmod."
+        }
+      ],
+      "example": "; Draw a circle, then immediately recolour and tag it\n(command-s \"_.CIRCLE\" '(100.0 100.0 0.0) 25.0)\n(setq e  (entlast)\n      el (entget e))\n(entmod (append el (list (cons 62 3))))\n\n; Walk the whole database counting entities\n(setq e (entnext) n 0)\n(while e\n  (setq n (1+ n)\n        e (entnext e)))\n(princ (strcat \"\\n\" (itoa n) \" entities in model space.\"))\n(princ)",
+      "notes": "After a command that creates several objects (a LINE run, an EXPLODE) entlast gives only the last one; capture the previous last entity first and walk forward with entnext to collect them all. entlast does not see objects created in a different space or in a block definition. entmakex is the cleaner way to get the name of an entity you created yourself."
+    },
+    {
+      "name": "tblsearch",
+      "kind": "function",
+      "description": "Look up a named record in one of the drawing's symbol tables and return its data as a DXF association list, or nil if it does not exist. It is the standard existence test before setting a current layer, inserting a block or applying a text style, and it also reads back the properties of the record - a layer's colour, linetype and frozen/locked flags.",
+      "usage": "(tblsearch table-name symbol [setnext])",
+      "parameters": [
+        {
+          "name": "table-name",
+          "description": "One of \"LAYER\", \"LTYPE\", \"STYLE\", \"BLOCK\", \"VIEW\", \"UCS\", \"VPORT\", \"DIMSTYLE\", \"APPID\"."
+        },
+        {
+          "name": "symbol",
+          "description": "Name of the record to find, as a string. Not case sensitive."
+        },
+        {
+          "name": "setnext",
+          "description": "If non-nil, the tblnext counter is reset so that a following tblnext call continues from this record."
+        },
+        {
+          "name": "return value",
+          "description": "Association list with (0 . table type), (2 . name), (70 . flags), plus table-specific codes such as (62 . colour) and (6 . linetype) for a layer. nil if not found."
+        },
+        {
+          "name": "tblnext",
+          "description": "(tblnext table-name [rewind]) iterates a whole table, returning each record in turn and nil at the end - the way to list every layer or block definition."
+        }
+      ],
+      "example": "; Create the layer only if it is missing, then make it current\n(if (not (tblsearch \"LAYER\" \"DIM\"))\n  (command-s \"_.-LAYER\" \"_M\" \"DIM\" \"_C\" 4 \"\" \"\"))\n(setvar \"CLAYER\" \"DIM\")\n\n; Is the layer frozen? bit 1 of code 70\n(setq lay (tblsearch \"LAYER\" \"DIM\"))\n(if (= 1 (logand 1 (cdr (assoc 70 lay))))\n  (princ \"\\nLayer DIM is frozen.\"))\n\n; List every block definition that is not anonymous\n(setq rec (tblnext \"BLOCK\" T))\n(while rec\n  (if (not (wcmatch (cdr (assoc 2 rec)) \"`**\"))\n    (princ (strcat \"\\n\" (cdr (assoc 2 rec)))))\n  (setq rec (tblnext \"BLOCK\")))\n(princ)",
+      "notes": "The record returned by tblsearch has no (-1 . ename) element, so it cannot be passed to entmod; use tblobjname to get the entity name of the record and then entget/entmod it, or edit it through the ActiveX object model. A negative colour value in code 62 means the layer is turned off. Anonymous blocks have names beginning with *."
+    },
+    {
+      "name": "assoc",
+      "kind": "function",
+      "description": "Search an association list for the element whose first member matches a key and return that whole element. It is how any value is pulled out of an entity data list: (assoc 8 el) gives the (8 . \"LAYER\") pair, and cdr then gives the layer name. Returns nil when the key is absent, which doubles as a test for whether an optional DXF code is present.",
+      "usage": "(assoc key association-list)",
+      "parameters": [
+        {
+          "name": "key",
+          "description": "Value to match against the first element of each sublist - a DXF group code number when working with entity data."
+        },
+        {
+          "name": "association-list",
+          "description": "List of dotted pairs or sublists, typically the result of entget or tblsearch."
+        },
+        {
+          "name": "return value",
+          "description": "The complete matching element, or nil. Wrap in cdr to get the value: (cdr (assoc 40 el))."
+        },
+        {
+          "name": "duplicate keys",
+          "description": "Only the first match is returned. Codes that repeat, such as the 10 vertices of an LWPOLYLINE, must be collected with vl-remove-if-not or a foreach filter instead."
+        }
+      ],
+      "example": "(setq el (entget (car (entsel))))\n\n(setq lay (cdr (assoc 8 el))\n      typ (cdr (assoc 0 el))\n      col (if (assoc 62 el) (cdr (assoc 62 el)) \"ByLayer\"))\n\n; All vertices of an LWPOLYLINE, not just the first\n(setq pts (mapcar 'cdr\n                  (vl-remove-if-not '(lambda (p) (= 10 (car p))) el)))\n(princ (strcat \"\\n\" (itoa (length pts)) \" vertices.\"))\n(princ)",
+      "notes": "(cdr (assoc n el)) on an absent code returns nil, and passing that nil straight into strcat or a numeric function is a very common crash. For point codes the cdr is already a list, so do not wrap it in list again. cons builds the replacement pair that subst and entmod expect."
+    },
+    {
+      "name": "subst",
+      "kind": "function",
+      "description": "Return a copy of a list in which every occurrence of an old item has been replaced by a new one. Paired with assoc and entget it is the canonical way to change one property of an entity: build the new DXF pair with cons, substitute it for the old pair found by assoc, and hand the result to entmod. It leaves the original list untouched and returns the list unchanged if the old item is not found.",
+      "usage": "(subst newitem olditem list)",
+      "parameters": [
+        {
+          "name": "newitem",
+          "description": "Replacement element, usually built with (cons code value)."
+        },
+        {
+          "name": "olditem",
+          "description": "Element to be replaced, usually obtained with (assoc code list) so the match is exact."
+        },
+        {
+          "name": "list",
+          "description": "The list to copy. Nested lists are searched only at the top level."
+        },
+        {
+          "name": "return value",
+          "description": "A new list. The original is unchanged, so the result must be assigned or passed straight on."
+        }
+      ],
+      "example": "; Retext and re-layer a single-line TEXT object\n(setq e  (car (entsel \"\\nSelect text: \"))\n      el (entget e))\n\n(setq el (subst (cons 1 \"REVISED\")   (assoc 1 el) el))\n(setq el (subst (cons 8 \"NOTES\")     (assoc 8 el) el))\n(setq el (subst (cons 40 5.0)        (assoc 40 el) el))\n(entmod el)\n(entupd e)\n(princ)",
+      "notes": "subst does nothing at all when the old item is absent - which is why adding a colour to an entity that has none requires append rather than subst. Every occurrence is replaced, so substituting a repeated DXF code such as 10 in a polyline changes every vertex; rebuild the list with mapcar in that case."
+    },
+    {
+      "name": "vl-sort",
+      "kind": "function",
+      "description": "Sort a list using a two-argument comparison function, returning a new sorted list. It is used to order entities by coordinate before numbering them, to alphabetise layer or block names, and to sort extracted attribute data before writing a report. The comparison is usually supplied as a lambda that reaches into each element.",
+      "usage": "(vl-sort list comparison-function)",
+      "parameters": [
+        {
+          "name": "list",
+          "description": "The list to sort. It is not modified; a new list is returned."
+        },
+        {
+          "name": "comparison-function",
+          "description": "A quoted symbol ('< , '>) or a lambda taking two elements and returning non-nil when the first should come before the second."
+        },
+        {
+          "name": "duplicates",
+          "description": "Elements the comparison treats as equal are dropped: the returned list can be shorter than the input. This is the function's biggest trap."
+        },
+        {
+          "name": "vl-sort-i",
+          "description": "The companion that returns the list of sorted indices instead of the elements, preserving duplicates - use it when nothing may be lost."
+        }
+      ],
+      "example": "; Order text objects left to right, then number them\n(setq ss (ssget \"_X\" '((0 . \"TEXT\") (8 . \"TAGS\")))\n      i  -1\n      lst '())\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq lst (cons e lst)))\n\n(setq lst (vl-sort lst\n  '(lambda (a b)\n     (< (car (cdr (assoc 10 (entget a))))\n        (car (cdr (assoc 10 (entget b))))))))\n\n(setq n 0)\n(foreach e lst\n  (setq n  (1+ n)\n        el (entget e))\n  (entmod (subst (cons 1 (itoa n)) (assoc 1 el) el)))\n(princ)",
+      "notes": "Because equal elements are removed, sorting a list of numbers with duplicates silently loses data - use vl-sort-i and ssname/nth to rebuild the full list. Related list utilities from the same family are vl-remove and vl-remove-if / vl-remove-if-not for filtering, vl-position for index lookup, and vl-every / vl-some for list-wide tests."
+    },
+    {
+      "name": "polar",
+      "kind": "function",
+      "description": "Return the point that lies a given distance from a base point at a given angle. Angles are in radians measured counter-clockwise from the X axis of the current UCS, which is the single most common source of confusion since every AutoCAD prompt shows degrees. It is the basic construction function for bolt circles, offsets, leader elbows and any geometry derived from a known point.",
+      "usage": "(polar point angle distance)",
+      "parameters": [
+        {
+          "name": "point",
+          "description": "Base 2D or 3D point."
+        },
+        {
+          "name": "angle",
+          "description": "Direction in RADIANS. Convert from degrees with (* pi (/ deg 180.0)); pi is a predefined constant."
+        },
+        {
+          "name": "distance",
+          "description": "Length along that direction. A negative value gives the opposite direction."
+        },
+        {
+          "name": "return value",
+          "description": "A 3D point list. The Z value is taken from the base point."
+        },
+        {
+          "name": "angle / distance",
+          "description": "The inverse pair: (angle p1 p2) returns the direction from p1 to p2 in radians, and (distance p1 p2) the 3D distance between them."
+        }
+      ],
+      "example": "(defun deg->rad (d) (* pi (/ d 180.0)))\n\n; Six holes on a 100 mm pitch circle\n(setq ctr '(0.0 0.0 0.0)\n      n   6\n      i   0)\n(while (< i n)\n  (entmake (list '(0 . \"CIRCLE\")\n                 '(100 . \"AcDbEntity\") '(8 . \"HOLES\")\n                 '(100 . \"AcDbCircle\")\n                 (cons 10 (polar ctr (* 2 pi (/ i (float n))) 50.0))\n                 (cons 40 5.0)))\n  (setq i (1+ i)))\n\n; Offset a label 3 units above the midpoint of a line\n(setq mid (polar p1 (angle p1 p2) (/ (distance p1 p2) 2.0))\n      lbl (polar mid (deg->rad 90) 3.0))",
+      "notes": "Mixing degrees and radians is the classic polar bug: (polar p 90 10) goes off at 90 radians, not 90 degrees. getangle already returns radians, so its result can be passed straight in; angtof and angtos convert between strings and radians using the AUNITS setting. The Z coordinate is inherited from the base point, so polar cannot move a point vertically."
+    },
+    {
+      "name": "trans",
+      "kind": "function",
+      "description": "Convert a point or displacement vector between coordinate systems. It is required whenever a point picked by the user (current UCS) is stored in entity data (WCS), or whenever a coordinate read from an LWPOLYLINE, TEXT, CIRCLE or INSERT (the object's OCS) is used for drawing. Ignoring it is why routines work perfectly in plan view and produce nonsense in a rotated UCS or on a non-planar object.",
+      "usage": "(trans point from to [displacement])",
+      "parameters": [
+        {
+          "name": "point",
+          "description": "3D point or, when displacement is non-nil, a direction vector."
+        },
+        {
+          "name": "from / to = 0",
+          "description": "World coordinate system (WCS) - what entity data stores."
+        },
+        {
+          "name": "from / to = 1",
+          "description": "Current user coordinate system (UCS) - what getpoint returns and what command expects."
+        },
+        {
+          "name": "from / to = 2",
+          "description": "Display coordinate system of the current viewport; with 3 as the other argument it means the paper-space DCS."
+        },
+        {
+          "name": "from / to = 3",
+          "description": "Paper space DCS, used only in combination with 2."
+        },
+        {
+          "name": "entity name or vector",
+          "description": "Instead of a code, pass an entity name or a 3D extrusion vector to convert to or from that object's OCS (also called ECS)."
+        },
+        {
+          "name": "displacement",
+          "description": "If non-nil the point is treated as a direction vector, so only rotation is applied and the origin shift is ignored."
+        }
+      ],
+      "example": "; Store a picked point safely in entity data\n(setq p   (getpoint \"\\nPoint: \")\n      wcs (trans p 1 0))\n(entmake (list '(0 . \"POINT\")\n               '(100 . \"AcDbEntity\") '(8 . \"NODES\")\n               '(100 . \"AcDbPoint\")\n               (cons 10 wcs)))\n\n; Read a circle centre correctly even if it has an extrusion direction\n(setq e  (car (entsel))\n      el (entget e)\n      c  (trans (cdr (assoc 10 el)) e 0))\n(princ (vl-princ-to-string c))\n(princ)",
+      "notes": "LWPOLYLINE, CIRCLE, ARC, TEXT, INSERT and SOLID store points in OCS; LINE, POINT, 3DFACE and 3DPOLY store them in WCS - so trans with the entity name is only needed for the first group, and only matters when the 210 extrusion vector is not (0 0 1). In paper space, a point picked in a floating viewport belongs to the model-space UCS of that viewport, not to the layout."
+    },
+    {
+      "name": "rtos",
+      "kind": "function",
+      "description": "Convert a real number to a string using AutoCAD's own unit formatting: scientific, decimal, engineering, architectural or fractional, at a chosen precision. It is what makes a computed length or area print the same way the drawing's dimensions do. With no mode and precision it follows the current LUNITS and LUPREC system variables.",
+      "usage": "(rtos number [mode [precision]])",
+      "parameters": [
+        {
+          "name": "number",
+          "description": "The real to format. Integers are accepted and promoted."
+        },
+        {
+          "name": "mode 1",
+          "description": "Scientific, for example 1.5500E+02."
+        },
+        {
+          "name": "mode 2",
+          "description": "Decimal - the usual choice for metric work, 155.50."
+        },
+        {
+          "name": "mode 3",
+          "description": "Engineering: feet and decimal inches, 12'-11.50\"."
+        },
+        {
+          "name": "mode 4",
+          "description": "Architectural: feet and fractional inches, 12'-11 1/2\"."
+        },
+        {
+          "name": "mode 5",
+          "description": "Fractional, 155 1/2."
+        },
+        {
+          "name": "precision",
+          "description": "Number of decimal places, or the fraction denominator for modes 4 and 5. Defaults to LUPREC."
+        }
+      ],
+      "example": "(setq a (getpoint \"\\nFirst point: \")\n      b (getpoint a \"\\nSecond point: \")\n      d (distance a b))\n\n(princ (strcat \"\\nLength = \" (rtos d 2 3) \" mm\"))\n\n; Format an area the way the drawing units are set\n(princ (strcat \"\\nArea = \" (rtos (* 1200.0 800.0)) \" sq units\"))\n(princ)",
+      "notes": "The companion angtos formats an angle (given in radians) using AUNITS/AUPREC, and itoa / atoi / atof convert between integers, reals and strings without any unit formatting. rtos honours UNITMODE for whether feet-and-inches output includes the spaces and marks. Use it rather than plain number-to-string conversion whenever the value will be shown to a drafter."
+    },
+    {
+      "name": "strcat",
+      "kind": "function",
+      "description": "Join any number of strings into one. Every prompt, message and computed layer or block name is built with it, normally in combination with rtos, itoa and angtos to turn numbers into text first. All arguments must already be strings - passing a number or a nil from a failed assoc lookup is an immediate error.",
+      "usage": "(strcat string1 [string2 ... stringn])",
+      "parameters": [
+        {
+          "name": "string1 ...",
+          "description": "Strings to concatenate, in order. With no arguments it returns an empty string."
+        },
+        {
+          "name": "numbers",
+          "description": "Must be converted first: itoa for integers, rtos for reals, angtos for angles, vl-princ-to-string for anything at all."
+        },
+        {
+          "name": "\\n",
+          "description": "Inside a LISP string literal this is a newline; put it at the start of a prompt so the message begins on a clean command line."
+        },
+        {
+          "name": "related",
+          "description": "substr extracts part of a string, strlen gives its length, strcase converts to upper or lower case, and vl-string-subst replaces a substring."
+        }
+      ],
+      "example": "(setq pre \"P-\"\n      num 14\n      lay (strcat \"EQUIP-\" (strcase \"pumps\" T)))\n\n(princ (strcat \"\\nTag \" pre (itoa num)\n               \" placed on layer \" (strcase lay)\n               \" at scale \" (rtos (getvar \"DIMSCALE\") 2 1)))\n\n; Safe against a missing DXF code\n(setq el (entget (car (entsel))))\n(princ (strcat \"\\nLinetype: \"\n               (cond ((cdr (assoc 6 el))) (T \"ByLayer\"))))\n(princ)",
+      "notes": "\"bad argument type: stringp nil\" from strcat almost always means an (assoc ...) lookup returned nil for an optional DXF code. (strcase s T) converts to lower case; without the second argument it converts to upper. For building long report text, write directly to a file with write-line rather than accumulating one enormous string."
+    },
+    {
+      "name": "open",
+      "kind": "function",
+      "description": "Open an external file and return a file descriptor for read-line, write-line and princ to use, then close it when finished. This is how AutoLISP writes CSV and report files, reads a parts list or a coordinate file, and logs what a batch routine did. A file left open by an aborted routine stays locked for the rest of the session, which is why the *error* handler should close it.",
+      "usage": "(open filename mode)\n(read-line file-descriptor)\n(write-line string file-descriptor)\n(close file-descriptor)",
+      "parameters": [
+        {
+          "name": "filename",
+          "description": "Full path as a string. Use forward slashes or doubled backslashes; findfile resolves a name against the AutoCAD support paths and returns the full path or nil."
+        },
+        {
+          "name": "mode \"r\"",
+          "description": "Read. Must be lower case. Returns nil if the file does not exist, so test the result."
+        },
+        {
+          "name": "mode \"w\"",
+          "description": "Write - creates the file, or truncates it if it already exists."
+        },
+        {
+          "name": "mode \"a\"",
+          "description": "Append - writes to the end of an existing file, creating it if necessary."
+        },
+        {
+          "name": "read-line",
+          "description": "Reads one line without its newline, and returns nil at end of file - the natural while loop test."
+        },
+        {
+          "name": "write-line",
+          "description": "Writes a string plus a newline. princ with a file descriptor writes without adding one."
+        }
+      ],
+      "example": "; Export every block insertion point to CSV\n(setq f (open (strcat (getvar \"DWGPREFIX\") \"blocks.csv\") \"w\"))\n(write-line \"NAME,X,Y\" f)\n(setq ss (ssget \"_X\" '((0 . \"INSERT\"))) i -1)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq el (entget e)\n        p  (cdr (assoc 10 el)))\n  (write-line (strcat (cdr (assoc 2 el)) \",\"\n                      (rtos (car p) 2 4) \",\"\n                      (rtos (cadr p) 2 4)) f))\n(close f)\n\n; Read it back\n(if (setq f (open (findfile \"blocks.csv\") \"r\"))\n  (progn\n    (while (setq line (read-line f))\n      (princ (strcat \"\\n\" line)))\n    (close f)))\n(princ)",
+      "notes": "Always close the descriptor, including in *error* - (if f (close f)). vl-file-directory-p tests whether a path is a directory, vl-directory-files lists the files in one with an optional wildcard, and vl-file-delete removes a file. For dialog-driven file selection use getfiled, which returns a full path or nil."
+    },
+    {
+      "name": "load_dialog",
+      "kind": "function",
+      "description": "Open a DCL file and return the integer id used by the rest of the dialog functions, or a negative number if the file could not be found. A dialog session is always the same sequence: load_dialog, new_dialog to create the named dialog, action_tile to attach callbacks, set_tile to fill in initial values, start_dialog to hand control to the user, then unload_dialog once done_dialog has ended it. All of this is AutoLISP's only built-in way to present a real dialog box.",
+      "usage": "(load_dialog dclfile)                 -> dcl_id (negative on failure)\n(new_dialog dlgname dcl_id [action [point]])  -> T or nil\n(action_tile key action-string)\n(set_tile key value)   (get_tile key)\n(start_dialog)         -> status passed to done_dialog\n(done_dialog [status]) (unload_dialog dcl_id)",
+      "parameters": [
+        {
+          "name": "dclfile",
+          "description": "Name or path of the .dcl file. Without a path it is searched for along the AutoCAD support file search path; findfile confirms where it was found."
+        },
+        {
+          "name": "new_dialog",
+          "description": "Takes the dialog name defined in the DCL file and the id from load_dialog; returns nil if the dialog name does not exist, which must be tested before start_dialog."
+        },
+        {
+          "name": "action_tile",
+          "description": "Associates a tile key with an AutoLISP expression held in a string, evaluated when the tile is used. Inside it, $value holds the tile's value and $key its key."
+        },
+        {
+          "name": "set_tile / get_tile",
+          "description": "Write and read a tile's value as a string. get_tile only works while the dialog is active, so read values in a callback or just before done_dialog."
+        },
+        {
+          "name": "start_dialog",
+          "description": "Displays the dialog and does not return until done_dialog is called; its return value is the status code given to done_dialog."
+        },
+        {
+          "name": "done_dialog",
+          "description": "Closes the dialog. Status 1 conventionally means OK and 0 means Cancel; the default accept and cancel tiles supply these automatically."
+        },
+        {
+          "name": "unload_dialog",
+          "description": "Releases the DCL file. Failing to call it leaves the file locked and leaks the dialog id."
+        }
+      ],
+      "example": "; mydlg.dcl contains:\n;   mydlg : dialog { label = \"Layer tool\";\n;     : edit_box { key = \"lay\"; label = \"Layer:\"; }\n;     ok_cancel; }\n\n(defun C:LAYTOOL ( / dcl_id result lay)\n  (setq lay \"WALLS\")\n  (if (< (setq dcl_id (load_dialog \"mydlg.dcl\")) 0)\n    (progn (princ \"\\nDCL file not found.\") (exit)))\n  (if (not (new_dialog \"mydlg\" dcl_id))\n    (progn (unload_dialog dcl_id) (princ \"\\nDialog not found.\") (exit)))\n\n  (set_tile \"lay\" lay)\n  (action_tile \"lay\"    \"(setq lay $value)\")\n  (action_tile \"accept\" \"(setq lay (get_tile \\\"lay\\\")) (done_dialog 1)\")\n  (action_tile \"cancel\" \"(done_dialog 0)\")\n\n  (setq result (start_dialog))\n  (unload_dialog dcl_id)\n\n  (if (= result 1)\n    (progn\n      (if (not (tblsearch \"LAYER\" lay))\n        (command-s \"_.-LAYER\" \"_M\" lay \"\"))\n      (setvar \"CLAYER\" lay)))\n  (princ)\n)",
+      "notes": "A dialog cannot call command or draw anything while it is displayed - collect the values, call done_dialog, and do the work after start_dialog returns. Callback expressions are strings, so every quotation mark inside them has to be escaped. Nested dialogs need new_dialog called again before start_dialog; a mismatch produces the notorious \"error: AutoCAD rejected function\" message."
+    },
+    {
+      "name": "vlax-get-acad-object",
+      "kind": "function",
+      "description": "Return the AcadApplication object, the root of the AutoCAD ActiveX object model. From it, vla-get-ActiveDocument gives the current drawing and vla-get-ModelSpace or vla-get-PaperSpace gives the collection that new objects are added to; the document also exposes Layers, Blocks, Dictionaries, SelectionSets and the Preferences tree. Nothing in the vla- world can be reached without it, and vl-load-com must have been called first.",
+      "usage": "(vlax-get-acad-object)\n(vla-get-ActiveDocument acad-object)\n(vla-get-ModelSpace document)",
+      "parameters": [
+        {
+          "name": "return value",
+          "description": "A VLA-object representing the running AutoCAD application. Cache it in a variable rather than calling it repeatedly."
+        },
+        {
+          "name": "ActiveDocument",
+          "description": "The drawing currently being edited. vla-get-Documents gives the whole collection when several drawings are open."
+        },
+        {
+          "name": "ModelSpace / PaperSpace",
+          "description": "The block objects that new entities are added to. Use vla-get-Block on the active layout to add to whichever space is current."
+        },
+        {
+          "name": "Application-level methods",
+          "description": "vla-ZoomExtents, vla-ZoomWindow, vla-Update and vla-get-Preferences operate on the application object itself."
+        },
+        {
+          "name": "vlax-release-object",
+          "description": "Releases a COM object reference. Necessary for objects obtained from other applications (Excel, Word), not for AutoCAD's own."
+        }
+      ],
+      "example": "(vl-load-com)\n\n(setq acad (vlax-get-acad-object)\n      doc  (vla-get-ActiveDocument acad)\n      msp  (vla-get-ModelSpace doc)\n      lyrs (vla-get-Layers doc))\n\n; Add a layer and set it current\n(if (vl-catch-all-error-p\n      (vl-catch-all-apply 'vla-Item (list lyrs \"GRID\")))\n  (vla-Add lyrs \"GRID\"))\n(vla-put-ActiveLayer doc (vla-Item lyrs \"GRID\"))\n\n(princ (strcat \"\\nDrawing: \" (vla-get-Name doc)))\n(princ)",
+      "notes": "(vlax-dump-object obj T) prints every property and method of any VLA-object to the command line and is by far the fastest way to discover the object model. Asking a collection for a name that does not exist raises a COM error rather than returning nil, so wrap vla-Item in vl-catch-all-apply. Changes made through the object model are not reflected in AutoLISP entity lists until they are re-read with entget."
+    },
+    {
+      "name": "vlax-ename->vla-object",
+      "kind": "function",
+      "description": "Convert an AutoLISP entity name into its ActiveX VLA-object, and vlax-vla-object->ename converts back. This pair is the bridge between the two halves of the language: selection sets, entsel and entlast all produce enames, while every vla- property and method needs a VLA-object. The usual pattern is to select with ssget, which is fast and has rich filtering, then convert each member and manipulate it through named properties.",
+      "usage": "(vlax-ename->vla-object ename)\n(vlax-vla-object->ename vla-object)",
+      "parameters": [
+        {
+          "name": "ename",
+          "description": "Entity name from ssname, entsel, entlast, entnext or handent."
+        },
+        {
+          "name": "return value",
+          "description": "A VLA-object whose class matches the entity type - AcDbLine, AcDbCircle, AcDbBlockReference and so on."
+        },
+        {
+          "name": "vlax-vla-object->ename",
+          "description": "The inverse. Needed to pass an ActiveX-created object to entget, entmod or a command call."
+        },
+        {
+          "name": "vlax-object-released-p",
+          "description": "Tests whether a VLA-object reference is still valid; an object whose entity has been erased raises an error when used."
+        }
+      ],
+      "example": "(vl-load-com)\n\n; ssget filters, ActiveX edits\n(setq ss (ssget \"_X\" '((0 . \"CIRCLE\") (8 . \"HOLES\")))\n      i  -1)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (setq obj (vlax-ename->vla-object e))\n  (vla-put-Radius obj (* 1.5 (vla-get-Radius obj)))\n  (vla-put-Layer  obj \"HOLES-ENLARGED\")\n  (vla-put-Color  obj 1))\n\n; Go back the other way to use a command\n(setq ent (vlax-vla-object->ename obj))\n(command-s \"_.CHPROP\" ent \"\" \"_LA\" \"CHECK\" \"\")\n(princ)",
+      "notes": "Property names are case-insensitive but must otherwise be spelled exactly as the object model defines them - vla-get-Radius, vla-put-TextString, vla-get-InsertionPoint. A VLA-object that refers to an erased entity is stale and using it raises a COM error; guard with vl-catch-all-apply. Coordinates come back from vla-get properties as variants and must be passed through vlax-variant-value and vlax-safearray->list."
+    },
+    {
+      "name": "vla-AddLine",
+      "kind": "function",
+      "description": "Add a line to model space, paper space or a block definition through the ActiveX object model, returning the new AcadLine object. It is the representative of the whole vla-Add* family - AddCircle, AddArc, AddLightWeightPolyline, AddText, AddMText, AddDimAligned, AddHatch, AddBlock, InsertBlock - all of which take the space object first and then the geometry. The object it returns can be given properties immediately, which is why this route is preferred over command for bulk creation.",
+      "usage": "(vla-AddLine space start-point end-point)\n(vla-AddCircle space center radius)\n(vla-AddText space text-string insertion-point height)",
+      "parameters": [
+        {
+          "name": "space",
+          "description": "The ModelSpace, PaperSpace or block object the entity is added to, obtained from the active document."
+        },
+        {
+          "name": "start-point / end-point",
+          "description": "Variants holding three-element arrays of doubles - build them with vlax-3d-point, never with a plain LISP list."
+        },
+        {
+          "name": "return value",
+          "description": "The new VLA-object, ready for vla-put-Layer, vla-put-Color, vla-put-Linetype and the rest."
+        },
+        {
+          "name": "coordinates",
+          "description": "Always in WCS. A point picked with getpoint is in the current UCS and must be converted with (trans p 1 0) first."
+        },
+        {
+          "name": "vla-Add* family",
+          "description": "AddCircle, AddArc, AddEllipse, AddLightWeightPolyline, AddText, AddMText, AddHatch, AddDimAligned, InsertBlock - same pattern, different arguments."
+        }
+      ],
+      "example": "(vl-load-com)\n(setq doc (vla-get-ActiveDocument (vlax-get-acad-object))\n      msp (vla-get-ModelSpace doc))\n\n; A 100 x 50 rectangle drawn as four lines, all on one layer\n(setq pts '((0.0 0.0 0.0) (100.0 0.0 0.0) (100.0 50.0 0.0) (0.0 50.0 0.0)))\n(setq i 0)\n(while (< i 4)\n  (setq ln (vla-AddLine msp\n             (vlax-3d-point (nth i pts))\n             (vlax-3d-point (nth (rem (1+ i) 4) pts))))\n  (vla-put-Layer ln \"OUTLINE\")\n  (vla-put-Color ln 2)\n  (setq i (1+ i)))\n\n(vla-AddCircle msp (vlax-3d-point '(50.0 25.0 0.0)) 10.0)\n(princ)",
+      "notes": "The target layer must already exist, or vla-put-Layer raises a COM error. AddLightWeightPolyline takes a flat safearray of alternating X and Y doubles built with vlax-make-safearray, not a list of points. Creating thousands of objects this way is far faster than command, but call vla-Regen or vla-Update if they do not appear immediately."
+    },
+    {
+      "name": "vlax-3d-point",
+      "kind": "function",
+      "description": "Build the variant that every ActiveX method expects where a 3D point is required: a variant containing a three-element array of doubles. It accepts either three numbers or a single LISP point list, and it is the reason ordinary AutoLISP points cannot be passed straight to vla-AddLine or vla-put-InsertionPoint. Getting a point back out of an object requires the opposite journey through vlax-variant-value and vlax-safearray->list.",
+      "usage": "(vlax-3d-point x y [z])\n(vlax-3d-point point-list)",
+      "parameters": [
+        {
+          "name": "x y z",
+          "description": "Three numbers. Z defaults to 0.0 when omitted. Integers are accepted and converted to doubles."
+        },
+        {
+          "name": "point-list",
+          "description": "Alternatively one AutoLISP point list, '(10.0 20.0 0.0) - the common form when the point came from getpoint or entget."
+        },
+        {
+          "name": "return value",
+          "description": "A variant of type array-of-double with three elements."
+        },
+        {
+          "name": "reading a point back",
+          "description": "(vlax-safearray->list (vlax-variant-value (vla-get-InsertionPoint obj))) returns a normal LISP point list."
+        }
+      ],
+      "example": "(vl-load-com)\n(setq msp (vla-get-ModelSpace (vla-get-ActiveDocument (vlax-get-acad-object))))\n\n(setq p (getpoint \"\\nInsertion point: \"))\n(setq txt (vla-AddText msp \"PUMP ROOM\" (vlax-3d-point (trans p 1 0)) 2.5))\n(vla-put-Layer txt \"NOTES\")\n\n; Read the point back out as an ordinary list\n(setq ins (vlax-safearray->list\n            (vlax-variant-value (vla-get-InsertionPoint txt))))\n(princ (strcat \"\\nText placed at \" (rtos (car ins) 2 2)\n               \", \" (rtos (cadr ins) 2 2)))\n(princ)",
+      "notes": "Passing a plain list where a variant is expected gives \"Invalid argument type: VLA-OBJECT\" or a type mismatch from the COM layer - this is the most frequent Visual LISP error. Remember that ActiveX coordinates are WCS, so convert a UCS pick with trans before wrapping it. vlax-3d-point is a convenience wrapper over vlax-make-variant and vlax-make-safearray."
+    },
+    {
+      "name": "vlax-put-property",
+      "kind": "function",
+      "description": "Set a property on any ActiveX object by name, and vlax-get-property reads one. They are the generic equivalents of the vla-put-Xxx and vla-get-Xxx functions, and they are what you need when the property name is computed at run time, when a property exists only on some object types, or when driving an object from another application such as Excel. Behaviour is identical to the named form otherwise.",
+      "usage": "(vlax-put-property object property value)\n(vlax-get-property object property)",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "Any VLA-object - an entity, a layer, a document, a Preferences node, or an object from another COM application."
+        },
+        {
+          "name": "property",
+          "description": "Property name as a string or symbol, for example \"Layer\", \"Color\", \"Radius\", \"TextString\", 'Lineweight."
+        },
+        {
+          "name": "value",
+          "description": "The new value, in the type the property expects. Points must be variants built with vlax-3d-point."
+        },
+        {
+          "name": "vlax-property-available-p",
+          "description": "(vlax-property-available-p obj \"Radius\" [T]) tests whether a property exists, and with T whether it can be written - the safe way to write generic code across entity types."
+        },
+        {
+          "name": "vlax-dump-object",
+          "description": "(vlax-dump-object obj T) lists every property and method of the object, which is how you find the exact spelling."
+        }
+      ],
+      "example": "(vl-load-com)\n\n; Apply a set of properties whatever the object type\n(defun set-props (obj props)\n  (foreach p props\n    (if (vlax-property-available-p obj (car p) T)\n      (vlax-put-property obj (car p) (cdr p)))))\n\n(setq ss (ssget) i -1)\n(while (setq e (ssname ss (setq i (1+ i))))\n  (set-props (vlax-ename->vla-object e)\n             '((\"Layer\" . \"CHECK\")\n               (\"Color\" . 1)\n               (\"Lineweight\" . 50))))\n(princ)",
+      "notes": "A property that does not exist on the object raises a COM error, so pair generic code with vlax-property-available-p or wrap it in vl-catch-all-apply. Read-only properties such as Handle, ObjectName and Area reject vlax-put-property. Use vlax-get / vlax-put only through these documented functions; the named vla-get-* and vla-put-* forms are clearer whenever the property is known at write time."
+    },
+    {
+      "name": "vlax-invoke-method",
+      "kind": "function",
+      "description": "Call a method on an ActiveX object by name, with the method's arguments following. Like vlax-put-property it is the generic form of the named vla-Xxx functions and is needed when the method name is computed, when working with another application's object model, or when a method is not exposed as a vla- function in the current release. Arguments follow exactly the same rules as the named form, including variants for points.",
+      "usage": "(vlax-invoke-method object method [arg1 arg2 ...])",
+      "parameters": [
+        {
+          "name": "object",
+          "description": "The VLA-object the method belongs to."
+        },
+        {
+          "name": "method",
+          "description": "Method name as a string or symbol: \"Copy\", \"Move\", \"Rotate\", \"Offset\", \"Delete\", \"AddCircle\", 'GetBoundingBox."
+        },
+        {
+          "name": "arguments",
+          "description": "In the order the object model defines. Points must be variants from vlax-3d-point; angles are in radians."
+        },
+        {
+          "name": "return value",
+          "description": "Whatever the method returns - a new VLA-object for Copy and the Add* methods, a variant for methods such as Offset, or nil."
+        },
+        {
+          "name": "vlax-method-applicable-p",
+          "description": "(vlax-method-applicable-p obj \"Offset\") tests whether the method exists on this object before calling it."
+        }
+      ],
+      "example": "(vl-load-com)\n(setq obj (vlax-ename->vla-object (car (entsel \"\\nSelect object: \"))))\n\n; Move it 100 units in X\n(vlax-invoke-method obj 'Move\n  (vlax-3d-point '(0.0 0.0 0.0))\n  (vlax-3d-point '(100.0 0.0 0.0)))\n\n; Rotate 45 degrees about the origin\n(vlax-invoke-method obj 'Rotate\n  (vlax-3d-point '(0.0 0.0 0.0))\n  (* pi 0.25))\n\n; Bounding box comes back through two by-reference arguments\n(vla-GetBoundingBox obj 'lo 'hi)\n(setq lo (vlax-safearray->list lo)\n      hi (vlax-safearray->list hi))\n(princ (strcat \"\\nWidth = \" (rtos (- (car hi) (car lo)) 2 2)))\n(princ)",
+      "notes": "Methods with by-reference output arguments, such as GetBoundingBox and IntersectWith, need quoted symbols that the method fills in; they must be declared as locals. Offset returns a variant containing an array of objects, not a single object - unpack it with vlax-variant-value and vlax-safearray->list. Use vlax-dump-object to see which methods an object actually supports before relying on one."
+    },
+    {
+      "name": "vlax-safearray->list",
+      "kind": "function",
+      "description": "Convert a COM safearray into an ordinary AutoLISP list, and vlax-make-safearray builds one in the other direction. Everything the ActiveX model returns that is a collection of numbers - a coordinate, a bounding box corner, a polyline's whole vertex array - arrives as a safearray, usually wrapped in a variant that vlax-variant-value must unwrap first. Methods that take arrays, such as AddLightWeightPolyline and AddPolyline, need one built by hand.",
+      "usage": "(vlax-safearray->list safearray)\n(vlax-make-safearray type '(lower . upper) [...])\n(vlax-safearray-fill safearray '(v1 v2 ...))",
+      "parameters": [
+        {
+          "name": "safearray",
+          "description": "A safearray object. If the value came from a vla-get-* property it is inside a variant, so call vlax-variant-value on it first."
+        },
+        {
+          "name": "type",
+          "description": "Element type constant: vlax-vbDouble for coordinates, vlax-vbInteger, vlax-vbLong, vlax-vbString, vlax-vbBoolean, vlax-vbVariant for arrays of objects."
+        },
+        {
+          "name": "'(lower . upper)",
+          "description": "Dimension bounds as a dotted pair, normally '(0 . n-1). Extra pairs create additional dimensions."
+        },
+        {
+          "name": "vlax-safearray-fill",
+          "description": "Fills a created safearray from a list of values in one call; vlax-safearray-put-element sets one element at a time."
+        },
+        {
+          "name": "vlax-variant-value",
+          "description": "Extracts the underlying safearray (or scalar) from a variant - the step that is most often forgotten."
+        }
+      ],
+      "example": "(vl-load-com)\n(setq doc (vla-get-ActiveDocument (vlax-get-acad-object))\n      msp (vla-get-ModelSpace doc))\n\n; Build a closed triangle as a lightweight polyline: flat X,Y array\n(setq coords (vlax-make-safearray vlax-vbDouble '(0 . 5)))\n(vlax-safearray-fill coords '(0.0 0.0 100.0 0.0 50.0 80.0))\n(setq pl (vla-AddLightWeightPolyline msp coords))\n(vla-put-Closed pl :vlax-true)\n\n; Read the vertices back as a flat list of numbers\n(setq flat (vlax-safearray->list\n             (vlax-variant-value (vla-get-Coordinates pl))))\n(princ (strcat \"\\n\" (itoa (/ (length flat) 2)) \" vertices.\"))\n(princ)",
+      "notes": "An LWPOLYLINE's Coordinates array is a flat X,Y,X,Y list with no Z, while a 3D polyline or a Line's StartPoint gives three values - check which before splitting the list into points. Boolean properties use the constants :vlax-true and :vlax-false, not T and nil. \"bad argument type: safearrayp\" means the variant was not unwrapped with vlax-variant-value first."
+    },
+    {
+      "name": "vl-catch-all-apply",
+      "kind": "function",
+      "description": "Call a function with a list of arguments and trap any error instead of letting it abort the routine. It returns either the function's normal result or an error object that vl-catch-all-error-p identifies and vl-catch-all-error-message describes. This is essential around ActiveX calls, because the COM layer raises errors where plain AutoLISP would return nil - asking a collection for a missing layer, using a property an object does not have, or touching an erased object.",
+      "usage": "(vl-catch-all-apply 'function argument-list)\n(vl-catch-all-error-p result)\n(vl-catch-all-error-message result)",
+      "parameters": [
+        {
+          "name": "'function",
+          "description": "Quoted function symbol or a lambda expression to be called."
+        },
+        {
+          "name": "argument-list",
+          "description": "A list of the arguments, so a single argument still has to be wrapped: (list obj)."
+        },
+        {
+          "name": "return value",
+          "description": "The function's result on success, or an error object on failure - never an abort."
+        },
+        {
+          "name": "vl-catch-all-error-p",
+          "description": "Returns T when the value is an error object. Always test the result before using it, since a valid result could be anything."
+        },
+        {
+          "name": "vl-catch-all-error-message",
+          "description": "Returns the error text as a string, for logging or for showing the user what went wrong."
+        }
+      ],
+      "example": "(vl-load-com)\n(setq doc  (vla-get-ActiveDocument (vlax-get-acad-object))\n      lyrs (vla-get-Layers doc))\n\n(defun layer-obj (name / r)\n  (setq r (vl-catch-all-apply 'vla-Item (list lyrs name)))\n  (if (vl-catch-all-error-p r)\n    (vla-Add lyrs name)      ; did not exist - create it\n    r))\n\n(setq lay (layer-obj \"GRID\"))\n(vla-put-Color lay 8)\n\n; Report rather than crash\n(setq r (vl-catch-all-apply 'vla-put-Radius (list someobj -5.0)))\n(if (vl-catch-all-error-p r)\n  (princ (strcat \"\\nFailed: \" (vl-catch-all-error-message r))))\n(princ)",
+      "notes": "The arguments must be a list even for a single argument, which is the usual mistake. It traps errors but not a user Escape, so a *error* handler is still needed for cancellation. vl-catch-all-apply is unrelated to vl-bb-set / vl-bb-ref (the blackboard) and does not roll anything back - if a multi-step ActiveX edit fails halfway, the earlier steps have already happened."
+    }
+  ]
+}

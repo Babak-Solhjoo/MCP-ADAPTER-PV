@@ -1,0 +1,298 @@
+{
+  "category": "Scripting DOM III - layer members, enumerations, Action Manager objects, paths and tooling (ExtendScript)",
+  "description": "The remaining ExtendScript building blocks: ArtLayer properties and transform/ordering methods, the enumerations scripts pass everywhere (DialogModes, SaveOptions, ResampleMethod, Units/UnitValue, AnchorPosition, ElementPlacement, document modes, selection and stroke enums, RasterizeType), the Action Manager container classes (ActionDescriptor, ActionReference, ActionList), path construction objects, ScriptingListener, ExtendScript directives, BridgeTalk, debugging tools and common pitfalls.",
+  "tools": [
+    {
+      "name": "ArtLayer.kind (LayerKind)",
+      "kind": "script-object",
+      "description": "Identifies the layer type: LayerKind.NORMAL (pixels), TEXT, SMARTOBJECT, VIDEO, SOLIDFILL, GRADIENTFILL, PATTERNFILL, and the adjustment kinds LEVELS, CURVES, COLORBALANCE, BRIGHTNESSCONTRAST, HUESATURATION, SELECTIVECOLOR, CHANNELMIXER, GRADIENTMAP, INVERSION, THRESHOLD, POSTERIZE, PHOTOFILTER, EXPOSURE, BLACKANDWHITE, VIBRANCE, COLORLOOKUP, LAYER3D. Setting `kind = LayerKind.TEXT` on an empty new layer turns it into a type layer - the only way to create text from the DOM.",
+      "usage": "if (layer.kind == LayerKind.TEXT) {...}   var lyr = doc.artLayers.add(); lyr.kind = LayerKind.TEXT;",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nfor (var i = 0; i < doc.artLayers.length; i++) {\n  var l = doc.artLayers[i];\n  if (l.kind == LayerKind.SMARTOBJECT) $.writeln(\"Smart object: \" + l.name);\n  if (l.kind == LayerKind.TEXT) $.writeln(\"Text: \" + l.textItem.contents);\n}",
+      "notes": "Shape layers report as NORMAL in older references; check `layer.kind` together with Action Manager 'layerKind' (4 = shape) when it matters. LayerSets have no kind - test `typename == \"LayerSet\"`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer.opacity, fillOpacity, blendMode and visible",
+      "kind": "script-object",
+      "description": "The four compositing properties: `opacity` (0-100, master opacity), `fillOpacity` (0-100, pixels only, effects unaffected), `blendMode` (BlendMode enum) and `visible`. Fill opacity behaves differently from opacity for the eight 'special' blend modes (Color/Linear Burn, Color/Linear Dodge, Vivid/Linear Light, Hard Mix, Difference).",
+      "usage": "layer.opacity = 60;   layer.fillOpacity = 0;   layer.blendMode = BlendMode.MULTIPLY;   layer.visible = false;",
+      "parameters": [],
+      "example": "var lyr = app.activeDocument.activeLayer;\nlyr.blendMode = BlendMode.OVERLAY;\nlyr.opacity = 45;\nlyr.visible = true;",
+      "notes": "Opacity is rounded to integers. Setting `visible` on a group affects all children's display but not their own `visible` flags. UXP: `layer.opacity`, `layer.fillOpacity`, `layer.blendMode`, `layer.visible`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer lock properties (allLocked, pixelsLocked, positionLocked, transparentPixelsLocked)",
+      "kind": "script-object",
+      "description": "Booleans mirroring the four lock icons in the Layers panel. `allLocked` sets/clears every lock; the others are independent. Locked layers throw 'The command ... is not currently available' from many DOM methods, so scripts often unlock, edit and re-lock.",
+      "usage": "layer.allLocked = false;   layer.pixelsLocked = true;   layer.positionLocked = true;   layer.transparentPixelsLocked = true;",
+      "parameters": [],
+      "example": "var lyr = app.activeDocument.activeLayer;\nvar wasLocked = lyr.allLocked;\nlyr.allLocked = false;\nlyr.translate(10, 0);\nlyr.allLocked = wasLocked;",
+      "notes": "The Background layer reports `allLocked = true` but cannot be unlocked with this property - set `isBackgroundLayer = false`. UXP: same names plus read-only `locked`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer.bounds and boundsNoEffects",
+      "kind": "script-object",
+      "description": "The layer's bounding rectangle as [left, top, right, bottom] UnitValues in ruler units, including (bounds) or excluding (boundsNoEffects) the extent added by layer styles. Used to align, measure, crop to content and to decide export sizes; for empty layers all four values are 0.",
+      "usage": "var b = layer.bounds;   var w = b[2].as(\"px\") - b[0].as(\"px\");   layer.boundsNoEffects",
+      "parameters": [],
+      "example": "app.preferences.rulerUnits = Units.PIXELS;\nvar doc = app.activeDocument, lyr = doc.activeLayer;\nvar b = lyr.bounds;\nvar w = b[2].value - b[0].value, h = b[3].value - b[1].value;\n// centre the layer on the canvas\nlyr.translate((doc.width.value - w) / 2 - b[0].value, (doc.height.value - h) / 2 - b[1].value);",
+      "notes": "Bounds of type layers include the full glyph boxes, not the visible ink; Smart Object bounds include transparent padding. UXP: `layer.bounds` returns {left, top, right, bottom, width, height}.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer.grouped (clipping mask) and linkedLayers / link() / unlink()",
+      "kind": "script-object",
+      "description": "`grouped = true` clips the layer to the layer below (Create Clipping Mask); `linkedLayers` returns the layers linked to this one, `link(otherLayer)` links and `unlink()` removes this layer from its link set. Linked layers move and transform together in the UI, and clipping is how adjustment layers are restricted to one layer in scripts.",
+      "usage": "adjLayer.grouped = true;   layerA.link(layerB);   layerA.unlink();   layerA.linkedLayers.length",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nvar base = doc.artLayers.getByName(\"product\");\nvar tint = doc.artLayers.add();\ntint.name = \"tint\";\ntint.move(base, ElementPlacement.PLACEBEFORE);   // directly above\ntint.grouped = true;                             // clip to product",
+      "notes": "The layer must be directly above its intended base; `move()` it first. UXP: `layer.isClippingMask`, `layer.link()`, `layer.unlink()`, `layer.linkedLayers`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer.applyStyle()",
+      "kind": "script-object",
+      "description": "Applies a layer style preset from the Styles panel by its name, replacing the layer's current effects. Load the .asl first (Styles panel > Import Styles) because the DOM cannot define individual effects; for parametric effects use Action Manager 'set' on 'layerEffects'.",
+      "usage": "layer.applyStyle(styleName)",
+      "parameters": [
+        {"name": "styleName", "description": "Exact name shown in the Styles panel (case-sensitive)."}
+      ],
+      "example": "var lyr = app.activeDocument.activeLayer;\ntry {\n  lyr.applyStyle(\"Sunset Sky (Text)\");\n} catch (e) {\n  alert(\"Load the style set first: \" + e.message);\n}",
+      "notes": "Throws if the name is not found. Copy/Paste Layer Style between layers is Action Manager only ('copyEffects'/'pasteEffects').",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer.translate(), resize() and rotate()",
+      "kind": "script-object",
+      "description": "Geometric transforms of a single layer: `translate(deltaX, deltaY)` moves by an offset (UnitValues or ruler units), `resize(horizontal%, vertical%, anchor)` scales, `rotate(angle, anchor)` rotates clockwise in degrees; the AnchorPosition argument chooses the pivot (TOPLEFT ... BOTTOMRIGHT, default MIDDLECENTER). Locked layers and the Background throw.",
+      "usage": "layer.translate(dx, dy);   layer.resize(hPercent, vPercent [, AnchorPosition]);   layer.rotate(angle [, AnchorPosition]);",
+      "parameters": [
+        {"name": "AnchorPosition", "description": "TOPLEFT, TOPCENTER, TOPRIGHT, MIDDLELEFT, MIDDLECENTER, MIDDLERIGHT, BOTTOMLEFT, BOTTOMCENTER, BOTTOMRIGHT."}
+      ],
+      "example": "var lyr = app.activeDocument.activeLayer;\nlyr.resize(50, 50, AnchorPosition.TOPLEFT);\nlyr.rotate(-15, AnchorPosition.MIDDLECENTER);\nlyr.translate(UnitValue(120, \"px\"), UnitValue(-40, \"px\"));",
+      "notes": "Each call is a separate transform (resampling pixels each time for raster layers) - convert to a Smart Object first for lossless stacking. Interpolation follows Preferences > General > Image Interpolation. UXP: `layer.translate()`, `layer.scale()`, `layer.rotate()`, `layer.skew()`, `layer.flip()`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer.move() and ElementPlacement",
+      "kind": "script-object",
+      "description": "Changes a layer's position in the stack relative to another layer or group: `move(relativeObject, ElementPlacement.PLACEBEFORE)` puts it above the target, PLACEAFTER below, INSIDE at the top of a LayerSet, PLACEATBEGINNING/PLACEATEND to the top/bottom of the target's container. `moveAfter()`/`moveBefore()` are shorthand variants; `duplicate(relativeObject, insertionLocation)` and `LayerSets.add()` accept the same placement values.",
+      "usage": "layer.move(relativeObject, ElementPlacement.PLACEBEFORE | PLACEAFTER | INSIDE | PLACEATBEGINNING | PLACEATEND);",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nvar grp = doc.layerSets.add(); grp.name = \"Retouch\";\nvar l = doc.artLayers.getByName(\"skin\");\nl.move(grp, ElementPlacement.INSIDE);\ngrp.move(doc.layers[0], ElementPlacement.PLACEBEFORE);   // group to top",
+      "notes": "'PLACEBEFORE' means above in the Layers panel (index 0 is the top). Moving into a locked group throws. UXP: `layer.move(relativeObject, constants.ElementPlacement.PLACEBEFORE)`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ArtLayer.merge(), remove() and rasterize()",
+      "kind": "script-object",
+      "description": "`merge()` merges the layer into the one below (Merge Down) and returns the resulting ArtLayer; on a LayerSet it merges the group into one layer. `remove()` deletes the layer. `rasterize(RasterizeType.ENTIRELAYER | TEXTCONTENTS | SHAPE | FILLCONTENT | LAYERCLIPPINGPATH | LINKEDLAYERS)` converts vector/type/smart content to pixels.",
+      "usage": "var merged = layer.merge();   layer.remove();   layer.rasterize(RasterizeType.ENTIRELAYER);",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nvar t = doc.artLayers.getByName(\"headline\");\nt.rasterize(RasterizeType.TEXTCONTENTS);\nvar merged = t.merge();   // into the layer beneath\nmerged.name = \"headline flat\";",
+      "notes": "Merging a layer with a mask applies the mask. `merge()` on the bottom layer throws. UXP: `await layer.merge()`, `layer.delete()`, `await layer.rasterize(constants.RasterizeType.ENTIRELAYER)`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "Layer identity: name, itemIndex and Action Manager layerID",
+      "kind": "reference",
+      "description": "The DOM addresses layers by object reference, name or index; names are not unique and indexes shift as layers move. Action Manager exposes a stable integer `layerID` (readable with executeActionGet on the target layer) that survives renames and reordering, and `itemIndex` (1-based from the bottom, counting the Background only when present). Scripts that must re-find a layer later should store its layerID and select it with an ActionReference `putIdentifier`.",
+      "usage": "var ref = new ActionReference(); ref.putProperty(stringIDToTypeID(\"property\"), stringIDToTypeID(\"layerID\")); ref.putEnumerated(stringIDToTypeID(\"layer\"), stringIDToTypeID(\"ordinal\"), stringIDToTypeID(\"targetEnum\")); var id = executeActionGet(ref).getInteger(stringIDToTypeID(\"layerID\"));",
+      "parameters": [],
+      "example": "function selectLayerById(id) {\n  var ref = new ActionReference();\n  ref.putIdentifier(stringIDToTypeID(\"layer\"), id);\n  var d = new ActionDescriptor();\n  d.putReference(stringIDToTypeID(\"null\"), ref);\n  d.putBoolean(stringIDToTypeID(\"makeVisible\"), false);\n  executeAction(stringIDToTypeID(\"select\"), d, DialogModes.NO);\n}",
+      "notes": "UXP exposes `layer.id` directly and batchPlay targets accept `{ _ref: \"layer\", _id: id }`. IDs are per document and reused after deletion only in rare cases.",
+      "docs": "https://developer.adobe.com/photoshop/uxp/2022/ps_reference/classes/layer/"
+    },
+    {
+      "name": "DialogModes, SaveOptions and Extension enumerations",
+      "kind": "script-object",
+      "description": "Three enums used in nearly every script: DialogModes (ALL, ERROR, NO) for `app.displayDialogs` and `executeAction`; SaveOptions (SAVECHANGES, DONOTSAVECHANGES, PROMPTTOSAVECHANGES) for `Document.close()`; Extension (NONE, LOWERCASE, UPPERCASE) for the file-extension argument of `saveAs()` and `exportDocument()`.",
+      "usage": "app.displayDialogs = DialogModes.NO;   doc.close(SaveOptions.DONOTSAVECHANGES);   doc.saveAs(file, opts, true, Extension.LOWERCASE);",
+      "parameters": [],
+      "example": "app.displayDialogs = DialogModes.ERROR;\nvar d = app.open(new File(\"C:/in/a.tif\"));\nd.saveAs(new File(\"C:/out/a.jpg\"), new JPEGSaveOptions(), true, Extension.LOWERCASE);\nd.close(SaveOptions.DONOTSAVECHANGES);",
+      "notes": "UXP: `constants.DialogModes.{ALL, ERROR, NONE}` and `constants.SaveOptions`; close is `doc.closeWithoutSaving()` or `doc.close(SaveOptions)`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ResampleMethod enumeration",
+      "kind": "script-object",
+      "description": "Interpolation choices for `Document.resizeImage()` and `app.preferences.interpolation`: NONE (nearest neighbour - pixel art), NEARESTNEIGHBOR, BILINEAR, BICUBIC, BICUBICSHARPER (best for reduction), BICUBICSMOOTHER (enlargement), BICUBICAUTOMATIC (chooses by direction), PRESERVEDETAILS (with the `amount` noise-reduction argument), AUTOMATIC. Preserve Details 2.0 and Deep Upscale are UXP-only constants.",
+      "usage": "doc.resizeImage(width, height, resolution, ResampleMethod.BICUBICSHARPER [, amount]);",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\ndoc.resizeImage(UnitValue(3000,\"px\"), null, null, ResampleMethod.PRESERVEDETAILS, 20);   // enlarge with 20 % noise reduction",
+      "notes": "Passing `null` for height keeps the aspect ratio; passing null for resolution keeps ppi. UXP `constants.ResampleMethod` adds PRESERVEDETAILS2 and DEEPUPSCALE.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "Units, TypeUnits and the UnitValue class",
+      "kind": "script-object",
+      "description": "Photoshop returns most dimensions as UnitValue objects (`value` + `type`, e.g. 1920 px) interpreted in `app.preferences.rulerUnits`; `UnitValue(n, \"px\")`, `\"in\"`, `\"cm\"`, `\"mm\"`, `\"pt\"`, `\"pc\"`, `\"%\"` constructs them, `.as(\"px\")` converts, and `UnitValue.baseUnit` (set to `UnitValue(1/doc.resolution, \"in\")`) makes pixel conversions honour the document resolution. Units and TypeUnits enums set the preferences.",
+      "usage": "var w = UnitValue(10, \"cm\");   w.as(\"px\")   w.value   w.type   UnitValue.baseUnit = UnitValue(1 / doc.resolution, \"in\");",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nUnitValue.baseUnit = UnitValue(1 / doc.resolution, \"in\");   // px conversions now use the doc ppi\nvar widthPx = doc.width.as(\"px\");\nvar widthCm = doc.width.as(\"cm\");\n$.writeln(widthPx + \" px = \" + widthCm.toFixed(2) + \" cm at \" + doc.resolution + \" ppi\");",
+      "notes": "Arithmetic on UnitValues works (`a + b`) when types match; otherwise convert with `.as()`. Percent units are relative to the document size for dimensions.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "NewDocumentMode, DocumentMode, ChangeMode, DocumentFill and BitsPerChannelType",
+      "kind": "script-object",
+      "description": "The document-level enums: NewDocumentMode (BITMAP, GRAYSCALE, RGB, CMYK, LAB) for `documents.add()`; DocumentMode (the same plus DUOTONE, INDEXEDCOLOR, MULTICHANNEL) read from `doc.mode`; ChangeMode (BITMAP, GRAYSCALE, RGB, CMYK, LAB, INDEXEDCOLOR, MULTICHANNEL) for `changeMode()`; DocumentFill (WHITE, BACKGROUNDCOLOR, TRANSPARENT); BitsPerChannelType (ONE, EIGHT, SIXTEEN, THIRTYTWO) for `doc.bitsPerChannel`.",
+      "usage": "app.documents.add(w, h, 300, \"n\", NewDocumentMode.CMYK, DocumentFill.WHITE, 1, BitsPerChannelType.EIGHT);   if (doc.mode == DocumentMode.RGB) doc.changeMode(ChangeMode.LAB);",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nif (doc.bitsPerChannel == BitsPerChannelType.SIXTEEN) doc.bitsPerChannel = BitsPerChannelType.EIGHT;\nif (doc.mode != DocumentMode.RGB) doc.changeMode(ChangeMode.RGB);",
+      "notes": "Converting 32-bit to 16/8-bit triggers HDR Toning unless dialogs are suppressed (then Exposure/Gamma defaults apply). UXP: `constants.NewDocumentMode`, `DocumentMode`, `ChangeMode`, `DocumentFill`, `BitsPerChannelType`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "SelectionType, ColorBlendMode and StrokeLocation enumerations",
+      "kind": "script-object",
+      "description": "Enums for the Selection object: SelectionType (REPLACE, EXTEND = add, DIMINISH = subtract, INTERSECT) for `selection.select()`, `load()` and `store()`; ColorBlendMode (NORMAL, MULTIPLY, ... plus BEHIND and CLEAR) for `selection.fill()` and `stroke()`; StrokeLocation (INSIDE, CENTER, OUTSIDE) for `selection.stroke()`. ColorBlendMode is a superset of BlendMode with the two painting-only modes.",
+      "usage": "doc.selection.select(coords, SelectionType.EXTEND, feather, antiAlias);   doc.selection.fill(color, ColorBlendMode.NORMAL, opacity, preserveTransparency);   doc.selection.stroke(color, width, StrokeLocation.INSIDE, ColorBlendMode.NORMAL, opacity, preserveTransparency);",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\ndoc.selection.select([[0,0],[200,0],[200,200],[0,200]]);\ndoc.selection.select([[150,150],[400,150],[400,400],[150,400]], SelectionType.EXTEND);\nvar c = new SolidColor(); c.rgb.hexValue = \"FF0000\";\ndoc.selection.stroke(c, 4, StrokeLocation.INSIDE, ColorBlendMode.NORMAL, 100, false);\ndoc.selection.deselect();",
+      "notes": "Coordinates are in ruler units. UXP Selection (25.0+) uses `constants.SelectionType` and separate `selectRectangle/selectEllipse/selectPolygon` methods.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "AnchorPosition, Direction, Intent and ColorProfileType enumerations",
+      "kind": "script-object",
+      "description": "Smaller enums used across the DOM: AnchorPosition (nine pivots) for `resizeCanvas`, `resize`, `rotate`; Direction (HORIZONTAL, VERTICAL) for guides, type orientation and warp; Intent (PERCEPTUAL, SATURATION, RELATIVECOLORIMETRIC, ABSOLUTECOLORIMETRIC) for `convertProfile` and printing; ColorProfileType (NONE, WORKING, CUSTOM) read from `doc.colorProfileType`.",
+      "usage": "doc.resizeCanvas(w, h, AnchorPosition.TOPLEFT);   doc.guides.add(Direction.HORIZONTAL, y);   doc.convertProfile(name, Intent.RELATIVECOLORIMETRIC, true, true);",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\ndoc.resizeCanvas(doc.width, UnitValue(doc.height.as(\"px\") + 200, \"px\"), AnchorPosition.TOPCENTER);   // add 200 px at the bottom\nif (doc.colorProfileType == ColorProfileType.NONE) doc.colorProfileName = \"sRGB IEC61966-2.1\";",
+      "notes": "UXP: `constants.AnchorPosition`, `Direction`, `Intent`, `ColorProfileType` with the same member names.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "Type enumerations (Justification, AntiAlias, TextType, TextCase, WarpStyle, Language, TextComposer, AutoKernType)",
+      "kind": "script-object",
+      "description": "The enums behind TextItem properties: Justification (LEFT, CENTER, RIGHT, LEFTJUSTIFIED, CENTERJUSTIFIED, RIGHTJUSTIFIED, FULLYJUSTIFIED), AntiAlias (NONE, SHARP, CRISP, STRONG, SMOOTH, WINDOWSLCD, WINDOWS, MACLCD, MAC), TextType (POINTTEXT, PARAGRAPHTEXT), TextCase (NORMAL, ALLCAPS, SMALLCAPS), WarpStyle (NONE, ARC, ARCLOWER, ARCUPPER, ARCH, BULGE, SHELLLOWER, SHELLUPPER, FLAG, WAVE, FISH, RISE, FISHEYE, INFLATE, SQUEEZE, TWIST), Language (ENGLISHUSA, ENGLISHUK, GERMAN, FRENCH, ... ), TextComposer (ADOBESINGLELINE, ADOBEEVERYLINE), AutoKernType (MANUAL, METRICS, OPTICAL), UnderlineType, StrikeThruType.",
+      "usage": "t.justification = Justification.CENTER;   t.antiAliasMethod = AntiAlias.SMOOTH;   t.kind = TextType.PARAGRAPHTEXT;   t.warpStyle = WarpStyle.FLAG;",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nvar l = doc.artLayers.add(); l.kind = LayerKind.TEXT;\nvar t = l.textItem;\nt.contents = \"SALE\"; t.size = 96; t.font = \"Impact\";\nt.justification = Justification.CENTER;\nt.capitalization = TextCase.ALLCAPS;\nt.antiAliasMethod = AntiAlias.SMOOTH;\nt.warpStyle = WarpStyle.ARC; t.warpBend = 30;",
+      "notes": "Setting paragraph-only properties (indents, hyphenation) on point text throws. UXP TextItem uses `characterStyle`/`paragraphStyle` sub-objects with `constants.Justification` etc.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ActionDescriptor",
+      "kind": "script-object",
+      "description": "The key/value container of the Action Manager: typed `put*` setters (putInteger, putDouble, putUnitDouble, putString, putBoolean, putEnumerated, putReference, putObject, putList, putClass, putPath, putData) and matching `get*` getters, plus `count`, `getKey(i)`, `getType(key)`, `hasKey`, `erase`, `clear`, `fromStream`/`toStream`. Every executeAction call takes one; executeActionGet returns one describing the requested object.",
+      "usage": "var d = new ActionDescriptor();   d.putUnitDouble(key, unitTypeID, value);   d.putEnumerated(key, enumTypeID, valueID);   d.putObject(key, classID, nestedDescriptor);   executeAction(eventID, d, DialogModes.NO);",
+      "parameters": [
+        {"name": "putUnitDouble(key, unit, value)", "description": "Numbers with units: stringIDToTypeID('pixelsUnit'), 'percentUnit', 'angleUnit', 'distanceUnit'."},
+        {"name": "putEnumerated(key, enumType, enumValue)", "description": "Enum values such as (fillContents, foregroundColor)."},
+        {"name": "putObject(key, classID, desc)", "description": "Nested descriptors, e.g. an RGBColor object."},
+        {"name": "putReference(key, ref)", "description": "Targets - usually under the key 'null'."}
+      ],
+      "example": "// Fill selection with 50% gray via Action Manager\nvar d = new ActionDescriptor();\nd.putEnumerated(stringIDToTypeID(\"using\"), stringIDToTypeID(\"fillContents\"), stringIDToTypeID(\"gray\"));\nd.putUnitDouble(stringIDToTypeID(\"opacity\"), stringIDToTypeID(\"percentUnit\"), 100);\nd.putEnumerated(stringIDToTypeID(\"mode\"), stringIDToTypeID(\"blendMode\"), stringIDToTypeID(\"normal\"));\nexecuteAction(stringIDToTypeID(\"fill\"), d, DialogModes.NO);",
+      "notes": "Keys are integer type IDs; use ScriptingListener output as the reference for names and structure. UXP replaces this with plain JSON objects passed to batchPlay.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ActionReference",
+      "kind": "script-object",
+      "description": "Describes the target of an Action Manager command or query: a chain of `put*` calls naming the class and how to pick an instance - `putEnumerated(class, 'ordinal', 'targetEnum')` (the current one), `putName(class, name)`, `putIndex(class, i)`, `putIdentifier(class, id)`, `putOffset`, `putProperty(class 'property', propID)` (to fetch one property) and `putClass`. Multiple puts nest: property of a layer of a document.",
+      "usage": "var ref = new ActionReference();   ref.putProperty(stringIDToTypeID(\"property\"), stringIDToTypeID(\"bounds\"));   ref.putEnumerated(stringIDToTypeID(\"layer\"), stringIDToTypeID(\"ordinal\"), stringIDToTypeID(\"targetEnum\"));   var desc = executeActionGet(ref);",
+      "parameters": [],
+      "example": "// read the active document's file path without the DOM 'unsaved' exception\nvar ref = new ActionReference();\nref.putProperty(stringIDToTypeID(\"property\"), stringIDToTypeID(\"fileReference\"));\nref.putEnumerated(stringIDToTypeID(\"document\"), stringIDToTypeID(\"ordinal\"), stringIDToTypeID(\"targetEnum\"));\nvar d = executeActionGet(ref);\nvar path = d.hasKey(stringIDToTypeID(\"fileReference\")) ? d.getPath(stringIDToTypeID(\"fileReference\")).fsName : \"(unsaved)\";",
+      "notes": "Order matters: the most specific element (property) is put first, then the object, then its container. UXP equivalent: `_target: [{ _property: \"bounds\" }, { _ref: \"layer\", _enum: \"ordinal\", _value: \"targetEnum\" }]`.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ActionList",
+      "kind": "script-object",
+      "description": "An ordered list inside a descriptor (e.g. the points of a curve, the colour stops of a gradient, the list of layers to select, guides, or the results of a batch of commands). Same typed `put*`/`get*` methods as ActionDescriptor but indexed by position, with `count` and `clear()`.",
+      "usage": "var list = new ActionList();   list.putObject(classID, desc);   list.putReference(ref);   desc.putList(key, list);   var n = desc.getList(key).count;",
+      "parameters": [],
+      "example": "// select several layers by name in one command\nvar ref = new ActionReference();\nref.putName(stringIDToTypeID(\"layer\"), \"a\");\nref.putName(stringIDToTypeID(\"layer\"), \"b\");\nvar d = new ActionDescriptor();\nd.putReference(stringIDToTypeID(\"null\"), ref);\nd.putEnumerated(stringIDToTypeID(\"selectionModifier\"), stringIDToTypeID(\"selectionModifierType\"), stringIDToTypeID(\"addToSelection\"));\nexecuteAction(stringIDToTypeID(\"select\"), d, DialogModes.NO);",
+      "notes": "ActionList is what `_list`-typed keys become in UXP batchPlay JSON (plain arrays).",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "PathPointInfo, SubPathInfo and PathItems.add() (building paths from points)",
+      "kind": "script-object",
+      "description": "Construct vector paths programmatically: each PathPointInfo has `anchor`, `leftDirection`, `rightDirection` ([x, y] arrays) and `kind` (PointKind.CORNERPOINT | SMOOTHPOINT); a SubPathInfo groups points with `closed` and `operation` (ShapeOperation.SHAPEADD | SHAPESUBTRACT | SHAPEINTERSECT | SHAPEXOR); `doc.pathItems.add(name, [subPathInfos])` creates the PathItem, which can then be filled, stroked, turned into a selection or a shape layer.",
+      "usage": "var pt = new PathPointInfo(); pt.kind = PointKind.CORNERPOINT; pt.anchor = [x,y]; pt.leftDirection = [x,y]; pt.rightDirection = [x,y];   var sp = new SubPathInfo(); sp.closed = true; sp.operation = ShapeOperation.SHAPEADD; sp.entireSubPath = [pt1, pt2, ...];   var path = doc.pathItems.add(\"outline\", [sp]);",
+      "parameters": [],
+      "example": "function pt(x, y) { var p = new PathPointInfo(); p.kind = PointKind.CORNERPOINT; p.anchor = [x, y]; p.leftDirection = [x, y]; p.rightDirection = [x, y]; return p; }\nvar sp = new SubPathInfo();\nsp.closed = true; sp.operation = ShapeOperation.SHAPEADD;\nsp.entireSubPath = [pt(100,100), pt(500,100), pt(500,300), pt(100,300)];\nvar doc = app.activeDocument;\nvar path = doc.pathItems.add(\"box\", [sp]);\npath.makeSelection(0, true, SelectionType.REPLACE);\npath.strokePath(ToolType.BRUSH);",
+      "notes": "Coordinates are in ruler units. Reading existing paths: `pathItem.subPathItems[i].pathPoints[j].anchor`. UXP: `doc.pathItems` (23.3+) with similar PathPointInfo/SubPathInfo classes.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "ScriptingListener plug-in",
+      "kind": "library",
+      "description": "An Adobe-supplied plug-in (ScriptingListener.8li) that logs every UI action as ready-to-run ExtendScript Action Manager code (ScriptingListenerJS.log on the desktop) and as VBScript. It is the primary way to discover the event IDs, keys and enum values for commands the DOM does not expose - perform the action once, copy the generated block into a function, parameterise it.",
+      "usage": "Copy ScriptingListener.8li to Program Files\\Adobe\\Adobe Photoshop <version>\\Plug-ins\\, restart; perform an action; open %UserProfile%\\Desktop\\ScriptingListenerJS.log",
+      "parameters": [],
+      "example": "// typical log output (Filter > Blur > Gaussian Blur 5 px) after tidying:\nfunction gaussianBlur(radius) {\n  var d = new ActionDescriptor();\n  d.putUnitDouble(stringIDToTypeID(\"radius\"), stringIDToTypeID(\"pixelsUnit\"), radius);\n  executeAction(stringIDToTypeID(\"gaussianBlur\"), d, DialogModes.NO);\n}",
+      "notes": "Remove the plug-in when not needed - it slows Photoshop and the log grows without limit. The log uses charIDs; convert with typeIDToStringID for readability. UXP developers use the Alchemist plugin instead, which records batchPlay JSON.",
+      "docs": "https://helpx.adobe.com/photoshop/kb/downloadable-plugins-and-content.html"
+    },
+    {
+      "name": "ExtendScript directives and the $ object (#target, #include, $.evalFile, $.os, $.sleep)",
+      "kind": "script-object",
+      "description": "Preprocessor directives: `#target photoshop` routes a double-clicked file to Photoshop, `#targetengine` names a persistent engine (ScriptUI palettes need one in other apps; Photoshop only supports 'main'), `#include \"file.jsx\"` and `#includepath` inline libraries, `#strict on`. The `$` helper exposes `$.writeln` (console), `$.evalFile(file)` (run another script and return its result), `$.os`, `$.locale`, `$.version`, `$.sleep(ms)`, `$.level`/`$.bp()` (debugger), `$.fileName`, `$.stack`, `$.memCache`, `$.gc()`, `$.global`.",
+      "usage": "#target photoshop\n#include \"lib/json2.jsx\"\n$.writeln(\"hi\");   var r = $.evalFile(new File(\"C:/scripts/helper.jsx\"));   $.sleep(500);",
+      "parameters": [],
+      "example": "#target photoshop\n#include \"json2.jsx\"        // ES3 has no JSON - include Douglas Crockford's json2\nfunction readText(path) { var f = new File(path); if (!f.open(\"r\")) return \"\"; var s = f.read(); f.close(); return s; }\nvar cfg = JSON.parse(readText(\"C:/scripts/config.json\") || \"{}\");\n$.writeln(\"width = \" + cfg.width);",
+      "notes": "ExtendScript is ES3: no JSON, no Array.prototype.forEach/map, no `let`/`const`, no template strings, no `Object.keys`; polyfill or include json2. `$.writeln` output appears in the ExtendScript Toolkit / VS Code debugger console only.",
+      "docs": "https://extendscript.docsforadobe.dev/"
+    },
+    {
+      "name": "ExtendScript Toolkit and the VS Code ExtendScript Debugger",
+      "kind": "library",
+      "description": "The tooling for writing and debugging JSX: the legacy ExtendScript Toolkit (ESTK CC, 32-bit, no longer supported on modern macOS but still works on Windows) and Adobe's 'ExtendScript Debugger' extension for Visual Studio Code, which connects to a running Photoshop, sets breakpoints, inspects variables, evaluates expressions and shows `$.writeln` output. Both can export .jsxbin.",
+      "usage": "VS Code > Extensions > 'ExtendScript Debugger' (Adobe) > create launch.json with hostAppSpecifier 'photoshop' > F5   |   ESTK: File > Open > select target 'Adobe Photoshop' > Run",
+      "parameters": [
+        {"name": "launch.json", "description": "{\"type\": \"extendscript-debug\", \"request\": \"launch\", \"name\": \"PS\", \"hostAppSpecifier\": \"photoshop\", \"script\": \"${file}\"}"},
+        {"name": "Export to JSXBIN", "description": "Command palette > 'ExtendScript: Export to JSXBin' (or ESTK File > Export as Binary)."}
+      ],
+      "example": "1. Install the ExtendScript Debugger extension in VS Code.\n2. Open resize.jsx, add `$.bp();` where you want to stop, or set a breakpoint.\n3. Run and Debug > select 'Adobe Photoshop 2025' in the status bar > F5; step through with variables shown in the Debug panel.",
+      "notes": "The debugger requires Photoshop to be running and 'Allow scripts to write files and access network' is not needed. Type definitions for autocomplete: 'types-for-adobe' (npm) or Adobe's 'ps-types'.",
+      "docs": "https://marketplace.visualstudio.com/items?itemName=Adobe.extendscript-debug"
+    },
+    {
+      "name": "BridgeTalk (inter-application scripting)",
+      "kind": "script-object",
+      "description": "The messaging bus of the ExtendScript runtime: a script running in Photoshop can send a script string to another Creative Cloud application (Bridge, Illustrator, InDesign, After Effects, Photoshop itself) with `new BridgeTalk()`, `target`, `body`, `onResult`, `send()`, and receive the result asynchronously. Used to hand a placed Illustrator file to Illustrator for editing or to trigger Bridge output from Photoshop.",
+      "usage": "var bt = new BridgeTalk(); bt.target = \"illustrator\"; bt.body = \"app.documents.length\"; bt.onResult = function (r) { alert(r.body); }; bt.send();   BridgeTalk.isRunning(\"bridge\")   BridgeTalk.launch(\"bridge\")",
+      "parameters": [],
+      "example": "if (!BridgeTalk.isRunning(\"bridge\")) BridgeTalk.launch(\"bridge\");\nvar bt = new BridgeTalk();\nbt.target = \"bridge\";\nbt.body = \"app.document.thumbnail = new Thumbnail(new Folder('C:/in')); 'ok'\";\nbt.onResult = function (msg) { $.writeln(\"Bridge said: \" + msg.body); };\nbt.send(10);   // wait up to 10 s",
+      "notes": "Targets are lowercase app specifiers optionally with version ('photoshop-26'). Bodies are strings evaluated in the target; return values must be strings/serialisable. UXP has no BridgeTalk; use `uxp.shell.openExternal` or the Photoshop cloud API for cross-app work.",
+      "docs": "https://extendscript.docsforadobe.dev/interapplication-communication/"
+    },
+    {
+      "name": "Error handling and common ExtendScript pitfalls",
+      "kind": "reference",
+      "description": "Photoshop DOM errors are thrown as Error objects with `.message` and `.number` (e.g. 8007 = user cancelled, 8800 = general Photoshop error); wrap risky calls in try/catch and restore preferences in finally. Frequent pitfalls: ruler units not set (wrong sizes), `doc.fullName` on unsaved docs, locked/background layers, filters on non-pixel layers, modal states left open, actions that reference missing layers, ES3 language limits, file paths needing forward slashes or `File.fsName`, and dialogs blocking unattended runs.",
+      "usage": "try { ... } catch (e) { if (e.number == 8007) { /* cancelled */ } else alert(e.message + \" (line \" + e.line + \")\"); } finally { app.preferences.rulerUnits = saved; }",
+      "parameters": [],
+      "example": "var savedUnits = app.preferences.rulerUnits, savedDialogs = app.displayDialogs;\napp.preferences.rulerUnits = Units.PIXELS;\napp.displayDialogs = DialogModes.NO;\ntry {\n  var doc = app.activeDocument;\n  if (doc.activeLayer.isBackgroundLayer) doc.activeLayer.isBackgroundLayer = false;\n  doc.activeLayer.applyGaussianBlur(4);\n} catch (e) {\n  alert(\"Script failed: \" + e.message + \"\\nLine \" + e.line);\n} finally {\n  app.preferences.rulerUnits = savedUnits;\n  app.displayDialogs = savedDialogs;\n}",
+      "notes": "`e.line` and `e.fileName` are available on ExtendScript errors. Use `File.decode`/`encode` for URI paths; Windows paths with backslashes must be escaped in strings.",
+      "docs": "https://extendscript.docsforadobe.dev/"
+    },
+    {
+      "name": "ExportOptionsIllustrator (Document.exportDocument to Illustrator paths)",
+      "kind": "script-object",
+      "description": "Options object for `doc.exportDocument(file, ExportType.ILLUSTRATORPATHS, options)`, the scripted File > Export > Paths to Illustrator: `path` chooses IllustratorPathType.DOCUMENTBOUNDS, ALLPATHS or NAMEDPATH (with `pathName`). Produces an .ai file containing the paths for use in Illustrator or as a vector hand-off.",
+      "usage": "var o = new ExportOptionsIllustrator(); o.path = IllustratorPathType.NAMEDPATH; o.pathName = \"outline\"; doc.exportDocument(new File(\"C:/out/outline.ai\"), ExportType.ILLUSTRATORPATHS, o);",
+      "parameters": [],
+      "example": "var doc = app.activeDocument;\nvar o = new ExportOptionsIllustrator();\no.path = IllustratorPathType.ALLPATHS;\ndoc.exportDocument(new File(\"C:/out/\" + doc.name.replace(/\\.[^.]+$/, \"\") + \"_paths.ai\"), ExportType.ILLUSTRATORPATHS, o);",
+      "notes": "Only paths (not pixels or type) are exported. The other ExportType is SAVEFORWEB with ExportOptionsSaveForWeb (covered separately).",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    },
+    {
+      "name": "Open-options classes (PDFOpenOptions, EPSOpenOptions, CameraRAWOpenOptions, DICOMOpenOptions, RawFormatOpenOptions)",
+      "kind": "script-object",
+      "description": "Second argument of `app.open(file, options [, asSmartObject])` for formats that need import parameters: PDFOpenOptions (page/image, resolution, mode, bitsPerChannel, cropPage, antiAlias, constrainProportions, suppressWarnings), EPSOpenOptions (width, height, resolution, mode, antiAlias), CameraRAWOpenOptions (bitsPerChannel, colorSpace, size, settings: exposure, temperature, tint, shadows, brightness, contrast, saturation, sharpness, luminanceSmoothing, colorNoiseReduction, chromaticAberration, vignetting), DICOMOpenOptions and RawFormatOpenOptions. The `asSmartObject` flag places the file as an embedded Smart Object in a new document.",
+      "usage": "var o = new PDFOpenOptions(); o.page = 2; o.resolution = 300; o.mode = OpenDocumentMode.RGB; o.cropPage = CropToType.TRIMBOX; app.open(file, o);",
+      "parameters": [],
+      "example": "var o = new PDFOpenOptions();\no.usePageNumber = true; o.page = 1;\no.resolution = 150; o.mode = OpenDocumentMode.RGB; o.bitsPerChannel = BitsPerChannelType.EIGHT;\no.cropPage = CropToType.MEDIABOX; o.antiAlias = true; o.suppressWarnings = true;\nvar doc = app.open(new File(\"C:/in/brochure.pdf\"), o);",
+      "notes": "CameraRAWOpenOptions only exposes the legacy 'basic' sliders; for full Camera Raw control open with dialogs on or apply the Camera Raw Filter via Action Manager. UXP `app.open()` has no options object yet - use batchPlay 'open' with 'as' descriptors.",
+      "docs": "https://www.adobe.com/content/dam/acom/en/devnet/photoshop/pdfs/photoshop-javascript-ref-2020.pdf"
+    }
+  ]
+}

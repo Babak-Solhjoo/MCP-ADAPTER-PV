@@ -1,0 +1,357 @@
+{
+  "category": "Sparse matrices",
+  "description": "Creating, inspecting and manipulating sparse matrices, together with the reordering, incomplete factorization and iterative Krylov solvers that make large sparse linear systems tractable. MATLAB stores sparse matrices in compressed column format, and most built-in operators and functions accept them transparently.",
+  "tools": [
+    {
+      "name": "sparse",
+      "kind": "function",
+      "description": "Converts a full matrix to sparse storage, or builds a sparse matrix directly from row indices, column indices and values. The triplet form is the efficient way to assemble finite element and graph matrices, and duplicate (i,j) pairs are summed automatically, which is exactly what element assembly requires. Only nonzero elements are stored, so memory scales with nnz rather than with the matrix dimensions.",
+      "usage": "S = sparse(A)\nS = sparse(m, n)\nS = sparse(i, j, v)\nS = sparse(i, j, v, m, n)\nS = sparse(i, j, v, m, n, nzmax)",
+      "parameters": [
+        {"name": "i, j", "description": "Row and column subscript vectors."},
+        {"name": "v", "description": "Values; duplicates at the same (i,j) are accumulated."},
+        {"name": "m, n", "description": "Dimensions of the result."},
+        {"name": "nzmax", "description": "Storage to preallocate for nonzeros."}
+      ],
+      "example": "S = sparse([1 2 3 1], [1 2 3 1], [1 2 3 4], 3, 3);\nfull(S)\nA = eye(1000);\nwhos A\nB = sparse(A);\nwhos B",
+      "notes": "Assembling with the triplet form is far faster than inserting elements one at a time into an existing sparse matrix, which reallocates on every insertion. Explicit zeros in v are dropped.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/sparse.html"
+    },
+    {
+      "name": "full",
+      "kind": "function",
+      "description": "Converts a sparse matrix to full (dense) storage. Use it for small matrices you want to display or pass to a function that does not support sparse input. Converting a large sparse matrix can exhaust memory instantly, since an n-by-n double matrix needs 8*n^2 bytes.",
+      "usage": "A = full(S)",
+      "parameters": [
+        {"name": "S", "description": "Sparse matrix to densify."}
+      ],
+      "example": "S = speye(4);\nfull(S)\nT = sprand(5, 5, 0.3);\nfull(T)\nissparse(full(T))",
+      "notes": "A 100000-by-100000 sparse matrix would need 80 GB as a full array. Check `numel(S)*8` before converting anything large.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/full.html"
+    },
+    {
+      "name": "issparse",
+      "kind": "function",
+      "description": "Returns true when the input uses sparse storage. Use it in library code that must branch between dense and sparse algorithms, and to verify that an operation has not silently densified your data. Many operations, such as adding a scalar, destroy sparsity.",
+      "usage": "tf = issparse(S)",
+      "parameters": [
+        {"name": "S", "description": "Any array."}
+      ],
+      "example": "S = speye(3);\nissparse(S)\nissparse(S + 1)\nissparse(S * 2)\nissparse(full(S))",
+      "notes": "S + 1 adds a scalar to every entry, including the structural zeros, so the result is full. Use `spfun` to apply a function only to the stored nonzeros.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/issparse.html"
+    },
+    {
+      "name": "nnz",
+      "kind": "function",
+      "description": "Returns the number of stored nonzero elements. Use it to measure sparsity (nnz/numel gives the density), to track fill-in during factorization, and to count matches in a logical array. For a full matrix it counts the actually nonzero entries.",
+      "usage": "n = nnz(X)",
+      "parameters": [
+        {"name": "X", "description": "Sparse or full array."}
+      ],
+      "example": "S = sprand(100, 100, 0.05);\nnnz(S)\ndensity = nnz(S) / numel(S)\nnnz([1 0 3 0] > 2)\n[L, U] = lu(S);\n[nnz(S) nnz(L) + nnz(U)]",
+      "notes": "nnz counts stored nonzeros; a sparse matrix can hold explicit zeros after arithmetic, which `nnz` excludes but `nzmax` may include. Use `nnz(logical)` as a concise count of true values.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/nnz.html"
+    },
+    {
+      "name": "nonzeros",
+      "kind": "function",
+      "description": "Returns a column vector of the nonzero values of a matrix, in column-major order. Use it to compute statistics over only the stored values, for example the mean weight of the edges in a sparse adjacency matrix. Combine with `find` when you also need the positions.",
+      "usage": "v = nonzeros(A)",
+      "parameters": [
+        {"name": "A", "description": "Sparse or full array."}
+      ],
+      "example": "S = sparse([1 2 3], [1 2 3], [4 0 6]);\nnonzeros(S)'\nmean(nonzeros(S))\n[i, j, v] = find(S);\n[i j v]",
+      "notes": "Explicit zeros stored in the sparse structure are excluded from the output. `[i,j,v] = find(S)` is the usual way to get values with their subscripts.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/nonzeros.html"
+    },
+    {
+      "name": "nzmax",
+      "kind": "function",
+      "description": "Returns the amount of storage currently allocated for nonzero elements, which may exceed the actual nonzero count after elements are removed or when space was preallocated with `spalloc`. Use it to monitor memory allocation and to check whether reallocation is happening during assembly. For a full matrix it simply returns numel.",
+      "usage": "n = nzmax(S)",
+      "parameters": [
+        {"name": "S", "description": "Sparse matrix."}
+      ],
+      "example": "S = spalloc(100, 100, 500);\n[nnz(S) nzmax(S)]\nS(1, 1) = 1;\n[nnz(S) nzmax(S)]",
+      "notes": "nzmax growing steadily during a loop indicates repeated reallocation; preallocate with `spalloc` or assemble with the triplet form of `sparse`.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/nzmax.html"
+    },
+    {
+      "name": "spalloc",
+      "kind": "function",
+      "description": "Creates an all-zero sparse matrix with space preallocated for a given number of nonzeros. Use it before a loop that fills a sparse matrix column by column, so MATLAB does not reallocate on every assignment. If you can compute all the index/value triplets first, the triplet form of `sparse` is faster still.",
+      "usage": "S = spalloc(m, n, nz)",
+      "parameters": [
+        {"name": "m, n", "description": "Dimensions of the matrix."},
+        {"name": "nz", "description": "Number of nonzeros to allocate space for."}
+      ],
+      "example": "n = 200;\nS = spalloc(n, n, 3*n);\nfor k = 1:n\n    S(k, k) = 2;\n    if k > 1, S(k, k-1) = -1; end\nend\n[nnz(S) nzmax(S)]",
+      "notes": "Filling a sparse matrix element by element is still O(nnz) per column insertion; prefer building index and value vectors and calling `sparse` once.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/spalloc.html"
+    },
+    {
+      "name": "speye",
+      "kind": "function",
+      "description": "Creates a sparse identity matrix, storing only the n diagonal entries. Use it to build shifted operators such as A - sigma*speye(n), for regularization terms, and as the starting point for sparse block constructions. It is the sparse counterpart of `eye`.",
+      "usage": "S = speye(n)\nS = speye(m, n)\nS = speye(sz)",
+      "parameters": [
+        {"name": "n", "description": "Dimension of the square identity."},
+        {"name": "m, n", "description": "Rectangular dimensions."}
+      ],
+      "example": "S = speye(5);\nnnz(S)\nwhos S\nA = gallery('poisson', 20);\nshifted = A - 3 * speye(size(A, 1));",
+      "notes": "Never write `sparse(eye(n))` for large n: that builds a dense n-by-n matrix first. `speye` allocates only the diagonal.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/speye.html"
+    },
+    {
+      "name": "spones",
+      "kind": "function",
+      "description": "Replaces every nonzero element with 1 while keeping the sparsity pattern, producing the pattern matrix. Use it to compare structures, to build unweighted adjacency matrices from weighted ones, and to compute fill-in statistics. Zero entries remain absent from the structure.",
+      "usage": "R = spones(S)",
+      "parameters": [
+        {"name": "S", "description": "Sparse or full matrix."}
+      ],
+      "example": "S = sprand(5, 5, 0.4);\nP = spones(S);\nfull(P)\nsymmetricPattern = isequal(P, P')\ndegree = full(sum(spones(S), 2))'",
+      "notes": "spones is the fastest way to answer structural questions such as 'is the pattern symmetric' without looking at values.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/spones.html"
+    },
+    {
+      "name": "sprand",
+      "kind": "function",
+      "description": "Generates a random sparse matrix with uniformly distributed nonzero entries and a specified density, or with a prescribed sparsity pattern and condition number. Use it to build test problems for solvers and to benchmark sparse algorithms. The companion `sprandn` uses normally distributed values and `sprandsym` produces symmetric matrices.",
+      "usage": "R = sprand(S)\nR = sprand(m, n, density)\nR = sprand(m, n, density, rc)",
+      "parameters": [
+        {"name": "S", "description": "Existing matrix whose pattern is reused."},
+        {"name": "m, n", "description": "Dimensions."},
+        {"name": "density", "description": "Fraction of entries that are nonzero, in [0,1]."},
+        {"name": "rc", "description": "Reciprocal condition number, or a vector of singular values."}
+      ],
+      "example": "rng(0);\nA = sprand(1000, 1000, 0.003);\nnnz(A)\nB = sprand(200, 200, 0.02, 0.1);\ncondest(B + speye(200))",
+      "notes": "The realized density is approximate because duplicate random positions are merged. For a matrix guaranteed to be nonsingular, add a diagonal: `A + speye(n)`.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/sprand.html"
+    },
+    {
+      "name": "sprandn",
+      "kind": "function",
+      "description": "Generates a random sparse matrix whose nonzero entries are drawn from the standard normal distribution. Use it for test matrices where the value distribution matters, such as benchmarking preconditioners or studying conditioning. Like `sprand`, it can match an existing pattern or target a condition number.",
+      "usage": "R = sprandn(S)\nR = sprandn(m, n, density)\nR = sprandn(m, n, density, rc)",
+      "parameters": [
+        {"name": "S", "description": "Matrix whose sparsity pattern is reused."},
+        {"name": "m, n, density", "description": "Dimensions and fraction of nonzeros."},
+        {"name": "rc", "description": "Reciprocal condition number or singular value vector."}
+      ],
+      "example": "rng(1);\nA = sprandn(500, 500, 0.01);\nfull(mean(nonzeros(A)))\nP = spones(sprand(100, 100, 0.05));\nB = sprandn(P);\nisequal(spones(B), P)",
+      "notes": "Seed with `rng` for reproducible test matrices. Symmetric positive definite test matrices are easier to obtain from `gallery('poisson',n)` or `sprandsym(n,density,rc,1)`.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/sprandn.html"
+    },
+    {
+      "name": "spdiags",
+      "kind": "function",
+      "description": "Extracts or creates diagonals of a sparse matrix, and is the standard way to build banded operators such as finite-difference Laplacians. Each column of the input B becomes one diagonal at the offset given by d. It also extracts all specified diagonals from an existing matrix into a compact column form.",
+      "usage": "A = spdiags(B, d, m, n)\nA = spdiags(B, d, A)\nB = spdiags(A)\n[B, d] = spdiags(A)",
+      "parameters": [
+        {"name": "B", "description": "Matrix whose columns hold the diagonal values."},
+        {"name": "d", "description": "Vector of diagonal offsets: 0 main, positive above, negative below."},
+        {"name": "m, n", "description": "Size of the resulting matrix."}
+      ],
+      "example": "n = 6;\ne = ones(n, 1);\nT = spdiags([-e 2*e -e], [-1 0 1], n, n);\nfull(T)\n[B, d] = spdiags(T);\nd'",
+      "notes": "When creating a matrix, elements of B that fall outside the matrix are ignored, and the alignment differs for sub- and superdiagonals, which is a common source of off-by-one errors. Check the result with `full` on a small case first.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/spdiags.html"
+    },
+    {
+      "name": "spy",
+      "kind": "function",
+      "description": "Plots the sparsity pattern of a matrix, drawing a marker at each nonzero position and reporting nnz in the x-axis label. Use it to inspect bandwidth, block structure and fill-in before and after reordering or factorization. It works on full matrices too, where it shows the nonzero pattern.",
+      "usage": "spy(S)\nspy(S, markersize)\nspy(S, LineSpec)\nspy(S, LineSpec, markersize)",
+      "parameters": [
+        {"name": "S", "description": "Matrix whose pattern is plotted."},
+        {"name": "LineSpec", "description": "Marker style and colour, for example 'r.'."},
+        {"name": "markersize", "description": "Marker size in points."}
+      ],
+      "example": "A = gallery('poisson', 20);\nfigure\nsubplot(1,2,1); spy(A); title('original')\np = symrcm(A);\nsubplot(1,2,2); spy(A(p,p)); title('after symrcm')",
+      "notes": "For very large matrices the plot saturates; sample a submatrix or use a small marker size. Comparing spy plots before and after a fill-reducing permutation is the quickest way to see whether the reordering helped.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/spy.html"
+    },
+    {
+      "name": "symrcm",
+      "kind": "function",
+      "description": "Computes the symmetric reverse Cuthill-McKee ordering, a permutation that clusters nonzeros near the diagonal and dramatically reduces the bandwidth of a symmetric matrix. Use it before a banded or Cholesky factorization of a mesh-derived matrix to cut fill-in and memory use. Apply the permutation symmetrically as A(p,p).",
+      "usage": "p = symrcm(S)",
+      "parameters": [
+        {"name": "S", "description": "Sparse matrix; the pattern of S + S' is used."}
+      ],
+      "example": "A = gallery('poisson', 15);\np = symrcm(A);\nR1 = chol(A);\nR2 = chol(A(p, p));\n[nnz(R1) nnz(R2)]",
+      "notes": "symrcm targets bandwidth; `symamd` and `amd` target fill-in directly and usually win for Cholesky. Always permute both rows and columns for symmetric matrices to preserve symmetry.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/symrcm.html"
+    },
+    {
+      "name": "amd",
+      "kind": "function",
+      "description": "Computes an approximate minimum degree permutation that reduces fill-in during Cholesky or LU factorization of a symmetric matrix. It is the ordering MATLAB uses internally for sparse Cholesky, and applying it explicitly lets you reuse the permutation across many factorizations. Options control aggressive absorption and dense-row handling.",
+      "usage": "p = amd(A)\np = amd(A, opts)",
+      "parameters": [
+        {"name": "A", "description": "Sparse matrix; the pattern of A + A' is analysed."},
+        {"name": "opts", "description": "Struct with fields dense and aggressive."}
+      ],
+      "example": "A = gallery('poisson', 25);\np = amd(A);\n[nnz(chol(A)) nnz(chol(A(p,p)))]\nq = symamd(A);\nnnz(chol(A(q,q)))",
+      "notes": "`symamd` is the symmetric variant tuned for Cholesky and `colamd` is the column ordering for LU and QR of unsymmetric matrices. Reordering costs time, so it pays off mainly when the same pattern is factorized repeatedly.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/amd.html"
+    },
+    {
+      "name": "colamd",
+      "kind": "function",
+      "description": "Computes a column approximate minimum degree permutation for unsymmetric matrices, reducing fill-in in LU and QR factorizations. Use it before `lu` or `qr` on large sparse rectangular or unsymmetric systems, particularly in least-squares problems. Apply it to columns only, as A(:,q).",
+      "usage": "p = colamd(S)\np = colamd(S, knobs)",
+      "parameters": [
+        {"name": "S", "description": "Sparse matrix."},
+        {"name": "knobs", "description": "Two-element vector controlling dense row and column thresholds."}
+      ],
+      "example": "A = sprand(400, 400, 0.01) + speye(400);\nq = colamd(A);\n[L1, U1] = lu(A);\n[L2, U2] = lu(A(:, q));\n[nnz(L1)+nnz(U1), nnz(L2)+nnz(U2)]",
+      "notes": "`colperm` is a cheaper but weaker ordering based on nonzero counts. MATLAB's backslash applies a fill-reducing ordering automatically, so explicit reordering matters mainly when you call `lu` or `qr` yourself.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/colamd.html"
+    },
+    {
+      "name": "dmperm",
+      "kind": "function",
+      "description": "Computes the Dulmage-Mendelsohn decomposition, finding a maximum matching and permutations that expose the block triangular structure of a sparse matrix. Use it to detect structural singularity, to split a large system into independent blocks that can be solved separately, and to analyse the structure of constraint matrices. With one output it returns a maximum matching row permutation.",
+      "usage": "p = dmperm(A)\n[p, q, r, s, cc, rr] = dmperm(A)",
+      "parameters": [
+        {"name": "A", "description": "Sparse matrix."}
+      ],
+      "example": "A = sparse([1 2 3 3], [1 2 2 3], 1, 3, 3);\np = dmperm(A);\nstructurallySingular = any(p == 0)\n[p, q, r, s] = dmperm(A);\nnumBlocks = numel(r) - 1",
+      "notes": "Structural nonsingularity does not guarantee numerical nonsingularity: a matrix can have a full matching yet still be singular. `sprank(A)` returns the structural rank and uses dmperm internally.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/dmperm.html"
+    },
+    {
+      "name": "ichol",
+      "kind": "function",
+      "description": "Computes an incomplete Cholesky factorization of a sparse symmetric positive definite matrix, producing a cheap approximate factor used as a preconditioner for `pcg`. The default zero-fill variant keeps the sparsity pattern of the original, while drop tolerance and modified variants trade memory for effectiveness. A good preconditioner often cuts iteration counts by an order of magnitude.",
+      "usage": "L = ichol(A)\nL = ichol(A, opts)",
+      "parameters": [
+        {"name": "A", "description": "Sparse symmetric positive definite matrix."},
+        {"name": "opts.type", "description": "'nofill' (default) or 'ict' for threshold dropping."},
+        {"name": "opts.droptol", "description": "Drop tolerance for the 'ict' variant."},
+        {"name": "opts.diagcomp", "description": "Diagonal compensation alpha added to shift the matrix if factorization breaks down."},
+        {"name": "opts.michol", "description": "'on' for modified incomplete Cholesky."}
+      ],
+      "example": "A = gallery('poisson', 40);\nb = ones(size(A, 1), 1);\nL = ichol(A);\n[x, fl, rr, it] = pcg(A, b, 1e-8, 200, L, L');\n[fl it]\n[~, ~, ~, itNoPre] = pcg(A, b, 1e-8, 200);\nitNoPre",
+      "notes": "ichol fails with an error when a negative pivot appears; retry with `opts.diagcomp` set to a small positive value. The factor must be passed as both L and L' to `pcg`.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/ichol.html"
+    },
+    {
+      "name": "ilu",
+      "kind": "function",
+      "description": "Computes an incomplete LU factorization of a sparse unsymmetric matrix for use as a preconditioner with `gmres`, `bicgstab` and related solvers. Variants include zero fill-in, threshold dropping with pivoting, and Crout ordering. It is the general-purpose preconditioner for nonsymmetric sparse systems.",
+      "usage": "[L, U] = ilu(A)\n[L, U, P] = ilu(A, opts)",
+      "parameters": [
+        {"name": "A", "description": "Sparse square matrix with no zeros on the diagonal."},
+        {"name": "opts.type", "description": "'nofill' (default), 'crout' or 'ilutp'."},
+        {"name": "opts.droptol", "description": "Drop tolerance for 'crout' and 'ilutp'."},
+        {"name": "opts.milu", "description": "'off', 'row' or 'col' for modified ILU."},
+        {"name": "opts.udiag", "description": "Replace zero diagonal entries of U with the local drop tolerance."}
+      ],
+      "example": "A = sprand(800, 800, 0.004) + 4*speye(800);\nb = ones(800, 1);\nsetup.type = 'crout';\nsetup.droptol = 1e-4;\n[L, U] = ilu(A, setup);\n[x, fl, ~, it] = gmres(A, b, 20, 1e-8, 50, L, U);\n[fl it(end)]",
+      "notes": "A zero on the main diagonal makes ilu fail; permute with `dmperm` or set `opts.udiag`. Very small drop tolerances produce dense factors and defeat the purpose.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/ilu.html"
+    },
+    {
+      "name": "pcg",
+      "kind": "function",
+      "description": "Solves a symmetric positive definite system with the preconditioned conjugate gradients method. Use it for large sparse systems where a direct factorization would produce too much fill-in, such as discretized elliptic PDEs. The matrix can be given as a matrix or as a function handle that applies it to a vector.",
+      "usage": "x = pcg(A, b)\nx = pcg(A, b, tol, maxit)\nx = pcg(A, b, tol, maxit, M1, M2, x0)\n[x, flag, relres, iter, resvec] = pcg(___)",
+      "parameters": [
+        {"name": "A", "description": "Symmetric positive definite matrix or function handle applying A*x."},
+        {"name": "tol", "description": "Relative residual tolerance; defaults to 1e-6."},
+        {"name": "maxit", "description": "Maximum iterations."},
+        {"name": "M1, M2", "description": "Preconditioner factors so that M = M1*M2."},
+        {"name": "x0", "description": "Initial guess."}
+      ],
+      "example": "A = gallery('poisson', 50);\nb = ones(size(A, 1), 1);\nL = ichol(A);\n[x, flag, relres, iter, resvec] = pcg(A, b, 1e-10, 300, L, L');\nfprintf('flag %d after %d iterations\\n', flag, iter);\nsemilogy(resvec)",
+      "notes": "flag 0 means converged; 1 means maxit reached; 4 means the method stagnated. pcg silently produces nonsense for indefinite or unsymmetric matrices, so use `minres`, `gmres` or `bicgstab` instead in those cases.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/pcg.html"
+    },
+    {
+      "name": "gmres",
+      "kind": "function",
+      "description": "Solves a general nonsymmetric sparse linear system with the generalized minimum residual method, restarted every `restart` iterations to bound memory. It is the most robust of the Krylov solvers for unsymmetric problems but stores a full Krylov basis, so the restart parameter matters. Use it with an `ilu` preconditioner for realistic problems.",
+      "usage": "x = gmres(A, b)\nx = gmres(A, b, restart, tol, maxit)\nx = gmres(A, b, restart, tol, maxit, M1, M2, x0)\n[x, flag, relres, iter, resvec] = gmres(___)",
+      "parameters": [
+        {"name": "A", "description": "Square matrix or function handle applying A*x."},
+        {"name": "restart", "description": "Inner iterations before restarting; [] means no restart (full GMRES)."},
+        {"name": "tol, maxit", "description": "Relative tolerance and maximum outer iterations."},
+        {"name": "M1, M2", "description": "Preconditioner factors."}
+      ],
+      "example": "A = sprand(1000, 1000, 0.003) + 5*speye(1000);\nb = ones(1000, 1);\n[L, U] = ilu(A, struct('type','nofill'));\n[x, flag, relres, iter] = gmres(A, b, 30, 1e-8, 100, L, U);\n[flag relres]\nnorm(A*x - b) / norm(b)",
+      "notes": "The iter output is a two-element vector [outer inner] for restarted GMRES. Too small a restart value can stall convergence; too large uses a lot of memory.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/gmres.html"
+    },
+    {
+      "name": "bicgstab",
+      "kind": "function",
+      "description": "Solves a nonsymmetric system with the biconjugate gradients stabilized method, which uses a fixed small amount of memory unlike GMRES. Use it when GMRES memory is a problem or when the system is only mildly nonsymmetric. Convergence can be irregular and may break down, in which case `gmres` is the fallback.",
+      "usage": "x = bicgstab(A, b)\nx = bicgstab(A, b, tol, maxit)\nx = bicgstab(A, b, tol, maxit, M1, M2, x0)\n[x, flag, relres, iter, resvec] = bicgstab(___)",
+      "parameters": [
+        {"name": "A", "description": "Square matrix or function handle."},
+        {"name": "tol, maxit", "description": "Relative residual tolerance and iteration limit."},
+        {"name": "M1, M2", "description": "Preconditioner factors."}
+      ],
+      "example": "A = sprand(600, 600, 0.005) + 4*speye(600);\nb = rand(600, 1);\n[L, U] = ilu(A);\n[x, flag, relres, iter] = bicgstab(A, b, 1e-10, 200, L, U);\n[flag iter relres]",
+      "notes": "flag 3 indicates stagnation and flag 4 a breakdown of one of the scalar quantities. `bicgstabl` is a more robust variant, and `cgs`, `qmr` and `tfqmr` are alternatives with different stability trade-offs.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/bicgstab.html"
+    },
+    {
+      "name": "minres",
+      "kind": "function",
+      "description": "Solves a symmetric but possibly indefinite system with the minimum residual method. Use it for saddle point problems, shifted systems A - sigma*I that are indefinite, and anywhere `pcg` would fail because the matrix is not positive definite. The preconditioner must itself be symmetric positive definite.",
+      "usage": "x = minres(A, b)\nx = minres(A, b, tol, maxit)\nx = minres(A, b, tol, maxit, M1, M2, x0)\n[x, flag, relres, iter, resvec] = minres(___)",
+      "parameters": [
+        {"name": "A", "description": "Symmetric matrix or function handle."},
+        {"name": "tol, maxit", "description": "Tolerance and iteration limit."},
+        {"name": "M1, M2", "description": "Symmetric positive definite preconditioner factors."}
+      ],
+      "example": "A = gallery('poisson', 20) - 2 * speye(361);\nb = ones(361, 1);\n[x, flag, relres, iter] = minres(A, b, 1e-8, 500);\n[flag iter]\nnorm(A*x - b) / norm(b)",
+      "notes": "`symmlq` is an alternative for symmetric indefinite systems that minimizes a different quantity. Neither accepts nonsymmetric input.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/minres.html"
+    },
+    {
+      "name": "lsqr",
+      "kind": "function",
+      "description": "Solves least-squares problems min ||A*x - b|| iteratively, including rectangular and rank-deficient systems, with optional Tikhonov regularization through the damp parameter. Use it for very large sparse least-squares problems from tomography, geophysics and data fitting where a QR factorization is impractical. A is only ever applied as a matrix-vector product, so a function handle works.",
+      "usage": "x = lsqr(A, b)\nx = lsqr(A, b, tol, maxit)\nx = lsqr(A, b, tol, maxit, M1, M2, x0)\n[x, flag, relres, iter, resvec] = lsqr(___)",
+      "parameters": [
+        {"name": "A", "description": "Rectangular sparse matrix or function handle applying A*x and A'*y."},
+        {"name": "tol, maxit", "description": "Tolerance and iteration limit."},
+        {"name": "M1, M2", "description": "Right preconditioner factors."}
+      ],
+      "example": "A = sprand(2000, 500, 0.005);\nb = rand(2000, 1);\n[x, flag, relres, iter] = lsqr(A, b, 1e-8, 500);\n[flag iter]\nnorm(A'*(A*x - b))",
+      "notes": "When A is given as a function handle it must accept a transpose flag: `afun(v, 'notransp')` and `afun(v, 'transp')`. `lsqminnorm` is the direct alternative for problems small enough to factorize.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/lsqr.html"
+    },
+    {
+      "name": "condest",
+      "kind": "function",
+      "description": "Estimates the 1-norm condition number of a sparse or dense square matrix using a small number of matrix-vector solves, rather than a full SVD. Use it to check conditioning of large sparse matrices where `cond` would be impossibly expensive. The estimate is a lower bound but is usually within a small factor of the true value.",
+      "usage": "c = condest(A)\nc = condest(A, t)\n[c, v] = condest(A)",
+      "parameters": [
+        {"name": "A", "description": "Square matrix, sparse or full."},
+        {"name": "t", "description": "Number of columns in the iteration; larger gives a better estimate."}
+      ],
+      "example": "A = gallery('poisson', 40);\ncondest(A)\nB = gallery('lotkin', 8);\n[c, v] = condest(B);\nc\nnorm(B*v, 1) / norm(v, 1)",
+      "notes": "condest performs LU factorization internally, so it is not free for very large matrices. `normest` and `normest1` estimate norms without conditioning information.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/condest.html"
+    },
+    {
+      "name": "normest",
+      "kind": "function",
+      "description": "Estimates the 2-norm (largest singular value) of a large matrix using the power method, which needs only matrix-vector products. Use it when `norm(A)` would be too slow because it requires a full singular value decomposition. The estimate converges to the requested relative tolerance.",
+      "usage": "nrm = normest(S)\nnrm = normest(S, tol)\n[nrm, count] = normest(___)",
+      "parameters": [
+        {"name": "S", "description": "Matrix, typically large and sparse."},
+        {"name": "tol", "description": "Relative tolerance; defaults to 1e-6."}
+      ],
+      "example": "A = sprand(5000, 5000, 0.0005);\n[nrm, iters] = normest(A, 1e-8);\n[nrm iters]\nsvds(A, 1)",
+      "notes": "The power method converges slowly when the two largest singular values are close. `normest1` estimates the 1-norm instead and is what `condest` uses internally.",
+      "docs": "https://www.mathworks.com/help/matlab/ref/normest.html"
+    }
+  ]
+}

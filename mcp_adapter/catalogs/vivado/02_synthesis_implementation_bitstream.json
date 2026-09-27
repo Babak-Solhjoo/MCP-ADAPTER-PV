@@ -1,0 +1,634 @@
+{
+  "category": "Synthesis, Implementation & Bitstream Generation",
+  "description": "The full Vivado compilation flow from RTL to a programming file: synthesis, logic optimization, placement, physical optimization, routing and bitstream/device-image writing. Covers both the non-project batch flow (synth_design ... write_bitstream with checkpoints between steps) and the project flow (create_run / launch_runs), plus run strategies and directives, incremental compile, Dynamic Function eXchange, netlist and hardware-handoff exports, message control and the supporting command-line executables.",
+  "tools": [
+    {
+      "name": "synth_design",
+      "kind": "tcl-command",
+      "description": "Elaborate and synthesize the RTL of the current design into a device-specific gate-level netlist. In the non-project flow it is the first compilation command after read_verilog/read_vhdl/read_xdc, and it needs -top and -part because there is no project to supply them. Dozens of switches control hierarchy handling, inference thresholds, retiming and area/performance trade-offs; -mode out_of_context synthesizes a block without inserting I/O buffers so it can be stitched into a larger design later.",
+      "usage": "synth_design -top <module> -part <part> [-flatten_hierarchy full|none|rebuilt] [-directive <arg>] [-retiming] [-fsm_extraction <arg>] [-resource_sharing auto|on|off] [-gated_clock_conversion off|on|auto] [-max_bram <n>] [-max_dsp <n>] [-max_uram <n>] [-generic <name=value>] [-mode default|out_of_context] [-no_lc] [-keep_equivalent_registers] [-include_dirs <dirs>] [-verilog_define <args>] [-fanout_limit <n>] [-shreg_min_size <n>] [-control_set_opt_threshold <n>] [-cascade_dsp auto|tree|force] [-no_srlextract] [-rtl] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-top", "description": "Name of the top-level module/entity to synthesize. Required in the non-project flow."},
+        {"name": "-part", "description": "Target device part, e.g. xc7a100tcsg324-1 or xcvu9p-flga2104-2L-e. Required in the non-project flow unless already set with set_part."},
+        {"name": "-flatten_hierarchy", "description": "'rebuilt' (default) flattens for optimization then rebuilds the hierarchy for reporting; 'full' flattens completely for maximum cross-boundary optimization; 'none' preserves every boundary."},
+        {"name": "-directive", "description": "Overall synthesis strategy. Common values: Default, RuntimeOptimized, AreaOptimized_high, AreaOptimized_medium, AlternateRoutability, AreaMapLargeShiftRegToBRAM, AreaMultThresholdDSP, FewerCarryChains, PerformanceOptimized. Mutually exclusive with most individual optimization switches."},
+        {"name": "-retiming", "description": "Boolean switch that enables global register retiming: registers are moved across combinational logic to balance path delays without changing functionality."},
+        {"name": "-fsm_extraction", "description": "State-machine encoding: off, one_hot, sequential, johnson, gray or auto (default)."},
+        {"name": "-resource_sharing", "description": "Share arithmetic operators between mutually exclusive data paths: auto (default), on or off."},
+        {"name": "-gated_clock_conversion", "description": "Convert inferred/asserted gated clocks into clock-enable logic: off (default), on or auto. Requires the GATED_CLOCK RTL attribute for 'on'."},
+        {"name": "-max_bram / -max_dsp / -max_uram", "description": "Cap the number of block RAM, DSP or UltraRAM blocks inference may use. -1 means no limit; 0 forces everything into fabric logic."},
+        {"name": "-generic", "description": "Override a VHDL generic or Verilog parameter on the top module, e.g. -generic {DATA_W=32}. Repeat the switch for several overrides."},
+        {"name": "-mode", "description": "'default' inserts I/O buffers on top-level ports; 'out_of_context' does not, which is what you use to synthesize a reusable block, an OOC IP, or a DFX reconfigurable module."},
+        {"name": "-no_lc", "description": "Disable LUT combining. Costs area but avoids the routing-congestion and timing side effects of packing two functions into one LUT6."},
+        {"name": "-keep_equivalent_registers", "description": "Prevent merging of registers that have identical inputs, which is what you want when the duplication was deliberate (fanout control, ASYNC_REG synchronizers)."},
+        {"name": "-include_dirs", "description": "List of directories searched for Verilog `include files."}
+      ],
+      "example": "# Non-project batch synthesis\nread_verilog [glob ./rtl/*.v]\nread_vhdl    ./rtl/pkg_types.vhd\nread_xdc     ./constraints/top.xdc\nread_ip      ./ip/fifo_gen/fifo_gen.xci\n\nsynth_design -top top_level -part xcku040-ffva1156-2-e \\\n  -flatten_hierarchy rebuilt \\\n  -directive PerformanceOptimized \\\n  -retiming \\\n  -fsm_extraction one_hot \\\n  -keep_equivalent_registers \\\n  -generic {FIFO_DEPTH=1024} \\\n  -include_dirs {./rtl/inc}\n\nwrite_checkpoint -force ./out/post_synth.dcp\nreport_utilization -file ./out/post_synth_util.rpt\nreport_timing_summary -file ./out/post_synth_timing.rpt",
+      "notes": "-directive cannot be combined with the individual switches it subsumes; Vivado errors out rather than silently ignoring one. Use -mode out_of_context for any block you intend to reuse via read_checkpoint -cell, and remember that OOC results still need -fix_ooc_ports when linked in. -rtl elaborates only and opens the RTL view without running synthesis.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/synth_design"
+    },
+    {
+      "name": "opt_design",
+      "kind": "tcl-command",
+      "description": "Run netlist logic optimization on the synthesized design as the first step of implementation. It retargets cells to better primitives, propagates constants, sweeps unused logic, remaps LUT cascades and can resynthesize small areas, typically shrinking the netlist 5-15% before placement. Always run it before place_design in the non-project flow; skipping it leaves redundant logic for the placer to deal with.",
+      "usage": "opt_design [-directive <arg>] [-retarget] [-propconst] [-sweep] [-bram_power_opt] [-remap] [-aggressive_remap] [-resynth_area] [-resynth_seq_area] [-muxf_remap] [-carry_remap] [-shift_register_opt] [-dsp_register_opt] [-control_set_merge] [-merge_equivalent_drivers] [-hier_fanout_limit <n>] [-bufg_opt] [-debug_log] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-directive", "description": "Preset optimization strategy: Default, Explore, ExploreArea, ExploreSequentialArea, AddRemap, RuntimeOptimized, NoBramPowerOpt. Cannot be combined with the individual optimization switches."},
+        {"name": "-retarget", "description": "Replace cells with simpler equivalents (e.g. a register with a constant enable) and absorb inverters into LUT inputs."},
+        {"name": "-propconst", "description": "Propagate constant values forward through the netlist and remove the logic they make redundant."},
+        {"name": "-sweep", "description": "Remove cells with no loads and nets with no drivers."},
+        {"name": "-remap / -aggressive_remap", "description": "Pack chains of LUTs into single larger LUTs to reduce depth and levels of logic."},
+        {"name": "-resynth_area / -resynth_seq_area", "description": "Re-run area-driven resynthesis on the netlist; the _seq variant also moves registers. Both are runtime-expensive."},
+        {"name": "-bram_power_opt", "description": "Add enable logic to block RAMs so they are not clocked when idle (also available separately via power_opt_design)."}
+      ],
+      "example": "open_checkpoint ./out/post_synth.dcp\n\nopt_design -directive Explore\n\n# Or hand-pick the passes instead of a directive:\n# opt_design -retarget -propconst -sweep -remap -muxf_remap\n\nwrite_checkpoint -force ./out/post_opt.dcp\nreport_utilization -file ./out/post_opt_util.rpt",
+      "notes": "In the project flow this step is run automatically as the OPT_DESIGN step of the implementation run; disable it with set_property STEPS.OPT_DESIGN.IS_ENABLED false. If opt_design removes logic you needed, mark it with the DONT_TOUCH property in the RTL or on the cell. Run report_drc before opt_design to catch netlist problems early.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/opt_design"
+    },
+    {
+      "name": "power_opt_design",
+      "kind": "tcl-command",
+      "description": "Apply intelligent clock gating to reduce dynamic power without changing functionality or timing intent. It analyzes the design and adds enable conditions to block RAMs, registers and SRLs so they do not toggle when their output is not observed. The command takes essentially no arguments: scope and exclusions are controlled beforehand with set_power_opt.",
+      "usage": "power_opt_design [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "set_power_opt -include_cells / -exclude_cells", "description": "Run beforehand to restrict power optimization to (or exclude it from) specific hierarchies. This, not a command switch, is how the scope is controlled."},
+        {"name": "set_power_opt -clocks / -exclude_clocks", "description": "Limit or exclude clock domains, e.g. to leave a latency-critical domain untouched."},
+        {"name": "-quiet", "description": "Suppress the error return; the command returns an empty string instead of failing the script."},
+        {"name": "-verbose", "description": "Print detailed information about the optimizations applied."}
+      ],
+      "example": "open_checkpoint ./out/post_opt.dcp\n\n# Limit power optimization to one hierarchy and exclude a clock domain\nset_power_opt -include_cells [get_cells u_dsp_core] -exclude_clocks [get_clocks clk_ctrl]\npower_opt_design\n\nreport_power -file ./out/power_after_opt.rpt\nwrite_checkpoint -force ./out/post_power_opt.dcp",
+      "notes": "Can be run either after opt_design (pre-placement) or after place_design (post-placement) - the POWER_OPT_DESIGN and POST_PLACE_POWER_OPT_DESIGN run steps correspond to the two positions, and both are disabled by default in the project flow. Because it adds enable logic it can slightly degrade timing; re-check with report_timing_summary.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/power_opt_design"
+    },
+    {
+      "name": "place_design",
+      "kind": "tcl-command",
+      "description": "Place the optimized netlist onto the physical sites of the target device, honouring physical constraints (Pblocks, LOC, package pins) and driven by the timing constraints. Placement is the single biggest determinant of achievable frequency, so most timing-closure effort goes into choosing a -directive or a run strategy here. Use -unplace to clear an existing placement and -post_place_opt to run an extra optimization pass on critical paths.",
+      "usage": "place_design [-directive <arg>] [-no_drc] [-no_bufg_opt] [-unplace] [-post_place_opt] [-fanout_opt] [-timing_summary] [-ultrathreads] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-directive", "description": "Placement strategy. Common values: Default, Explore, EarlyBlockPlacement, ExtraNetDelay_high, ExtraNetDelay_low, ExtraPostPlacementOpt, ExtraTimingOpt, AltSpreadLogic_high, AltSpreadLogic_medium, AltSpreadLogic_low, SSI_SpreadLogic_high, SSI_SpreadLogic_low, SSI_BalanceSLLs, SSI_BalanceSLRs, SSI_HighUtilSLRs, RuntimeOptimized, Quick."},
+        {"name": "-unplace", "description": "Remove the current placement of all non-fixed cells instead of placing."},
+        {"name": "-post_place_opt", "description": "Run an extra optimization pass after placement that targets the worst critical paths. Only effective on a design that is already close to meeting timing."},
+        {"name": "-no_drc", "description": "Skip the placer DRC checks. Only use for experiments; the DRCs catch constraint errors that would waste a routing run."},
+        {"name": "-no_bufg_opt", "description": "Disable automatic global-buffer insertion/optimization during placement."},
+        {"name": "-timing_summary", "description": "Use a full timing summary rather than an estimate when reporting the post-placement timing."}
+      ],
+      "example": "open_checkpoint ./out/post_opt.dcp\n\nplace_design -directive ExtraTimingOpt\n\nreport_timing_summary -file ./out/post_place_timing.rpt\nreport_utilization  -file ./out/post_place_util.rpt\nwrite_checkpoint -force ./out/post_place.dcp\n\n# If the design is congested, retry with a spreading directive:\n# place_design -unplace\n# place_design -directive AltSpreadLogic_high",
+      "notes": "The SSI_* directives only make sense on stacked-silicon (multi-SLR) devices such as large Virtex/Kintex UltraScale+ parts. Check congestion with report_design_analysis -congestion before picking a directive: congestion wants AltSpreadLogic_*/SSI_SpreadLogic_*, pure timing wants ExtraTimingOpt or Explore. Fixed placement is preserved, so LOC-constrained and IS_LOC_FIXED cells are not moved.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/place_design"
+    },
+    {
+      "name": "phys_opt_design",
+      "kind": "tcl-command",
+      "description": "Physical-synthesis optimization that works on a placed (or routed) design using real placement-aware delay estimates. It replicates high-fanout drivers, rewires logic, retimes and re-places critical cells, pulls registers into DSP/BRAM/URAM blocks and fixes hold violations. Run it after place_design to recover setup slack, and again after route_design (the post-route phys_opt step) to clean up the last few paths.",
+      "usage": "phys_opt_design [-directive <arg>] [-fanout_opt] [-placement_opt] [-rewire] [-critical_cell_opt] [-critical_pin_opt] [-clock_opt] [-retime] [-hold_fix] [-aggressive_hold_fix] [-slr_crossing_opt] [-tns_cleanup] [-dsp_register_opt] [-bram_register_opt] [-uram_register_opt] [-shift_register_opt] [-bram_enable_opt] [-force_replication_on_nets <nets>] [-path_groups <groups>] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-directive", "description": "Preset strategy, and the usual way to invoke the command. Common values: Default, Explore, ExploreWithHoldFix, ExploreWithAggressiveHoldFix, AggressiveExplore, AlternateReplication, AggressiveFanoutOpt, AlternateFlowWithRetiming, AddRetime, RuntimeOptimized."},
+        {"name": "-fanout_opt", "description": "Replicate drivers of high-fanout nets on critical paths and re-place the replicas near their loads."},
+        {"name": "-retime", "description": "Move registers forward or backward across combinational logic to rebalance a critical path."},
+        {"name": "-hold_fix / -aggressive_hold_fix", "description": "Insert delay to repair hold violations. The aggressive variant works harder and costs more runtime and area."},
+        {"name": "-slr_crossing_opt", "description": "Optimize paths that cross SLR boundaries on stacked-silicon devices by inserting or moving crossing registers."},
+        {"name": "-force_replication_on_nets", "description": "Replicate the drivers of the named nets whether or not they are on a critical path."},
+        {"name": "-path_groups", "description": "Restrict optimization to the named path groups, e.g. to leave an already-closed clock domain untouched."}
+      ],
+      "example": "open_checkpoint ./out/post_place.dcp\n\n# Post-placement physical optimization\nphys_opt_design -directive AggressiveExplore\nwrite_checkpoint -force ./out/post_phys_opt.dcp\n\nroute_design -directive Explore\n\n# Post-route physical optimization for the last few picoseconds\nphys_opt_design -directive ExploreWithHoldFix\nreport_timing_summary -file ./out/post_route_phys_opt_timing.rpt\nwrite_checkpoint -force ./out/post_route_phys_opt.dcp",
+      "notes": "Running phys_opt_design repeatedly with different directives is a standard timing-closure loop; each call reports the WNS/TNS improvement so you can stop when it stops helping. On a routed design it only operates on paths it can legally modify and will re-route the affected nets. In the project flow the corresponding steps are PHYS_OPT_DESIGN and POST_ROUTE_PHYS_OPT_DESIGN, both disabled by default.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/phys_opt_design"
+    },
+    {
+      "name": "route_design",
+      "kind": "tcl-command",
+      "description": "Route the placed design by assigning physical interconnect resources to every net, using the timing constraints to prioritize critical connections. It is the longest step of implementation and the one that produces the final timing numbers. -nets/-pins route a subset, -physical_nets routes only the VCC/GND (tie-off) nets, -preserve keeps existing routing intact while routing the rest, and -unroute removes routing.",
+      "usage": "route_design [-directive <arg>] [-nets <nets>] [-pins <pins>] [-physical_nets] [-preserve] [-unroute] [-delay] [-auto_delay] [-max_delay <ps>] [-min_delay <ps>] [-tns_cleanup] [-no_timing_driven] [-timing_summary] [-finalize] [-release_memory] [-ultrathreads] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-directive", "description": "Routing strategy. Common values: Default, Explore, NoTimingRelaxation, MoreGlobalIterations, HigherDelayCost, AdvancedSkewModeling, AlternateCLBRouting, RuntimeOptimized, Quick."},
+        {"name": "-physical_nets", "description": "Route only the physical (VCC and GND) nets. Useful after manual edits, and required before some ECO and readback flows so tie-offs are connected."},
+        {"name": "-preserve", "description": "Preserve all existing routing and route only what is still unrouted, instead of ripping up and rerouting. The basis of incremental and ECO routing."},
+        {"name": "-nets / -pins", "description": "Route only the listed nets or pins; combine with -preserve for targeted ECO routing."},
+        {"name": "-tns_cleanup", "description": "Run an extra pass that improves total negative slack on non-critical paths after the main routing converges."},
+        {"name": "-unroute", "description": "Remove the routing from the whole design, or from the nets given by -nets."},
+        {"name": "-finalize", "description": "Complete the routing of a partially routed design and legalize it, without ripping up what is already there."}
+      ],
+      "example": "open_checkpoint ./out/post_phys_opt.dcp\n\nroute_design -directive Explore -tns_cleanup\n\nreport_route_status    -file ./out/route_status.rpt\nreport_timing_summary  -file ./out/post_route_timing.rpt\nreport_drc             -file ./out/post_route_drc.rpt\nwrite_checkpoint -force ./out/post_route.dcp\n\n# ECO: re-route two nets only, leaving everything else alone\n# route_design -unroute -nets [get_nets {u_core/dout[0] u_core/dout[1]}]\n# route_design -preserve -nets [get_nets {u_core/dout[0] u_core/dout[1]}]\n# route_design -physical_nets",
+      "notes": "Always check report_route_status: a design can 'finish' routing with unrouted or conflicted nets and write_bitstream will then fail. NoTimingRelaxation forbids the router from giving up on a path and is the right choice when you are a few picoseconds short; Explore is the general-purpose harder-effort option. -preserve plus -nets is the safe way to do post-route ECOs without disturbing closed paths.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/route_design"
+    },
+    {
+      "name": "place_ports",
+      "kind": "tcl-command",
+      "description": "Automatically assign top-level ports to package pins (I/O sites) on the target device, respecting I/O standards, banking rules and differential-pair requirements. Use it during early I/O planning when you want the tool to propose a legal pinout, or to place the ports that your XDC has not constrained yet. Ports that already have a fixed LOC are left alone.",
+      "usage": "place_ports [-iobank <banks>] [-skip_unconnected_ports] [-check_only] [-quiet] [-verbose] [<ports>]",
+      "parameters": [
+        {"name": "<ports>", "description": "Optional list of port objects to place. With no list, all unplaced ports are considered."},
+        {"name": "-iobank", "description": "Restrict placement to the listed I/O bank objects, e.g. [get_iobanks {14 15}]."},
+        {"name": "-skip_unconnected_ports", "description": "Do not place ports that have no connectivity in the design."},
+        {"name": "-check_only", "description": "Run the I/O legality checks and report problems without actually assigning any pins."}
+      ],
+      "example": "open_checkpoint ./out/post_synth.dcp\n\n# Let Vivado propose a legal pinout for the unconstrained ports\nplace_ports -iobank [get_iobanks {14 15}]\n\n# Review and freeze the result into an XDC for the real build\nforeach p [get_ports] {\n  puts \"[get_property NAME $p] -> [get_property PACKAGE_PIN $p]\"\n}\nwrite_xdc -force ./constraints/pinout_auto.xdc",
+      "notes": "Run report_io and report_drc -ruledeck placer_checks afterwards to confirm the proposal is manufacturable. An auto-generated pinout is a starting point, not a board-ready one: PCB routability, bank voltage and clock-capable pin requirements are constraints place_ports cannot see. Check `place_ports -help` for the exact option set in your release.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/place_ports"
+    },
+    {
+      "name": "write_checkpoint",
+      "kind": "tcl-command",
+      "description": "Write the complete state of the in-memory design - netlist, constraints, placement and routing - to a design checkpoint (.dcp) file. Checkpoints are the currency of the non-project flow: you save one after every compilation step so you can reopen, analyze or restart from any point without redoing the earlier work. -cell writes a checkpoint of just one hierarchical cell, which is how out-of-context and DFX module results are captured.",
+      "usage": "write_checkpoint [-force] [-cell <cell>] [-logic_function_stripped] [-encrypt] [-quiet] [-verbose] <file>.dcp",
+      "parameters": [
+        {"name": "<file>", "description": "Output checkpoint path; the .dcp extension is added if omitted."},
+        {"name": "-force", "description": "Overwrite an existing file. Without it the command fails when the file already exists."},
+        {"name": "-cell", "description": "Write a checkpoint containing only the given hierarchical cell, for out-of-context reuse or DFX module capture."},
+        {"name": "-logic_function_stripped", "description": "Remove the logical function from the checkpoint, producing a shareable file that keeps placement and routing but hides the design intent."}
+      ],
+      "example": "synth_design -top top_level -part xcku040-ffva1156-2-e\nwrite_checkpoint -force ./out/post_synth.dcp\n\nopt_design\nwrite_checkpoint -force ./out/post_opt.dcp\n\nplace_design\nwrite_checkpoint -force ./out/post_place.dcp\n\nroute_design\nwrite_checkpoint -force ./out/post_route.dcp\n\n# Capture one block for out-of-context reuse\nwrite_checkpoint -force -cell u_dsp_core ./out/dsp_core_routed.dcp",
+      "notes": "Reopen a checkpoint with open_checkpoint <file>.dcp (which closes the current design and loads the saved one), or merge one into an open design with read_checkpoint -cell. A routed checkpoint is what you hand to AMD support for a timing or routing escalation.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_checkpoint"
+    },
+    {
+      "name": "read_checkpoint",
+      "kind": "tcl-command",
+      "description": "Read a design checkpoint into the current session, either as the whole design or, with -cell, to populate a black box in an open design with a previously synthesized out-of-context block. With -incremental it instead supplies a reference checkpoint for incremental compile: place_design and route_design then reuse the placement and routing of the parts of the design that did not change, which typically cuts implementation runtime dramatically and keeps timing results stable.",
+      "usage": "read_checkpoint [-cell <cell>] [-incremental <ref.dcp>] [-auto_incremental] [-directive <arg>] [-reuse] [-fix_ooc_ports] [-dcp_cell_list <args>] [-name <arg>] [-quiet] [-verbose] [<file>.dcp]",
+      "parameters": [
+        {"name": "-incremental", "description": "Reference checkpoint (usually a previously routed .dcp of the same design) whose placement and routing the following place_design/route_design should reuse."},
+        {"name": "-directive", "description": "Incremental effort/goal. RuntimeOptimized maximizes reuse for the fastest run; TimingClosure lets the tool discard reuse where it hurts timing; Quick is the lowest-effort setting."},
+        {"name": "-cell", "description": "Hierarchical cell (a black box) into which the checkpoint's contents are loaded, for out-of-context block assembly."},
+        {"name": "-fix_ooc_ports", "description": "Use with -cell when loading an out-of-context checkpoint so the block's boundary ports are correctly connected to the parent netlist."},
+        {"name": "-auto_incremental", "description": "Let Vivado manage the reference checkpoint automatically rather than naming one explicitly."},
+        {"name": "-dcp_cell_list", "description": "Map several cells to several checkpoints in one call, as {cell1 file1.dcp cell2 file2.dcp}."}
+      ],
+      "example": "# Incremental compile in the non-project flow\nopen_checkpoint ./out/post_synth.dcp\nread_checkpoint -incremental ./golden/top_routed.dcp -directive TimingClosure\n\nopt_design\nplace_design\nphys_opt_design\nroute_design\n\nreport_incremental_reuse -file ./out/incremental_reuse.rpt\nwrite_checkpoint -force ./out/post_route_incr.dcp\n\n# Out-of-context assembly: fill a black box with a pre-synthesized block\n# read_checkpoint -cell u_dsp_core ./ooc/dsp_core_synth.dcp -fix_ooc_ports",
+      "notes": "Incremental reuse only pays off when the reference is close to the current design - report_incremental_reuse tells you the match percentage, and below roughly 75% the tool falls back to a normal run. The reference checkpoint must target the same part and be from a compatible Vivado version. Use open_checkpoint instead when you simply want to load a checkpoint as the whole design.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/read_checkpoint"
+    },
+    {
+      "name": "report_incremental_reuse",
+      "kind": "tcl-command",
+      "description": "Report how much of the reference checkpoint's placement and routing an incremental run actually reused, broken down by cell, net and hierarchy. It is the diagnostic you run immediately after an incremental place_design/route_design to decide whether incremental compile is worth keeping. A low reuse percentage means the reference has drifted too far from the current design and should be refreshed.",
+      "usage": "report_incremental_reuse [-hierarchical] [-hierarchical_depth <n>] [-cells <cells>] [-file <file>] [-append] [-return_string] [-name <window>] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-hierarchical", "description": "Break the reuse statistics down per hierarchical module instead of reporting one design-wide number."},
+        {"name": "-hierarchical_depth", "description": "Limit how deep the hierarchical breakdown goes."},
+        {"name": "-cells", "description": "Restrict the report to the given cells."},
+        {"name": "-file / -append", "description": "Write the report to a file, optionally appending to it."},
+        {"name": "-name", "description": "Open the report in a named GUI window instead of printing it to the console."}
+      ],
+      "example": "open_checkpoint ./out/post_synth.dcp\nread_checkpoint -incremental ./golden/top_routed.dcp\nopt_design\nplace_design\nroute_design\n\nreport_incremental_reuse -hierarchical -file ./out/reuse.rpt\n\n# Refresh the reference if reuse has dropped too low\n# write_checkpoint -force ./golden/top_routed.dcp",
+      "notes": "Interpreting the numbers: high cell reuse with low net reuse usually means the placement survived but timing forced a reroute. If reuse falls below about 75% Vivado warns that the incremental flow is not helping and may revert to a default run.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_incremental_reuse"
+    },
+    {
+      "name": "write_bitstream",
+      "kind": "tcl-command",
+      "description": "Generate the FPGA configuration bitstream (.bit) from a fully placed and routed design. This is the final step of the 7 series / UltraScale / UltraScale+ flow and requires that routing is complete and DRCs pass. Options produce companion files used for configuration and debug: -bin_file for a raw binary, -mask_file for readback masking, -logic_location_file for readback bit mapping, and -cell for a DFX partial bitstream.",
+      "usage": "write_bitstream [-force] [-raw_bitfile] [-no_binary_bitfile] [-bin_file] [-mask_file] [-readback_file] [-logic_location_file] [-no_partial_bitfile] [-cell <cell>] [-quiet] [-verbose] <file>.bit",
+      "parameters": [
+        {"name": "<file>", "description": "Output bitstream path; .bit is appended if omitted."},
+        {"name": "-force", "description": "Overwrite an existing bitstream file."},
+        {"name": "-bin_file", "description": "Also write a headerless .bin binary configuration file, used by processor-based configuration and by some flash tools."},
+        {"name": "-mask_file", "description": "Write a .msk mask file identifying which bits can be verified during readback."},
+        {"name": "-logic_location_file", "description": "Write an .ll file mapping configuration bits to design elements, required for readback capture of register and BRAM contents."},
+        {"name": "-cell", "description": "Write the partial bitstream for the given reconfigurable cell only (Dynamic Function eXchange)."},
+        {"name": "-no_partial_bitfile", "description": "In a DFX design, write only the full bitstream and skip the partial ones."}
+      ],
+      "example": "open_checkpoint ./out/post_route.dcp\n\n# Bitstream settings are design properties, set before writing\nset_property BITSTREAM.GENERAL.COMPRESS TRUE           [current_design]\nset_property BITSTREAM.CONFIG.CONFIGRATE 66            [current_design]\nset_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4           [current_design]\nset_property BITSTREAM.CONFIG.UNUSEDPIN PULLUP         [current_design]\n\nwrite_bitstream -force -bin_file ./out/top.bit\nwrite_debug_probes -force ./out/top.ltx",
+      "notes": "All bitstream generation options (compression, configuration rate, bus width, CRC, encryption) are BITSTREAM.* properties on [current_design], not command switches. write_bitstream fails if report_route_status shows unrouted nets or if a DRC of severity Error is outstanding. For Versal devices use write_device_image instead; write_bitstream does not apply.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_bitstream"
+    },
+    {
+      "name": "write_device_image",
+      "kind": "tcl-command",
+      "description": "Generate the programmable device image (.pdi) for a Versal adaptive SoC from a routed design. It is the Versal replacement for write_bitstream: a Versal PDI is a container that carries not only the PL configuration but also NoC, CPM, AI Engine and platform-management content. Use -cell to emit a partial PDI for a DFX reconfigurable partition.",
+      "usage": "write_device_image [-force] [-cell <cell>] [-no_partial_pdifile] [-quiet] [-verbose] <file>.pdi",
+      "parameters": [
+        {"name": "<file>", "description": "Output device-image path; .pdi is appended if omitted."},
+        {"name": "-force", "description": "Overwrite an existing file."},
+        {"name": "-cell", "description": "Write the partial device image for the given reconfigurable cell only."},
+        {"name": "-no_partial_pdifile", "description": "Write only the full device image and skip partial PDIs in a DFX design."}
+      ],
+      "example": "open_checkpoint ./out/versal_post_route.dcp\n\nset_property BITSTREAM.GENERAL.COMPRESS TRUE [current_design]\nwrite_device_image -force ./out/design.pdi\n\n# The PDI is then packaged into a boot image with bootgen:\n#   bootgen -arch versal -image boot.bif -o BOOT.BIN -w on",
+      "notes": "write_bitstream is not valid for Versal parts and write_device_image is not valid for 7 series/UltraScale parts - the command you use is determined by the target family. The resulting PDI is normally combined with PLM, PSM and application ELFs by bootgen to make a bootable image. Check `write_device_image -help` for the exact option set in your release.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_device_image"
+    },
+    {
+      "name": "write_cfgmem",
+      "kind": "tcl-command",
+      "description": "Convert one or more bitstreams into a configuration-memory image (.mcs, .bin or .hex) that can be programmed into the SPI or BPI flash a board boots from. You specify the flash interface and size and give the load address of each bitstream or data file. The output is what you hand to the Vivado hardware manager (or a third-party programmer) to write the flash.",
+      "usage": "write_cfgmem -format mcs|bin|hex -interface <iface> -size <MB> -loadbit \"<up|down> <addr> <file.bit>\" [-loaddata \"<up|down> <addr> <file>\"] [-checksum] [-disablebitswap <arg>] [-force] [-quiet] [-verbose] <file>",
+      "parameters": [
+        {"name": "-format", "description": "Output format: mcs (Intel hex, the usual choice), bin or hex."},
+        {"name": "-interface", "description": "Flash interface and bus width, e.g. SPIx1, SPIx2, SPIx4, SPIx8, BPIx8, BPIx16. Must match the board's configuration mode pins."},
+        {"name": "-size", "description": "Configuration memory size in megabytes; must be at least as large as the actual device."},
+        {"name": "-loadbit", "description": "Bitstream(s) to place in the image, as \"<direction> <start address> <file.bit>\", e.g. \"up 0x00000000 top.bit\". Repeat inside the same string for multi-image (golden/update) layouts."},
+        {"name": "-loaddata", "description": "Additional non-bitstream data (e.g. an application binary or filesystem blob) to place at a given address."},
+        {"name": "-checksum", "description": "Include a checksum in the generated file."}
+      ],
+      "example": "open_checkpoint ./out/post_route.dcp\nset_property BITSTREAM.CONFIG.SPI_BUSWIDTH 4 [current_design]\nset_property BITSTREAM.CONFIG.CONFIGRATE 33  [current_design]\nwrite_bitstream -force ./out/top.bit\n\nwrite_cfgmem -force -format mcs \\\n  -interface SPIx4 -size 16 \\\n  -loadbit {up 0x00000000 ./out/top.bit} \\\n  ./out/top_flash.mcs\n\n# Multi-boot: golden image at 0, update image higher up\n# write_cfgmem -force -format mcs -interface SPIx4 -size 64 \\\n#   -loadbit {up 0x00000000 ./out/golden.bit up 0x01000000 ./out/update.bit} \\\n#   ./out/multiboot.mcs",
+      "notes": "The BITSTREAM.CONFIG.SPI_BUSWIDTH property on the design must match the -interface bus width or the device will not boot from flash. Set BITSTREAM.CONFIG.CONFIGRATE conservatively for the first bring-up; flash devices often cannot sustain the maximum rate.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_cfgmem"
+    },
+    {
+      "name": "write_debug_probes",
+      "kind": "tcl-command",
+      "description": "Write the debug probes file (.ltx) that maps the nets connected to ILA, VIO and other debug cores onto readable signal names. The Vivado hardware manager loads this file alongside the bitstream so the waveform viewer shows your signal names instead of raw probe indices. Run it on the routed design right after write_bitstream, and keep the .ltx paired with the exact .bit it was generated from.",
+      "usage": "write_debug_probes [-force] [-cell <cell>] [-no_partial_ltxfile] [-quiet] [-verbose] <file>.ltx",
+      "parameters": [
+        {"name": "<file>", "description": "Output probes file path; .ltx is appended if omitted."},
+        {"name": "-force", "description": "Overwrite an existing file."},
+        {"name": "-cell", "description": "Write probes for the debug cores inside the given hierarchical cell only."},
+        {"name": "-no_partial_ltxfile", "description": "In a DFX design, skip writing per-reconfigurable-module probe files."}
+      ],
+      "example": "open_checkpoint ./out/post_route.dcp\n\nwrite_bitstream    -force ./out/top.bit\nwrite_debug_probes -force ./out/top.ltx\n\n# Later, in the hardware manager:\n# set_property PROBES.FILE  ./out/top.ltx [current_hw_device]\n# set_property PROGRAM.FILE ./out/top.bit [current_hw_device]\n# program_hw_devices [current_hw_device]",
+      "notes": "A stale .ltx is a common source of confusing ILA behaviour: if you rebuild the bitstream, regenerate the probes file too. The debug cores themselves are created earlier with create_debug_core / set_property MARK_DEBUG or by the Set Up Debug wizard, before implementation.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_debug_probes"
+    },
+    {
+      "name": "write_hw_platform",
+      "kind": "tcl-command",
+      "description": "Export the hardware design as an .xsa (Xilinx Support Archive), the hand-off file that Vitis and the embedded software tools consume to learn the address map, IP configuration, and (optionally) the bitstream. A fixed platform describes a static design for bare-metal or Linux software development; omitting -fixed produces an extensible platform for Vitis acceleration kernels. This is the standard last step of any Zynq, Zynq UltraScale+, Versal or MicroBlaze hardware build.",
+      "usage": "write_hw_platform [-fixed] [-include_bit] [-include_emulation] [-minimal] [-hw] [-hw_emu] [-force] [-quiet] [-verbose] <file>.xsa",
+      "parameters": [
+        {"name": "<file>", "description": "Output archive path; .xsa is appended if omitted."},
+        {"name": "-fixed", "description": "Produce a fixed (non-extensible) platform - the normal choice for embedded software development on a static hardware design."},
+        {"name": "-include_bit", "description": "Embed the bitstream (or device image) in the archive so Vitis can program the device without a separate .bit file. Requires an implemented, routed design."},
+        {"name": "-force", "description": "Overwrite an existing archive."},
+        {"name": "-minimal", "description": "Export only the metadata needed for software development, producing a much smaller archive."},
+        {"name": "-include_emulation", "description": "Include the content needed for hardware emulation flows."}
+      ],
+      "example": "open_run impl_1\n\n# Fixed platform with the bitstream embedded - the file Vitis expects\nwrite_hw_platform -fixed -include_bit -force ./out/design.xsa\n\n# Versal: the device image is picked up the same way\n# write_hw_platform -fixed -include_bit -force ./out/versal_design.xsa\n\nvalidate_hw_platform ./out/design.xsa",
+      "notes": "`write_hw_platform -fixed -include_bit -force design.xsa` is the canonical invocation for the Vitis hand-off. Without -include_bit the XSA carries only metadata and Vitis will ask for the bitstream separately. Run it on an implemented design (open_run impl_1 or an opened routed checkpoint), not on a synthesized-only one, or -include_bit has nothing to embed.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_hw_platform"
+    },
+    {
+      "name": "write_edif",
+      "kind": "tcl-command",
+      "description": "Export the current netlist in EDIF format, the vendor-neutral netlist interchange standard. Use it to hand a synthesized block to a third party, to feed a downstream tool, or to deliver IP as a netlist rather than as RTL. -cell exports just one hierarchical block, and -security_mode controls how much of the internal detail is preserved.",
+      "usage": "write_edif [-force] [-cell <cell>] [-pblocks <pblocks>] [-security_mode <arg>] [-quiet] [-verbose] <file>.edf",
+      "parameters": [
+        {"name": "<file>", "description": "Output EDIF file path."},
+        {"name": "-force", "description": "Overwrite an existing file."},
+        {"name": "-cell", "description": "Export only the named hierarchical cell rather than the whole design."},
+        {"name": "-pblocks", "description": "Export the logic contained in the named Pblocks."},
+        {"name": "-security_mode", "description": "Controls how much design detail the exported netlist retains, for IP-protection scenarios."}
+      ],
+      "example": "open_checkpoint ./out/post_synth.dcp\n\n# Deliver one block as a netlist plus its constraints\nwrite_edif -force -cell u_crypto_core ./deliver/crypto_core.edf\nwrite_xdc  -force -cell u_crypto_core ./deliver/crypto_core.xdc\n\n# Whole-design netlist export\nwrite_edif -force ./out/top_netlist.edf",
+      "notes": "A .dcp checkpoint is a richer hand-off than EDIF because it also carries placement, routing and constraints; use EDIF only when the receiving tool cannot read checkpoints. EDIF from a placed or routed design still contains only logical connectivity - the physical data is lost.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_edif"
+    },
+    {
+      "name": "write_verilog",
+      "kind": "tcl-command",
+      "description": "Write a Verilog netlist of the current design. The -mode switch decides what kind of netlist you get: 'design' is a structural view of the current in-memory design, 'funcsim' is a functional simulation netlist, 'timesim' is a timing-simulation netlist meant to be annotated with an SDF file, and 'pin_planning' emits only the top-level port declarations for board designers. This is the standard route to gate-level and post-route simulation.",
+      "usage": "write_verilog [-mode design|funcsim|timesim|pin_planning] [-cell <cell>] [-rename_top <name>] [-sdf_anno true|false] [-sdf_file <file>] [-lib] [-port_diff_buffers] [-write_all_overrides] [-keep_vcc_gnd] [-include_xilinx_libs] [-force] [-quiet] [-verbose] <file>.v",
+      "parameters": [
+        {"name": "-mode", "description": "'design' (default) for the current structural netlist, 'funcsim' for functional simulation, 'timesim' for timing simulation with SDF back-annotation, 'pin_planning' for top-level ports only."},
+        {"name": "-cell", "description": "Write only the named hierarchical cell."},
+        {"name": "-rename_top", "description": "Rename the top module in the output, useful when the netlist is instantiated into a testbench that expects another name."},
+        {"name": "-sdf_anno / -sdf_file", "description": "Emit the $sdf_annotate call and point it at the SDF written by write_sdf, for timing simulation."},
+        {"name": "-include_xilinx_libs", "description": "Inline the Xilinx simulation primitives so the netlist compiles without a separate library."},
+        {"name": "-force", "description": "Overwrite an existing file."}
+      ],
+      "example": "open_checkpoint ./out/post_route.dcp\n\n# Post-route timing simulation netlist plus its SDF\nwrite_verilog -force -mode timesim -sdf_anno true \\\n  -sdf_file ./sim/top_timesim.sdf ./sim/top_timesim.v\nwrite_sdf     -force ./sim/top_timesim.sdf\n\n# Post-synthesis functional simulation netlist\n# open_checkpoint ./out/post_synth.dcp\n# write_verilog -force -mode funcsim ./sim/top_funcsim.v",
+      "notes": "For timing simulation, write_verilog -mode timesim and write_sdf must be run on the same routed design and the SDF path in the netlist must match where the simulator will find it. Gate-level simulation of a large design is slow; simulate one block with -cell where possible.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_verilog"
+    },
+    {
+      "name": "write_vhdl",
+      "kind": "tcl-command",
+      "description": "Write a VHDL netlist of the current design, with the same -mode choices as write_verilog: structural design view, functional simulation, timing simulation or pin planning. Use it when the downstream simulator or the team's flow is VHDL-based. The generated netlist instantiates Xilinx primitives, so the UNISIM/SIMPRIM libraries must be available to the simulator.",
+      "usage": "write_vhdl [-mode design|funcsim|timesim|pin_planning] [-cell <cell>] [-rename_top <name>] [-architecture_only] [-lib] [-write_all_overrides] [-keep_vcc_gnd] [-include_xilinx_libs] [-force] [-quiet] [-verbose] <file>.vhd",
+      "parameters": [
+        {"name": "-mode", "description": "'design' (default), 'funcsim', 'timesim' or 'pin_planning'."},
+        {"name": "-cell", "description": "Write only the named hierarchical cell."},
+        {"name": "-rename_top", "description": "Rename the top entity in the generated netlist."},
+        {"name": "-architecture_only", "description": "Write the architecture body without the entity declaration."},
+        {"name": "-include_xilinx_libs", "description": "Inline the Xilinx simulation primitives rather than referencing the compiled libraries."},
+        {"name": "-force", "description": "Overwrite an existing file."}
+      ],
+      "example": "open_checkpoint ./out/post_synth.dcp\n\nwrite_vhdl -force -mode funcsim ./sim/top_funcsim.vhd\n\n# Top-level entity only, for the board/pin-planning team\nwrite_vhdl -force -mode pin_planning ./deliver/top_ports.vhd",
+      "notes": "compile_simlib must have been run to build the UNISIM/SIMPRIM libraries for your third-party simulator before a generated netlist will elaborate. Mixed-language simulation lets you keep a Verilog testbench around a VHDL netlist if your simulator supports it.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_vhdl"
+    },
+    {
+      "name": "write_mem_info",
+      "kind": "tcl-command",
+      "description": "Write a memory information file (.mmi) describing the physical location and bit layout of the block RAMs that make up each processor's instruction/data memory. The .mmi is what lets updatemem merge a compiled software ELF into an already-built bitstream, so you can change firmware without rerunning implementation. Generate it from the implemented design alongside the bitstream.",
+      "usage": "write_mem_info [-force] [-quiet] [-verbose] <file>.mmi",
+      "parameters": [
+        {"name": "<file>", "description": "Output memory-information file path; .mmi is appended if omitted."},
+        {"name": "-force", "description": "Overwrite an existing file."},
+        {"name": "-quiet", "description": "Return an empty string instead of an error if the command fails."},
+        {"name": "-verbose", "description": "Print detailed information while writing the file."}
+      ],
+      "example": "open_run impl_1\n\nwrite_bitstream -force ./out/top.bit\nwrite_mem_info -force ./out/top.mmi\n\n# Merge new firmware into the existing bitstream (shell, not Tcl):\n#   updatemem -meminfo ./out/top.mmi -data ./sw/app.elf \\\n#             -bit ./out/top.bit -proc design_1_i/microblaze_0 \\\n#             -out ./out/top_with_sw.bit -force",
+      "notes": "The -proc argument to updatemem must be the full hierarchical instance path of the processor exactly as it appears in the .mmi file. This flow is the modern replacement for the older BMM/data2mem flow. Regenerate the .mmi whenever implementation changes the BRAM placement.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_mem_info"
+    },
+    {
+      "name": "write_bmm",
+      "kind": "tcl-command",
+      "description": "Write a block memory map (.bmm) file describing how block RAMs are organized into processor memory spaces. It is the legacy predecessor of the .mmi file and exists for flows and scripts inherited from the ISE/data2mem era. For new designs prefer write_mem_info plus updatemem, which is the supported path for merging software into a bitstream.",
+      "usage": "write_bmm [-force] [-quiet] [-verbose] <file>.bmm",
+      "parameters": [
+        {"name": "<file>", "description": "Output block memory map file path."},
+        {"name": "-force", "description": "Overwrite an existing file."},
+        {"name": "-quiet", "description": "Return an empty string instead of an error if the command fails."},
+        {"name": "-verbose", "description": "Print detailed information while writing the file."}
+      ],
+      "example": "open_run impl_1\n\nwrite_bmm -force ./out/top.bmm\n\n# Modern equivalent used by updatemem:\nwrite_mem_info -force ./out/top.mmi",
+      "notes": "Confirmed present in the UG835 command reference, but treat it as legacy: the documented, actively supported flow for initializing BRAM contents from an ELF is write_mem_info together with the updatemem executable.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/write_bmm"
+    },
+    {
+      "name": "report_compile_order",
+      "kind": "tcl-command",
+      "description": "Report the order in which Vivado will compile the source files of a fileset, together with the library each is assigned to and which files are used for synthesis versus simulation. It is the first thing to check when synthesis picks the wrong top module, reports a missing module, or silently ignores a file you just added. -missing_instances lists instantiated modules that have no matching source.",
+      "usage": "report_compile_order [-fileset <fileset>] [-missing_instances] [-constraints] [-sources] [-used_in synthesis|simulation|implementation] [-of_objects <objs>] [-file <file>] [-append] [-return_string] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-fileset", "description": "Fileset to report on, e.g. [get_filesets sources_1] or [get_filesets sim_1]. Defaults to the active source fileset."},
+        {"name": "-missing_instances", "description": "List module/entity instantiations for which no source file was found - the usual cause of an unexpected black box."},
+        {"name": "-constraints", "description": "Report the compile order of the constraint (XDC) files instead of the sources, which determines constraint precedence."},
+        {"name": "-used_in", "description": "Filter to files used in 'synthesis', 'simulation' or 'implementation'."},
+        {"name": "-file / -append", "description": "Write the report to a file, optionally appending."}
+      ],
+      "example": "open_project ./proj/top.xpr\n\nreport_compile_order -fileset [get_filesets sources_1]\nreport_compile_order -missing_instances\n\n# Constraint precedence matters: later files override earlier ones\nreport_compile_order -constraints -file ./out/xdc_order.rpt\n\n# Force a specific order instead of letting Vivado infer it\n# set_property source_mgmt_mode DisplayOnly [current_project]",
+      "notes": "XDC compile order is significant: a constraint in a later file overrides an earlier one, and PROCESSING_ORDER (EARLY/NORMAL/LATE) on each XDC file is how you control it. In the non-project flow there is no fileset, so the order is simply the order of your read_verilog/read_vhdl/read_xdc calls.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/report_compile_order"
+    },
+    {
+      "name": "get_msg_config",
+      "kind": "tcl-command",
+      "description": "Query the current message configuration: how many messages of each severity have been issued, what the global message limit is, and which message rules are currently in force. Use it in build scripts to decide whether a run succeeded cleanly, for example by checking that the critical-warning count is zero before writing a bitstream. -rules lists the severity overrides and suppressions installed by set_msg_config.",
+      "usage": "get_msg_config [-id <msg_id>] [-severity <severity>] [-count] [-limit] [-rules] [-suppressed] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-count", "description": "Return the number of messages issued so far that match the given -id or -severity."},
+        {"name": "-severity", "description": "Message severity to query: INFO, WARNING, \"CRITICAL WARNING\", ERROR or STATUS."},
+        {"name": "-id", "description": "A specific message ID such as {Synth 8-3331} to query."},
+        {"name": "-limit", "description": "Return the current per-message display limit."},
+        {"name": "-rules", "description": "List all message rules currently defined by set_msg_config."},
+        {"name": "-suppressed", "description": "Restrict the query to messages that are currently suppressed."}
+      ],
+      "example": "synth_design -top top_level -part xcku040-ffva1156-2-e\n\nset cw [get_msg_config -severity {CRITICAL WARNING} -count]\nset er [get_msg_config -severity {ERROR} -count]\nputs \"Critical warnings: $cw, errors: $er\"\n\nif {$cw > 0} {\n  puts \"Refusing to continue with critical warnings present\"\n  exit 1\n}\n\n# Show every rule currently installed\nget_msg_config -rules",
+      "notes": "Counts are cumulative for the session, so reset them with reset_msg_config -count if you want per-step numbers. Gating a CI build on the critical-warning count is a common and effective practice.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/get_msg_config"
+    },
+    {
+      "name": "set_msg_config",
+      "kind": "tcl-command",
+      "description": "Change how Vivado handles a class of messages: promote a warning to an error so the build stops, demote a known-harmless critical warning, suppress a message entirely, or raise the per-message display limit. Rules can target a specific message ID, a severity, or a text pattern. This is the main lever for making a scripted build fail loudly on the things you care about and stay quiet about the things you have already reviewed.",
+      "usage": "set_msg_config [-id <msg_id>] [-string <patterns>] [-severity <severity>] [-new_severity <severity>] [-suppress] [-limit <n>] [-regexp] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-id", "description": "Message ID the rule applies to, e.g. {Timing 38-282}."},
+        {"name": "-string", "description": "Match messages whose text contains the given string(s) instead of matching by ID."},
+        {"name": "-severity", "description": "The existing severity to match: INFO, WARNING, \"CRITICAL WARNING\", ERROR, STATUS."},
+        {"name": "-new_severity", "description": "The severity to change matching messages to. Promoting to ERROR makes the offending step fail."},
+        {"name": "-suppress", "description": "Suppress matching messages entirely so they are neither displayed nor counted."},
+        {"name": "-limit", "description": "Maximum number of times a given message is printed before it is throttled (default 100)."},
+        {"name": "-regexp", "description": "Treat -string patterns as regular expressions."}
+      ],
+      "example": "# Fail the build on unconstrained-clock and multi-driven-net warnings\nset_msg_config -id {Timing 38-313} -new_severity ERROR\nset_msg_config -id {Synth 8-3352}  -new_severity ERROR\n\n# A reviewed, harmless critical warning from a third-party IP\nset_msg_config -id {Vivado 12-1008} -new_severity WARNING\n\n# Silence a noisy informational message and raise the print limit\nset_msg_config -id {Synth 8-7080} -suppress\nset_msg_config -limit 1000\n\nsynth_design -top top_level -part xcku040-ffva1156-2-e",
+      "notes": "Message rules are session-scoped: put them at the top of the build script, or in Vivado_init.tcl for a machine-wide default. Suppressing a message also removes it from the get_msg_config counts, so prefer demoting over suppressing if you still want visibility. Undo a rule with reset_msg_config using the same selectors.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_msg_config"
+    },
+    {
+      "name": "reset_msg_config",
+      "kind": "tcl-command",
+      "description": "Remove message rules previously installed with set_msg_config, or reset the accumulated message counts. Call it with the same selectors (-id, -string, -severity) that created the rule, plus the aspect you want undone: -suppress to un-suppress, -default_severity to restore the original severity, -limit to restore the default limit, or -count to zero the counters. Useful between steps of a long script so each phase is judged on its own messages.",
+      "usage": "reset_msg_config [-id <msg_id>] [-string <patterns>] [-severity <severity>] [-suppress] [-default_severity] [-limit] [-count] [-regexp] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-id", "description": "Message ID whose rule should be removed."},
+        {"name": "-default_severity", "description": "Restore the message's original, built-in severity, undoing a -new_severity override."},
+        {"name": "-suppress", "description": "Cancel a suppression rule so the message is displayed again."},
+        {"name": "-limit", "description": "Restore the default display limit."},
+        {"name": "-count", "description": "Reset the message counters to zero without touching the rules."},
+        {"name": "-string / -regexp", "description": "Match the rule by message text, optionally as a regular expression."}
+      ],
+      "example": "# Strict rules during synthesis\nset_msg_config -id {Synth 8-3352} -new_severity ERROR\nsynth_design -top top_level -part xcku040-ffva1156-2-e\n\n# Relax them for implementation and measure that phase separately\nreset_msg_config -id {Synth 8-3352} -default_severity\nreset_msg_config -count\n\nopt_design\nplace_design\nroute_design\nputs \"Implementation critical warnings: [get_msg_config -severity {CRITICAL WARNING} -count]\"",
+      "notes": "reset_msg_config -count -severity ... is the clean way to get per-step message statistics in a build report. Resetting a rule you never set is harmless.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/reset_msg_config"
+    },
+    {
+      "name": "create_run",
+      "kind": "tcl-command",
+      "description": "Define a new synthesis or implementation run in a Vivado project. -flow selects the flow version (and therefore whether it is a synthesis or an implementation run), -strategy picks a named preset of step options, and -parent_run links an implementation run to the synthesis run whose netlist it consumes. Creating several runs with different strategies and launching them in parallel is the standard way to explore timing closure.",
+      "usage": "create_run <name> -flow <flow> [-parent_run <run>] [-strategy <strategy>] [-report_strategy <strategy>] [-constrset <constrset>] [-part <part>] [-pr_config <config>] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "<name>", "description": "Name of the new run, e.g. impl_explore or synth_area."},
+        {"name": "-flow", "description": "Flow to use, e.g. {Vivado Synthesis 2024} or {Vivado Implementation 2024}. The flow name determines the run type and must match the Vivado release."},
+        {"name": "-parent_run", "description": "For an implementation run, the synthesis run that provides the netlist."},
+        {"name": "-strategy", "description": "Named strategy preset such as Performance_Explore, Congestion_SpreadLogic_high or Flow_PerfOptimized_high."},
+        {"name": "-constrset", "description": "Constraint fileset the run uses, e.g. constrs_1. Lets different runs use different XDC sets."},
+        {"name": "-report_strategy", "description": "Named report strategy controlling which reports are generated automatically at each step."},
+        {"name": "-pr_config", "description": "PR configuration (from create_pr_configuration) for a Dynamic Function eXchange child implementation run."}
+      ],
+      "example": "open_project ./proj/top.xpr\n\n# Three implementation runs from the same synthesis, different strategies\nforeach s {Performance_Explore Performance_ExtraTimingOpt Congestion_SpreadLogic_high} {\n  create_run impl_$s -parent_run synth_1 \\\n    -flow {Vivado Implementation 2024} -strategy $s -constrset constrs_1\n}\n\nlaunch_runs [get_runs impl_Performance_*] -jobs 12\nwait_on_run -quiet [get_runs impl_Performance_*]\n\nforeach r [get_runs impl_*] {\n  puts \"[get_property NAME $r]: WNS = [get_property STATS.WNS $r]\"\n}",
+      "notes": "list_property_value STRATEGY [get_runs impl_1] enumerates the strategies valid for your release; the flow string must match the release too, so parameterize it rather than hard-coding a year. Delete a run with delete_run and reset one with reset_run.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_run"
+    },
+    {
+      "name": "launch_runs",
+      "kind": "tcl-command",
+      "description": "Start one or more synthesis or implementation runs in a project. -jobs sets how many run steps execute in parallel, which is the main runtime lever on a multi-core machine. -to_step stops the run after a named step so you can inspect the intermediate checkpoint, and -next_step resumes a stopped run by executing just the following step. -scripts_only generates the run scripts without executing them, which is how you export a build to an external compute farm.",
+      "usage": "launch_runs <runs> [-jobs <n>] [-to_step <step>] [-next_step] [-scripts_only] [-dir <dir>] [-lsf <cmd>] [-sge <cmd>] [-host <hosts>] [-remote_cmd <cmd>] [-pre_launch_script <file>] [-post_launch_script <file>] [-email_to <addrs>] [-force] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "<runs>", "description": "Run objects or names to launch, e.g. impl_1 or [get_runs impl_*]. Multiple runs launch concurrently subject to -jobs."},
+        {"name": "-jobs", "description": "Number of parallel jobs. Set it to the number of physical cores you want to devote to the build; each job needs several GB of RAM on a large device."},
+        {"name": "-to_step", "description": "Run only up to and including the named step, e.g. synth_design, opt_design, place_design, phys_opt_design, route_design or write_bitstream. The run pauses there with its checkpoint on disk."},
+        {"name": "-next_step", "description": "Advance a run that was stopped by a previous -to_step by exactly one step. Cannot be combined with -to_step."},
+        {"name": "-scripts_only", "description": "Create the run directory and its shell/Tcl scripts but do not execute them, for submission to an external job scheduler."},
+        {"name": "-lsf / -sge", "description": "Submit the run through an LSF (bsub) or SGE (qsub) command line instead of running locally."},
+        {"name": "-force", "description": "Relaunch a run that is already up to date instead of skipping it."}
+      ],
+      "example": "open_project ./proj/top.xpr\n\n# Synthesis first\nlaunch_runs synth_1 -jobs 8\nwait_on_run synth_1\n\n# Implementation through to the bitstream\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\n\nif {[get_property PROGRESS [get_runs impl_1]] != \"100%\"} {\n  error \"impl_1 failed: [get_property STATUS [get_runs impl_1]]\"\n}\nputs \"WNS = [get_property STATS.WNS [get_runs impl_1]]\"\n\n# Stop after placement, look around, then continue one step at a time\n# launch_runs impl_1 -to_step place_design -jobs 8\n# wait_on_run impl_1\n# open_run impl_1\n# launch_runs impl_1 -next_step",
+      "notes": "launch_runs returns immediately - it does not block - so always follow it with wait_on_run (or wait_on_runs for a set) before reading results or opening the run. After a run completes, open_run impl_1 loads it into memory for analysis. Check PROGRESS and STATUS properties rather than assuming success; a failed run leaves PROGRESS below 100%.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/launch_runs"
+    },
+    {
+      "name": "set_property STEPS.SYNTH_DESIGN.ARGS.*",
+      "kind": "tcl-command",
+      "description": "Set the command-line options of a project run's synthesis step as properties on the run object. Every switch of synth_design has a matching STEPS.SYNTH_DESIGN.ARGS.<OPTION> property, so this is how you get non-project-style control inside the project flow. The same pattern applies to every implementation step (STEPS.OPT_DESIGN.ARGS.*, STEPS.PLACE_DESIGN.ARGS.*, STEPS.ROUTE_DESIGN.ARGS.* and so on).",
+      "usage": "set_property STEPS.SYNTH_DESIGN.ARGS.<OPTION> <value> [get_runs <synth_run>]\n# e.g. STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE, .FLATTEN_HIERARCHY, .FSM_EXTRACTION,\n#      .RETIMING, .GATED_CLOCK_CONVERSION, .RESOURCE_SHARING, .NO_LC,\n#      .MAX_BRAM, .MAX_DSP, .MAX_URAM, .SHREG_MIN_SIZE,\n#      .CONTROL_SET_OPT_THRESHOLD, .MORE OPTIONS",
+      "parameters": [
+        {"name": "STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE", "description": "Synthesis directive for the run, e.g. AreaOptimized_high or PerformanceOptimized."},
+        {"name": "STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY", "description": "full, none or rebuilt."},
+        {"name": "STEPS.SYNTH_DESIGN.ARGS.RETIMING", "description": "Boolean (true/false) enabling global register retiming during synthesis."},
+        {"name": "STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION", "description": "auto, one_hot, sequential, johnson, gray or off."},
+        {"name": "STEPS.SYNTH_DESIGN.ARGS.MAX_BRAM / .MAX_DSP / .MAX_URAM", "description": "Integer caps on inferred block RAM, DSP and UltraRAM usage; -1 means no limit."},
+        {"name": "STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS", "description": "Free-form string appended verbatim to the synth_design command line - the escape hatch for switches with no dedicated property, e.g. {-generic DATA_W=32 -include_dirs ./rtl/inc}."},
+        {"name": "STEPS.SYNTH_DESIGN.TCL.PRE / .POST", "description": "Tcl scripts run immediately before and after the step, for custom constraint injection or reporting."}
+      ],
+      "example": "open_project ./proj/top.xpr\nset srun [get_runs synth_1]\n\nset_property STEPS.SYNTH_DESIGN.ARGS.DIRECTIVE          PerformanceOptimized $srun\nset_property STEPS.SYNTH_DESIGN.ARGS.FLATTEN_HIERARCHY  rebuilt              $srun\nset_property STEPS.SYNTH_DESIGN.ARGS.RETIMING           true                 $srun\nset_property STEPS.SYNTH_DESIGN.ARGS.FSM_EXTRACTION     one_hot              $srun\nset_property STEPS.SYNTH_DESIGN.ARGS.MAX_DSP            120                  $srun\nset_property {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} {-generic DATA_W=32} $srun\n\nlaunch_runs synth_1 -jobs 8\nwait_on_run synth_1",
+      "notes": "Note the braces around {STEPS.SYNTH_DESIGN.ARGS.MORE OPTIONS} - the property name really does contain a space. list_property [get_runs synth_1] enumerates every available step property for your release, which is the reliable way to discover names. Setting a DIRECTIVE together with a property it subsumes produces the same conflict error as on the command line.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "set_property STEPS.OPT_DESIGN.IS_ENABLED",
+      "kind": "tcl-command",
+      "description": "Enable or disable an individual implementation step of a project run, and set that step's directive. Every implementation step has an IS_ENABLED boolean and an ARGS.DIRECTIVE string, so you can turn on the optional steps (power optimization, physical optimization, post-route physical optimization) or turn off an expensive one for a quick build. This is the project-flow equivalent of choosing which commands appear in a non-project script.",
+      "usage": "set_property STEPS.<STEP>.IS_ENABLED true|false [get_runs <impl_run>]\nset_property STEPS.<STEP>.ARGS.DIRECTIVE <directive> [get_runs <impl_run>]\n# <STEP> in OPT_DESIGN, POWER_OPT_DESIGN, PLACE_DESIGN, POST_PLACE_POWER_OPT_DESIGN,\n#            PHYS_OPT_DESIGN, ROUTE_DESIGN, POST_ROUTE_PHYS_OPT_DESIGN, WRITE_BITSTREAM",
+      "parameters": [
+        {"name": "STEPS.OPT_DESIGN.IS_ENABLED", "description": "Whether logic optimization runs. Enabled by default; disabling it is rarely a good idea outside debug."},
+        {"name": "STEPS.OPT_DESIGN.ARGS.DIRECTIVE", "description": "opt_design directive for the run: Explore, ExploreArea, ExploreSequentialArea, AddRemap, RuntimeOptimized, NoBramPowerOpt or Default."},
+        {"name": "STEPS.PHYS_OPT_DESIGN.IS_ENABLED", "description": "Enables the post-placement physical optimization step, which is off by default in the stock strategies."},
+        {"name": "STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED", "description": "Enables post-route physical optimization, the last chance to recover a few picoseconds of slack."},
+        {"name": "STEPS.POWER_OPT_DESIGN.IS_ENABLED", "description": "Enables pre-placement intelligent clock gating."},
+        {"name": "STEPS.<STEP>.TCL.PRE / .POST", "description": "Tcl hooks executed before and after the step, useful for extra reports or ECO scripts."}
+      ],
+      "example": "open_project ./proj/top.xpr\nset irun [get_runs impl_1]\n\nset_property STEPS.OPT_DESIGN.IS_ENABLED   true    $irun\nset_property STEPS.OPT_DESIGN.ARGS.DIRECTIVE Explore $irun\n\nset_property STEPS.PLACE_DESIGN.ARGS.DIRECTIVE  ExtraTimingOpt   $irun\nset_property STEPS.PHYS_OPT_DESIGN.IS_ENABLED   true             $irun\nset_property STEPS.PHYS_OPT_DESIGN.ARGS.DIRECTIVE AggressiveExplore $irun\nset_property STEPS.ROUTE_DESIGN.ARGS.DIRECTIVE  Explore          $irun\nset_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.IS_ENABLED true    $irun\nset_property STEPS.POST_ROUTE_PHYS_OPT_DESIGN.ARGS.DIRECTIVE ExploreWithHoldFix $irun\n\n# Add a custom report after routing\nset_property STEPS.ROUTE_DESIGN.TCL.POST ./scripts/post_route_reports.tcl $irun\n\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1",
+      "notes": "Setting individual step properties overrides whatever the run's STRATEGY supplied, and Vivado then reports the strategy as modified. Directive values are per-command: an opt_design directive is not valid on place_design. Use reset_run impl_1 to discard results after changing step settings.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "set_property STRATEGY",
+      "kind": "tcl-command",
+      "description": "Assign a named strategy to a synthesis or implementation run. A strategy is a pre-packaged set of step directives and options tuned for a goal - performance, area, congestion, power or runtime - and switching strategies is the fastest way to explore the solution space without knowing every individual directive. Setting a strategy replaces all the step settings the run previously had.",
+      "usage": "set_property STRATEGY <strategy_name> [get_runs <run>]\nlist_property_value STRATEGY [get_runs <run>]   ;# enumerate valid names",
+      "parameters": [
+        {"name": "Synthesis strategies", "description": "Vivado Synthesis Defaults, Flow_PerfOptimized_high, Flow_PerfThresholdCarry, Flow_AreaOptimized_high, Flow_AreaOptimized_medium, Flow_AreaMultThresholdDSP, Flow_AlternateRoutability, Flow_RuntimeOptimized."},
+        {"name": "Performance implementation strategies", "description": "Performance_Explore, Performance_ExplorePostRoutePhysOpt, Performance_ExploreWithRemap, Performance_NetDelay_high, Performance_NetDelay_low, Performance_Retiming, Performance_ExtraTimingOpt, Performance_RefinePlacement, Performance_EarlyBlockPlacement, Performance_WLBlockPlacement."},
+        {"name": "Congestion implementation strategies", "description": "Congestion_SpreadLogic_high, Congestion_SpreadLogic_medium, Congestion_SpreadLogic_low, Congestion_SpreadLogicSLLs, Congestion_BalanceSLLs, Congestion_BalanceSLRs, Congestion_CompressSLRs - use these when report_design_analysis -congestion shows hot spots."},
+        {"name": "Area and power strategies", "description": "Area_Explore, Area_ExploreSequential, Area_ExploreWithRemap, Power_DefaultOpt, Power_ExploreArea."},
+        {"name": "Flow strategies", "description": "Vivado Implementation Defaults, Flow_RunPhysOpt, Flow_RunPostRoutePhysOpt, Flow_RuntimeOptimized, Flow_Quick - the last two trade quality of results for a much shorter build."}
+      ],
+      "example": "open_project ./proj/top.xpr\n\nset_property STRATEGY Flow_PerfOptimized_high [get_runs synth_1]\nset_property STRATEGY Performance_Explore     [get_runs impl_1]\n\n# Strategy sweep: one run per strategy, all launched together\nset strategies {Performance_Explore Performance_ExtraTimingOpt \\\n                Congestion_SpreadLogic_high Area_Explore}\nforeach s $strategies {\n  create_run impl_$s -parent_run synth_1 -flow {Vivado Implementation 2024}\n  set_property STRATEGY $s [get_runs impl_$s]\n}\nlaunch_runs [get_runs impl_*] -jobs 16\nwait_on_run -quiet [get_runs impl_*]\n\nforeach r [get_runs impl_*] {\n  puts [format \"%-40s WNS %6s  WHS %6s\" [get_property NAME $r] \\\n        [get_property STATS.WNS $r] [get_property STATS.WHS $r]]\n}",
+      "notes": "Always confirm the exact names available in your release with list_property_value STRATEGY [get_runs impl_1] - the set changes between versions. A strategy sweep on a build farm is the standard industry answer to a design that is a few hundred picoseconds short; combine it with different -directive values on the non-project flow for the same effect. Runtime-optimized strategies are for iteration, never for the release build.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "-directive",
+      "kind": "tcl-command",
+      "description": "The -directive switch appears on synth_design, opt_design, place_design, phys_opt_design and route_design, and selects a preset algorithm variation for that command. Directive values are command-specific: a value valid for place_design is not valid for route_design. Because a directive is mutually exclusive with the individual option switches it subsumes, you either pick a directive or tune options by hand - Vivado errors out if you try both.",
+      "usage": "<command> -directive <value>\n# valid values differ per command; query them with:\n#   place_design -directive -help",
+      "parameters": [
+        {"name": "synth_design", "description": "Default, RuntimeOptimized, AreaOptimized_high, AreaOptimized_medium, AlternateRoutability, AreaMapLargeShiftRegToBRAM, AreaMultThresholdDSP, FewerCarryChains, PerformanceOptimized."},
+        {"name": "opt_design", "description": "Default, Explore, ExploreArea, ExploreSequentialArea, AddRemap, RuntimeOptimized, NoBramPowerOpt."},
+        {"name": "place_design", "description": "Default, Explore, EarlyBlockPlacement, ExtraNetDelay_high, ExtraNetDelay_low, ExtraPostPlacementOpt, ExtraTimingOpt, AltSpreadLogic_high/medium/low, SSI_SpreadLogic_high, SSI_SpreadLogic_low, SSI_BalanceSLLs, SSI_BalanceSLRs, SSI_HighUtilSLRs, RuntimeOptimized, Quick."},
+        {"name": "phys_opt_design", "description": "Default, Explore, ExploreWithHoldFix, ExploreWithAggressiveHoldFix, AggressiveExplore, AggressiveFanoutOpt, AlternateReplication, AlternateFlowWithRetiming, AddRetime, RuntimeOptimized."},
+        {"name": "route_design", "description": "Default, Explore, NoTimingRelaxation, MoreGlobalIterations, HigherDelayCost, AdvancedSkewModeling, AlternateCLBRouting, RuntimeOptimized, Quick."},
+        {"name": "Cross-cutting families", "description": "Explore-style directives spend more runtime searching; RuntimeOptimized and Quick cut runtime at the cost of QoR; AreaOptimized_*/Area* reduce utilization; ExtraTimingOpt/NoTimingRelaxation push on setup slack; SSI_*/AltSpreadLogic_* address congestion and SLR crossings."}
+      ],
+      "example": "# Non-project timing-closure sweep over routing directives\nopen_checkpoint ./out/post_place.dcp\nforeach d {Default Explore NoTimingRelaxation MoreGlobalIterations AggressiveExplore} {\n  # skip directives not valid for route_design\n  if {$d eq \"AggressiveExplore\"} { continue }\n  open_checkpoint ./out/post_place.dcp\n  route_design -directive $d\n  set wns [get_property SLACK [get_timing_paths -delay_type max]]\n  puts [format \"route_design -directive %-22s WNS = %s\" $d $wns]\n  write_checkpoint -force ./out/route_$d.dcp\n  close_design\n}",
+      "notes": "`<command> -directive -help` prints the exact list accepted by that command in your release; always check it rather than copying a value between commands. In the project flow the same values are set through STEPS.<STEP>.ARGS.DIRECTIVE, and a run STRATEGY is essentially a named bundle of directives. RuntimeOptimized and Quick belong in development loops only - never in a release build.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/place_design"
+    },
+    {
+      "name": "set_property AUTO_INCREMENTAL_CHECKPOINT",
+      "kind": "tcl-command",
+      "description": "Turn on Vivado's automatic incremental implementation for a project run. Vivado then manages the reference checkpoint itself: after a successful run it saves the routed result and automatically reuses it on the next run, refreshing the reference when the design has drifted too far. This gives most of the runtime benefit of incremental compile with none of the bookkeeping, which makes it the right default for day-to-day iteration.",
+      "usage": "set_property AUTO_INCREMENTAL_CHECKPOINT 1 [get_runs <impl_run>]\nset_property AUTO_INCREMENTAL_CHECKPOINT.DIRECTORY <dir> [get_runs <impl_run>]",
+      "parameters": [
+        {"name": "AUTO_INCREMENTAL_CHECKPOINT", "description": "1 enables automatic incremental implementation for the run; 0 disables it."},
+        {"name": "AUTO_INCREMENTAL_CHECKPOINT.DIRECTORY", "description": "Directory where Vivado stores the automatically maintained reference checkpoint, so it can live outside the run directory and survive a reset_run."},
+        {"name": "<impl_run>", "description": "The implementation run object, e.g. [get_runs impl_1]."}
+      ],
+      "example": "open_project ./proj/top.xpr\n\nset_property AUTO_INCREMENTAL_CHECKPOINT 1 [get_runs impl_1]\nset_property AUTO_INCREMENTAL_CHECKPOINT.DIRECTORY ./incr_ref [get_runs impl_1]\n\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\n\nopen_run impl_1\nreport_incremental_reuse -file ./out/auto_incr_reuse.rpt",
+      "notes": "Automatic mode manages the reference for you, so do not also set INCREMENTAL_CHECKPOINT - use one or the other. Incremental compile helps most for small, localized RTL changes; a top-level reorganization, a part change or a clocking change will invalidate the reference and fall back to a full run. Verify with report_incremental_reuse rather than assuming it engaged.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "set_property INCREMENTAL_CHECKPOINT",
+      "kind": "tcl-command",
+      "description": "Point an implementation run at a specific reference checkpoint for manual incremental compile. Unlike the automatic mode you choose and version the reference yourself, which is what you want when you have a known-good routed design (a golden build) and want every subsequent run measured against exactly that. It is the project-flow equivalent of read_checkpoint -incremental in the non-project flow.",
+      "usage": "set_property INCREMENTAL_CHECKPOINT <path/to/reference.dcp> [get_runs <impl_run>]\nset_property INCREMENTAL_CHECKPOINT \"\" [get_runs <impl_run>]   ;# disable",
+      "parameters": [
+        {"name": "INCREMENTAL_CHECKPOINT", "description": "Absolute or project-relative path to the routed reference .dcp. Set it to an empty string to turn incremental compile off again."},
+        {"name": "<impl_run>", "description": "Implementation run object the reference applies to."},
+        {"name": "Reference requirements", "description": "The reference must target the same part and come from a compatible Vivado release; a mismatch is reported and the run proceeds non-incrementally."}
+      ],
+      "example": "open_project ./proj/top.xpr\n\n# Freeze today's good result as the golden reference\nopen_run impl_1\nwrite_checkpoint -force ./golden/top_routed.dcp\nclose_design\n\n# Every later run is placed and routed relative to it\nset_property INCREMENTAL_CHECKPOINT [file normalize ./golden/top_routed.dcp] [get_runs impl_1]\nreset_run impl_1\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\n\nopen_run impl_1\nreport_incremental_reuse -hierarchical -file ./out/reuse.rpt\n\n# Turn it back off for a clean baseline build\n# set_property INCREMENTAL_CHECKPOINT \"\" [get_runs impl_1]",
+      "notes": "Manual references give the most stable results - the same reference produces the same placement for unchanged logic every time, which is valuable when you need reproducible timing. Refresh the golden checkpoint when report_incremental_reuse shows reuse dropping below roughly 75%. Do not combine with AUTO_INCREMENTAL_CHECKPOINT.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "create_partition_def",
+      "kind": "tcl-command",
+      "description": "Declare a hierarchical module as a partition definition, the first step of the project-mode Dynamic Function eXchange flow. A partition definition says 'this module is a reconfigurable partition' and becomes the container that reconfigurable modules are created against. Once a project has a partition definition it is in DFX mode, which is not reversible.",
+      "usage": "create_partition_def -name <partition_def_name> -module <rtl_module_name> [-library <lib>] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-name", "description": "Name of the partition definition, used later by get_partition_defs and create_reconfig_module."},
+        {"name": "-module", "description": "Name of the RTL module/entity in the design that becomes the reconfigurable partition."},
+        {"name": "-library", "description": "VHDL library the module belongs to, when it is not the default work library."}
+      ],
+      "example": "open_project ./proj/dfx_top.xpr\n\n# Declare the reconfigurable module\ncreate_partition_def -name pr_block -module pr_block\n\n# Define two reconfigurable modules for it\ncreate_reconfig_module -name bpf  -partition_def [get_partition_defs pr_block] -define_from pr_block\nadd_files -norecurse ./src/bpf.v  -of_objects [get_reconfig_modules bpf]\n\ncreate_reconfig_module -name lpf  -partition_def [get_partition_defs pr_block]\nadd_files -norecurse ./src/lpf.v  -of_objects [get_reconfig_modules lpf]",
+      "notes": "Converting a project to DFX is a one-way operation, so work on a copy. The project-mode DFX commands (create_partition_def, create_reconfig_module, create_pr_configuration, create_run -pr_config) are exactly what the Dynamic Function eXchange Wizard emits, so running the wizard once and reading the journal file is a reliable way to learn the arguments for your design.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_partition_def"
+    },
+    {
+      "name": "create_pr_configuration",
+      "kind": "tcl-command",
+      "description": "Define a DFX configuration: a complete design consisting of the static logic plus one chosen reconfigurable module for each reconfigurable partition. Each configuration is implemented by its own child implementation run and produces one full bitstream plus a partial bitstream per reconfigurable module. Use -greyboxes to leave a partition empty in a configuration, which is how you build a blanking/greybox image.",
+      "usage": "create_pr_configuration -name <config_name> [-partitions {<rp_instance>:<reconfig_module> ...}] [-greyboxes {<rp_instance> ...}] [-quiet] [-verbose]",
+      "parameters": [
+        {"name": "-name", "description": "Name of the configuration, referenced later by create_run -pr_config."},
+        {"name": "-partitions", "description": "List of <reconfigurable partition instance>:<reconfigurable module name> pairs, e.g. {pr_block_ins:bpf}. One entry per partition."},
+        {"name": "-greyboxes", "description": "Partition instances left as empty greyboxes in this configuration, used to generate a blanking partial bitstream."}
+      ],
+      "example": "open_project ./proj/dfx_top.xpr\n\ncreate_pr_configuration -name config_bpf -partitions {pr_block_ins:bpf}\ncreate_pr_configuration -name config_lpf -partitions {pr_block_ins:lpf}\n\n# Parent run implements the static design with config_bpf\nset_property PR_CONFIGURATION config_bpf [get_runs impl_1]\n\n# Child run reuses the static result and implements the second module\ncreate_run child_0_impl_1 -parent_run impl_1 \\\n  -flow {Vivado Implementation 2024} -pr_config config_lpf\n\nlaunch_runs impl_1 -to_step write_bitstream -jobs 8\nwait_on_run impl_1\nlaunch_runs child_0_impl_1 -to_step write_bitstream -jobs 8\nwait_on_run child_0_impl_1",
+      "notes": "The parent run implements the static region; child runs import that static result and only implement their own reconfigurable modules, so the static logic is bit-identical across configurations - a hard requirement for partial reconfiguration to work. Every configuration must be verified with pr_verify before the bitstreams are used together.",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/create_pr_configuration"
+    },
+    {
+      "name": "set_property HD.RECONFIGURABLE",
+      "kind": "tcl-command",
+      "description": "Mark a hierarchical cell as a reconfigurable partition in the non-project Dynamic Function eXchange flow. Setting HD.RECONFIGURABLE on a cell tells the tools that the logic inside it will be swapped at run time, which switches on the DFX-specific placement, routing and DRC rules and makes write_bitstream -cell emit a partial bitstream for it. The cell must be constrained to a Pblock that defines the physical region it occupies.",
+      "usage": "set_property HD.RECONFIGURABLE 1 [get_cells <rp_instance>]\ncreate_pblock <name>; add_cells_to_pblock <name> [get_cells <rp_instance>]\nresize_pblock <name> -add {SLICE_X.. CLOCKREGION_X..}\nset_property SNAPPING_MODE ON [get_pblocks <name>]",
+      "parameters": [
+        {"name": "HD.RECONFIGURABLE", "description": "Set to 1 on the cell instance that is the reconfigurable partition. Applies to the cell, not to the module definition."},
+        {"name": "Pblock", "description": "Every reconfigurable partition needs a Pblock giving its physical region; resize_pblock defines the ranges and SNAPPING_MODE ON lets Vivado legalize the boundaries."},
+        {"name": "HD.PARTITION", "description": "Related property used on the static design when importing a previously implemented static region into a child implementation."},
+        {"name": "CONTAIN_ROUTING", "description": "Pblock property that keeps the partition's routing inside its bounding box, required for some device families and recommended in general."}
+      ],
+      "example": "# Non-project DFX: static design plus one reconfigurable module\nopen_checkpoint ./dcp/static_synth.dcp\nread_checkpoint -cell u_rp ./dcp/rm_bpf_synth.dcp\n\nset_property HD.RECONFIGURABLE 1 [get_cells u_rp]\n\ncreate_pblock pblock_rp\nadd_cells_to_pblock pblock_rp [get_cells u_rp]\nresize_pblock pblock_rp -add {CLOCKREGION_X2Y2:CLOCKREGION_X3Y3}\nset_property SNAPPING_MODE ON [get_pblocks pblock_rp]\n\nopt_design\nplace_design\nroute_design\nwrite_checkpoint -force ./dcp/config_bpf_routed.dcp\nwrite_bitstream -force ./out/config_bpf.bit\n\n# Lock the static region and swap in the second module\n# update_design -cell u_rp -black_box\n# lock_design -level routing\n# read_checkpoint -cell u_rp ./dcp/rm_lpf_synth.dcp\n# opt_design; place_design; route_design\n# pr_verify ./dcp/config_bpf_routed.dcp ./dcp/config_lpf_routed.dcp",
+      "notes": "The non-project DFX loop is: implement configuration 1, black-box the RP with update_design -cell <rp> -black_box, freeze the static region with lock_design -level routing, read in the next module's checkpoint and re-implement. pr_verify must pass on every pair of configurations before the partial bitstreams are safe to load. Partial bitstreams come from write_bitstream -cell <rp> (or write_device_image -cell on Versal).",
+      "docs": "https://docs.amd.com/r/en-US/ug835-vivado-tcl-commands/set_property"
+    },
+    {
+      "name": "updatemem",
+      "kind": "command",
+      "description": "Standalone executable that merges data - typically a compiled software ELF - into the block RAM contents of an already-generated bitstream, using the memory map in an .mmi file. It lets you update firmware in seconds instead of rerunning implementation, which is the difference between a minute and an hour on a large design. Run it from the shell after write_bitstream and write_mem_info.",
+      "usage": "updatemem -meminfo <design.mmi> -data <app.elf> -bit <input.bit> -proc <processor_instance_path> -out <output.bit> [-force] [-debug]",
+      "parameters": [
+        {"name": "-meminfo", "description": "The .mmi file produced by write_mem_info, describing the BRAM layout of each memory."},
+        {"name": "-data", "description": "Data to merge: usually the application .elf, or a .mem/.coe data file."},
+        {"name": "-bit", "description": "Input bitstream generated by write_bitstream."},
+        {"name": "-proc", "description": "Full hierarchical instance path of the processor whose memory is being initialized, exactly as it appears in the .mmi (e.g. design_1_i/microblaze_0)."},
+        {"name": "-out", "description": "Output bitstream with the new memory contents."},
+        {"name": "-force", "description": "Overwrite the output file if it already exists."}
+      ],
+      "example": "# In Vivado (Tcl):\n#   open_run impl_1\n#   write_bitstream -force ./out/top.bit\n#   write_mem_info  -force ./out/top.mmi\n\n# In the shell:\nupdatemem -force \\\n  -meminfo ./out/top.mmi \\\n  -data    ./sw/hello_world.elf \\\n  -bit     ./out/top.bit \\\n  -proc    design_1_i/microblaze_0 \\\n  -out     ./out/top_with_sw.bit\n\n# Program the merged bitstream from Vivado:\n#   set_property PROGRAM.FILE ./out/top_with_sw.bit [current_hw_device]\n#   program_hw_devices [current_hw_device]",
+      "notes": "A wrong -proc path is the most common failure; grep the .mmi for the instance names it actually contains. The .mmi and .bit must come from the same implementation run - BRAM placement changes invalidate an older .mmi. updatemem replaces the legacy data2mem utility."
+    },
+    {
+      "name": "bootgen",
+      "kind": "command",
+      "description": "Standalone executable that assembles a bootable image (BOOT.BIN) for Zynq, Zynq UltraScale+ and Versal devices from a boot image format (.bif) file. The BIF lists the components - first-stage bootloader, PL bitstream or PDI, U-Boot, ATF, application ELFs, device tree - and bootgen packs them with the right headers, partition attributes, authentication and encryption. It is the final packaging step of any embedded AMD adaptive SoC build.",
+      "usage": "bootgen -arch zynq|zynqmp|versal|fpga -image <boot.bif> -o <BOOT.BIN> [-w on|off] [-p <part>] [-log error|warning|info|debug] [-efuseppkbits <file>] [-fill <byte>] [-split bin]",
+      "parameters": [
+        {"name": "-arch", "description": "Target architecture: zynq (7000), zynqmp (UltraScale+ MPSoC/RFSoC), versal (adaptive SoC) or fpga (bitstream-only images)."},
+        {"name": "-image", "description": "The .bif file listing the partitions and their attributes."},
+        {"name": "-o", "description": "Output image, usually BOOT.BIN (or a .mcs/.bin for flash)."},
+        {"name": "-w", "description": "on overwrites an existing output file; off fails instead."},
+        {"name": "-p", "description": "Device part name, required for some authentication and encryption flows."},
+        {"name": "-log", "description": "Log verbosity: error, warning, info or debug."},
+        {"name": "-split", "description": "Emit each partition as a separate file in addition to the combined image."}
+      ],
+      "example": "# boot.bif for Zynq UltraScale+\n#   the_ROM_image:\n#   {\n#     [bootloader, destination_cpu=a53-0] fsbl.elf\n#     [destination_device=pl] design_1_wrapper.bit\n#     [destination_cpu=a53-0, exception_level=el-3, trustzone] bl31.elf\n#     [destination_cpu=a53-0, exception_level=el-2] u-boot.elf\n#   }\n\nbootgen -arch zynqmp -image boot.bif -o BOOT.BIN -w on -log info\n\n# Versal: the device image from write_device_image goes into the BIF\n#   bootgen -arch versal -image versal.bif -o BOOT.BIN -w on",
+      "notes": "bootgen ships with Vitis and with the Vivado installation; source settings64 first so it is on the PATH. The BIF syntax differs substantially between -arch values, so a Zynq-7000 BIF will not work for zynqmp or versal. On Versal the PL content is the .pdi from write_device_image, not a .bit."
+    },
+    {
+      "name": "vivado -mode batch -source",
+      "kind": "command",
+      "description": "Launch Vivado headless to execute a Tcl script and exit, which is how every automated and CI build runs the tool. -mode batch runs the script and quits; -mode tcl gives an interactive Tcl shell with no GUI; -mode gui opens the full IDE. -tclargs passes arguments through to the script, where they arrive in the standard Tcl $argv list, so one build script can serve several targets.",
+      "usage": "vivado -mode batch -source <script.tcl> [-tclargs <args>...] [-log <file.log>] [-journal <file.jou>] [-nolog] [-nojournal] [-notrace] [-appjournal <file>] [-verbose]",
+      "parameters": [
+        {"name": "-mode", "description": "batch (run the script and exit), tcl (interactive shell, no GUI) or gui (full IDE, the default)."},
+        {"name": "-source", "description": "Tcl script to execute. Repeat the switch to source several scripts in order."},
+        {"name": "-tclargs", "description": "Everything after this switch is passed to the script as $argv / $argc. Must be the last switch on the command line."},
+        {"name": "-log / -journal", "description": "Redirect the run log and the journal of executed Tcl commands to specific files instead of vivado.log / vivado.jou in the current directory."},
+        {"name": "-nolog / -nojournal", "description": "Suppress the log and journal files entirely, useful in read-only or containerized environments."},
+        {"name": "-notrace", "description": "Do not echo each sourced command to the console, which keeps CI logs readable."}
+      ],
+      "example": "# build.tcl\n#   set part   [lindex $argv 0]\n#   set top    [lindex $argv 1]\n#   read_verilog [glob ./rtl/*.v]\n#   read_xdc ./constraints/top.xdc\n#   synth_design -top $top -part $part -directive PerformanceOptimized\n#   write_checkpoint -force ./out/post_synth.dcp\n#   opt_design\n#   place_design -directive ExtraTimingOpt\n#   phys_opt_design -directive AggressiveExplore\n#   route_design -directive Explore\n#   write_checkpoint -force ./out/post_route.dcp\n#   report_timing_summary -file ./out/timing.rpt\n#   write_bitstream -force ./out/$top.bit\n\nvivado -mode batch -source build.tcl \\\n  -log ./out/build.log -journal ./out/build.jou -notrace \\\n  -tclargs xcku040-ffva1156-2-e top_level\n\necho \"exit status: $?\"",
+      "notes": "Vivado returns a non-zero exit status when the script calls error or exit with a code, so a CI job can gate on $?; a script that merely prints a failure message still exits 0, which is why build scripts should check get_property PROGRESS / SLACK and call exit 1 explicitly. The journal file (.jou) records every Tcl command the session executed, which makes it the best way to learn the Tcl equivalent of a GUI action. Source settings64.sh (Linux) or settings64.bat (Windows) first so vivado is on the PATH."
+    }
+  ]
+}

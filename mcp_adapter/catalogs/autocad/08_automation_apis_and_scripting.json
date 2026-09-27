@@ -1,0 +1,1558 @@
+{
+  "category": "Automation APIs & Scripting",
+  "description": "Everything that drives AutoCAD from outside the user interface: plain script files and the headless Core Console, the loaders that bring AutoLISP, .NET and ObjectARX code into a session, the COM/ActiveX object model used from VBA and Python, the managed .NET API used by add-ins and by cloud Design Automation, and the macro layer behind ribbon buttons, action macros and command aliases. The entries are ordered from the simplest layer (a text file of keystrokes) to the deepest (C++ and server-side automation), and note for each one where it works: interactive AutoCAD, accoreconsole.exe, or Autodesk Platform Services.",
+  "tools": [
+    {
+      "name": ".scr script file",
+      "kind": "format",
+      "description": "A script is a plain ASCII text file whose every line is typed at the command prompt exactly as a user would type it, replayed by the SCRIPT command, the acad.exe /b switch or accoreconsole /s. It is the lowest-friction automation layer in AutoCAD: no compiler, no API, no licence beyond the product itself. Scripts are strictly linear - they cannot branch, loop or test anything - so conditional work belongs in AutoLISP or .NET that the script loads and calls. The whole file runs in the drawing that is current when it starts, and any error or Esc stops it where it stands.",
+      "usage": "; purge_audit.scr  - one command-line response per line\nFILEDIA\n0\n_-PURGE\n_All\n*\n_N\n_QSAVE\n\n; run it\nSCRIPT  C:\\batch\\purge_audit.scr\nacad.exe /b \"C:\\batch\\purge_audit.scr\"\naccoreconsole.exe /i in.dwg /s \"C:\\batch\\purge_audit.scr\"",
+      "parameters": [
+        {
+          "name": "blank line",
+          "description": "A blank line is an Enter keypress. Commands that end with an extra Enter therefore need an extra empty line, and a trailing blank line at the end of the file is significant - leaving it out is the most common reason a script stops one keystroke short."
+        },
+        {
+          "name": "space",
+          "description": "A space inside a line is also an Enter/accept at most prompts, so responses can be written either one per line or space-separated on one line. This is why file names containing spaces must be wrapped in double quotes."
+        },
+        {
+          "name": "; comment",
+          "description": "A line whose first character is a semicolon is ignored, which is the only form of documentation a script supports. A semicolon elsewhere is not a comment."
+        },
+        {
+          "name": "_ prefix",
+          "description": "An underscore before a command or option name forces the English (global) name, so the script survives a localised AutoCAD installation: _-LAYER, _ZOOM, _E."
+        },
+        {
+          "name": "- prefix",
+          "description": "A hyphen selects the command-line version of a command that would otherwise open a dialog: -INSERT, -LAYER, -PURGE, -HATCH, -PLOT, -WBLOCK. Combine both prefixes as _-INSERT."
+        },
+        {
+          "name": ". prefix",
+          "description": "A leading period runs the built-in definition of a command even if an alias or a LISP redefinition has replaced it, as in _.LINE. Standard practice in macros and third-party-heavy environments."
+        },
+        {
+          "name": "FILEDIA / ATTDIA",
+          "description": "Set both to 0 at the top of the script so no file or attribute dialog can appear and swallow input, and restore them at the end."
+        },
+        {
+          "name": "file encoding",
+          "description": "Plain ASCII/ANSI text with a .scr extension. Unicode text with a byte-order mark can fail on the first line, and the file should end with a newline."
+        }
+      ],
+      "example": "; issue_set.scr - clean, audit, zoom and plot every drawing it is run against\n; called as: accoreconsole /i \"%%F\" /s issue_set.scr /isolate\nFILEDIA\n0\nATTDIA\n0\nATTREQ\n0\nEXPERT\n2\n_-PURGE\n_All\n*\n_N\n_AUDIT\n_Y\n_ZOOM\n_E\n_-LAYER\n_S\n0\n\n_QSAVE\n",
+      "notes": "A script cannot answer a dialog, a grip edit or an in-place editor, so -MTEXT, -HATCH, -INSERT and friends are mandatory. RSCRIPT restarts the current script, RESUME continues one that was interrupted, and DELAY pauses it. SCRIPTCALL controls whether one script may call another. Anything that needs an if or a loop should be a LISP file loaded by the script with (load \"tools.lsp\") and then called as a command."
+    },
+    {
+      "name": "SCRIPT",
+      "kind": "command",
+      "description": "Run a script file in the current drawing. The command opens the Select Script File dialog, or prompts for a name on the command line when FILEDIA is 0, then feeds every line of the file to the command processor as if typed. Playback stops on the first error and on Esc, leaving the drawing in whatever state it reached, which is why batch work is usually done on copies or under accoreconsole rather than interactively.",
+      "usage": "SCRIPT  (alias SCR)\nSelect Script File dialog\n\n; script-safe form\nFILEDIA\n0\nSCRIPT\nC:\\batch\\purge_audit.scr",
+      "parameters": [
+        {
+          "name": "script file",
+          "description": "Path to the .scr file. The extension may be omitted; paths with spaces need double quotes."
+        },
+        {
+          "name": "FILEDIA",
+          "description": "0 replaces the file dialog with a command-line prompt, which is what lets one script start another or a macro start a script."
+        },
+        {
+          "name": "SCRIPTCALL",
+          "description": "System variable controlling whether a SCRIPT command inside a running script is honoured (1) or ignored (0, the legacy behaviour that prevented nested scripts)."
+        },
+        {
+          "name": "Esc",
+          "description": "Interrupts playback at the current line; RESUME continues from there."
+        },
+        {
+          "name": "current drawing",
+          "description": "The script runs against whatever drawing is open. A script that must process a specific file should OPEN it first, or be launched with accoreconsole /i."
+        }
+      ],
+      "example": "; From a CUI macro button\n^C^C_FILEDIA;0;_SCRIPT;C:/batch/plot_current.scr;\n\n; From AutoLISP\n(setvar \"FILEDIA\" 0)\n(command \"_.SCRIPT\" \"C:/batch/plot_current.scr\")\n\n; Chained scripts (needs SCRIPTCALL = 1)\n; first.scr\nSCRIPTCALL\n1\n_SCRIPT\nC:/batch/second.scr",
+      "notes": "A script started with SCRIPT runs inside the current session, so profile settings, loaded applications and the current layer all still apply. Errors are silent in the sense that playback simply halts; log what matters by writing to a file from LISP or by redirecting accoreconsole output instead."
+    },
+    {
+      "name": "RSCRIPT",
+      "kind": "command",
+      "description": "Repeat the script that is currently running, or the last one that ran, from its first line. Placed as the final line of a .scr file it turns the script into an infinite loop, which is the classic way to build an unattended slide show, a demonstration loop on a trade-stand machine or a polling routine that reloads an xref at intervals. Esc is the only way out.",
+      "usage": "RSCRIPT\n\n; typical looping script\nVSLIDE\nslide1\nDELAY\n3000\nVSLIDE\nslide2\nDELAY\n3000\nRSCRIPT",
+      "parameters": [
+        {
+          "name": "(no arguments)",
+          "description": "RSCRIPT takes no input; it simply restarts the current script file."
+        },
+        {
+          "name": "placement",
+          "description": "Only meaningful as the last line of a script. Anywhere else it still restarts from line 1, which usually means an unintended loop."
+        },
+        {
+          "name": "Esc",
+          "description": "The only supported way to break the loop in an interactive session."
+        },
+        {
+          "name": "DELAY",
+          "description": "Almost always paired with RSCRIPT so the loop does not consume the machine."
+        }
+      ],
+      "example": "; watch.scr - reload xrefs every 30 seconds on a site display\n_-XREF\n_R\n*\nDELAY\n30000\nRSCRIPT\n",
+      "notes": "Never put RSCRIPT in a script that will run under accoreconsole: the console has no user to press Esc and the work item or batch job will run until it is killed or times out."
+    },
+    {
+      "name": "DELAY",
+      "kind": "command",
+      "description": "Pause a running script for a given number of milliseconds. Its original purpose was slide shows, where each image has to stay on screen long enough to be read, but it is also the pragmatic fix for scripts that race ahead of a slow operation such as an xref reload, a plot spool or a network file becoming available. The maximum single delay is 32767 milliseconds, so longer waits need several DELAY lines.",
+      "usage": "DELAY <milliseconds>\n\nDELAY\n2000        ; two seconds\n\n; ten seconds, because 32767 ms is the per-call maximum\nDELAY\n32767\nDELAY\n32767",
+      "parameters": [
+        {
+          "name": "milliseconds",
+          "description": "0 to 32767. Values above the maximum are rejected; values are approximate because the delay is measured against the system timer."
+        },
+        {
+          "name": "script context",
+          "description": "DELAY is only useful inside a script; typed at the prompt it simply blocks the session for the given time."
+        },
+        {
+          "name": "VSLIDE / VSLIDE *",
+          "description": "The slide-show partner commands - VSLIDE displays a .sld file and VSLIDE * preloads the next one during the delay."
+        }
+      ],
+      "example": "; show three slides for three seconds each, then loop\nVSLIDE\nC:/slides/plan\nDELAY\n3000\nVSLIDE\nC:/slides/elevation\nDELAY\n3000\nVSLIDE\nC:/slides/section\nDELAY\n3000\nRSCRIPT\n",
+      "notes": "DELAY is a blocking wait, not a yield: AutoCAD does nothing else during it. Under accoreconsole every DELAY is dead time added to the batch, so remove them from headless scripts unless they are genuinely waiting on an external process."
+    },
+    {
+      "name": "RESUME",
+      "kind": "command",
+      "description": "Continue a script that was interrupted by Esc or by an error, starting at the line after the one that stopped it. It can be issued transparently with a leading apostrophe, so a user can cancel a running script, fix something by hand, and then let the rest of the script carry on. It is the only recovery mechanism scripts have, since they cannot trap errors themselves.",
+      "usage": "RESUME\n'RESUME        ; transparent form, from inside another command",
+      "parameters": [
+        {
+          "name": "(no arguments)",
+          "description": "RESUME takes no input. It resumes the most recently interrupted script in the current session."
+        },
+        {
+          "name": "'RESUME",
+          "description": "Transparent invocation, usable while another command is active."
+        },
+        {
+          "name": "interruption point",
+          "description": "Playback continues from the line following the interruption, so a partly-typed command must be finished or cancelled by hand first."
+        },
+        {
+          "name": "Esc",
+          "description": "The interruption RESUME is designed to undo; a second Esc while paused does not abandon the script, it merely does nothing."
+        }
+      ],
+      "example": "; Script stops because a layer name was wrong.\n; The user fixes it at the prompt:\n-LAYER\nM\nDIM-TEXT\n\n; and then hands control back to the script:\nRESUME\n",
+      "notes": "There is no RESUME in the Core Console: a headless script that fails simply ends the session. Design batch scripts so each step is independent and idempotent, and rerun the whole drawing rather than trying to resume it."
+    },
+    {
+      "name": "accoreconsole.exe",
+      "kind": "command",
+      "description": "The AutoCAD Core Console: a command-line executable that hosts the drawing engine and the command processor with no graphical subsystem at all. It loads one drawing, replays a script against it, writes its command-line output to stdout and exits, which makes it the supported way to process thousands of DWGs from a batch file, a service or a scheduler. It starts in a second or two rather than the half minute a full AutoCAD session needs, and the same engine is what Autodesk runs server-side for Design Automation.",
+      "usage": "accoreconsole.exe /i <input.dwg> /s <script.scr> [/l <language>] [/isolate] [/product <key>]\n\n; default install location\n\"C:\\Program Files\\Autodesk\\AutoCAD 2025\\accoreconsole.exe\"",
+      "parameters": [
+        {
+          "name": "/i <drawing>",
+          "description": "Input drawing to open. Omit it and the console starts on an empty drawing based on the default template, which is how scripts that build a DWG from nothing are run."
+        },
+        {
+          "name": "/s <script>",
+          "description": "Script file to replay. Every line is fed to the command processor exactly as SCRIPT would feed it."
+        },
+        {
+          "name": "/l <language>",
+          "description": "Language pack to load, for example en-US. Matters when the machine has several language packs and the script uses localised command names - though a script written with _ prefixes does not care."
+        },
+        {
+          "name": "/isolate",
+          "description": "Copy the user registry product key for this instance so profile and system-variable changes made by the script stay inside the console session and never reach the interactive product. Use it in every batch run."
+        },
+        {
+          "name": "/product <key>",
+          "description": "Choose which vertical's registry settings and command set to load - ACAD, ACADM (Mechanical), ACADE (Electrical) and so on - on a machine hosting several AutoCAD-based products."
+        },
+        {
+          "name": "stdout",
+          "description": "Everything the command line would have printed goes to standard output, so redirecting it with > or >> gives a per-drawing log without any extra code."
+        },
+        {
+          "name": "no GUI",
+          "description": "There is no window, no dialog engine and no display list. Dialog commands, OLE, rendering, some plotting paths and anything that needs a device context are unavailable; .NET is the API to write against here."
+        }
+      ],
+      "example": "accoreconsole.exe /i \"D:\\Projects\\1042\\A-101.dwg\" /s \"C:\\batch\\purge_audit.scr\" /isolate > \"C:\\batch\\logs\\A-101.log\" 2>&1\n\n; script that loads a .NET command and calls it\n; extract.scr\nFILEDIA\n0\nNETLOAD\nC:\\bundles\\Extractor.dll\nEXTRACTTAGS\nC:\\out\\A-101.json\n_QSAVE\n",
+      "notes": "Drawings opened by the console are opened for write, so the file must not be locked by an interactive session. Plotting to a system printer generally fails here because there is no display subsystem; plot to a .pc3 such as DWG To PDF where it is supported, or do the export from a full AutoCAD session started with acad.exe /b. Design Automation activities add /al to point the console at an uploaded AppBundle."
+    },
+    {
+      "name": "acad.exe",
+      "kind": "command",
+      "description": "The full AutoCAD executable accepts a drawing name followed by switches that control what it opens, which profile and workspace it starts in, what it loads and what it runs. Starting AutoCAD this way is heavier than the Core Console - it needs a licence seat, a display and roughly half a minute - but it is the route for work the console cannot do, such as plotting through a system printer driver, rendering, or anything that depends on the graphics subsystem. The drawing name must come first; switches follow in any order.",
+      "usage": "acad.exe [\"drawing.dwg\"] [/t \"template.dwt\"] [/b \"script.scr\"] [/nologo] [/p \"profile\"]\n         [/s \"folder;folder\"] [/ld \"app.arx|app.dbx\"] [/w \"workspace\"] [/v view] [/pl \"set.dsd\"]",
+      "parameters": [
+        {
+          "name": "/b <script>",
+          "description": "Run a script after startup, in the drawing named on the command line or in the new drawing created from the template. Put it last so the session is fully configured before playback starts."
+        },
+        {
+          "name": "/t <template>",
+          "description": "Start a new drawing from the named .dwt instead of opening an existing file."
+        },
+        {
+          "name": "/nologo",
+          "description": "Suppress the splash screen, which also removes the focus steal that can break the first lines of a script."
+        },
+        {
+          "name": "/p <profile>",
+          "description": "Start with a named user profile, or with a profile previously exported to an .arg file. Isolates support paths, printer settings and system variables from the user's normal profile."
+        },
+        {
+          "name": "/s <folders>",
+          "description": "Append one or more semicolon-separated folders to the support file search path for this session only, without editing the user's Options."
+        },
+        {
+          "name": "/ld <module>",
+          "description": "Load an ObjectARX (.arx) or DBX (.dbx) module at startup, before the drawing opens."
+        },
+        {
+          "name": "/w <workspace> and /v <view>",
+          "description": "/w restores a named workspace (ribbon and palette arrangement); /v restores a named view saved with VIEW once the drawing is open."
+        },
+        {
+          "name": "/pl <dsd>",
+          "description": "Publish a Drawing Set Description file produced by PUBLISH in the background, without opening the drawings interactively."
+        }
+      ],
+      "example": "\"C:\\Program Files\\Autodesk\\AutoCAD 2025\\acad.exe\" /t \"C:\\standards\\A1.dwt\" /nologo /p \"BATCH\" /s \"C:\\standards\\blocks;C:\\standards\\fonts\" /b \"C:\\batch\\build_sheet.scr\"\n\n; plot a saved sheet set in the background\n\"C:\\Program Files\\Autodesk\\AutoCAD 2025\\acad.exe\" /pl \"D:\\Projects\\1042\\IssueC.dsd\"",
+      "notes": "Quote every path that contains spaces, including the path to acad.exe itself. A /b script that ends without QUIT leaves the session open - end batch scripts with _QSAVE then _QUIT (or _CLOSE) so the process exits. Only one instance per licence seat, so acad.exe does not parallelise the way accoreconsole does."
+    },
+    {
+      "name": "accoreconsole batch loop (.bat)",
+      "kind": "command",
+      "description": "The standard pattern for processing a folder tree of drawings: a Windows batch file that walks the tree with FOR /R and calls accoreconsole once per DWG with the same script. Each drawing gets its own console process, so a failure or a crash affects one file rather than the whole run, and per-file output is easy to log. This is what most office 'batch purge', 'batch plot to PDF' and 'batch title-block update' tools reduce to once the LISP or .NET part is written.",
+      "usage": "for /R \"<root folder>\" %%F in (*.dwg) do <accoreconsole> /i \"%%F\" /s \"<script.scr>\" /isolate\n\n; %%F inside a .bat file, %F when typed directly at the command prompt",
+      "parameters": [
+        {
+          "name": "FOR /R",
+          "description": "Recurses the whole tree below the root folder. FOR %%F IN (folder\\*.dwg) without /R stays in one folder."
+        },
+        {
+          "name": "%%F quoting",
+          "description": "Always wrap \"%%F\" in quotes - project paths contain spaces - and use %%F in a .bat file but %F when typing the same loop at a prompt."
+        },
+        {
+          "name": "/isolate",
+          "description": "Keeps each drawing's system-variable changes inside its own console process so nothing leaks into the interactive product or into the next file."
+        },
+        {
+          "name": "logging",
+          "description": "Redirect stdout and stderr per file (> \"log\\%%~nF.log\" 2>&1) so a failed drawing can be identified afterwards; %%~nF is the file name without path or extension."
+        },
+        {
+          "name": "exclusions",
+          "description": "Skip backups and recovery copies (*.bak, *.sv$) and check for a .dwl/.dwl2 lock file next to the DWG, which means someone has the drawing open and the console will not be able to save it."
+        },
+        {
+          "name": "copy first",
+          "description": "Scripts that save in place are destructive. Copy the tree, or have the script SAVEAS into an output folder, before running anything across live project data."
+        },
+        {
+          "name": "parallelism",
+          "description": "Several console processes can run at once (start /b, or a PowerShell ForEach-Object -Parallel), limited by cores and by the licence terms of the installation."
+        }
+      ],
+      "example": "@echo off\nsetlocal\nset \"ACC=C:\\Program Files\\Autodesk\\AutoCAD 2025\\accoreconsole.exe\"\nset \"SCR=C:\\batch\\purge_audit.scr\"\nset \"LOG=C:\\batch\\logs\"\nif not exist \"%LOG%\" mkdir \"%LOG%\"\n\nfor /R \"D:\\Projects\\1042\" %%F in (*.dwg) do (\n    if exist \"%%~dpnF.dwl\" (\n        echo SKIPPED ^(locked^): %%F>> \"%LOG%\\run.log\"\n    ) else (\n        echo Processing %%F\n        \"%ACC%\" /i \"%%F\" /s \"%SCR%\" /isolate > \"%LOG%\\%%~nF.log\" 2>&1\n    )\n)\necho Done.\nendlocal",
+      "notes": "PowerShell gives the same loop with better error handling: Get-ChildItem -Recurse -Filter *.dwg | ForEach-Object { & $acc /i $_.FullName /s $scr /isolate }. If the script must receive per-drawing parameters, write them to a JSON or CSV file that a .NET command loaded with NETLOAD reads - scripts themselves cannot take arguments."
+    },
+    {
+      "name": "FILEDIA / ATTDIA",
+      "kind": "command",
+      "description": "The two system variables that decide whether a scripted command stops to show a dialog. FILEDIA 0 turns every file-selection dialog into a command-line prompt, so OPEN, SAVEAS, -WBLOCK, SCRIPT, NETLOAD and LINETYPE ask for a path as text; ATTDIA 0 makes INSERT prompt for attribute values on the command line instead of opening the Edit Attributes dialog. Setting both to 0 at the top of any script is a rule, not a suggestion: a dialog that appears during playback consumes the script's remaining lines as keystrokes and corrupts the drawing.",
+      "usage": "FILEDIA\n0\nATTDIA\n0\nATTREQ\n1\n\n; restore at the end\nFILEDIA\n1\nATTDIA\n1",
+      "parameters": [
+        {
+          "name": "FILEDIA",
+          "description": "1 (default) shows file dialogs; 0 prompts for file names on the command line. Typing a tilde (~) at such a prompt forces the dialog to appear anyway, which is handy interactively."
+        },
+        {
+          "name": "ATTDIA",
+          "description": "0 (default in a clean profile) prompts for block attribute values on the command line; 1 opens the Edit Attributes dialog. Scripts that run -INSERT on attributed blocks must have it at 0."
+        },
+        {
+          "name": "ATTREQ",
+          "description": "1 prompts for attribute values on insertion; 0 uses the defaults silently, which is what a script wants when it will set the values afterwards with ATTSYNC, -ATTEDIT or code."
+        },
+        {
+          "name": "EXPERT",
+          "description": "Suppresses 'are you sure' prompts (overwrite existing file, redefine block, purge confirmation). Values 0-5 progressively silence more of them; set it back to 0 afterwards because a high EXPERT hides real mistakes."
+        },
+        {
+          "name": "CMDECHO",
+          "description": "0 stops the command line echoing every prompt, which makes a script's log readable; it is a LISP-level setting normally restored to 1."
+        },
+        {
+          "name": "restore",
+          "description": "These are profile-stored, not drawing-stored, so an interactive session left with FILEDIA 0 confuses the next user. Restore them at the end of the script, or run under accoreconsole /isolate so the change cannot escape."
+        }
+      ],
+      "example": "; insert an attributed title block from a script without a single dialog\nFILEDIA\n0\nATTDIA\n0\nATTREQ\n1\n_-INSERT\nTB_A1=C:/standards/blocks/TB_A1.dwg\n0,0\n1\n1\n0\nP-1042\nA-101\nREV C\n2026-09-19\n_QSAVE\nFILEDIA\n1\nATTDIA\n1\n",
+      "notes": "Other dialog switches worth knowing in the same context: PICKADD and PICKFIRST affect how selections behave inside macros, and LAYERDLGMODE / -LAYER decide whether layer work opens the palette. Under accoreconsole no dialog can display at all, but commands still branch on FILEDIA, so set it to 0 there too."
+    },
+    {
+      "name": "APPLOAD",
+      "kind": "command",
+      "description": "Load an application into the current session: AutoLISP source or compiled code (.lsp, .fas, .vlx), a VBA project (.dvb), an ObjectARX module (.arx, .dbx, .crx) or a managed .NET assembly (.dll). The dialog also holds the Startup Suite, a per-profile list of applications that are loaded automatically into every drawing, which is how most offices deploy their LISP library without editing acaddoc.lsp. Loading is subject to SECURELOAD and TRUSTEDPATHS, so files outside a trusted folder raise a security prompt or are refused outright.",
+      "usage": "APPLOAD  (alias AP)\n(dialog) Load / Unload / Contents (Startup Suite) / Add to History\n\n; equivalents that work in a script or from code\n(load \"C:/lisp/tools.lsp\")\n(arxload \"C:/arx/tools.arx\")\nNETLOAD  C:\\bundles\\Tools.dll",
+      "parameters": [
+        {
+          "name": "Load",
+          "description": "Load the selected file into the current session. LISP loaded this way lives only in the current drawing document unless it is in the Startup Suite."
+        },
+        {
+          "name": "Unload",
+          "description": "Available for ObjectARX and VBA modules only. AutoLISP definitions and .NET assemblies cannot be unloaded - the session has to be restarted."
+        },
+        {
+          "name": "Startup Suite (Contents)",
+          "description": "Per-profile list of files loaded into every drawing that is opened. Stored in the registry with the profile, so exporting the profile with an .arg file carries it to another machine."
+        },
+        {
+          "name": "Add to History",
+          "description": "Keeps loaded files in the History list for quick reloading during development."
+        },
+        {
+          "name": "file types",
+          "description": ".lsp, .fas, .vlx, .dvb, .arx, .dbx, .crx, .dll. The dialog filters by type; a .NET assembly can also be loaded with NETLOAD."
+        },
+        {
+          "name": "security",
+          "description": "SECURELOAD decides whether files outside TRUSTEDPATHS may load at all; the Startup Suite is not exempt."
+        }
+      ],
+      "example": "; Interactive\nAPPLOAD\n(browse to C:\\lisp\\office.vlx, Load)\n(Contents > Add > C:\\lisp\\office.vlx  - loads in every drawing from now on)\n\n; Script-safe alternative - no dialog involved\nFILEDIA\n0\n(load \"C:/lisp/office.vlx\")\n\n; From .NET, load another assembly at run time\n; ExtensionLoader.Load(@\"C:\\bundles\\Tools.dll\");",
+      "notes": "There is no -APPLOAD. In scripts use (load ...) for LISP, NETLOAD for .NET and (arxload ...) or ARX Load for ObjectARX. Deploying through the Autodesk App Store bundle format (a .bundle folder with PackageContents.xml under ApplicationPlugins) is the modern alternative: it loads automatically, needs no Startup Suite entry and is what Design Automation AppBundles use."
+    },
+    {
+      "name": "NETLOAD",
+      "kind": "command",
+      "description": "Load a managed .NET assembly into the AutoCAD process so the [CommandMethod] and [LispFunction] members it defines become available as commands and LISP functions. The assembly is loaded in-process, which is why .NET code is far faster than out-of-process COM for bulk editing, and why it is the API that accoreconsole and Design Automation support. It respects FILEDIA, so a script can load an assembly by typing the path at the prompt.",
+      "usage": "NETLOAD\nSelect .NET Assembly dialog\n\n; script form\nFILEDIA\n0\nNETLOAD\nC:\\bundles\\Tools.dll",
+      "parameters": [
+        {
+          "name": "assembly path",
+          "description": "Full path to the .dll. Dependencies are resolved from the same folder or from the probing path, so ship referenced assemblies alongside it."
+        },
+        {
+          "name": "FILEDIA",
+          "description": "0 turns the file dialog into a command-line prompt - the only way NETLOAD can be used inside a .scr script or a Core Console run."
+        },
+        {
+          "name": "no unload",
+          "description": "A loaded assembly cannot be unloaded; the file stays locked until AutoCAD exits. During development this is handled by loading from a copy, or by a debug build that shadow-copies."
+        },
+        {
+          "name": "version match",
+          "description": "The assembly must be built against the acmgd/acdbmgd/accoremgd of a compatible release and the right .NET runtime (.NET Framework 4.8 for AutoCAD 2021-2024, .NET 8 for AutoCAD 2025 and later). Copy Local should be false for the AutoCAD references."
+        },
+        {
+          "name": "SECURELOAD",
+          "description": "Applies to .NET as well: an assembly outside a trusted path prompts, or is blocked when SECURELOAD is 2."
+        },
+        {
+          "name": "IExtensionApplication",
+          "description": "If the assembly implements it, Initialize() runs at load time and Terminate() at shutdown - the place to register overrules, reactors or ribbon content."
+        }
+      ],
+      "example": "; batch script that loads an add-in and runs one of its commands\nFILEDIA\n0\nSECURELOAD\n0\nNETLOAD\nC:\\bundles\\TitleBlockTool.dll\nUPDATETITLEBLOCK\nC:\\batch\\params.json\n_QSAVE\n\n; run headless\naccoreconsole.exe /i \"D:\\1042\\A-101.dwg\" /s \"C:\\batch\\update.scr\" /isolate",
+      "notes": "Lowering SECURELOAD inside a script is a real security decision; the cleaner route is to add the bundle folder to TRUSTEDPATHS in the batch profile. AutoCAD 2025 moved to .NET 8, so assemblies built for earlier releases must be retargeted; keep separate builds per release family."
+    },
+    {
+      "name": "ARX",
+      "kind": "command",
+      "description": "Manage native ObjectARX applications from the command line: list what is loaded, load and unload modules, list the commands and classes a module registered, and set the options that control how ARX modules are demand-loaded. Unlike .NET assemblies, ARX modules can genuinely be unloaded, which makes this command useful during development and when a module has to be replaced without restarting AutoCAD.",
+      "usage": "ARX\nEnter an option [?/Load/Unload/Commands/Options]: ?\n\n; AutoLISP equivalents\n(arxload \"C:/arx/tools.arx\")\n(arxunload \"tools\")\n(arx)        ; list loaded modules",
+      "parameters": [
+        {
+          "name": "? (list)",
+          "description": "List the ObjectARX modules currently loaded in the session."
+        },
+        {
+          "name": "Load",
+          "description": "Load an .arx, .dbx or .crx module. With FILEDIA 0 the path is typed at the command line, which is what a script needs."
+        },
+        {
+          "name": "Unload",
+          "description": "Unload a module by name. Modules that registered custom object classes or that are locked by open custom objects refuse to unload."
+        },
+        {
+          "name": "Commands",
+          "description": "List the command groups and the global and local command names each loaded module registered with acedRegCmds."
+        },
+        {
+          "name": "Options",
+          "description": "Controls demand loading behaviour - whether a module is loaded on detection of its custom objects, on invocation of one of its commands, or at startup."
+        },
+        {
+          "name": "acad.rx",
+          "description": "The startup list of ARX modules; anything named there loads automatically when AutoCAD starts."
+        }
+      ],
+      "example": "; load, inspect and unload during development\nARX\nL\nC:\\dev\\MyTool\\x64\\Release\\MyTool.arx\n\nARX\nC            ; which commands did it register?\n\nARX\nU\nMyTool\n\n; from LISP\n(if (not (member \"mytool.arx\" (arx))) (arxload \"C:/dev/MyTool/MyTool.arx\"))",
+      "notes": "ObjectARX binaries are tied to an AutoCAD release family and must be rebuilt for each one; loading a mismatched module fails with a version error rather than crashing. Demand loading is configured per module in the registry by its installer, which is what makes a custom object open correctly in a drawing sent to another machine."
+    },
+    {
+      "name": "VLIDE",
+      "kind": "command",
+      "description": "Open the Visual LISP integrated development environment: an editor with syntax colouring for AutoLISP, a console for evaluating expressions against the live drawing, a debugger with breakpoints, step and watch windows, an inspector for objects and selection sets, and a Make Application wizard that compiles .lsp sources into a .fas module or a packaged .vlx application. It is the traditional home of serious LISP development and the place where (vl-load-com) ActiveX code is most easily tested.",
+      "usage": "VLIDE   (also VLISP)\n\n; typical session\nFile > New / Open       - edit .lsp\nTools > Load Text in Editor (Ctrl+Alt+E)\nConsole window: (c:MYCOMMAND)  or  (vlax-dump-object obj T)\nDebug > Toggle Breakpoint (F9), Step Into (F8)\nFile > Make Application > New Application Wizard  - build .fas / .vlx",
+      "parameters": [
+        {
+          "name": "Console window",
+          "description": "Evaluates AutoLISP expressions immediately against the current drawing, the fastest way to test (ssget) filters, entget lists and vla-* calls."
+        },
+        {
+          "name": "Load Text in Editor",
+          "description": "Loads the whole file, or just the selection, into the running session without saving to disk first."
+        },
+        {
+          "name": "Debugger",
+          "description": "Breakpoints, step in/over/out, Watch and Inspect windows, and the Trace stack - LISP's only real debugging facility."
+        },
+        {
+          "name": "Make Application wizard",
+          "description": "Compiles sources into a .fas (compiled LISP) or .vlx (application package that can bundle several files and a DCL), optionally with the source protected."
+        },
+        {
+          "name": "Inspect",
+          "description": "Opens an object browser on an entity name, VLA object or selection set, showing every property and method available through ActiveX."
+        },
+        {
+          "name": "vlax-dump-object",
+          "description": "Console helper that prints all properties and, with T as the second argument, all methods of a VLA object - the practical substitute for reading the COM type library."
+        }
+      ],
+      "example": "; In the VLIDE console, explore the COM object model live\n(vl-load-com)\n(setq acad (vlax-get-acad-object))\n(setq doc  (vla-get-ActiveDocument acad))\n(vlax-dump-object doc T)\n\n(setq ms (vla-get-ModelSpace doc))\n(vla-AddCircle ms (vlax-3d-point 0 0 0) 25.0)\n(vla-ZoomExtents acad)",
+      "notes": "VLIDE is Windows-only and is now the legacy editor: Autodesk also ships an AutoLISP extension for Visual Studio Code with syntax checking, debugging against a running AutoCAD and project support, which is the recommended environment for new work. Compiled .fas/.vlx files still have to be produced by the Make Application wizard."
+    },
+    {
+      "name": "acad.lsp / acaddoc.lsp / acad.rx",
+      "kind": "format",
+      "description": "The three files AutoCAD looks for on the support file search path at startup so that custom code loads without anyone pressing a button. acad.lsp is loaded once per session (or once per drawing if ACADLSPASDOC is 1), acaddoc.lsp is loaded into every drawing document as it opens, and acad.rx lists ObjectARX modules to load at startup. A function named S::STARTUP defined in any of them runs after the drawing is fully initialised, which is the only safe place to issue commands or set drawing-level system variables.",
+      "usage": "; search order: the first file of each name found on the support path wins\nacad.lsp      -> once per session (per document if ACADLSPASDOC = 1)\nacaddoc.lsp   -> once per drawing document, after acad.lsp\nacad.rx       -> plain list of .arx modules, one per line\n<name>.mnl    -> loaded with the matching <name>.cuix\n\n(defun S::STARTUP () ... )   ; runs after the drawing is initialised",
+      "parameters": [
+        {
+          "name": "acad.lsp",
+          "description": "Session-level LISP. Good for defining functions and loading libraries; not the place for (command ...) calls, because no drawing is ready yet."
+        },
+        {
+          "name": "acaddoc.lsp",
+          "description": "Document-level LISP, loaded for every drawing including new ones. The usual home for an office standard library: (load \"office.vlx\")."
+        },
+        {
+          "name": "acad.rx",
+          "description": "Text file listing ObjectARX modules to load at startup, one path or module name per line."
+        },
+        {
+          "name": "S::STARTUP",
+          "description": "Reserved function name called after the drawing is open and initialised - the correct place to run commands, set CLAYER or insert a block automatically."
+        },
+        {
+          "name": "ACADLSPASDOC",
+          "description": "0 (default) loads acad.lsp once per session; 1 loads it into every document. Affects only acad.lsp, never acaddoc.lsp."
+        },
+        {
+          "name": "acad<release>.lsp / acad<release>doc.lsp",
+          "description": "Autodesk's own startup files (acad2025.lsp, acad2025doc.lsp). They are reserved for the product and must not be edited; put custom code in acad.lsp or acaddoc.lsp instead."
+        },
+        {
+          "name": ".mnl",
+          "description": "A LISP file loaded automatically with the .cuix of the same name, so menu and ribbon macros can call functions that are guaranteed to be loaded."
+        }
+      ],
+      "example": "; acaddoc.lsp on the office support path\n(vl-load-com)\n(if (findfile \"office.vlx\") (load \"office.vlx\"))\n\n(defun S::STARTUP ()\n  (setvar \"FILEDIA\" 1)\n  (setvar \"ATTDIA\" 0)\n  (setvar \"INSUNITS\" 4)          ; millimetres\n  (if (not (tblsearch \"LAYER\" \"DEFPOINTS\"))\n      (command \"_.-LAYER\" \"_M\" \"DEFPOINTS\" \"\"))\n  (princ))\n\n; acad.rx\nC:\\bundles\\MyCustomObjects.dbx",
+      "notes": "Only one S::STARTUP can exist; a second definition silently replaces the first, so libraries that need startup work should append to it rather than redefine it. These files are loaded only if they are found on the support file search path (OPTIONS > Files), and they are subject to SECURELOAD like any other executable file. The .bundle/PackageContents.xml mechanism under ApplicationPlugins is the modern, per-release-aware alternative."
+    },
+    {
+      "name": "SECURELOAD / TRUSTEDPATHS",
+      "kind": "command",
+      "description": "The security gate that decides whether AutoCAD will run executable code - LISP, ARX, .NET, VBA - from a given folder. SECURELOAD sets the policy and TRUSTEDPATHS lists the folders whose contents are trusted; files in the AutoCAD installation folder are always trusted. Batch and deployment work has to account for these, because a perfectly good script that calls NETLOAD or (load ...) from a network share will otherwise stop on a security prompt that no unattended process can answer.",
+      "usage": "SECURELOAD\nEnter new value for SECURELOAD <1>: 0 | 1 | 2\n\nTRUSTEDPATHS\nEnter new value for TRUSTEDPATHS: C:\\standards\\lisp;C:\\bundles\\...\n\n; a trailing \\... includes subfolders of that path",
+      "parameters": [
+        {
+          "name": "SECURELOAD 0",
+          "description": "Load and execute files from anywhere without asking. Convenient, and exactly the behaviour the setting exists to prevent; acceptable only on an isolated batch machine."
+        },
+        {
+          "name": "SECURELOAD 1",
+          "description": "Default. Files outside a trusted path raise a warning dialog that the user must accept before the file loads."
+        },
+        {
+          "name": "SECURELOAD 2",
+          "description": "Files outside a trusted path are refused outright with no prompt - the setting for a locked-down environment."
+        },
+        {
+          "name": "TRUSTEDPATHS",
+          "description": "Semicolon-separated list of folders. A path on its own trusts only the files directly in it; ending the entry with \\... also trusts every subfolder."
+        },
+        {
+          "name": "TRUSTEDDOMAINS",
+          "description": "Companion variable listing domains from which files may be loaded or downloaded by web-enabled features."
+        },
+        {
+          "name": "install folder",
+          "description": "The AutoCAD program folder and its ApplicationPlugins bundles are trusted implicitly and do not need to be listed."
+        },
+        {
+          "name": "profile scope",
+          "description": "Both variables are stored with the user profile, not the drawing, so a batch profile (acad.exe /p or accoreconsole /isolate) can carry its own relaxed setting without changing the user's."
+        }
+      ],
+      "example": "; office deployment: trust the standards tree once, then load normally\nTRUSTEDPATHS\nC:\\standards\\lisp;\\\\server\\cad\\bundles\\...\nSECURELOAD\n1\n\n; from AutoLISP, add a folder without wiping the existing list\n(setvar \"TRUSTEDPATHS\"\n        (strcat (getvar \"TRUSTEDPATHS\") \";C:\\\\bundles\\\\...\"))\n\n; from .NET\n; Application.SetSystemVariable(\"SECURELOAD\", 0);",
+      "notes": "A UNC path can be trusted, but AutoCAD warns that a network folder is only as safe as its write permissions. If unattended jobs keep stopping, check TRUSTEDPATHS before reaching for SECURELOAD 0: relaxing the policy globally is the change that gets blamed after an incident."
+    },
+    {
+      "name": "AutoCAD.Application",
+      "kind": "api",
+      "description": "The COM entry point. AutoCAD registers the ProgID AutoCAD.Application, so any COM-capable language can create or attach to a session and get back an AcadApplication object whose ActiveDocument and Documents collection lead to everything else. The connection is out-of-process: every property read and method call is a cross-process marshalled call, which is fine for a few hundred operations and painfully slow for tens of thousands - use the in-process .NET API for bulk edits. This is also the only API Python, VBScript and Excel VBA can reach.",
+      "usage": "; ProgID\n\"AutoCAD.Application\"            ; latest installed release\n\"AutoCAD.Application.25\"         ; a specific release's ProgID\n\n; VBA / VBScript\nSet acad = GetObject(, \"AutoCAD.Application\")   ' attach to a running session\nSet acad = CreateObject(\"AutoCAD.Application\")  ' start one if needed\nacad.Visible = True\nSet doc = acad.ActiveDocument",
+      "parameters": [
+        {
+          "name": "Visible",
+          "description": "Shows or hides the AutoCAD window. A session started by COM is invisible until this is set True; an invisible session still needs a licence and can still be left running by a crashed script."
+        },
+        {
+          "name": "ActiveDocument",
+          "description": "The AcadDocument for the drawing currently in focus; also settable, which is how code switches between open drawings."
+        },
+        {
+          "name": "Documents",
+          "description": "Collection of open drawings. Documents.Add([template]) creates one, Documents.Open(path, [readOnly]) opens one, Item(i) and Count enumerate, and Close() closes them all."
+        },
+        {
+          "name": "Document.SaveAs / Save / Close",
+          "description": "doc.SaveAs(path[, fileType]) writes the drawing, doc.Save() saves in place and doc.Close([SaveChanges][, FileName]) closes it - the three calls every COM batch loop ends with."
+        },
+        {
+          "name": "Document.Regen",
+          "description": "doc.Regen(acAllViewports) rebuilds the display after code has changed geometry; entity-level Update() refreshes a single object."
+        },
+        {
+          "name": "ZoomExtents / ZoomAll / ZoomWindow",
+          "description": "Zoom methods live on the Application object, not the document: acad.ZoomExtents() after creating geometry, otherwise the new objects may be off screen."
+        },
+        {
+          "name": "Quit",
+          "description": "Closes the session. Without it an invisible automation instance survives the calling script and holds the drawing file open."
+        },
+        {
+          "name": "Preferences",
+          "description": "AcadPreferences object exposing the Options dialog settings (Files, Display, OpenSave, Output, System, UserPreferences, Drafting, Selection, Profiles)."
+        }
+      ],
+      "example": "' Excel VBA: open every drawing listed in column A, purge and save\nDim acad As Object, doc As Object, i As Long\nOn Error Resume Next\nSet acad = GetObject(, \"AutoCAD.Application\")\nIf acad Is Nothing Then Set acad = CreateObject(\"AutoCAD.Application\")\nOn Error GoTo 0\nacad.Visible = True\n\nFor i = 2 To Cells(Rows.Count, 1).End(xlUp).Row\n    Set doc = acad.Documents.Open(Cells(i, 1).Value)\n    doc.PurgeAll\n    doc.SetVariable \"CLAYER\", \"0\"\n    acad.ZoomExtents\n    doc.Save\n    doc.Close\nNext i\n\nacad.Quit",
+      "notes": "GetObject with no first argument attaches to a running instance and raises an error if none exists; the try-attach-then-create pattern above is standard. A COM client sees only one AutoCAD instance per user session in practice, so COM does not parallelise - for throughput run several accoreconsole processes instead. If the user is mid-command, COM calls fail or queue: check doc.GetVariable(\"CMDACTIVE\") before driving a live session."
+    },
+    {
+      "name": "AcadDocument.ModelSpace / PaperSpace / Layouts",
+      "kind": "api",
+      "description": "The three containers that hold drawable objects in a COM session. ModelSpace is the block that holds full-scale geometry, PaperSpace is the block belonging to the currently active layout, and the Layouts collection gives access to every sheet in the drawing with its plot configuration. Because PaperSpace always refers to the active layout, code that touches several sheets sets ActiveLayout first, then works through PaperSpace or through the Layout's own Block property.",
+      "usage": "Set ms = doc.ModelSpace              ' AcadModelSpace  (block *Model_Space)\nSet ps = doc.PaperSpace              ' AcadPaperSpace of the ACTIVE layout\ndoc.ActiveSpace = acModelSpace       ' acModelSpace = 1, acPaperSpace = 0\n\nSet lay = doc.Layouts.Add(\"A-102\")\ndoc.ActiveLayout = doc.Layouts.Item(\"A-102\")\nSet blk = doc.Layouts.Item(\"A-102\").Block   ' that sheet's geometry\nn = ms.Count : Set ent = ms.Item(0)",
+      "parameters": [
+        {
+          "name": "ModelSpace",
+          "description": "Collection of every entity in model space, with Count and Item(i) for enumeration and the Add* factory methods for creation."
+        },
+        {
+          "name": "PaperSpace",
+          "description": "The active layout's paper-space block. Switching ActiveLayout changes what PaperSpace points at, so cache entity references, not the container."
+        },
+        {
+          "name": "ActiveSpace",
+          "description": "Switches the drawing between model and paper space (the TILEMODE/viewport state). Setting it fails if the drawing has no layout."
+        },
+        {
+          "name": "Layouts",
+          "description": "Collection of AcadLayout objects. Add(name), Item(name or index), Count; each layout has Name, TabOrder, Block and a full set of plot properties."
+        },
+        {
+          "name": "Layout plot properties",
+          "description": "ConfigName (the .pc3 or printer), CanonicalMediaName (paper size), PlotType, StandardScale, UseStandardScale, PlotRotation, CenterPlot, StyleSheet (.ctb/.stb), PlotWithLineweights."
+        },
+        {
+          "name": "RefreshPlotDeviceInfo",
+          "description": "Must be called on a Layout or PlotConfiguration after changing ConfigName, before the media names and scales of the new device are valid."
+        },
+        {
+          "name": "doc.Plot",
+          "description": "The AcadPlot object: SetLayoutsToPlot(array of names), NumberOfCopies, QuietErrorMode, PlotToDevice([config]) and PlotToFile(file[, config]) for scripted output."
+        },
+        {
+          "name": "MSpace",
+          "description": "doc.MSpace = True enters floating model space inside the active viewport of a layout; False returns to paper space."
+        }
+      ],
+      "example": "' Create a sheet, put a viewport on it and plot it to PDF\nSet lay = doc.Layouts.Add(\"A-102\")\ndoc.ActiveLayout = lay\nlay.ConfigName = \"DWG To PDF.pc3\"\nlay.RefreshPlotDeviceInfo\nlay.CanonicalMediaName = \"ISO_full_bleed_A1_(841.00_x_594.00_MM)\"\nlay.StyleSheet = \"monochrome.ctb\"\nlay.PlotWithLineweights = True\n\nDim c(0 To 2) As Double\nc(0) = 420#: c(1) = 297#: c(2) = 0#\nSet vp = doc.PaperSpace.AddPViewport(c, 700#, 450#)\nvp.Display True\nvp.CustomScale = 0.01                     ' 1:100\n\ndoc.Plot.QuietErrorMode = True\ndoc.Plot.PlotToFile \"C:\\out\\A-102.pdf\"",
+      "notes": "AddPViewport only works while the layout is active and returns a viewport that is off until Display True is called. Layout names are case-insensitive and must be unique; deleting the last layout is not allowed. Plotting through COM depends on the device being installed for the interactive user, which is one of the reasons plot automation is often left in a script run by acad.exe /b rather than the Core Console."
+    },
+    {
+      "name": "AcadDocument.Blocks / AcadDocument.Layers",
+      "kind": "api",
+      "description": "The two symbol-table collections that most automation touches. Blocks holds every block definition in the drawing, including the special *Model_Space and *Paper_Space blocks and any xref definitions, and a new AcadBlock is filled with the same Add* factory methods used on model space. Layers holds AcadLayer objects with colour, linetype, lineweight, plot style, on/off, freeze, lock and plottable state, and doc.ActiveLayer sets the current layer that new geometry inherits.",
+      "usage": "Set blk = doc.Blocks.Add(originPoint, \"VALVE_GATE\")   ' new definition\nblk.AddLine p1, p2                                    ' fill it\nSet ref = doc.ModelSpace.InsertBlock(pt, \"VALVE_GATE\", 1#, 1#, 1#, 0#)\n\nSet lay = doc.Layers.Add(\"WALLS\")\nlay.color = acRed\nlay.Lineweight = acLnWt050\ndoc.ActiveLayer = lay",
+      "parameters": [
+        {
+          "name": "Blocks.Add(basePoint, name)",
+          "description": "Creates an empty block definition whose origin is the given point; entities added to the returned AcadBlock become its content."
+        },
+        {
+          "name": "Blocks.Item / Count / Delete",
+          "description": "Look up or enumerate definitions. IsXRef, IsLayout, Path and Units on an AcadBlock tell you what kind of definition you are looking at."
+        },
+        {
+          "name": "Layers.Add(name)",
+          "description": "Creates or returns the layer. Layer names may not contain < > / \\ \" : ; ? * | , = ` and are limited to 255 characters."
+        },
+        {
+          "name": "AcadLayer properties",
+          "description": "color (an AcadAcCmColor or an ACI index), Linetype, Lineweight, PlotStyleName, LayerOn, Freeze, Lock, Plottable, Description, ViewportDefault."
+        },
+        {
+          "name": "Linetypes.Load",
+          "description": "doc.Linetypes.Load \"HIDDEN\", \"acad.lin\" must run before a layer can be given that linetype, otherwise assignment fails."
+        },
+        {
+          "name": "ActiveLayer",
+          "description": "The layer new entities are created on. Entities also expose their own Layer property, which is usually set explicitly rather than relying on the current layer."
+        },
+        {
+          "name": "Delete restrictions",
+          "description": "Layer 0, DEFPOINTS in use, the current layer, xref-dependent layers and any layer with objects on it cannot be deleted; PurgeAll removes the unused ones."
+        },
+        {
+          "name": "Attributes",
+          "description": "A block definition holds AcadAttribute objects created with blk.AddAttribute(height, mode, prompt, insertionPoint, tag, value); the inserted reference exposes them through GetAttributes()."
+        }
+      ],
+      "example": "' Build a tagged symbol definition once, then place it many times\nDim o(0 To 2) As Double: o(0) = 0#: o(1) = 0#: o(2) = 0#\nSet blk = doc.Blocks.Add(o, \"EQUIP_TAG\")\nDim c(0 To 2) As Double: c(0) = 0#: c(1) = 0#: c(2) = 0#\nblk.AddCircle c, 5#\nblk.AddAttribute 2.5, acAttributeModeVerify, \"Tag number:\", c, \"TAG_NO\", \"P-000\"\n\nDim p(0 To 2) As Double\nFor i = 1 To 5\n    p(0) = i * 200#: p(1) = 0#: p(2) = 0#\n    Set ref = doc.ModelSpace.InsertBlock(p, \"EQUIP_TAG\", 1#, 1#, 1#, 0#)\n    atts = ref.GetAttributes\n    atts(0).TextString = \"P-10\" & i\n    ref.Update\nNext i",
+      "notes": "Redefining an existing block through COM means deleting the definition's entities and re-adding them; every reference updates immediately. Layer and block changes are not undone by the user's UNDO in the tidy way interactive edits are, because COM work is not grouped - wrap batches with doc.StartUndoMark / doc.EndUndoMark so a user can step back out of them in one go."
+    },
+    {
+      "name": "AcadDocument.SelectionSets",
+      "kind": "api",
+      "description": "COM's way of gathering existing objects. A named AcadSelectionSet is created on the document, filled by Select (programmatic modes such as all, window, crossing, last), SelectOnScreen (the user picks), SelectAtPoint or AddItems, and then enumerated with Count and Item. Filtering uses the same DXF group codes as AutoLISP's ssget: code 0 for entity type, 8 for layer, 2 for block name, 6 for linetype, 62 for colour, with -4 introducing logical operators.",
+      "usage": "Set ss = doc.SelectionSets.Add(\"SS1\")\nss.Select acSelectionSetAll, , , FilterType, FilterData\nss.SelectOnScreen FilterType, FilterData\nss.AddItems objectArray\nFor Each ent In ss : ... : Next\nss.Delete",
+      "parameters": [
+        {
+          "name": "SelectionSets.Add(name)",
+          "description": "Creates the set. Adding a name that already exists raises an error, so the standard idiom is to try Item(name), Delete it, then Add."
+        },
+        {
+          "name": "Select(mode, [pt1], [pt2], [filterType], [filterData])",
+          "description": "Modes include acSelectionSetAll, acSelectionSetWindow, acSelectionSetCrossing, acSelectionSetPrevious, acSelectionSetLast and the polygon and fence variants; window and crossing need the two corner points."
+        },
+        {
+          "name": "SelectOnScreen",
+          "description": "Prompts the user to pick objects, honouring the same filter. Requires an interactive session - it cannot be used from the Core Console or a service."
+        },
+        {
+          "name": "AddItems / RemoveItems / Clear",
+          "description": "Add or remove an array of objects you already hold references to; Clear empties the set without deleting it."
+        },
+        {
+          "name": "filterType / filterData",
+          "description": "Parallel arrays: an Integer array of DXF group codes and a Variant array of the matching values. Both must be passed ByRef as real arrays, not literals."
+        },
+        {
+          "name": "-4 operators",
+          "description": "\"<AND\", \"AND>\", \"<OR\", \"OR>\", \"<NOT\", \"NOT>\" and comparison operators like \"<=\" paired with code -4, exactly as in ssget filters, allow compound conditions."
+        },
+        {
+          "name": "Erase / Highlight / Update",
+          "description": "Set-level operations: Erase deletes every member, Highlight True flashes them, Update redraws them after property changes."
+        },
+        {
+          "name": "Delete",
+          "description": "Removes the named set from the document. Leaving sets behind wastes drawing resources and eventually collides with the next Add of the same name."
+        }
+      ],
+      "example": "' Every TEXT and MTEXT on layer NOTES, moved to layer ANNO\nDim ft(0 To 2) As Integer\nDim fd(0 To 2) As Variant\nft(0) = -4: fd(0) = \"<OR\"\nft(1) = 0:  fd(1) = \"TEXT,MTEXT\"\nft(2) = -4: fd(2) = \"OR>\"\n\nOn Error Resume Next\ndoc.SelectionSets.Item(\"SS1\").Delete\nOn Error GoTo 0\nSet ss = doc.SelectionSets.Add(\"SS1\")\nss.Select acSelectionSetAll, , , ft, fd\n\nFor Each ent In ss\n    If ent.Layer = \"NOTES\" Then ent.Layer = \"ANNO\"\nNext ent\nDebug.Print ss.Count & \" objects retagged\"\nss.Delete",
+      "notes": "A single filter entry can carry a comma-separated list (\"TEXT,MTEXT\") without any operator, which is simpler than an <OR block when only the entity type varies. Wildcards work in name filters (\"A-*\" for layers). Selection sets live in the drawing and survive until deleted, so long-running COM clients should always clean up. In .NET the equivalent is Editor.SelectAll / GetSelection with a SelectionFilter of TypedValues."
+    },
+    {
+      "name": "AcadDocument.Utility",
+      "kind": "api",
+      "description": "The COM object that handles user input and value conversion. Its Get* methods put a prompt on the AutoCAD command line and block until the user answers, returning points, distances, angles, strings, integers, reals, keywords or a picked entity; its conversion methods translate between the internal representation and formatted strings using the drawing's UNITS settings. It is the only part of the COM model that needs a human, so it is also the part that must never appear in headless code.",
+      "usage": "pt  = doc.Utility.GetPoint([basePoint], \"\\nPick a point: \")\ndist = doc.Utility.GetDistance(pt, \"\\nLength: \")\nang = doc.Utility.GetAngle(pt, \"\\nAngle: \")            ' returns radians\ndoc.Utility.GetEntity ent, pickPt, \"\\nSelect an object: \"   ' ByRef out params\ns = doc.Utility.AngleToString(ang, acDegreeMinuteSeconds, 4)\ndoc.Utility.Prompt \"\\n12 objects processed.\"",
+      "parameters": [
+        {
+          "name": "GetPoint / GetCorner / GetDistance / GetAngle",
+          "description": "Point and measurement input, optionally rubber-banded from a base point. Angles come back in radians regardless of the drawing's angular units."
+        },
+        {
+          "name": "GetEntity(object, pickedPoint, prompt)",
+          "description": "Asks the user to pick one object and returns both the object and the pick point through ByRef parameters - which is why it reads as a tuple in Python and as two output variables in VBA."
+        },
+        {
+          "name": "GetString / GetInteger / GetReal / GetKeyword",
+          "description": "Text and numeric input. GetString's first argument decides whether spaces end the input (False) or are allowed (True)."
+        },
+        {
+          "name": "InitializeUserInput(bits, keywords)",
+          "description": "Applied before a Get* call: bit 1 disallows null input, 2 disallows zero, 4 disallows negatives, 32 draws a dashed rubber band; the keyword string supplies the options the user may type instead of a value."
+        },
+        {
+          "name": "AngleToString / AngleToReal / DistanceToReal / RealToString",
+          "description": "Convert between internal doubles and formatted text using unit constants such as acDegrees, acDegreeMinuteSeconds, acGrads, acRadians - the right way to build text that matches the drawing's units."
+        },
+        {
+          "name": "TranslateCoordinates",
+          "description": "Converts a point between WCS, UCS, OCS/ECS and DCS - essential when an entity's coordinates are reported in its own object coordinate system."
+        },
+        {
+          "name": "Prompt",
+          "description": "Writes a message to the command line, the COM equivalent of Editor.WriteMessage. Start the string with a newline so it does not append to the current prompt."
+        },
+        {
+          "name": "PolarPoint / CreateTypedArray",
+          "description": "PolarPoint(basePoint, angle, distance) computes a point; CreateTypedArray builds the typed VARIANT arrays that filter and coordinate parameters expect."
+        }
+      ],
+      "example": "' Label the length of a line the user picks\nDim ent As Object, pickPt As Variant\ndoc.Utility.GetEntity ent, pickPt, vbCrLf & \"Select a line: \"\n\nIf TypeName(ent) = \"IAcadLine\" Then\n    Dim mid(0 To 2) As Double\n    mid(0) = (ent.StartPoint(0) + ent.EndPoint(0)) / 2\n    mid(1) = (ent.StartPoint(1) + ent.EndPoint(1)) / 2\n    mid(2) = 0#\n    Set t = doc.ModelSpace.AddText(Format(ent.Length, \"0.0\"), mid, 2.5)\n    t.Layer = \"ANNO\"\n    doc.Utility.Prompt vbCrLf & \"Length \" & Format(ent.Length, \"0.0\") & \" labelled.\"\nEnd If",
+      "notes": "Every Get* call raises a COM error when the user presses Esc, so wrap them in error handling rather than letting the client crash. Input requires the AutoCAD window to be the active application; an invisible automation instance will simply hang. For batch work take parameters from a file or the command line instead, and in .NET use Editor.GetPoint/GetSelection with PromptStatus checks."
+    },
+    {
+      "name": "AcadModelSpace.AddLine / AddCircle / AddText / InsertBlock",
+      "kind": "api",
+      "description": "The factory methods that create geometry through COM. Every drawable container - ModelSpace, PaperSpace and any AcadBlock - exposes the same family: AddLine, AddCircle, AddArc, AddEllipse, AddLightWeightPolyline, AddPolyline, AddSpline, AddPoint, AddRegion, AddHatch, AddText, AddMText, AddAttribute, the AddDim* dimension methods, AddLeader, AddTable and InsertBlock. Each returns the new object, whose Layer, Color, Linetype, LinetypeScale and TrueColor are then set as properties; there is no equivalent of the command line's option prompts.",
+      "usage": "Set ln  = ms.AddLine(startPt, endPt)\nSet ci  = ms.AddCircle(centrePt, radius)\nSet ar  = ms.AddArc(centrePt, radius, startAngleRad, endAngleRad)\nSet pl  = ms.AddLightWeightPolyline(verticesArray)      ' flat array of X,Y pairs\nSet tx  = ms.AddText(\"PLATE 12mm\", insertPt, height)\nSet mt  = ms.AddMText(insertPt, width, \"1. Notes...\")\nSet dim = ms.AddDimAligned(extLine1Pt, extLine2Pt, textPt)\nSet br  = ms.InsertBlock(insertPt, \"VALVE_GATE\", 1#, 1#, 1#, rotationRad)",
+      "parameters": [
+        {
+          "name": "point arguments",
+          "description": "Every point is a VARIANT array of three doubles in WCS - a Double(0 To 2) in VBA, array.array('d', [x, y, z]) with pywin32, APoint(x, y) with pyautocad. Passing a plain tuple or list usually fails with a type mismatch."
+        },
+        {
+          "name": "angles in radians",
+          "description": "AddArc, InsertBlock's rotation and every angle property take radians, not degrees. Converting with Atn(1) * 4 / 180 is the commonest source of wrong-looking output."
+        },
+        {
+          "name": "AddLightWeightPolyline",
+          "description": "Takes a flat array of 2D coordinates (x1, y1, x2, y2, ...) at the current elevation; set Closed = True afterwards and use SetWidth / SetBulge per segment for width and arcs."
+        },
+        {
+          "name": "AddText vs AddMText",
+          "description": "AddText(string, insertionPoint, height) creates a single-line TEXT; AddMText(insertionPoint, width, string) creates an MTEXT that word-wraps at the given width and accepts inline formatting codes such as \\\\P for a new paragraph."
+        },
+        {
+          "name": "AddDimAligned / AddDimRotated / AddDimRadial / AddDimAngular",
+          "description": "Dimension factories; the created dimension picks up the current dimension style, which is set beforehand through doc.ActiveDimStyle."
+        },
+        {
+          "name": "InsertBlock(point, name, xs, ys, zs, rot[, password])",
+          "description": "The Name argument may be a block already defined in the drawing or a full path to an external .dwg, in which case the file is imported as a new definition. Negative scales mirror the reference."
+        },
+        {
+          "name": "AddHatch(patternType, patternName, associativity)",
+          "description": "Creates an empty hatch (acHatchPatternTypePredefined and a name such as \"ANSI31\"); boundaries are then supplied with AppendOuterLoop and AppendInnerLoop, each taking an array of objects, and the hatch is finished with Evaluate and Update."
+        },
+        {
+          "name": "Update / Delete",
+          "description": "Every returned object has Update() to refresh its display after property changes and Delete() to erase it. Nothing is visible until the display regenerates."
+        }
+      ],
+      "example": "' A dimensioned plate outline built entirely through COM\nDim p(0 To 7) As Double\np(0) = 0#:   p(1) = 0#\np(2) = 200#: p(3) = 0#\np(4) = 200#: p(5) = 120#\np(6) = 0#:   p(7) = 120#\nSet pl = doc.ModelSpace.AddLightWeightPolyline(p)\npl.Closed = True\npl.Layer = \"OUTLINE\"\n\nDim c(0 To 2) As Double: c(0) = 50#: c(1) = 60#: c(2) = 0#\nSet hole = doc.ModelSpace.AddCircle(c, 8#)\nhole.Layer = \"OUTLINE\"\n\nDim a(0 To 2) As Double, b(0 To 2) As Double, t(0 To 2) As Double\na(0) = 0#: a(1) = 0#: a(2) = 0#\nb(0) = 200#: b(1) = 0#: b(2) = 0#\nt(0) = 100#: t(1) = -25#: t(2) = 0#\nSet d = doc.ModelSpace.AddDimAligned(a, b, t)\nd.Layer = \"DIMS\"\n\nacad.ZoomExtents",
+      "notes": "There is no Add* method for every command: chamfers, fillets, trims, arrays and most editing operations have no COM equivalent and are reached either through SendCommand or by computing the result geometrically and creating it directly. Bulk creation through COM is slow because each call crosses the process boundary; for thousands of objects use .NET inside a single transaction."
+    },
+    {
+      "name": "AcadDocument.SendCommand",
+      "kind": "api",
+      "description": "The escape hatch: send a string to the command line exactly as if it had been typed, which reaches every command including the hundreds with no COM equivalent. The string must end with a space or a carriage return to be executed, embedded spaces and \\n act as Enter, and the usual _ and - prefixes apply. In recent releases the text is queued rather than executed synchronously, so a SendCommand call may still be pending when the next line of client code runs - never interleave it with direct object-model calls that depend on its result.",
+      "usage": "doc.SendCommand \"_.ZOOM _E \"                       ' note the trailing space\ndoc.SendCommand \"_.-PURGE _All * _N \" & vbCr\ndoc.SendCommand \"(load \"\"C:/lisp/tools.lsp\"\") \"     ' run LISP from COM\n\n; equivalents in the other APIs\n; .NET:      doc.SendStringToExecute(\"_.ZOOM _E \", true, false, true);\n; ObjectARX: acedCommandS(...) / acedPostCommand(_T(\"_.ZOOM _E \"));",
+      "parameters": [
+        {
+          "name": "trailing space or vbCr",
+          "description": "Without it the command text sits at the prompt unexecuted. This is the single most common SendCommand bug."
+        },
+        {
+          "name": "_ and - prefixes",
+          "description": "Use _ for language independence and - for the command-line version of dialog commands, exactly as in a script: \"_.-INSERT \"."
+        },
+        {
+          "name": "leading period",
+          "description": "\"_.LINE\" runs the built-in command even if an alias or LISP redefinition has taken the name."
+        },
+        {
+          "name": "asynchronous queueing",
+          "description": "The call returns before the command finishes in current releases. Code that must act on the result should do the whole job in one sent string, or in LISP called by that string, rather than in the client."
+        },
+        {
+          "name": "FILEDIA / ATTDIA",
+          "description": "Anything sent that would open a dialog blocks the queue with no way to answer it, so set both to 0 first, exactly as in a script."
+        },
+        {
+          "name": "(command ...) payloads",
+          "description": "A sent string may be a whole LISP expression, which is the usual way to get conditional logic, loops and error handling into an operation that COM must trigger."
+        },
+        {
+          "name": ".NET SendStringToExecute",
+          "description": "The managed equivalent, with flags for activating the document, wrapping up an inactive document and echoing the command; it is likewise deferred until the current command ends."
+        },
+        {
+          "name": "CMDACTIVE",
+          "description": "System variable to check before sending, so the call does not arrive in the middle of a command the user is running."
+        }
+      ],
+      "example": "' Plot the current layout to PDF - a job with no clean COM equivalent\ndoc.SetVariable \"FILEDIA\", 0\ndoc.SetVariable \"BACKGROUNDPLOT\", 0\n\ndoc.SendCommand \"_.-PLOT _Y \" & _\n                \"\" & vbCr & _\n                \"DWG To PDF.pc3\" & vbCr & _\n                \"ISO full bleed A1 (841.00 x 594.00 MM)\" & vbCr & _\n                \"_M _L _N _E _F _C _Y monochrome.ctb _Y _N _N _Y \" & _\n                \"C:\\out\\sheet.pdf\" & vbCr & \"_N _Y \"\n\ndoc.SetVariable \"FILEDIA\", 1",
+      "notes": "BACKGROUNDPLOT 0 matters whenever plotting is driven from code: with background plotting on, the client can close the drawing before the plot spools. Because the queue is per-document, sending to a document that is not active silently defers the text until it becomes active - activate it first with acad.ActiveDocument = doc."
+    },
+    {
+      "name": "AcadDocument.GetVariable / AcadDocument.SetVariable",
+      "kind": "api",
+      "description": "Read and write AutoCAD system variables from COM. Between them these two calls reach several hundred settings that have no other object-model representation - FILEDIA, ATTDIA, INSUNITS, CLAYER, DIMSCALE, PDMODE, OSMODE, TEXTSIZE, LTSCALE, TILEMODE - and they are how scripted work configures the environment before it starts. Values come back as VARIANTs whose type matches the variable: a string, an integer, a double, or an array of doubles for point variables.",
+      "usage": "v = doc.GetVariable(\"CLAYER\")            ' -> \"WALLS\"\ndoc.SetVariable \"CLAYER\", \"ANNO\"\ndoc.SetVariable \"FILEDIA\", 0\nins = doc.GetVariable(\"INSBASE\")         ' -> array of 3 doubles\n\n; other APIs\n; LISP:  (getvar \"CLAYER\")  (setvar \"CLAYER\" \"ANNO\")\n; .NET:  Application.GetSystemVariable(\"CLAYER\");\n;        Application.SetSystemVariable(\"CLAYER\", \"ANNO\");",
+      "parameters": [
+        {
+          "name": "variable name",
+          "description": "Case-insensitive. SETVAR ? at the command line lists every variable and its current value, which is the quickest way to find the one that controls a behaviour."
+        },
+        {
+          "name": "return type",
+          "description": "String, Integer, Double or a 2/3-element array of Doubles. Assigning a point variable requires a properly typed array, not a list."
+        },
+        {
+          "name": "read-only variables",
+          "description": "Many variables (DWGNAME, DWGPREFIX, ACADVER, LOGINNAME, CDATE) cannot be set; attempting it raises a COM error."
+        },
+        {
+          "name": "storage scope",
+          "description": "Some variables are saved in the drawing, some in the user profile (registry) and some only for the session. Profile-stored changes made in a batch leak into the interactive product unless the work runs under accoreconsole /isolate or a separate acad.exe /p profile."
+        },
+        {
+          "name": "restore pattern",
+          "description": "Read the old value, set the new one, do the work, put the old one back - standard practice for OSMODE, FILEDIA, CMDECHO and DIMSCALE."
+        },
+        {
+          "name": "drawing properties",
+          "description": "Variables like DWGNAME and DWGPREFIX identify the current file; doc.FullName and doc.Path give the same information as real properties."
+        },
+        {
+          "name": "SETVAR command",
+          "description": "The command-line equivalent, usable from a script or through SendCommand when a variable must be changed as part of a queued command sequence."
+        }
+      ],
+      "example": "' Configure a drawing for scripted work, then restore the user's settings\nDim oldFiledia, oldOsmode, oldCmdecho\noldFiledia = doc.GetVariable(\"FILEDIA\")\noldOsmode = doc.GetVariable(\"OSMODE\")\noldCmdecho = doc.GetVariable(\"CMDECHO\")\n\ndoc.SetVariable \"FILEDIA\", 0\ndoc.SetVariable \"OSMODE\", 0          ' no object snaps hijacking coordinates\ndoc.SetVariable \"CMDECHO\", 0\ndoc.SetVariable \"INSUNITS\", 4        ' millimetres\ndoc.SetVariable \"CLAYER\", \"0\"\n\n' ... create geometry ...\n\ndoc.SetVariable \"FILEDIA\", oldFiledia\ndoc.SetVariable \"OSMODE\", oldOsmode\ndoc.SetVariable \"CMDECHO\", oldCmdecho",
+      "notes": "Setting OSMODE to 0 before generating geometry from code is almost always right: with running snaps on, points sent to commands get pulled onto nearby objects. Variables that are stored in the drawing (LTSCALE, DIMSCALE, INSUNITS, PSLTSCALE) must be set per document, not once per session."
+    },
+    {
+      "name": "pyautocad / win32com.client",
+      "kind": "api",
+      "description": "Python has no native AutoCAD API; it reaches AutoCAD over the same COM interface as VBA, either directly with pywin32 (win32com.client) or through pyautocad, a thin wrapper built on comtypes that adds the helpers the raw interface lacks. The main friction is data types: every point must be a VARIANT array of doubles, and the named constants VBA gets for free have to be imported or spelled out numerically. Everything else mirrors the COM model exactly, so VBA examples translate almost line for line.",
+      "usage": "# pywin32, late binding\nimport win32com.client, array\nacad = win32com.client.Dispatch(\"AutoCAD.Application\")\n\n# pywin32, early binding: generates a type library wrapper and gives constants\nacad = win32com.client.gencache.EnsureDispatch(\"AutoCAD.Application\")\nfrom win32com.client import constants\n\n# pyautocad\nfrom pyautocad import Autocad, APoint, aDouble\nacad = Autocad(create_if_not_exists=True)",
+      "parameters": [
+        {
+          "name": "Dispatch vs GetActiveObject",
+          "description": "Dispatch starts AutoCAD if it is not running; win32com.client.GetActiveObject(\"AutoCAD.Application\") attaches only to a running session and raises com_error otherwise."
+        },
+        {
+          "name": "point arrays",
+          "description": "With pywin32 use array.array('d', [x, y, z]); with pyautocad use APoint(x, y[, z]) and aDouble(*values) for vertex lists. A plain Python list or tuple raises a type mismatch."
+        },
+        {
+          "name": "EnsureDispatch",
+          "description": "Early binding through makepy: gives IntelliSense-style attributes, correct types for ByRef output parameters and the win32com.client.constants namespace for acSelectionSetAll and friends."
+        },
+        {
+          "name": "acad.model / acad.doc",
+          "description": "pyautocad shortcuts for ActiveDocument.ModelSpace and ActiveDocument; acad.iter_objects(\"Text\") and acad.iter_objects_fast() iterate model space with an optional type filter."
+        },
+        {
+          "name": "ByRef output parameters",
+          "description": "Methods like Utility.GetEntity return their outputs as a tuple in Python (entity, pick_point = doc.Utility.GetEntity()) rather than filling variables passed in."
+        },
+        {
+          "name": "com_error handling",
+          "description": "Every COM failure surfaces as pywin32's com_error / comtypes' COMError; wrap calls in try/except, particularly around Utility input, which raises when the user presses Esc."
+        },
+        {
+          "name": "performance",
+          "description": "Each attribute access is a cross-process call. Cache doc, model space and frequently used objects in local names, and prefer one SendCommand for bulk editing operations over thousands of property writes."
+        },
+        {
+          "name": "maintenance status",
+          "description": "pyautocad is a small, long-unmaintained convenience layer; pywin32 with early binding is the more durable choice for new work and gives access to the whole type library."
+        }
+      ],
+      "example": "import array\nimport win32com.client\n\ndef pt(x, y, z=0.0):\n    return array.array('d', [x, y, z])\n\nacad = win32com.client.Dispatch(\"AutoCAD.Application\")\nacad.Visible = True\ndoc = acad.ActiveDocument\nms = doc.ModelSpace\n\ndoc.SetVariable(\"OSMODE\", 0)\ndoc.SetVariable(\"CLAYER\", \"0\")\n\n# a bolt circle: 8 holes on a 120 mm pitch circle\nimport math\nfor i in range(8):\n    a = 2 * math.pi * i / 8\n    ms.AddCircle(pt(60 * math.cos(a), 60 * math.sin(a)), 5.0)\n\nouter = ms.AddCircle(pt(0, 0), 80.0)\nouter.Layer = \"OUTLINE\"\n\ntxt = ms.AddText(\"8 x M10 EQUALLY SPACED\", pt(-70, -100), 6.0)\ntxt.Layer = \"ANNO\"\n\nacad.ZoomExtents()\ndoc.SaveAs(r\"C:\\out\\flange.dwg\")",
+      "notes": "Python drives AutoCAD out of process only - there is no in-process Python API, so no Python equivalent of NETLOAD, no Python in accoreconsole and none in Design Automation. Where Python is needed in a headless pipeline, the usual split is Python for orchestration (walking folders, calling accoreconsole, parsing the JSON a .NET command wrote) and .NET for the work inside the drawing."
+    },
+    {
+      "name": "Application.DocumentManager.MdiActiveDocument",
+      "kind": "api",
+      "description": "The starting point of almost every managed .NET routine: the Document object for the drawing that is currently active, from which the Database and the Editor are reached. DocumentManager also opens, adds and enumerates documents, and supplies the document lock that code running in application context must take before it may modify a drawing. In accoreconsole and Design Automation there is exactly one document and MdiActiveDocument is it.",
+      "usage": "using Autodesk.AutoCAD.ApplicationServices;\n\nDocument doc = Application.DocumentManager.MdiActiveDocument;\nDatabase db  = doc.Database;\nEditor   ed  = doc.Editor;\n\n// core-console-safe form: the Core.Application class in accoremgd.dll\nusing AcCoreAp = Autodesk.AutoCAD.ApplicationServices.Core.Application;\nDocument doc2 = AcCoreAp.DocumentManager.MdiActiveDocument;",
+      "parameters": [
+        {
+          "name": "MdiActiveDocument",
+          "description": "The active drawing. Null in rare application-context situations with no open document, so check before dereferencing in event handlers."
+        },
+        {
+          "name": "DocumentManager.Open / Add",
+          "description": "Open(path, forReadOnly) opens a drawing in the editor and Add(template) creates one. Both need CommandFlags.Session on the calling command, because documents cannot be opened from document context."
+        },
+        {
+          "name": "LockDocument()",
+          "description": "Returns a DocumentLock that must be held (in a using block) whenever a drawing is modified from application context - a modeless palette, an event handler, a background thread or a Session command."
+        },
+        {
+          "name": "Core.Application",
+          "description": "Autodesk.AutoCAD.ApplicationServices.Core.Application in accoremgd.dll exposes DocumentManager and system-variable access without pulling in the GUI-bound acmgd.dll, which is what makes an assembly runnable in the Core Console and in Design Automation."
+        },
+        {
+          "name": "doc.Name / doc.Database.Filename",
+          "description": "Full path of the drawing; the way a batch command discovers which file it is working on when parameters come from a folder walk."
+        },
+        {
+          "name": "Document events",
+          "description": "DocumentCreated, DocumentActivated, DocumentToBeDestroyed and CommandWillStart/CommandEnded on the document itself, for add-ins that react to what the user does."
+        },
+        {
+          "name": "CommandFlags.Session",
+          "description": "Marks a [CommandMethod] as running in application context, which is required for opening, closing or switching documents from code."
+        }
+      ],
+      "example": "[CommandMethod(\"BATCHOPEN\", CommandFlags.Session)]\npublic void BatchOpen()\n{\n    var docs = Application.DocumentManager;\n    foreach (string file in System.IO.Directory.GetFiles(@\"D:\\1042\", \"*.dwg\"))\n    {\n        Document doc = docs.Open(file, false);\n        using (docs.MdiActiveDocument.LockDocument())\n        using (Transaction tr = doc.Database.TransactionManager.StartTransaction())\n        {\n            // ... edit the drawing ...\n            tr.Commit();\n        }\n        doc.CloseAndSave(file);\n    }\n}",
+      "notes": "Opening drawings through DocumentManager loads them into the editor, which is slow and needs the full product; when only the data matters, open a side Database with ReadDwgFile instead and never create a Document at all. In the Core Console, DocumentManager exists but has a single document and no MDI, so code that iterates documents must not assume more than one."
+    },
+    {
+      "name": "Database",
+      "kind": "api",
+      "description": "The DWG itself as an object: all the symbol tables, the named object dictionary, every entity, and the drawing-level settings. Code normally works on the active drawing's database (doc.Database), but it can also open a DWG file directly into a side database with ReadDwgFile and save it with SaveAs, without ever opening it in the editor - by far the fastest way to process large numbers of drawings, and the technique behind most batch tools.",
+      "usage": "using Autodesk.AutoCAD.DatabaseServices;\n\nDatabase db = doc.Database;                          // the active drawing\nDatabase wdb = HostApplicationServices.WorkingDatabase;\n\n// side database - no editor, no document\nusing (Database side = new Database(false, true))\n{\n    side.ReadDwgFile(path, FileOpenMode.OpenForReadAndAllShare, false, null);\n    side.CloseInput(true);\n    // ... work in a transaction on 'side' ...\n    side.SaveAs(outPath, DwgVersion.Current);\n}",
+      "parameters": [
+        {
+          "name": "new Database(buildDefaultDrawing, noDocument)",
+          "description": "new Database(false, true) creates an empty database with no default content, ready to receive a DWG with ReadDwgFile; new Database(true, true) builds one from the default template settings."
+        },
+        {
+          "name": "ReadDwgFile / SaveAs / CloseInput",
+          "description": "Read a DWG into the database, write it back out at a chosen DwgVersion, and release the file handle. Always dispose the side database, normally with a using block."
+        },
+        {
+          "name": "symbol table ids",
+          "description": "BlockTableId, LayerTableId, TextStyleTableId, DimStyleTableId, LinetypeTableId, ViewportTableId, UcsTableId and NamedObjectsDictionaryId - the entry points a transaction opens."
+        },
+        {
+          "name": "drawing settings",
+          "description": "Clayer, Tilemode, Insunits, Ltscale, Dimscale, Pdmode, Extmin/Extmax and dozens more are properties of the Database rather than system variables when working on a side database."
+        },
+        {
+          "name": "WorkingDatabase",
+          "description": "HostApplicationServices.WorkingDatabase is what unqualified API calls act on; set it to a side database for code (including some ObjectARX-derived calls) that assumes a current drawing, and restore it afterwards."
+        },
+        {
+          "name": "WblockCloneObjects",
+          "description": "Copies objects between databases with their dependencies (layers, styles, block definitions) resolved, using an IdMapping and a DuplicateRecordCloning rule - the supported way to import content from another DWG."
+        },
+        {
+          "name": "ResolveXrefs / xref handling",
+          "description": "A side database does not load xrefs unless asked; ResolveXrefs binds or loads them when the batch needs the referenced geometry."
+        },
+        {
+          "name": "SummaryInfo",
+          "description": "DatabaseSummaryInfo and DatabaseSummaryInfoBuilder read and write the drawing properties (title, subject, author, custom fields) that title-block fields bind to."
+        }
+      ],
+      "example": "// Headless layer rename across a folder - no document is ever opened\n[CommandMethod(\"RENAMELAYERS\", CommandFlags.Session)]\npublic void RenameLayers()\n{\n    foreach (string file in System.IO.Directory.GetFiles(@\"D:\\1042\", \"*.dwg\"))\n    {\n        using (Database db = new Database(false, true))\n        {\n            db.ReadDwgFile(file, FileOpenMode.OpenForReadAndAllShare, false, null);\n            db.CloseInput(true);\n\n            using (Transaction tr = db.TransactionManager.StartTransaction())\n            {\n                var lt = (LayerTable)tr.GetObject(db.LayerTableId, OpenMode.ForRead);\n                foreach (ObjectId id in lt)\n                {\n                    var ltr = (LayerTableRecord)tr.GetObject(id, OpenMode.ForRead);\n                    if (ltr.Name.StartsWith(\"OLD-\"))\n                    {\n                        ltr.UpgradeOpen();\n                        ltr.Name = \"A-\" + ltr.Name.Substring(4);\n                    }\n                }\n                tr.Commit();\n            }\n            db.SaveAs(file, DwgVersion.Current);\n        }\n    }\n}",
+      "notes": "A side database has no Editor, so nothing in that code path may prompt, write to the command line or depend on the current view. Saving with DwgVersion.Current keeps the installed release's format; pass an explicit version such as DwgVersion.AC1032 when downstream consumers need an older one. Objects from one database may never be added to another directly - clone them."
+    },
+    {
+      "name": "TransactionManager.StartTransaction",
+      "kind": "api",
+      "description": "The unit of work in the .NET API. Every read or write of a database object goes through a transaction: StartTransaction returns a Transaction, GetObject opens objects for read or write inside it, new objects are registered with AddNewlyCreatedDBObject, and Commit makes the whole set of changes permanent and closes every object that was opened. If Commit is not called - because of an exception, an early return or a forgotten line - the transaction aborts on disposal and every change is silently discarded.",
+      "usage": "using (Transaction tr = db.TransactionManager.StartTransaction())\n{\n    var obj = (Entity)tr.GetObject(id, OpenMode.ForWrite);\n    obj.Layer = \"ANNO\";\n\n    tr.AddNewlyCreatedDBObject(newEnt, true);\n    tr.Commit();                       // omit this and nothing happens\n}",
+      "parameters": [
+        {
+          "name": "GetObject(id, OpenMode)",
+          "description": "Opens a DBObject by ObjectId, ForRead or ForWrite. An object already open for read in the same transaction is upgraded with UpgradeOpen() rather than opened again."
+        },
+        {
+          "name": "AddNewlyCreatedDBObject(obj, true)",
+          "description": "Tells the transaction about an object just appended to a container so it is committed and disposed correctly. Forgetting it leaves the object orphaned or crashes on commit."
+        },
+        {
+          "name": "Commit / Abort",
+          "description": "Commit writes the changes; Abort (or simply disposing without Commit) rolls them all back. Both close the objects the transaction opened."
+        },
+        {
+          "name": "using block",
+          "description": "Always wrap the transaction in using so it is disposed on an exception path. Do not dispose objects obtained from GetObject - the transaction owns them."
+        },
+        {
+          "name": "nested transactions",
+          "description": "Transactions may be nested; an inner Abort undoes only its own work. TransactionManager.TopTransaction gives the outermost one, and NumberOfActiveTransactions reports the depth."
+        },
+        {
+          "name": "OpenCloseTransaction",
+          "description": "A lighter alternative (db.TransactionManager.StartOpenCloseTransaction()) with less bookkeeping, useful for simple read-only passes over many objects."
+        },
+        {
+          "name": "document lock",
+          "description": "When the code runs in application context, take doc.LockDocument() before starting the transaction, or the write fails with eLockViolation."
+        },
+        {
+          "name": "one transaction per batch",
+          "description": "Opening and committing a transaction per object is the classic performance mistake; one transaction around a whole batch of edits is dramatically faster and gives the user a single undo step."
+        }
+      ],
+      "example": "[CommandMethod(\"THICKENWALLS\")]\npublic void ThickenWalls()\n{\n    Document doc = Application.DocumentManager.MdiActiveDocument;\n    Database db = doc.Database;\n    Editor ed = doc.Editor;\n    int n = 0;\n\n    using (Transaction tr = db.TransactionManager.StartTransaction())\n    {\n        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\n        var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);\n\n        foreach (ObjectId id in ms)\n        {\n            var ent = (Entity)tr.GetObject(id, OpenMode.ForRead);\n            if (ent is Polyline pl && ent.Layer == \"WALLS\")\n            {\n                pl.UpgradeOpen();\n                pl.ConstantWidth = 100.0;\n                n++;\n            }\n        }\n        tr.Commit();\n    }\n    ed.WriteMessage(\"\\n{0} wall polylines thickened.\", n);\n}",
+      "notes": "An exception thrown inside the using block skips Commit, so a partially completed edit is rolled back cleanly - this is a feature, not a problem, and is why catch blocks should not call Commit. Erased objects are opened with GetObject(id, OpenMode.ForWrite, true) when the third argument allows erased objects. Graphics do not refresh until the transaction commits and the editor regenerates."
+    },
+    {
+      "name": "BlockTable / BlockTableRecord",
+      "kind": "api",
+      "description": "The symbol table that holds every block definition in a database, plus the two special records that are model space and paper space. Reaching geometry in .NET always goes through it: open the BlockTable from db.BlockTableId, index it with BlockTableRecord.ModelSpace to get the model space record, and append entities there. The same record type is used for real block definitions, so creating a block means creating a BlockTableRecord, adding it to the table and appending entities to it.",
+      "usage": "var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\nvar ms  = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);\nvar ps  = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.PaperSpace], OpenMode.ForWrite);\n\nms.AppendEntity(ent);\ntr.AddNewlyCreatedDBObject(ent, true);\n\nforeach (ObjectId id in ms) { ... }          // iterate the contents",
+      "parameters": [
+        {
+          "name": "BlockTableRecord.ModelSpace / PaperSpace",
+          "description": "Constants for the reserved names \"*Model_Space\" and \"*Paper_Space\". Use them rather than the literal strings, and remember paper space here means the record for the current layout."
+        },
+        {
+          "name": "AppendEntity(entity)",
+          "description": "Adds an entity to the record and returns its new ObjectId. It must be followed by tr.AddNewlyCreatedDBObject(entity, true) in the same transaction."
+        },
+        {
+          "name": "bt.Has(name) / bt[name]",
+          "description": "Test for a block definition and get its ObjectId. Indexing a name that does not exist throws, so test first when the name comes from user data."
+        },
+        {
+          "name": "bt.Add(record)",
+          "description": "Adds a new BlockTableRecord (a block definition) to the table; the BlockTable must be open for write, which is usually done with UpgradeOpen()."
+        },
+        {
+          "name": "GetBlockReferenceIds(directOnly, forceValidity)",
+          "description": "Returns every BlockReference that points at this definition - the way to count insertions or to update all of them after a redefinition."
+        },
+        {
+          "name": "Origin / Units / Explodable",
+          "description": "Properties of a block definition: its base point, insertion units for automatic scaling, and whether insertions may be exploded."
+        },
+        {
+          "name": "IsLayout / IsFromExternalReference",
+          "description": "Flags distinguishing layout records and xref definitions from ordinary blocks when iterating the whole table."
+        },
+        {
+          "name": "AttributeDefinition",
+          "description": "Attribute definitions are entities appended to the block's record; the matching AttributeReference objects are appended to each BlockReference with AppendAttribute."
+        }
+      ],
+      "example": "// Define a block, then insert it five times\n[CommandMethod(\"MAKETAG\")]\npublic void MakeTag()\n{\n    Database db = Application.DocumentManager.MdiActiveDocument.Database;\n    using (Transaction tr = db.TransactionManager.StartTransaction())\n    {\n        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\n\n        ObjectId defId;\n        if (bt.Has(\"EQUIP_TAG\"))\n        {\n            defId = bt[\"EQUIP_TAG\"];\n        }\n        else\n        {\n            var btr = new BlockTableRecord { Name = \"EQUIP_TAG\", Origin = Point3d.Origin };\n            bt.UpgradeOpen();\n            defId = bt.Add(btr);\n            tr.AddNewlyCreatedDBObject(btr, true);\n\n            var circ = new Circle(Point3d.Origin, Vector3d.ZAxis, 5.0);\n            btr.AppendEntity(circ);\n            tr.AddNewlyCreatedDBObject(circ, true);\n        }\n\n        var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);\n        for (int i = 0; i < 5; i++)\n        {\n            var br = new BlockReference(new Point3d(i * 200.0, 0.0, 0.0), defId) { Layer = \"TAGS\" };\n            ms.AppendEntity(br);\n            tr.AddNewlyCreatedDBObject(br, true);\n        }\n        tr.Commit();\n    }\n}",
+      "notes": "Entities must be fully constructed before being appended; setting properties that depend on the database (Layer, Linetype, annotative scale) only works after the object is database-resident. Model space in a side database is reached exactly the same way, which is why the same helper code serves both interactive and headless batch work."
+    },
+    {
+      "name": "Editor",
+      "kind": "api",
+      "description": "The .NET interface to the command line and the pointing device for a given document: prompts for points, distances, angles, keywords, strings and entities, builds selection sets with or without a filter, writes messages, and controls the view and the current selection. Every prompt returns a Prompt*Result whose Status must be checked against PromptStatus.OK before its Value is used, because the user may cancel or press Enter. None of it exists in a side database, and in the Core Console there is no user to answer.",
+      "usage": "Editor ed = doc.Editor;\ned.WriteMessage(\"\\nProcessing...\");\n\nPromptPointResult pr = ed.GetPoint(\"\\nPick a base point: \");\nif (pr.Status != PromptStatus.OK) return;\nPoint3d p = pr.Value;\n\nPromptSelectionResult sr = ed.GetSelection(new SelectionFilter(filter));\nif (sr.Status == PromptStatus.OK)\n    foreach (SelectedObject so in sr.Value) { ... }",
+      "parameters": [
+        {
+          "name": "WriteMessage",
+          "description": "Writes to the command line, with a leading \\n so the text starts on its own line. Supports composite format strings. In the Core Console this is what lands in stdout and therefore in the batch log."
+        },
+        {
+          "name": "GetPoint / GetDistance / GetAngle / GetCorner",
+          "description": "Geometric input. PromptPointOptions adds a base point for rubber-banding, keywords, and flags such as AllowNone and UseBasePoint."
+        },
+        {
+          "name": "GetSelection / SelectAll / SelectCrossingWindow",
+          "description": "Selection. GetSelection prompts the user; SelectAll and the SelectWindow/SelectCrossingWindow/SelectFence family select programmatically without any prompt, which is what batch code uses."
+        },
+        {
+          "name": "SelectionFilter / TypedValue",
+          "description": "new SelectionFilter(new[] { new TypedValue((int)DxfCode.Start, \"LINE\"), new TypedValue((int)DxfCode.LayerName, \"WALLS\") }) - the same DXF group codes as ssget and COM filters."
+        },
+        {
+          "name": "PromptStatus",
+          "description": "OK, Cancel, None, Keyword, Error. Checking it is mandatory; using .Value after a cancel throws or returns garbage."
+        },
+        {
+          "name": "GetString / GetInteger / GetDouble / GetKeywords",
+          "description": "Text and numeric input, with PromptStringOptions.AllowSpaces and keyword lists configured through the matching *Options objects."
+        },
+        {
+          "name": "Regen / UpdateScreen / SetImpliedSelection",
+          "description": "View and selection housekeeping after a batch of edits: regenerate the drawing, flush graphics, or leave the objects the command created selected."
+        },
+        {
+          "name": "Command / CommandAsync",
+          "description": "ed.Command(...) runs an AutoCAD command with its arguments from .NET (AutoCAD 2015 and later), the managed counterpart of acedCommandS - safer than SendStringToExecute because it executes in order."
+        }
+      ],
+      "example": "[CommandMethod(\"COUNTBLOCKS\")]\npublic void CountBlocks()\n{\n    Document doc = Application.DocumentManager.MdiActiveDocument;\n    Editor ed = doc.Editor;\n\n    var filter = new SelectionFilter(new[]\n    {\n        new TypedValue((int)DxfCode.Start, \"INSERT\")\n    });\n\n    PromptSelectionResult res = ed.SelectAll(filter);\n    if (res.Status != PromptStatus.OK) { ed.WriteMessage(\"\\nNo blocks found.\"); return; }\n\n    var counts = new System.Collections.Generic.Dictionary<string, int>();\n    using (Transaction tr = doc.Database.TransactionManager.StartTransaction())\n    {\n        foreach (SelectedObject so in res.Value)\n        {\n            var br = (BlockReference)tr.GetObject(so.ObjectId, OpenMode.ForRead);\n            string name = br.IsDynamicBlock\n                ? ((BlockTableRecord)tr.GetObject(br.DynamicBlockTableRecord, OpenMode.ForRead)).Name\n                : br.Name;\n            counts[name] = counts.TryGetValue(name, out int c) ? c + 1 : 1;\n        }\n        tr.Commit();\n    }\n    foreach (var kv in counts)\n        ed.WriteMessage(\"\\n{0,-30} {1,5}\", kv.Key, kv.Value);\n}",
+      "notes": "A dynamic block reference reports an anonymous name (*U12) in br.Name; read DynamicBlockTableRecord for the real one, as above. Code that must run both interactively and headless should take its parameters from a file or command arguments and use SelectAll rather than GetSelection, so the same assembly works under accoreconsole."
+    },
+    {
+      "name": "[CommandMethod]",
+      "kind": "api",
+      "description": "The attribute that turns a public method in a loaded .NET assembly into an AutoCAD command. AutoCAD scans every assembly loaded with NETLOAD for it, so no registration code is needed: mark the method, load the DLL, type the name. Overloads add a command group, separate global and localised names, and CommandFlags that control where and how the command may run - the most important being Session, which puts the command in application context so it may open and close documents.",
+      "usage": "using Autodesk.AutoCAD.Runtime;\n\n[CommandMethod(\"MYCMD\")]\npublic void MyCmd() { ... }\n\n[CommandMethod(\"MYGROUP\", \"MYCMD\", \"MYCMD_LOCAL\", CommandFlags.Modal | CommandFlags.UsePickSet)]\npublic void MyCmd2() { ... }\n\n// optional, speeds up scanning and restricts it to one class\n[assembly: CommandClass(typeof(MyNamespace.Commands))]",
+      "parameters": [
+        {
+          "name": "global name",
+          "description": "The command name typed at the prompt. It must not clash with a built-in command; a prefix of two or three letters identifying the add-in is the usual convention."
+        },
+        {
+          "name": "command group",
+          "description": "A namespace for commands so two add-ins can define the same name; the group is what CUI macros and the ARX Commands listing report."
+        },
+        {
+          "name": "CommandFlags.Modal / Transparent",
+          "description": "Modal (the default) means the command cannot run while another command is active; Transparent allows it to run inside another command, which severely restricts what it may do."
+        },
+        {
+          "name": "CommandFlags.Session",
+          "description": "Runs in application context rather than document context - required to open, create, close or switch documents, and to drive several drawings in one command."
+        },
+        {
+          "name": "CommandFlags.UsePickSet / Redraw",
+          "description": "UsePickSet lets the command consume objects the user selected before starting it (via ed.SelectImplied); Redraw keeps that selection highlighted."
+        },
+        {
+          "name": "CommandFlags.NoPaperSpace / NoTileMode / NoBlockEditor",
+          "description": "Refuse to run in contexts the command cannot handle, producing AutoCAD's standard message instead of a crash."
+        },
+        {
+          "name": "method signature",
+          "description": "Public, non-static or static, and parameterless. The declaring class must be public and must have a public parameterless constructor; one instance is created per document."
+        },
+        {
+          "name": "IExtensionApplication",
+          "description": "Implement it on one class in the assembly to run Initialize() at load and Terminate() at shutdown - where ribbon content, overrules and event handlers are registered."
+        }
+      ],
+      "example": "using Autodesk.AutoCAD.ApplicationServices;\nusing Autodesk.AutoCAD.DatabaseServices;\nusing Autodesk.AutoCAD.Geometry;\nusing Autodesk.AutoCAD.Runtime;\n\n[assembly: CommandClass(typeof(Office.Tools))]\n[assembly: ExtensionApplication(typeof(Office.Tools))]\n\nnamespace Office\n{\n    public class Tools : IExtensionApplication\n    {\n        public void Initialize()\n        {\n            Application.DocumentManager.MdiActiveDocument?\n                .Editor.WriteMessage(\"\\nOffice tools loaded. Type OFGRID or OFPURGE.\\n\");\n        }\n        public void Terminate() { }\n\n        [CommandMethod(\"OFFICE\", \"OFGRID\", \"OFGRID\", CommandFlags.Modal)]\n        public void Grid()\n        {\n            Document doc = Application.DocumentManager.MdiActiveDocument;\n            Database db = doc.Database;\n            using (Transaction tr = db.TransactionManager.StartTransaction())\n            {\n                var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\n                var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);\n                for (int i = 0; i < 10; i++)\n                {\n                    var ln = new Line(new Point3d(i * 6000.0, 0, 0), new Point3d(i * 6000.0, 30000.0, 0))\n                             { Layer = \"GRID\" };\n                    ms.AppendEntity(ln);\n                    tr.AddNewlyCreatedDBObject(ln, true);\n                }\n                tr.Commit();\n            }\n        }\n    }\n}",
+      "notes": "A command that must run in the Core Console has to avoid the Editor's interactive prompts and anything in acmgd.dll that touches the GUI; reference accoremgd.dll and Autodesk.AutoCAD.ApplicationServices.Core.Application instead. Commands are also how Design Automation activities invoke a bundle: the activity's script simply types the command name."
+    },
+    {
+      "name": "[LispFunction]",
+      "kind": "api",
+      "description": "The attribute that exposes a .NET method to AutoLISP as a callable function, so existing LISP code can hand work to compiled code without being rewritten. The method receives a ResultBuffer holding the arguments as TypedValues and returns a ResultBuffer (or null for nil), with LispDataType codes describing each value. It is the standard bridge in offices with a large LISP investment: the LISP keeps the workflow and the .NET does the heavy lifting or the work LISP cannot do.",
+      "usage": "using Autodesk.AutoCAD.Runtime;\nusing Autodesk.AutoCAD.DatabaseServices;\n\n[LispFunction(\"of-sum\")]\npublic ResultBuffer OfSum(ResultBuffer args)\n{\n    ...\n    return new ResultBuffer(new TypedValue((int)LispDataType.Double, total));\n}\n\n; called from LISP\n(setq total (of-sum 1.0 2.0 3.5))",
+      "parameters": [
+        {
+          "name": "function name",
+          "description": "The name LISP will call. Hyphens and a vendor prefix are conventional (of-sum, acme:extract) and avoid clashes with built-in functions."
+        },
+        {
+          "name": "ResultBuffer args",
+          "description": "The arguments as TypedValues in call order; null when the function was called with none. Iterate with args.AsArray()."
+        },
+        {
+          "name": "LispDataType codes",
+          "description": "Text, Int16, Int32, Double, Point2d, Point3d, ObjectId, SelectionSetName, ListBegin, ListEnd, DottedPair, Nil, T_atom - both for reading arguments and for building the return value."
+        },
+        {
+          "name": "return value",
+          "description": "A ResultBuffer describing one value or a list (wrapped in ListBegin/ListEnd markers); returning null gives nil in LISP."
+        },
+        {
+          "name": "entity names",
+          "description": "LISP entity names arrive as LispDataType.ObjectId, so a function can take an (entsel) result directly and open it in a transaction."
+        },
+        {
+          "name": "selection sets",
+          "description": "A selection set passed from (ssget) arrives as LispDataType.SelectionSetName, which .NET resolves through the Editor's SelectionSet handling."
+        },
+        {
+          "name": "document context",
+          "description": "The function runs in the calling document's context, so the active document's database is the right one to work on - no document lock is needed."
+        },
+        {
+          "name": "error reporting",
+          "description": "Throwing an exception surfaces in LISP as an application error; returning nil and writing a message with Editor.WriteMessage is usually friendlier to existing LISP callers."
+        }
+      ],
+      "example": "[LispFunction(\"of-polyarea\")]\npublic ResultBuffer PolyArea(ResultBuffer args)\n{\n    if (args == null) return null;\n    TypedValue[] a = args.AsArray();\n    if (a.Length < 1 || a[0].TypeCode != (short)LispDataType.ObjectId) return null;\n\n    Document doc = Application.DocumentManager.MdiActiveDocument;\n    double area = 0.0;\n    using (Transaction tr = doc.Database.TransactionManager.StartTransaction())\n    {\n        var ent = tr.GetObject((ObjectId)a[0].Value, OpenMode.ForRead);\n        if (ent is Curve c && c.Closed) area = c.Area;\n        tr.Commit();\n    }\n    return new ResultBuffer(new TypedValue((int)LispDataType.Double, area));\n}\n\n; AutoLISP side\n; (setq e (car (entsel \"\\nPick a closed polyline: \")))\n; (princ (strcat \"\\nArea: \" (rtos (of-polyarea e) 2 2)))",
+      "notes": "[LispFunction] methods are found by the same assembly scan as [CommandMethod], so NETLOAD is all that is needed to publish them. Values cross the boundary by copy, so returning a huge list is expensive; return an ObjectId or write a file when the payload is large. LISP itself is not available in Design Automation, so a bundle should expose commands rather than LISP functions."
+    },
+    {
+      "name": "DBObject open / append / Commit pattern",
+      "kind": "api",
+      "description": "The five-step shape that almost every managed AutoCAD routine takes, worth treating as a single idiom: get the document and database, start a transaction, open the container (usually model space) through the BlockTable, create or open and modify the objects, then commit. Objects are never opened directly - only through a transaction, by ObjectId - and they are never disposed by the caller, because the transaction closes them. Modifying an object opened for read requires UpgradeOpen, and deleting means Erase, not a .NET delete.",
+      "usage": "using (DocumentLock dl = doc.LockDocument())            // only in application context\nusing (Transaction tr = db.TransactionManager.StartTransaction())\n{\n    var bt  = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\n    var ms  = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForWrite);\n\n    var ent = new Line(p1, p2);                          // 1. create\n    ms.AppendEntity(ent);                                // 2. append\n    tr.AddNewlyCreatedDBObject(ent, true);               // 3. register\n\n    var old = (Entity)tr.GetObject(id, OpenMode.ForRead);\n    old.UpgradeOpen();                                   // 4. modify\n    old.Layer = \"ANNO\";\n\n    tr.Commit();                                         // 5. commit\n}",
+      "parameters": [
+        {
+          "name": "ObjectId vs Handle",
+          "description": "ObjectId is valid only for the session and database it came from; Handle is persistent and stored in the DWG. Store Handles between sessions and convert with db.GetObjectId(false, handle, 0)."
+        },
+        {
+          "name": "OpenMode.ForRead / ForWrite",
+          "description": "Open for read by default and upgrade only when a change is actually needed - it is cheaper and avoids write-lock conflicts with other code."
+        },
+        {
+          "name": "UpgradeOpen / DowngradeOpen",
+          "description": "Switch an already-open object between read and write inside the same transaction. Opening the same object twice for write in one transaction throws."
+        },
+        {
+          "name": "Erase()",
+          "description": "Marks an object erased (recoverable by undo) rather than removing it. Iterating a container afterwards still returns erased ids unless they are filtered with IsErased."
+        },
+        {
+          "name": "Dispose rules",
+          "description": "Objects returned by GetObject belong to the transaction - do not dispose them. Objects created with new and never appended to a database must be disposed (a using block) or they leak."
+        },
+        {
+          "name": "database residency",
+          "description": "Properties that depend on the drawing (Layer, Linetype, annotative scales, extension dictionaries) can only be set after the entity has been appended and registered."
+        },
+        {
+          "name": "extension dictionary / XData",
+          "description": "Custom data hangs off any DBObject: CreateExtensionDictionary plus an Xrecord for structured data, or RegAppTable plus XData for the older group-code style that LISP can also read."
+        },
+        {
+          "name": "DocumentLock",
+          "description": "Required whenever the edit originates outside a document-context command - palettes, events, Session commands, background work. Not needed inside an ordinary [CommandMethod]."
+        }
+      ],
+      "example": "// Move every circle smaller than 5 units to a REJECT layer and erase duplicates\n[CommandMethod(\"CLEANHOLES\")]\npublic void CleanHoles()\n{\n    Document doc = Application.DocumentManager.MdiActiveDocument;\n    Database db = doc.Database;\n    var seen = new System.Collections.Generic.HashSet<string>();\n\n    using (Transaction tr = db.TransactionManager.StartTransaction())\n    {\n        var bt = (BlockTable)tr.GetObject(db.BlockTableId, OpenMode.ForRead);\n        var ms = (BlockTableRecord)tr.GetObject(bt[BlockTableRecord.ModelSpace], OpenMode.ForRead);\n\n        foreach (ObjectId id in ms)\n        {\n            if (id.IsErased) continue;\n            var ent = tr.GetObject(id, OpenMode.ForRead);\n            if (!(ent is Circle c)) continue;\n\n            string key = $\"{c.Center.X:F4},{c.Center.Y:F4},{c.Radius:F4}\";\n            if (!seen.Add(key))\n            {\n                c.UpgradeOpen();\n                c.Erase();\n                continue;\n            }\n            if (c.Radius < 5.0)\n            {\n                c.UpgradeOpen();\n                c.Layer = \"REJECT\";\n            }\n        }\n        tr.Commit();\n    }\n    doc.Editor.Regen();\n}",
+      "notes": "The layer must exist before it is assigned or the assignment throws eKeyNotFound - create missing layers in the same transaction. Erasing while iterating a BlockTableRecord is safe because the iterator works over ids, not live objects. For very large batches, Database.SaveAs after the transaction is cheaper than leaving the drawing open in the editor."
+    },
+    {
+      "name": "acrxEntryPoint / acedRegCmds",
+      "kind": "api",
+      "description": "The two pieces every ObjectARX module is built around. acrxEntryPoint is the exported C++ function AutoCAD calls with load, unload, load-drawing and unload-drawing messages, and it is where the module locks or unlocks itself, declares MDI awareness and registers or removes its commands. acedRegCmds is the global command stack: addCommand publishes a command with a group name, a global (English) name, a localised name, flags and a function pointer, and removeGroup withdraws the whole set at unload.",
+      "usage": "extern \"C\" AcRx::AppRetCode\nacrxEntryPoint(AcRx::AppMsgCode msg, void* pkt)\n{\n    switch (msg)\n    {\n    case AcRx::kInitAppMsg:\n        acrxDynamicLinker->unlockApplication(pkt);       // allow unloading\n        acrxDynamicLinker->registerAppMDIAware(pkt);\n        acedRegCmds->addCommand(_T(\"MYGROUP\"), _T(\"MYCMD\"), _T(\"MYCMD\"),\n                                ACRX_CMD_MODAL, &myCmdFunc);\n        break;\n    case AcRx::kUnloadAppMsg:\n        acedRegCmds->removeGroup(_T(\"MYGROUP\"));\n        break;\n    }\n    return AcRx::kRetOK;\n}",
+      "parameters": [
+        {
+          "name": "kInitAppMsg / kUnloadAppMsg",
+          "description": "Sent when the module is loaded and unloaded. Register commands, custom classes and reactors in the first, and remove all of them in the second."
+        },
+        {
+          "name": "kLoadDwgMsg / kUnloadDwgMsg",
+          "description": "Sent per document in an MDI session; the place for per-drawing initialisation once registerAppMDIAware has been called."
+        },
+        {
+          "name": "unlockApplication / registerAppMDIAware",
+          "description": "unlockApplication(pkt) permits the module to be unloaded with ARX Unload; registerAppMDIAware(pkt) declares that it copes with multiple open documents."
+        },
+        {
+          "name": "addCommand(group, global, local, flags, fn)",
+          "description": "Registers one command. The global name is the English one scripts and macros should use; flags are ACRX_CMD_MODAL, ACRX_CMD_TRANSPARENT, ACRX_CMD_USEPICKSET, ACRX_CMD_SESSION and so on."
+        },
+        {
+          "name": "removeGroup(group)",
+          "description": "Removes every command registered under that group; failing to do this at unload leaves dangling function pointers and crashes the next invocation."
+        },
+        {
+          "name": "ACRX_DXF_DEFINE_MEMBERS",
+          "description": "The macro pair (ACRX_DECLARE_MEMBERS in the header) that gives a custom AcDbObject class its runtime class information, needed for any custom entity or object."
+        },
+        {
+          "name": "ACED_ARXCOMMAND_ENTRY_AUTO",
+          "description": "The macro used by the ObjectARX wizard's AcRxArxApp framework to register a command automatically, removing the hand-written addCommand calls."
+        },
+        {
+          "name": "module types",
+          "description": ".arx for a normal application, .dbx for a module that only defines custom objects (so it can be loaded by any DWG host), .crx for a Core Console compatible module."
+        }
+      ],
+      "example": "// Minimal ObjectARX module skeleton\n#include \"arxHeaders.h\"\n\nvoid myCmdFunc();\n\nextern \"C\" AcRx::AppRetCode\nacrxEntryPoint(AcRx::AppMsgCode msg, void* pkt)\n{\n    switch (msg)\n    {\n    case AcRx::kInitAppMsg:\n        acrxDynamicLinker->unlockApplication(pkt);\n        acrxDynamicLinker->registerAppMDIAware(pkt);\n        acedRegCmds->addCommand(_T(\"OFFICE\"), _T(\"OFLINE\"), _T(\"OFLINE\"),\n                                ACRX_CMD_MODAL, &myCmdFunc);\n        acutPrintf(_T(\"\\nOffice ARX tools loaded.\"));\n        break;\n\n    case AcRx::kUnloadAppMsg:\n        acedRegCmds->removeGroup(_T(\"OFFICE\"));\n        break;\n\n    default:\n        break;\n    }\n    return AcRx::kRetOK;\n}",
+      "notes": "ObjectARX binaries are bound to a release family and must be rebuilt (and re-signed for the App Store) for each one; a mismatched module is refused at load with a version message. Because ARX code runs in the AutoCAD process with no sandbox, an access violation takes the whole session down - which is the practical reason most new work is done in .NET unless custom objects, reactors, overrules or raw speed demand C++."
+    },
+    {
+      "name": "acedCommand / acedGetPoint",
+      "kind": "api",
+      "description": "The ADS-style C functions that let ObjectARX code talk to the command processor and the user exactly as AutoLISP does. acedCommand sends a command with its arguments as a variable-length list of type/value pairs terminated by RTNONE, and the acedGet* family puts prompts on the command line and returns RTNORM, RTCAN or RTNONE according to what the user did. They are the quickest route to functionality that has no direct database equivalent, at the cost of going through the command layer.",
+      "usage": "// prompt for two points and draw a line through the command processor\nads_point p1, p2;\nif (acedGetPoint(NULL, _T(\"\\nFirst point: \"), p1) != RTNORM) return;\nif (acedGetPoint(p1, _T(\"\\nSecond point: \"), p2) != RTNORM) return;\n\nacedCommandS(RTSTR, _T(\"_.LINE\"), RTPOINT, p1, RTPOINT, p2, RTSTR, _T(\"\"), RTNONE);\n\nacutPrintf(_T(\"\\nLine drawn.\"));",
+      "parameters": [
+        {
+          "name": "acedCommand / acedCommandS / acedCmdS",
+          "description": "Send a command. acedCommand is the historical form; newer SDKs provide the synchronous acedCommandS and acedCmdS, which execute in order and are the ones to use now that command execution can otherwise be deferred."
+        },
+        {
+          "name": "result type codes",
+          "description": "RTSTR, RTREAL, RTSHORT, RTLONG, RTPOINT, RT3DPOINT, RTENAME, RTPICKS, RTNONE - each value in the argument list is preceded by its type code and the list ends with RTNONE."
+        },
+        {
+          "name": "acedGetPoint(base, prompt, result)",
+          "description": "Point input with optional rubber-band base point. Returns RTNORM on success, RTCAN if the user cancelled, RTNONE if they pressed Enter."
+        },
+        {
+          "name": "acedGetString / acedGetReal / acedGetInt / acedGetKword",
+          "description": "The rest of the input family; acedGetString's first argument controls whether spaces terminate the input."
+        },
+        {
+          "name": "acedInitGet(bits, keywords)",
+          "description": "Applied before a Get call to disallow null, zero or negative input and to define the keywords the user may type instead of a value - identical in meaning to LISP's (initget)."
+        },
+        {
+          "name": "acedSSGet",
+          "description": "Builds a selection set with the same mode strings and DXF filter lists as LISP's (ssget), returning an ads_name that acedSSLength and acedSSName then walk."
+        },
+        {
+          "name": "acutPrintf",
+          "description": "Writes formatted text to the command line - the ObjectARX equivalent of Editor.WriteMessage."
+        },
+        {
+          "name": "acedGetVar / acedSetVar",
+          "description": "Read and write system variables from C++, using a resbuf to carry the typed value."
+        }
+      ],
+      "example": "void myCmdFunc()\n{\n    ads_point centre;\n    acedInitGet(RSG_NONULL, NULL);\n    if (acedGetPoint(NULL, _T(\"\\nCentre of bolt circle: \"), centre) != RTNORM)\n        return;\n\n    double pcd;\n    acedInitGet(RSG_NONULL | RSG_NOZERO | RSG_NONEG, NULL);\n    if (acedGetReal(_T(\"\\nPitch circle diameter: \"), &pcd) != RTNORM)\n        return;\n\n    int n = 8;\n    acedInitGet(RSG_NONULL | RSG_NOZERO | RSG_NONEG, NULL);\n    if (acedGetInt(_T(\"\\nNumber of holes <8>: \"), &n) == RTCAN)\n        return;\n\n    for (int i = 0; i < n; ++i)\n    {\n        double a = 2.0 * 3.14159265358979 * i / n;\n        ads_point p;\n        p[X] = centre[X] + (pcd / 2.0) * cos(a);\n        p[Y] = centre[Y] + (pcd / 2.0) * sin(a);\n        p[Z] = 0.0;\n        acedCommandS(RTSTR, _T(\"_.CIRCLE\"), RTPOINT, p, RTREAL, 5.0, RTNONE);\n    }\n    acutPrintf(_T(\"\\n%d holes placed.\"), n);\n}",
+      "notes": "Going through the command processor means the user's running object snaps, current layer and command echo all apply, so set OSMODE and CLAYER deliberately first - the same discipline scripts need. For bulk geometry creation, building AcDbEntity objects and appending them to the block table record is both faster and immune to those side effects."
+    },
+    {
+      "name": "AcDbLine / AcDbBlockTableRecord",
+      "kind": "api",
+      "description": "The native C++ database classes, the layer that the .NET and COM models are wrappers over. Entities such as AcDbLine, AcDbCircle, AcDbArc, AcDbPolyline, AcDbText, AcDbMText and AcDbBlockReference derive from AcDbEntity; containers such as AcDbBlockTableRecord and the other symbol tables derive from AcDbObject. Creating geometry means constructing the entity on the heap, opening model space for write, appending it and closing everything - C++ has no transaction by default, so open/close discipline is manual and unforgiving.",
+      "usage": "AcDbBlockTable* pTable = NULL;\nacdbHostApplicationServices()->workingDatabase()\n    ->getBlockTable(pTable, AcDb::kForRead);\n\nAcDbBlockTableRecord* pRec = NULL;\npTable->getAt(ACDB_MODEL_SPACE, pRec, AcDb::kForWrite);\npTable->close();\n\nAcDbLine* pLine = new AcDbLine(p1, p2);\nAcDbObjectId id;\npRec->appendAcDbEntity(id, pLine);\npRec->close();\npLine->close();          // close, never delete, once it is database-resident",
+      "parameters": [
+        {
+          "name": "workingDatabase()",
+          "description": "acdbHostApplicationServices()->workingDatabase() is the database unqualified calls act on; a module that processes side databases sets and restores it explicitly."
+        },
+        {
+          "name": "ACDB_MODEL_SPACE / ACDB_PAPER_SPACE",
+          "description": "The reserved block names, used with AcDbBlockTable::getAt to obtain the record that holds model or paper space geometry."
+        },
+        {
+          "name": "appendAcDbEntity(id, entity)",
+          "description": "Adds the entity to the record and returns its AcDbObjectId. After this the database owns the entity: call close(), never delete."
+        },
+        {
+          "name": "close()",
+          "description": "Every object opened or appended must be closed, and closing must happen in reverse order of opening. A missed close leaves the object locked for the rest of the session."
+        },
+        {
+          "name": "acdbOpenObject / acdbOpenAcDbEntity",
+          "description": "Open an existing object by id for read or write - the C++ counterpart of Transaction.GetObject; the smart-pointer templates AcDbObjectPointer<T> close automatically and are the modern form."
+        },
+        {
+          "name": "entity properties",
+          "description": "setLayer(), setColorIndex(), setLinetype(), setLinetypeScale(), setTransparency() work only once the entity is database-resident, exactly as in .NET."
+        },
+        {
+          "name": "AcDbBlockReference",
+          "description": "Insert a block by constructing it from a point and the definition's AcDbObjectId, then appending attribute references with appendAttribute()."
+        },
+        {
+          "name": "AcDbBlockTableRecordIterator",
+          "description": "Walks the entities in a record (newIterator / start / done / step / getEntity), the C++ way to iterate model space."
+        }
+      ],
+      "example": "void drawPlate()\n{\n    AcGePoint3d p1(0.0, 0.0, 0.0), p2(200.0, 0.0, 0.0);\n\n    AcDbBlockTable* pTable = NULL;\n    if (acdbHostApplicationServices()->workingDatabase()\n            ->getBlockTable(pTable, AcDb::kForRead) != Acad::eOk) return;\n\n    AcDbBlockTableRecord* pRec = NULL;\n    if (pTable->getAt(ACDB_MODEL_SPACE, pRec, AcDb::kForWrite) != Acad::eOk)\n    {\n        pTable->close();\n        return;\n    }\n    pTable->close();\n\n    AcDbLine* pLine = new AcDbLine(p1, p2);\n    pLine->setLayer(_T(\"OUTLINE\"));\n\n    AcDbObjectId lineId;\n    if (pRec->appendAcDbEntity(lineId, pLine) != Acad::eOk)\n        delete pLine;                 // never appended: we still own it\n    else\n        pLine->close();\n\n    AcDbCircle* pCirc = new AcDbCircle(AcGePoint3d(100.0, 60.0, 0.0),\n                                       AcGeVector3d::kZAxis, 8.0);\n    AcDbObjectId circId;\n    if (pRec->appendAcDbEntity(circId, pCirc) != Acad::eOk)\n        delete pCirc;\n    else\n        pCirc->close();\n\n    pRec->close();\n}",
+      "notes": "The ownership rule is absolute: an entity that was appended belongs to the database and must be closed, while one that was never appended must be deleted. Getting it wrong is the classic ObjectARX memory bug. AcDbDatabase also supports transactions through acdbHostApplicationServices()->workingDatabase()->transactionManager(), which behaves like the .NET transaction and is worth using in complex code."
+    },
+    {
+      "name": "^C^C command macro",
+      "kind": "format",
+      "description": "The macro string behind every ribbon button, toolbar icon, menu item, shortcut key and tool palette tool, written in the CUI editor's Macro field. A macro is script syntax with a few extra control characters: ^C^C to cancel whatever is running, a backslash to pause for user input, a semicolon for Enter, and the same _ and - prefixes scripts use. Unlike a script it can pause for the user mid-way, which is what makes macros the right tool for small, repeatable, semi-interactive jobs that do not justify writing code.",
+      "usage": "^C^C_-LAYER;_M;DIM;;_RECTANG;\\@100,50\n\n; character meanings\n^C^C   cancel twice (leaves any nested command)\n_      force the English command name\n-      command-line version of a dialog command\n.      the built-in command, ignoring aliases and redefinitions\n;      Enter   (a trailing space is also Enter)\n\\      pause for one user input\n*      leading * repeats the macro until Esc: *^C^C_MOVE\n^Z     trailing ^Z suppresses the automatic Enter at the end of the macro\n$M=    introduces a DIESEL expression",
+      "parameters": [
+        {
+          "name": "^C^C",
+          "description": "Two cancels, because one only backs out of the current option level. Standard at the start of almost every macro so the button works no matter what the user was doing."
+        },
+        {
+          "name": "\\ (backslash)",
+          "description": "Pauses the macro for exactly one user input - a point, a distance, a selection or a keyword. Selection of multiple objects needs the command's own Enter to end it."
+        },
+        {
+          "name": "; (semicolon)",
+          "description": "An Enter keystroke. Two semicolons give two Enters, which is how a macro accepts a default and then ends a command."
+        },
+        {
+          "name": "* prefix",
+          "description": "Placed before ^C^C it repeats the whole macro until the user presses Esc - the behaviour of the built-in repeating tools."
+        },
+        {
+          "name": "^Z suffix",
+          "description": "Suppresses the Enter that AutoCAD otherwise appends to the end of a macro, needed when the last command must stay waiting for input."
+        },
+        {
+          "name": "$M= DIESEL",
+          "description": "Evaluates a DIESEL string expression at run time, for example $M=$(if,$(=,$(getvar,cvport),1),_MSPACE,_PSPACE) to make one button do the right thing in each space."
+        },
+        {
+          "name": "(LISP calls)",
+          "description": "A macro may call any loaded AutoLISP function - ^C^C(c:myroutine) - which is how branching and error handling get into a button; the matching .mnl file guarantees the function is loaded."
+        },
+        {
+          "name": "CUI / CUILOAD",
+          "description": "Macros live in a .cuix edited with the CUI command; CUILOAD and CUIUNLOAD attach and detach partial customization files, so office macros can ship separately from the main menu."
+        }
+      ],
+      "example": "; Button 1 - set a layer, then draw a 100x50 rectangle at a point the user picks\n^C^C_-LAYER;_M;DIM;;_RECTANG;\\@100,50\n\n; Button 2 - repeating trim with all objects as the cutting edge\n*^C^C_.TRIM;;\n\n; Button 3 - plot the current layout to PDF with no dialogs\n^C^C_FILEDIA;0;_-PLOT;_Y;;DWG To PDF.pc3;;_M;_L;_N;_E;_F;_C;_Y;monochrome.ctb;_Y;_N;_N;_Y;_FILEDIA;1;\n\n; Button 4 - call a LISP routine loaded by the matching .mnl\n^C^C(if (not c:ofgrid) (load \"office.vlx\"));(c:ofgrid)\n\n; Button 5 - zoom to the extents of the active space, whichever it is\n^C^C$M=$(if,$(=,$(getvar,tilemode),1),_.ZOOM _E,_.ZOOM _E)",
+      "notes": "Spaces inside a macro are Enters, so a file name or a text string containing spaces must be quoted or entered through a pause. Test macros by typing the same sequence at the command line first: if it works there with every option spelled out, it will work as a macro. Because macros are stored per .cuix, keeping office macros in a partial customization file avoids losing them when the main menu is upgraded."
+    },
+    {
+      "name": "ACTRECORD / ACTSTOP / ACTPLAY / ACTMANAGER",
+      "kind": "command",
+      "description": "The Action Recorder: a no-code macro recorder that captures command input as an .actm action macro and replays it on demand. ACTRECORD starts recording, every command and response is logged, and ACTSTOP ends the recording and prompts for a name and description. ACTPLAY replays a macro, ACTMANAGER lists and edits the saved ones, and ACTUSERINPUT marks a step where playback should pause for the user to supply a value - the only interactivity an action macro has.",
+      "usage": "ACTRECORD                 ; start recording (red dot on the status bar)\n  ... run commands ...\nACTUSERINPUT              ; insert a pause-for-user step while recording\nACTBASEPOINT              ; record a base point so the macro is relocatable\nACTSTOP                   ; stop and save as <name>.actm\n\nACTPLAY  <name>           ; play it back\nACTMANAGER                ; manage, rename, copy, delete, edit values",
+      "parameters": [
+        {
+          "name": "ACTRECORD",
+          "description": "Begins recording all command input in the current drawing. Panel and palette actions, dialog interactions and grip edits record poorly or not at all - stay on the command line."
+        },
+        {
+          "name": "ACTSTOP",
+          "description": "Ends recording and opens the Action Macro dialog for the name, command alias, description and playback options."
+        },
+        {
+          "name": "ACTPLAY",
+          "description": "Replays a saved macro by name. Because a macro is also given a command alias, typing the macro's name at the prompt runs it directly."
+        },
+        {
+          "name": "ACTUSERINPUT",
+          "description": "Inserts a Request User Input node so playback stops for a point, distance or string at that step instead of replaying the recorded value."
+        },
+        {
+          "name": "ACTBASEPOINT",
+          "description": "Records a base point so that coordinates in the macro are relative to a point picked at playback, making the macro reusable elsewhere in the drawing."
+        },
+        {
+          "name": "ACTMANAGER",
+          "description": "The Action Macro Manager: rename, copy, delete and modify recorded values, and see the node tree of each macro."
+        },
+        {
+          "name": "ACTRECPATH / ACTPATH",
+          "description": "ACTRECPATH is the folder new recordings are written to; ACTPATH lists additional folders searched at playback, which is how macros are shared from a network location."
+        },
+        {
+          "name": "ACTUI",
+          "description": "Bit-coded variable controlling recorder behaviour: whether the Action Recorder panel expands while recording, whether a playback-finished message appears and whether playback pauses for input."
+        }
+      ],
+      "example": "; Record a drawing-cleanup macro\nACTRECORD\n  _-PURGE  _All  *  _N\n  _AUDIT   _Y\n  _ZOOM    _E\n  _QSAVE\nACTSTOP\n(name it CLEANUP, tick 'Check for inconsistencies when playback begins')\n\n; Later, in any drawing\nCLEANUP            ; the macro name works as a command\n; or\nACTPLAY\nCLEANUP",
+      "notes": "Action macros are a convenience for repeatable manual sequences, not a batch tool: they run only in an interactive session, have no branching or looping, and are stored per user in ACTRECPATH. Anything that must run over many files unattended belongs in a .scr script under accoreconsole, or in .NET. An .actm can be opened and inspected as XML if a recorded value needs correcting outside ACTMANAGER."
+    },
+    {
+      "name": "acad.pgp aliases",
+      "kind": "format",
+      "description": "The program parameters file that defines command aliases - the one- and two-letter abbreviations experienced users actually type - and external commands that shell out to the operating system. It is a plain text file on the support file search path, with external command definitions first and an alias section after, each alias being an abbreviation, a comma and the full command name prefixed by an asterisk. Changes take effect after REINIT or by setting the RE-INIT system variable, without restarting AutoCAD.",
+      "usage": "; external command\n; command_name,[executable],flags[,*prompt],[return_code]\nEXPLORER,   start explorer,  1,,\nNOTEPAD,    start notepad,   1,*File to edit: ,\n\n; command alias\n; abbreviation,*FULL_COMMAND_NAME\nL,    *LINE\nC,    *CIRCLE\nCO,   *COPY\nTR,   *TRIM\nXL,   *XLINE\n-B,   *-BLOCK",
+      "parameters": [
+        {
+          "name": "alias syntax",
+          "description": "abbreviation, one or more spaces, then *COMMANDNAME. The asterisk is required. Aliases for the hyphenated command-line variants are written with the hyphen in both halves."
+        },
+        {
+          "name": "external command syntax",
+          "description": "Five comma-separated fields: the name typed in AutoCAD, the executable and its arguments, a bit-coded flag, an optional *prompt for user input, and a return code field."
+        },
+        {
+          "name": "flags field",
+          "description": "Bit 1 starts the application and returns to AutoCAD immediately; bit 2 runs it minimised; bit 4 runs it hidden; bit 8 puts the argument string in quotes."
+        },
+        {
+          "name": "REINIT",
+          "description": "Opens the Re-initialization dialog whose PGP File checkbox reloads acad.pgp into the running session."
+        },
+        {
+          "name": "RE-INIT",
+          "description": "The system variable behind that dialog: (setvar \"RE-INIT\" 16) reloads the PGP file from a script or LISP with no dialog at all."
+        },
+        {
+          "name": "ALIASEDIT",
+          "description": "The Express Tools command that edits aliases and external commands through a dialog and reloads them, instead of hand-editing the file."
+        },
+        {
+          "name": "file location",
+          "description": "acad.pgp lives in the user's Roaming support folder (reachable from OPTIONS > Files > Support File Search Path, or with Tools > Customize > Edit Program Parameters). The first copy found on the search path wins."
+        },
+        {
+          "name": "conflicts",
+          "description": "An alias that duplicates a real command name shadows it; a duplicated abbreviation takes the last definition in the file. Keep office additions in a clearly marked block at the end so they survive an upgrade."
+        }
+      ],
+      "example": "; --- office additions, keep at the end of acad.pgp -----------------\nZZ,    *ZOOM\nQQ,    *QSAVE\nPU,    *-PURGE\nTB,    *-TABLE\nOF,    *OFGRID          ; a command defined by our .NET bundle\nPDF,   *EXPORTPDF\n\n; reload without restarting AutoCAD\nREINIT            ; tick 'PGP File'\n\n; or from a script / LISP, with no dialog\n(setvar \"RE-INIT\" 16)",
+      "notes": "Aliases are per user and per machine and are not migrated automatically between releases unless the migration tool is used, so most offices keep a master acad.pgp on a network support path rather than editing local copies. An alias can point at a command defined by a loaded .NET or ARX module, but only once that module is loaded - the alias resolves at invocation, not at load."
+    },
+    {
+      "name": "Design Automation for AutoCAD",
+      "kind": "api",
+      "description": "The Autodesk Platform Services service that runs AutoCAD Core Console on Autodesk's infrastructure, with no AutoCAD installation of your own. Three v3 REST resources model the work: an AppBundle is your packaged .NET plug-in, an Activity is a reusable definition of one engine invocation - the command line, the input and output parameters and any settings such as the script to run - and a WorkItem is a single execution of an Activity against concrete URLs. It is how DWG generation, extraction and conversion are run server-side at scale.",
+      "usage": "POST /da/us-east/v3/appbundles        { \"id\", \"engine\", \"description\" }   -> upload URL for the .zip\nPOST /da/us-east/v3/appbundles/:id/versions\nPOST /da/us-east/v3/appbundles/:id/aliases   { \"id\": \"prod\", \"version\": 1 }\nPOST /da/us-east/v3/activities        { \"id\", \"commandLine\", \"parameters\", \"engine\", \"appbundles\", \"settings\" }\nPOST /da/us-east/v3/activities/:id/aliases\nPOST /da/us-east/v3/workitems         { \"activityId\", \"arguments\" }\nGET  /da/us-east/v3/workitems/:id     -> status: pending | inprogress | success | failed",
+      "parameters": [
+        {
+          "name": "AppBundle",
+          "description": "A .zip of a .bundle folder containing PackageContents.xml and your .NET assembly, versioned and aliased (dev, prod). It is loaded into the Core Console by the activity's /al switch."
+        },
+        {
+          "name": "Activity",
+          "description": "The reusable recipe: which engine, which appbundles, the commandLine template, the named parameters (inputFile, inputJson, result) and their verbs, plus settings such as an inline script."
+        },
+        {
+          "name": "commandLine",
+          "description": "A template built from $(engine.path)\\\\accoreconsole.exe with /i for the input drawing, /al for the appbundle folder and /s for the script that invokes your command."
+        },
+        {
+          "name": "WorkItem",
+          "description": "One run. Arguments map each activity parameter to a URL - a signed URL from Object Storage Service, a plain HTTPS URL, or a data: URI for small JSON payloads - and outputs are uploaded with verb put."
+        },
+        {
+          "name": "engine",
+          "description": "The AutoCAD release the activity runs on, named in the activity and listed by GET /engines. Bundles must be built against a matching release."
+        },
+        {
+          "name": "nickname and aliases",
+          "description": "Resources are addressed as Nickname.Name+alias (MyCo.UpdateTitleBlock+prod), which is what lets a new version be promoted without changing the callers."
+        },
+        {
+          "name": "onComplete callback",
+          "description": "A WorkItem may carry a callback URL that is POSTed when the run finishes, plus a report URL holding the full Core Console log for diagnosis."
+        },
+        {
+          "name": "constraints",
+          "description": "No GUI, no interactive prompts, no user profile, limited execution time and memory per work item, no network access from inside the engine, and .NET only - anything the Core Console cannot do, Design Automation cannot do either."
+        }
+      ],
+      "example": "// 1. Activity - what to run\nPOST https://developer.api.autodesk.com/da/us-east/v3/activities\n{\n  \"id\": \"UpdateTitleBlock\",\n  \"commandLine\": [\n    \"$(engine.path)\\\\accoreconsole.exe /i \\\"$(args[inputFile].path)\\\" /al \\\"$(appbundles[TitleBlockTool].path)\\\" /s \\\"$(settings[script].path)\\\"\"\n  ],\n  \"parameters\": {\n    \"inputFile\":  { \"verb\": \"get\", \"localName\": \"input.dwg\", \"required\": true },\n    \"inputJson\":  { \"verb\": \"get\", \"localName\": \"params.json\" },\n    \"result\":     { \"verb\": \"put\", \"localName\": \"input.dwg\" }\n  },\n  \"settings\": { \"script\": \"UPDATETITLEBLOCK params.json\\n_QSAVE\\n\" },\n  \"appbundles\": [ \"MyCo.TitleBlockTool+prod\" ],\n  \"engine\": \"Autodesk.AutoCAD+25\"\n}\n\n// 2. WorkItem - one run of it\nPOST https://developer.api.autodesk.com/da/us-east/v3/workitems\n{\n  \"activityId\": \"MyCo.UpdateTitleBlock+prod\",\n  \"arguments\": {\n    \"inputFile\": { \"url\": \"https://.../A-101.dwg\" },\n    \"inputJson\": { \"url\": \"data:application/json,{\\\"Project\\\":\\\"P-1042\\\",\\\"Rev\\\":\\\"C\\\"}\" },\n    \"result\":    { \"url\": \"https://.../out/A-101.dwg\", \"verb\": \"put\" }\n  }\n}",
+      "notes": "Develop against a local accoreconsole first: the same script, the same bundle folder and the same /al switch reproduce the cloud environment almost exactly and turn a twenty-minute upload-and-poll cycle into seconds. The script in settings is the bridge - it loads nothing itself, it simply types your command name, so the command must take all its input from files rather than prompts. The exact engine identifiers and region paths should be confirmed against the current APS documentation before use."
+    },
+    {
+      "name": "Express Tools (BURST / TXTEXP / FLATTEN / BREAKLINE / ALIASEDIT)",
+      "kind": "command",
+      "description": "A library of small utilities installed with AutoCAD (full product, not LT) and implemented in AutoLISP and ObjectARX rather than in the core. Several of them solve problems that otherwise need real code, and because they are ordinary commands they can be called from scripts, macros and (command ...) calls. The ones worth knowing for automation are BURST, TXTEXP, FLATTEN, BREAKLINE and ALIASEDIT, alongside TCOUNT for numbering text, MOCORO for move/copy/rotate/scale in one command and the layer tools LAYMRG and LAYDEL.",
+      "usage": "BURST      Select objects:            ; explode blocks, keeping attribute VALUES as text\nTXTEXP     Select text to be exploded: ; convert TEXT/MTEXT into geometry\nFLATTEN    Select objects: ... Remove hidden lines? [Yes/No] <No>:\nBREAKLINE  Specify first point for breakline: ...\nALIASEDIT  (dialog) edit acad.pgp aliases and external commands\n\nEXPRESSTOOLS   ; reloads the Express Tools menu and commands if they are missing",
+      "parameters": [
+        {
+          "name": "BURST",
+          "description": "Explodes block references but converts attributes into TEXT carrying their current values, instead of reverting them to tags the way EXPLODE does. The standard fix before sending drawings to a consultant who must not receive live blocks."
+        },
+        {
+          "name": "TXTEXP",
+          "description": "Explodes TEXT and MTEXT into lines and polylines so the lettering survives in systems without the font. Irreversible and vastly increases object count, so do it on a copy at the very end."
+        },
+        {
+          "name": "FLATTEN",
+          "description": "Projects selected objects onto the Z=0 plane of the current view, optionally removing hidden lines. The usual rescue for 3D-contaminated 2D drawings before they go to a 2D-only consumer; run it in plan view."
+        },
+        {
+          "name": "BREAKLINE",
+          "description": "Draws a polyline with a break symbol block at its midpoint, with settings for the symbol size and extension. Uses the brkline.dwg symbol, which can be replaced with an office standard."
+        },
+        {
+          "name": "ALIASEDIT",
+          "description": "Dialog editor for acad.pgp command aliases and external commands that reloads the file when it closes, so no REINIT is needed."
+        },
+        {
+          "name": "TCOUNT / MOCORO / OVERKILL",
+          "description": "Other automation-friendly members: TCOUNT numbers a selection of text incrementally, MOCORO combines move, copy, rotate and scale, and OVERKILL (now a core command) deletes duplicate and overlapping geometry."
+        },
+        {
+          "name": "EXPRESSTOOLS",
+          "description": "Reloads the Express Tools menu and commands when they have been unloaded or the menu has gone missing after a profile change."
+        },
+        {
+          "name": "availability",
+          "description": "Installed only with the full AutoCAD, English-language, and provided as-is rather than as a supported part of the product. They are not part of the core engine, so never assume they exist in the Core Console or in a Design Automation engine without testing."
+        }
+      ],
+      "example": "; Prepare an issue copy: burst blocks, flatten, explode text, save under a new name\nFILEDIA\n0\n_SAVEAS\n\nC:/out/A-101_ISSUE.dwg\n\n_BURST\n_ALL\n\n_FLATTEN\n_ALL\n\n_N\n_TXTEXP\n_ALL\n\n_-PURGE\n_All\n*\n_N\n_QSAVE\n\n; AutoLISP equivalent for the burst step only\n(command \"_.BURST\" (ssget \"_X\" '((0 . \"INSERT\"))) \"\")",
+      "notes": "Every one of these is destructive in a way that cannot be undone once the file is saved, so run them on a copy created with SAVEAS at the start of the script, never on the working drawing. Because Express Tools load from ARX and LISP modules, a script that depends on them should check with (if (not (member \"acetutil.arx\" (arx))) (command \"_.EXPRESSTOOLS\")) before calling one."
+    }
+  ]
+}

@@ -1,0 +1,351 @@
+{
+  "category": "Results & postprocessing",
+  "description": "Everything under the Results branch of the COMSOL Multiphysics 6.3 Model Builder tree: datasets that select and transform where a solution is read, Derived Values and Evaluation Groups that reduce a field to numbers and tables, plot groups and plot features that draw it, plot attributes that deform/filter/annotate a plot, and the Export and Report nodes that write data, images, animations and documents to disk. The same tree is reachable from the COMSOL API for Java through model.result(), so any postprocessing set up in the GUI can be replayed headless or driven from LiveLink for MATLAB and MPh for Python.",
+  "tools": [
+    {
+      "name": "Solution",
+      "kind": "tool",
+      "description": "The base dataset type: it points at one computed solution (a sol* node) and decides which component, geometry frame and geometric selection every plot or derived value that uses it will read. COMSOL creates one Solution dataset automatically per study, but you add extra ones to compare studies, to look at a single parameter value of a sweep, or to restrict postprocessing to a subset of domains so that plots and integrals ignore the rest of the model. Almost every other dataset (cut planes, mirrors, arrays, joins) takes a Solution dataset as its input.",
+      "usage": "Results > Datasets > right-click > Solution",
+      "parameters": [
+        {"name": "Solution", "description": "Which solver solution object (sol1, sol2, ...) the dataset reads. API property 'solution'."},
+        {"name": "Component", "description": "Which component of a multi-component model the data is taken from."},
+        {"name": "Frame", "description": "Spatial, material, geometry or mesh frame — matters for deformed-geometry, moving-mesh and ALE models."},
+        {"name": "Selection", "description": "Optional geometric-entity selection that limits all plots and evaluations using this dataset."}
+      ],
+      "example": "// Java: a second Solution dataset pointing at another study's solution\nmodel.result().dataset().create(\"dset2\", \"Solution\");\nmodel.result().dataset(\"dset2\").set(\"solution\", \"sol2\");\nmodel.result().dataset(\"dset2\").label(\"Coarse mesh run\");\nmodel.result().create(\"pg2\", \"PlotGroup3D\");\nmodel.result(\"pg2\").set(\"data\", \"dset2\");",
+      "notes": "Related dataset types you create the same way: Mirror 2D/3D (Mirror2D, Mirror3D) and Sector 2D/3D to unfold a symmetric model, Array 1D/2D/3D (Array1D, Array2D, Array3D) to tile a unit cell, Revolution 1D/2D (Revolve1D, Revolve2D) to spin an axisymmetric result into 3D, Surface and Edge 2D/3D (Edge2D, Edge3D) to restrict to boundaries or edges, Parametric Extrusion 1D/2D (Extrude1D, Extrude2D) to turn a parametric/time sweep into an extra axis, Join (type \"Join\", set its 'data' and 'data2' properties) to compare two solutions in one plot with data1()/data2() expressions, Particle and Ray for tracing modules, and Grid 1D/2D/3D for plotting analytic expressions with no solution behind them.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Cut Plane",
+      "kind": "tool",
+      "description": "A 3D dataset that slices the solution with a plane and exposes it as 2D data, so you can drive a 2D Plot Group, a surface integration or a data export from a cross section of a 3D model. Use the quick mode to place an axis-aligned plane at a coordinate, or the general mode to define the plane by three points or by a point plus a normal. Setting 'Additional parallel planes' produces a stack of evenly offset cut planes from one node.",
+      "usage": "Results > Datasets > right-click > Cut Plane",
+      "parameters": [
+        {"name": "planetype", "description": "'quick' for an axis-aligned plane or 'general' for a freely oriented one."},
+        {"name": "quickplane", "description": "Orientation in quick mode: xy, yz, zx, yx, zy or xz."},
+        {"name": "quickx / quicky / quickz", "description": "Offset coordinate of the plane along the axis normal to it (string, so it may be a parameter expression)."},
+        {"name": "genmethod", "description": "'threepoint' or 'pointnormal' in general mode; the coordinates go in genpoints, or genpnpoint plus genpnvec."},
+        {"name": "data", "description": "Input dataset, normally a Solution dataset."}
+      ],
+      "example": "// Java: xy cut plane at z = 20 mm, plotted as a 2D surface plot\nmodel.result().dataset().create(\"cpl1\", \"CutPlane\");\nmodel.result().dataset(\"cpl1\").set(\"data\", \"dset1\");\nmodel.result().dataset(\"cpl1\").set(\"quickplane\", \"xy\");\nmodel.result().dataset(\"cpl1\").set(\"quickz\", \"0.02\");\nmodel.result().create(\"pg2\", \"PlotGroup2D\");\nmodel.result(\"pg2\").set(\"data\", \"cpl1\");\nmodel.result(\"pg2\").create(\"surf1\", \"Surface\");\nmodel.result(\"pg2\").feature(\"surf1\").set(\"expr\", \"T\");\nmodel.result(\"pg2\").run();",
+      "notes": "A Cut Plane is interpolated data, not mesh data — integrals taken on it are less accurate than a Surface Integration on a real boundary. For a quick look without a dataset, use a Slice plot inside a 3D Plot Group instead.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.038.html"
+    },
+    {
+      "name": "Cut Line 3D",
+      "kind": "tool",
+      "description": "A dataset that samples the solution along a straight line through a 3D model and exposes it as 1D data for Line Graph plots, line integrations or data export. Define the line by two points or by a point and a direction, and optionally let it extend infinitely or generate extra parallel lines. This is the standard way to produce a through-thickness profile, a centreline temperature plot, or a field-versus-distance curve.",
+      "usage": "Results > Datasets > right-click > Cut Line 3D  (Cut Line 2D in a 2D component)",
+      "parameters": [
+        {"name": "method", "description": "'twopoint' (default) or 'pointdir'."},
+        {"name": "genpoints", "description": "Double matrix whose two rows are the start and end coordinates when method is twopoint."},
+        {"name": "pdpoint / pddir", "description": "Point and direction when method is pointdir."},
+        {"name": "bounded", "description": "'on' keeps the line between the two points, 'off' extends it through the whole geometry."},
+        {"name": "bndsnap", "description": "Snap each evaluation point to the closest boundary (Cut Line 3D only)."}
+      ],
+      "example": "// Java: cut line from (0,0,0) to (0.1,0,0.02) plotted as a 1D line graph\nmodel.result().dataset().create(\"cln1\", \"CutLine3D\");\nmodel.result().dataset(\"cln1\").set(\"data\", \"dset1\");\nmodel.result().dataset(\"cln1\").set(\"genpoints\", new double[][]{{0, 0, 0}, {0.1, 0, 0.02}});\nmodel.result().create(\"pg3\", 1);\nmodel.result(\"pg3\").set(\"data\", \"cln1\");\nmodel.result(\"pg3\").create(\"lngr1\", \"LineGraph\");\nmodel.result(\"pg3\").feature(\"lngr1\").set(\"expr\", \"T\");\nmodel.result(\"pg3\").run();",
+      "notes": "The number of sample points is controlled by the Resolution setting of the plot that uses the dataset, not by the dataset itself. In 2D use CutLine2D, which additionally exposes normal variables (cln1nx, cln1ny) you can use in expressions.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Cut Point 3D",
+      "kind": "tool",
+      "description": "A dataset holding one or more arbitrary points inside the geometry, used as the source for Point Evaluation, Point Graph and probe-style postprocessing. Enter coordinates directly, read them from a file, or generate a regular grid; the points do not have to coincide with mesh nodes because COMSOL interpolates the solution. Combined with a time-dependent or parametric solution it gives you a value-versus-time or value-versus-parameter curve at a virtual sensor location.",
+      "usage": "Results > Datasets > right-click > Cut Point 3D  (Cut Point 1D / Cut Point 2D in lower dimensions)",
+      "parameters": [
+        {"name": "method", "description": "How the points are specified: 'coords' (default), 'grid', 'regulargrid' or 'file'."},
+        {"name": "pointx / pointy / pointz", "description": "String arrays of coordinates, one entry per point; expressions and parameters are allowed."},
+        {"name": "gridx / gridy / gridz", "description": "Coordinate vectors whose tensor product forms the point set when method is 'grid'."},
+        {"name": "snapping", "description": "'none', 'boundary' or 'edge' — snap the points onto the nearest boundary or edge."},
+        {"name": "filename", "description": "Text file with coordinates when method is 'file'."}
+      ],
+      "example": "// Java: probe point, then evaluate temperature there\nmodel.result().dataset().create(\"cpt1\", \"CutPoint3D\");\nmodel.result().dataset(\"cpt1\").set(\"data\", \"dset1\");\nmodel.result().dataset(\"cpt1\").set(\"pointx\", \"0.05\");\nmodel.result().dataset(\"cpt1\").set(\"pointy\", \"0\");\nmodel.result().dataset(\"cpt1\").set(\"pointz\", \"0.01\");\nmodel.result().numerical().create(\"pev1\", \"EvalPoint\");\nmodel.result().numerical(\"pev1\").set(\"data\", \"cpt1\");\nmodel.result().numerical(\"pev1\").setIndex(\"expr\", \"T\", 0);\ndouble T = model.result().numerical(\"pev1\").getReal()[0][0];",
+      "notes": "A point lying outside the geometry silently returns NaN — check coordinates if you get empty results. For values you want computed while solving rather than afterwards, use a Domain Point Probe under Component > Definitions instead.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.039.html"
+    },
+    {
+      "name": "Volume Integration",
+      "kind": "tool",
+      "description": "A Derived Values node that integrates one or more expressions over selected domains and writes the scalar result into a table. This is how you get total heat generated, stored energy, mass, dissipated power or any other extensive quantity out of a model. For a time-dependent or parametric solution it returns one row per time step or parameter value, and the Data series operation setting can additionally average, integrate or take the maximum over that series.",
+      "usage": "Results > Derived Values > right-click > Integration > Volume Integration",
+      "parameters": [
+        {"name": "Selection", "description": "The domains to integrate over; 'All domains' is allowed."},
+        {"name": "expr", "description": "One or more expressions to integrate (use setIndex to fill the list from the API)."},
+        {"name": "unit", "description": "Output unit per expression; COMSOL converts automatically."},
+        {"name": "Integration order", "description": "Quadrature order; raise it for high-order or rapidly varying integrands."},
+        {"name": "Compute volume integral", "description": "In 2D/axisymmetric models, multiply by thickness or by 2*pi*r to get a true volume integral."}
+      ],
+      "example": "// Java: total heat source in domain 1\nmodel.result().numerical().create(\"int1\", \"IntVolume\");\nmodel.result().numerical(\"int1\").set(\"data\", \"dset1\");\nmodel.result().numerical(\"int1\").selection().set(1);\nmodel.result().numerical(\"int1\").setIndex(\"expr\", \"ht.Qtot\", 0);\nmodel.result().numerical(\"int1\").setIndex(\"unit\", \"W\", 0);\ndouble Q = model.result().numerical(\"int1\").getReal()[0][0];\nSystem.out.println(\"Total heat = \" + Q + \" W\");",
+      "notes": "In 2D axisymmetric models remember to select 'Compute volume integral' or the result is per radian. Related types: IntSurface (Surface Integration) and IntLine (Line Integration). For an integral you want available as a variable while solving, use an Integration component coupling under Definitions instead.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.077.html"
+    },
+    {
+      "name": "Surface Integration",
+      "kind": "tool",
+      "description": "Integrates expressions over selected boundaries and reports the result in a table. Typical uses are total current or heat flux through a cross section, drag and lift forces on a wall, radiated acoustic power, and flow rate through an inlet or outlet. Because it evaluates on real mesh faces it is more accurate than integrating over an interpolated Cut Plane dataset.",
+      "usage": "Results > Derived Values > right-click > Integration > Surface Integration",
+      "parameters": [
+        {"name": "Selection", "description": "Boundaries to integrate over."},
+        {"name": "expr", "description": "Expressions to integrate, for example ht.ntflux, spf.U or ec.normJ."},
+        {"name": "Integration order", "description": "Quadrature order (default 4)."},
+        {"name": "Compute surface integral", "description": "In 2D axisymmetric models, revolve the edge integral into a full surface integral."},
+        {"name": "Data series operation", "description": "Optional reduction over time steps or parameter values: average, integral, maximum, minimum, rms, standard deviation or variance."}
+      ],
+      "example": "% LiveLink for MATLAB: total current through boundary 43, two ways\nI_node = mphint2(model, 'ec.normJ', 'surface', 'selection', 43);\n\n% ...or via a Derived Values node stored in the model\nmodel.result.numerical.create('int2', 'IntSurface');\nmodel.result.numerical('int2').selection.set(43);\nmodel.result.numerical('int2').setIndex('expr', 'ec.normJ', 0);\nI_table = model.result.numerical('int2').getReal();",
+      "notes": "Surface integration of a flux variable gives a signed result that depends on the boundary normal direction; use up()/down() or the abs() of the normal flux when the sign matters. Use IntLine for edge integrals and Surface Average (AvSurface) when you want the mean rather than the total.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.077.html"
+    },
+    {
+      "name": "Point Evaluation",
+      "kind": "tool",
+      "description": "A Derived Values node that evaluates expressions at geometry vertices or at the points of a Cut Point dataset and writes them to a table. Use it to read a temperature at a sensor location, a displacement at a mounting hole, or a potential at a terminal, especially across a time series or parameter sweep where the table becomes a ready-made results curve. The API type name is 'EvalPoint'.",
+      "usage": "Results > Derived Values > right-click > Point Evaluation",
+      "parameters": [
+        {"name": "data", "description": "Dataset to evaluate on — a Solution dataset (then pick vertices) or a Cut Point dataset (then the dataset supplies the coordinates)."},
+        {"name": "Selection", "description": "Geometry points to evaluate at, when evaluating on a Solution dataset."},
+        {"name": "expr", "description": "Expressions to evaluate; fill the indexed list with setIndex."},
+        {"name": "unit", "description": "Output unit for each expression."},
+        {"name": "Data series operation", "description": "Optional reduction over the solution series (average, maximum, rms, ...)."}
+      ],
+      "example": "// Java: temperature and von Mises stress at the points of cut point dataset cpt1\nmodel.result().numerical().create(\"pev1\", \"EvalPoint\");\nmodel.result().numerical(\"pev1\").set(\"data\", \"cpt1\");\nmodel.result().numerical(\"pev1\").setIndex(\"expr\", \"T\", 0);\nmodel.result().numerical(\"pev1\").setIndex(\"unit\", \"degC\", 0);\nmodel.result().numerical(\"pev1\").setIndex(\"expr\", \"solid.mises\", 1);\ndouble[][] values = model.result().numerical(\"pev1\").getReal();",
+      "notes": "getReal() returns a matrix with one row per expression and one column per solution number, so a transient run gives the whole time history in one call. Use EvalGlobal for quantities that are not tied to a geometric location, and Global Matrix Evaluation (EvalGlobalMatrix) for matrix-valued global outputs such as S-parameter or capacitance matrices.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.007.html"
+    },
+    {
+      "name": "Global Evaluation",
+      "kind": "tool",
+      "description": "Evaluates global expressions — parameters, global variables, lumped quantities computed by physics interfaces such as terminal current, total force, eigenfrequency or a probe value — and puts them in a table. Nothing geometric is selected, so this is the node to use for design-level scalars that a parametric sweep should tabulate. The API type name is 'EvalGlobal'.",
+      "usage": "Results > Derived Values > right-click > Global Evaluation",
+      "parameters": [
+        {"name": "data", "description": "Solution dataset to evaluate on; for a sweep this determines which parameter values appear as rows."},
+        {"name": "expr", "description": "Global expressions, for example ec.I0_1, solid.freq or comp1.intop1(T)."},
+        {"name": "unit", "description": "Output unit for each expression."},
+        {"name": "descr", "description": "Column description shown in the table header."},
+        {"name": "Data series operation", "description": "Optional reduction over the solution series."}
+      ],
+      "example": "// Java: terminal current for every parameter value of a sweep\nmodel.result().numerical().create(\"gev1\", \"EvalGlobal\");\nmodel.result().numerical(\"gev1\").set(\"data\", \"dset2\");\nmodel.result().numerical(\"gev1\").setIndex(\"expr\", \"ec.I0_1\", 0);\nmodel.result().numerical(\"gev1\").setIndex(\"unit\", \"mA\", 0);\nmodel.result().table().create(\"tbl1\", \"Table\");\nmodel.result().numerical(\"gev1\").set(\"table\", \"tbl1\");\nmodel.result().numerical(\"gev1\").setResult();",
+      "notes": "setResult() writes the evaluation into the table named by the 'table' property, appendResult() adds to it — this is how batch runs accumulate a sweep into one table that can then be exported. Global Matrix Evaluation (EvalGlobalMatrix) covers matrix outputs, and 'Eval' is an API-only evaluation feature with no GUI counterpart.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.007.html"
+    },
+    {
+      "name": "Evaluation Group",
+      "kind": "tool",
+      "description": "A container that holds several evaluation features (integrations, averages, maxima, point and global evaluations) and computes them all into one shared table with a single click or automatically after a study finishes. Use it instead of loose Derived Values nodes when you want a reproducible block of key results per run — it keeps the columns in a fixed order, survives re-solving, and exports cleanly to CSV. In the API the group replaces model.result().numerical() with model.result().evaluationGroup().",
+      "usage": "Results > right-click > Evaluation Group, then right-click the group and add evaluation nodes",
+      "parameters": [
+        {"name": "data", "description": "Dataset the whole group evaluates on, for example a parametric sweep solution."},
+        {"name": "Transpose table", "description": "Swap rows and columns so each evaluation becomes a row."},
+        {"name": "Automatic update", "description": "Recompute the group when the study finishes solving."},
+        {"name": "Feature type", "description": "Any numerical type is allowed inside the group: IntVolume, IntSurface, AvSurface, MaxVolume, EvalPoint, EvalGlobal, ..."}
+      ],
+      "example": "// Java: evaluation group with an average surface stress and displacement\nmodel.result().evaluationGroup().create(\"eg1\", \"EvaluationGroup\");\nmodel.result().evaluationGroup(\"eg1\").set(\"data\", \"dset2\");\nmodel.result().evaluationGroup(\"eg1\").create(\"av1\", \"AvSurface\");\nmodel.result().evaluationGroup(\"eg1\").feature(\"av1\").selection().set(1);\nmodel.result().evaluationGroup(\"eg1\").feature(\"av1\").setIndex(\"expr\", \"solid.disp\", 0);\nmodel.result().evaluationGroup(\"eg1\").feature(\"av1\").setIndex(\"expr\", \"solid.mises\", 1);\nmodel.result().evaluationGroup(\"eg1\").run();",
+      "notes": "Every Derived Values node and Evaluation Group writes into a Table node under Results > Tables; a Table can be exported to .csv/.txt with an Export > Table node or read from LiveLink for MATLAB with mphtable. Other averaging types are AvVolume and AvLine, and extrema are MaxVolume/MinVolume, MaxSurface/MinSurface, MaxLine/MinLine.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "3D Plot Group",
+      "kind": "tool",
+      "description": "The container for 3D graphics: it owns a dataset, a title, a colour legend, a view/camera and a list of plot features (Surface, Slice, Isosurface, Arrow Volume, Streamline, ...) that are drawn together. Creating a plot group and running it is the basic unit of visualisation, and the group is also what Export > Image and Export > Animation take as their subject. Plot groups come in 1D, 2D, 3D, Polar and Smith flavours.",
+      "usage": "Results > right-click > 3D Plot Group  (or 1D/2D Plot Group, Polar Plot Group)",
+      "parameters": [
+        {"name": "data", "description": "Dataset the group and all its children read from, unless a child overrides it."},
+        {"name": "Solution / time / parameter selection", "description": "Which time step, eigenfrequency or parameter value is drawn."},
+        {"name": "Title", "description": "Automatic, custom, label or none."},
+        {"name": "Color legend", "description": "Show/hide the legend, its position, number format and text colour."},
+        {"name": "View", "description": "Which View node (camera, lighting, hidden entities, axis settings) the group uses."}
+      ],
+      "example": "// Java: create the group by type name or by dimension, then draw it\nmodel.result().create(\"pg1\", \"PlotGroup3D\");   // same as model.result().create(\"pg1\", 3)\nmodel.result(\"pg1\").set(\"data\", \"dset1\");\nmodel.result(\"pg1\").create(\"surf1\", \"Surface\");\nmodel.result(\"pg1\").feature(\"surf1\").set(\"expr\", \"T\");\nmodel.result(\"pg1\").run();",
+      "notes": "Valid plot group type strings in 6.3 are \"PlotGroup1D\", \"PlotGroup2D\", \"PlotGroup3D\", \"PolarGroup\" and \"SmithGroup\". Each group points at a View under Results > Views, which owns the Camera, the Hide Geometric Entities nodes and the axis/grid settings; duplicating a view lets two plot groups keep independent camera angles.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Surface",
+      "kind": "tool",
+      "description": "The workhorse plot feature: colours the boundaries of a 3D model (or the whole domain in 2D) by an expression. It is created automatically for the first dependent variable after most studies. Choose the expression and unit, pick a colour table and range, and optionally attach Deformation, Height Expression, Filter, Selection, Transparency or Material Appearance attributes to it.",
+      "usage": "Results > 3D Plot Group > right-click > Surface",
+      "parameters": [
+        {"name": "expr", "description": "Expression to plot, for example T, solid.mises or sqrt(u^2+v^2+w^2)."},
+        {"name": "unit", "description": "Unit the expression is displayed in."},
+        {"name": "descr", "description": "Description used in the colour legend title."},
+        {"name": "colortable", "description": "Colour table name, for example Rainbow, ThermalLight, Prism, GrayScale."},
+        {"name": "Range", "description": "Manual colour range and manual data range, used to clip outliers or to keep the scale fixed across an animation."}
+      ],
+      "example": "// Java: temperature on the surface with a thermal colour table\nmodel.result().create(\"pg1\", \"PlotGroup3D\");\nmodel.result(\"pg1\").create(\"surf1\", \"Surface\");\nmodel.result(\"pg1\").feature(\"surf1\").set(\"expr\", \"T\");\nmodel.result(\"pg1\").feature(\"surf1\").set(\"unit\", \"degC\");\nmodel.result(\"pg1\").feature(\"surf1\").set(\"descr\", \"Temperature\");\nmodel.result(\"pg1\").feature(\"surf1\").set(\"colortable\", \"ThermalLight\");\nmodel.result(\"pg1\").run();",
+      "notes": "Related fill plots: Volume for the interior of a 3D domain, Isosurface for level surfaces, Multislice for three orthogonal slice families in one node, and Line for edge-coloured plots. A Surface plot placed in a 2D plot group whose dataset is a Cut Plane shows the same data as a Slice in 3D.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Slice",
+      "kind": "tool",
+      "description": "Draws colour-mapped cross sections inside a 3D domain without needing a Cut Plane dataset. You choose a plane orientation and either a number of evenly spaced slices or explicit coordinates, which makes it the quickest way to see what a field does inside a solid or a fluid volume. Use Multislice instead when you want one slice in each of the three coordinate directions at once.",
+      "usage": "Results > 3D Plot Group > right-click > Slice",
+      "parameters": [
+        {"name": "expr", "description": "Expression to colour the slices by."},
+        {"name": "Plane", "description": "Slice plane family: xy-, yz- or zx-planes, or a general plane defined by points/normal."},
+        {"name": "Entry method", "description": "'Number of planes' for evenly spaced slices, or 'Coordinates' for explicit positions."},
+        {"name": "unit", "description": "Display unit."},
+        {"name": "colortable", "description": "Colour table used for the slices."}
+      ],
+      "example": "// Java: slice plot of the velocity magnitude\nmodel.result().create(\"pg5\", \"PlotGroup3D\");\nmodel.result(\"pg5\").create(\"slc1\", \"Slice\");\nmodel.result(\"pg5\").feature(\"slc1\").set(\"expr\", \"spf.U\");\nmodel.result(\"pg5\").feature(\"slc1\").set(\"colortable\", \"Rainbow\");\nmodel.result(\"pg5\").run();",
+      "notes": "The plane/number properties are easiest to set in the Settings window; record them with File > Save As > Model File for Java if you need the exact property names for your version. Slices are interpolated for display only — for quantitative work integrate on a real boundary or a Cut Plane dataset.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Contour",
+      "kind": "tool",
+      "description": "Draws lines (2D) or coloured bands of constant value for a scalar expression. Contours communicate gradients and level sets far better than a smooth colour map, and are the standard choice for isotherms, isobars, equipotential lines and stress bands in printed reports. You can ask for a number of evenly spaced levels or list the levels explicitly, and switch between line and filled colouring.",
+      "usage": "Results > 2D Plot Group (or 3D Plot Group) > right-click > Contour",
+      "parameters": [
+        {"name": "expr", "description": "Scalar expression to contour."},
+        {"name": "Levels", "description": "Number of levels, or an explicit list of level values."},
+        {"name": "Contour type", "description": "Lines or Filled."},
+        {"name": "colortable", "description": "Colour table used for the levels."},
+        {"name": "Level labels", "description": "Show numeric labels on the contour lines."}
+      ],
+      "example": "// Java: 20 temperature contour lines on a 2D plot group\nmodel.result().create(\"pg6\", \"PlotGroup2D\");\nmodel.result(\"pg6\").create(\"con1\", \"Contour\");\nmodel.result(\"pg6\").feature(\"con1\").set(\"expr\", \"T\");\nmodel.result(\"pg6\").feature(\"con1\").set(\"unit\", \"degC\");\nmodel.result(\"pg6\").run();",
+      "notes": "The 3D counterpart is Isosurface, which draws surfaces of constant value instead of lines. There is also a Contour dataset (type \"Contour\") that turns a level set into a dataset other plots and integrations can use.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Streamline",
+      "kind": "tool",
+      "description": "Traces curves tangent to a vector field — fluid velocity, electric or magnetic field, heat flux, current density — starting from a set of seed points. Streamlines show the topology of a flow or field (vortices, stagnation points, field lines around a magnet) in a way arrows cannot. Seed points can be placed uniformly on a boundary, on a selection, on a start-point dataset, or with the magnitude-controlled density option.",
+      "usage": "Results > 3D Plot Group (or 2D Plot Group) > right-click > Streamline",
+      "parameters": [
+        {"name": "expr", "description": "The vector components, entered as an indexed list (u, v, w or mf.Bx, mf.By, mf.Bz)."},
+        {"name": "Positioning", "description": "How seed points are chosen: uniform density, magnitude controlled, start point controlled, or on selected boundaries."},
+        {"name": "Selection", "description": "Boundaries or domains the streamlines are seeded from and confined to."},
+        {"name": "Line type", "description": "Line, tube or ribbon, with an optional radius expression."},
+        {"name": "Color Expression", "description": "Optional child attribute that colours the streamlines by a scalar such as speed."}
+      ],
+      "example": "// Java: velocity streamlines coloured by speed\nmodel.result().create(\"pg7\", \"PlotGroup3D\");\nmodel.result(\"pg7\").create(\"str1\", \"Streamline\");\nmodel.result(\"pg7\").feature(\"str1\").setIndex(\"expr\", \"u\", 0);\nmodel.result(\"pg7\").feature(\"str1\").setIndex(\"expr\", \"v\", 1);\nmodel.result(\"pg7\").feature(\"str1\").setIndex(\"expr\", \"w\", 2);\nmodel.result(\"pg7\").feature(\"str1\").create(\"col1\", \"Color\");\nmodel.result(\"pg7\").feature(\"str1\").feature(\"col1\").set(\"expr\", \"spf.U\");\nmodel.result(\"pg7\").run();",
+      "notes": "Related vector plots: Arrow Volume, Arrow Surface, Arrow Line and Arrow Point (types ArrowVolume, ArrowSurface, ArrowLine, ArrowPoint), Streamline Surface and Streamline Multislice, and Particle Trajectories / Ray Trajectories (types ParticleTrajectories, RayTrajectories) for the Particle Tracing and Ray Optics modules.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Line Graph",
+      "kind": "tool",
+      "description": "Plots an expression along a line as an x-y curve in a 1D Plot Group — the standard output for a profile along a Cut Line dataset, along geometry edges, or along the boundary of a 2D model. The x-axis data can be arc length, a coordinate, or any other expression, and one node can produce a family of curves over a parametric sweep or time series. This is what most people export to a paper or a spreadsheet.",
+      "usage": "Results > 1D Plot Group > right-click > Line Graph",
+      "parameters": [
+        {"name": "expr", "description": "y-axis expression."},
+        {"name": "x-Axis Data", "description": "Arc length (default), an expression such as x, or the solution parameter."},
+        {"name": "data", "description": "Dataset: a Cut Line dataset, an Edge dataset or a Solution dataset with an edge selection."},
+        {"name": "Legends", "description": "Automatic or manual legend text; automatic legends label curves by parameter or time value."},
+        {"name": "Coloring and Style", "description": "Line colour, style, width and marker settings."}
+      ],
+      "example": "// Java: temperature profile along cut line cln1\nmodel.result().create(\"pg3\", \"PlotGroup1D\");\nmodel.result(\"pg3\").set(\"data\", \"cln1\");\nmodel.result(\"pg3\").create(\"lngr1\", \"LineGraph\");\nmodel.result(\"pg3\").feature(\"lngr1\").set(\"expr\", \"T\");\nmodel.result(\"pg3\").feature(\"lngr1\").set(\"unit\", \"degC\");\nmodel.result(\"pg3\").run();",
+      "notes": "Other 1D plot features: Point Graph (a quantity versus time or parameter at a point), Global (global expressions versus the solution parameter), Table Graph (plot a stored table), Histogram, and Nyquist/Polar plots in a Polar Plot Group. Right-clicking any curve and choosing 'Add Plot Data to Export' creates the matching Export > Plot node.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Deformation",
+      "kind": "tool",
+      "description": "A plot attribute (subnode) that displaces the geometry drawn by its parent plot according to a vector expression, with an automatic or manual scale factor. It is how structural results are shown as a deformed shape coloured by stress, and it also works for moving-mesh, acoustic-structure and thermal-expansion results. Because it only affects rendering, the underlying data and any integrals stay unchanged.",
+      "usage": "Right-click a plot feature (e.g. Surface) > Deformation",
+      "parameters": [
+        {"name": "expr", "description": "Displacement components as an indexed list, typically u, v, w."},
+        {"name": "Scale factor", "description": "Automatic exaggeration, or a manual value — set it manually when comparing several plots."},
+        {"name": "unit", "description": "Unit of the displacement expression."}
+      ],
+      "example": "// Java: von Mises stress on the deformed shape\nmodel.result().create(\"pg8\", \"PlotGroup3D\");\nmodel.result(\"pg8\").create(\"surf1\", \"Surface\");\nmodel.result(\"pg8\").feature(\"surf1\").set(\"expr\", \"solid.mises\");\nmodel.result(\"pg8\").feature(\"surf1\").create(\"def1\", \"Deform\");\nmodel.result(\"pg8\").feature(\"surf1\").feature(\"def1\").setIndex(\"expr\", \"u\", 0);\nmodel.result(\"pg8\").feature(\"surf1\").feature(\"def1\").setIndex(\"expr\", \"v\", 1);\nmodel.result(\"pg8\").feature(\"surf1\").feature(\"def1\").setIndex(\"expr\", \"w\", 2);\nmodel.result(\"pg8\").run();",
+      "notes": "The API type string is \"Deform\". Sibling attributes you attach the same way: Height Expression (\"Height\") to raise a 2D plot into 3D, Color Expression (\"Color\") to colour a plot by a second quantity, Filter (\"Filter\") to hide elements failing a logical test, Selection (\"Selection\") to restrict a plot to part of its dataset, Transformation 2D/3D (\"Transformation2D\", \"Transformation3D\") to translate/rotate/scale the rendering, Transparency (\"Transparency\"), Annotation (\"Annotation\") and Marker/Graph Marker for labelling points.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Data (Export)",
+      "kind": "tool",
+      "description": "An Export node that writes evaluated expressions to a text, CSV, Excel or VTK file, either on a dataset's own points or on a regular grid you specify. This is the main bridge from COMSOL to MATLAB, Python, ParaView or a spreadsheet. The node stores its expressions, output format and filename in the model, so re-running it after a new solve regenerates the file without any clicking — which is exactly what batch jobs rely on.",
+      "usage": "Results > Export > right-click > Data",
+      "parameters": [
+        {"name": "data", "description": "Dataset to export from; pass it as the second create() argument or set it afterwards."},
+        {"name": "expr", "description": "Indexed list of expressions to write, each becoming a column."},
+        {"name": "filename", "description": "Output path; the extension selects .txt, .csv, .dat, .xlsx or .vtu."},
+        {"name": "Output format", "description": "Spreadsheet (one row per point), Sectionwise, or Grid."},
+        {"name": "Points to evaluate in", "description": "Take mesh/dataset points, or supply regular grid coordinate vectors."}
+      ],
+      "example": "// Java: export temperature and heat flux to a CSV file\nmodel.result().export().create(\"data1\", \"dset1\", \"Data\");\nmodel.result().export(\"data1\").setIndex(\"expr\", \"T\", 0);\nmodel.result().export(\"data1\").setIndex(\"expr\", \"ht.tfluxMag\", 1);\nmodel.result().export(\"data1\").set(\"filename\", \"C:/work/field.csv\");\nmodel.result().export(\"data1\").run();",
+      "notes": "model.result().export().create(<tag>,\"Data\") also works without a dataset tag, in which case the first compatible dataset is used. Other Export node kinds in the GUI are Plot (the data behind one curve), Image, Animation, Mesh and Table; of these only \"Data\" and \"Animation\" have type strings confirmed here, so check the generated Java (File > Save As > Model File for Java) before scripting the others.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "Animation",
+      "kind": "tool",
+      "description": "Builds a movie or an image sequence from a plot group by stepping through time steps, eigenmodes, parameter values or a results parameter, and either plays it in the Graphics window (Player target) or writes it to a file (GIF, AVI, WebM or numbered PNG/JPEG/BMP images). Use it for transient and frequency-sweep results, for mode shapes, and for sweeping a slice position through a model. Frame count, frame rate and resolution are set on the node and are worth checking before exporting.",
+      "usage": "Results > Export > right-click > Animation > Player  (or Animation > File)",
+      "parameters": [
+        {"name": "plotgroup", "description": "The plot group used as the animation subject."},
+        {"name": "Target", "description": "Player (play inside COMSOL) or File (write a movie or image sequence)."},
+        {"name": "Output", "description": "File type — GIF, AVI, WebM or image sequence — plus filename, width, height and resolution."},
+        {"name": "Sequence type", "description": "Stored solutions, dynamic data extension, or a results parameter swept between start and stop values."},
+        {"name": "Frames / Frame rate", "description": "Number of frames and playback speed."}
+      ],
+      "example": "// Java: animate plot group pg1 (COMSOL 6.3 syntax)\nExportFeature anim = model.result().export().create(\"anim1\", \"pg1\", \"Animation\");\nanim.set(\"plotgroup\", \"pg1\");\nanim.run();",
+      "notes": "The Flash output format was removed in version 6.1, so flashfilename/flashinterp/flashopen no longer apply. Batch runs that produce animations or images need graphics support — add -graphics (or -createplots) to the comsol batch command line, otherwise rendering-based exports are skipped. Report nodes (Brief, Intermediate, Complete or Custom) can embed the same plot groups into an HTML or Microsoft Word document via model.result().report().",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.021.html"
+    },
+    {
+      "name": "model.result().create()",
+      "kind": "api",
+      "description": "The COMSOL API for Java entry point for building plot groups and the plot features inside them. Called on model.result() it creates a plot group, either by dimension (1, 2 or 3) or by an explicit type name; called on a plot group it creates a plot feature such as Surface, Slice or LineGraph; called on a plot feature it creates an attribute such as Deform or Color. Use it from a Java model file, a Model Method or LiveLink for MATLAB to generate plots programmatically instead of clicking them together.",
+      "usage": "model.result().create(<pgtag>, dim);  |  model.result().create(<pgtag>, ftype);  |  model.result(<pgtag>).create(<ftag>, ftype);",
+      "parameters": [
+        {"name": "<pgtag>", "description": "Tag of the plot group, e.g. \"pg1\"."},
+        {"name": "dim", "description": "Plot group dimension: 1, 2 or 3."},
+        {"name": "ftype", "description": "Type string. Plot groups: \"PlotGroup1D\", \"PlotGroup2D\", \"PlotGroup3D\", \"PolarGroup\", \"SmithGroup\". Plot features: \"Surface\", \"Volume\", \"Contour\", \"Isosurface\", \"Slice\", \"Multislice\", \"Streamline\", \"ArrowSurface\", \"ArrowVolume\", \"ArrowLine\", \"LineGraph\", \"PointGraph\", \"Global\", \"Histogram\", \"ParticleTrajectories\", \"RadiationPattern\", ..."},
+        {"name": "<ftag>", "description": "Tag of the plot feature inside the group, e.g. \"surf1\"."}
+      ],
+      "example": "// Java: build a 3D plot group with a deformed, stress-coloured surface\nmodel.result().create(\"pg1\", \"PlotGroup3D\");\nmodel.result(\"pg1\").set(\"data\", \"dset1\");\nmodel.result(\"pg1\").create(\"surf1\", \"Surface\");\nmodel.result(\"pg1\").feature(\"surf1\").set(\"expr\", \"solid.mises\");\nmodel.result(\"pg1\").feature(\"surf1\").create(\"def1\", \"Deform\");\nmodel.result(\"pg1\").run();",
+      "notes": "Datasets are created with the sibling call model.result().dataset().create(<dtag>, dtype) using types such as \"Solution\", \"CutPlane\", \"CutLine3D\", \"CutPoint3D\", \"Mirror3D\", \"Array3D\", \"Revolve2D\", \"Join\" and \"Extrude2D\". The complete 6.3 list of result type strings is in 'About Results Commands' in the Programming Reference Manual.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    },
+    {
+      "name": "model.result().numerical()",
+      "kind": "api",
+      "description": "Creates and reads Derived Values features from the API. After create() you set the dataset, the selection and the indexed expression list, then pull the numbers back with getReal(), getImag(), getComplex() or getData() — recomputing the feature automatically if it is out of date. Use setResult()/appendResult() instead when you want the values written into a Table node rather than returned to your program. This is the call that turns a solved model into numbers a script can act on.",
+      "usage": "model.result().numerical().create(<ntag>, ntype);  model.result().numerical(<ntag>).getReal();",
+      "parameters": [
+        {"name": "ntype", "description": "Feature type: \"IntVolume\", \"IntSurface\", \"IntLine\", \"AvVolume\", \"AvSurface\", \"AvLine\", \"MaxVolume\", \"MinVolume\", \"MaxSurface\", \"MinSurface\", \"MaxLine\", \"MinLine\", \"EvalPoint\", \"EvalGlobal\", \"EvalGlobalMatrix\" or the API-only \"Eval\"."},
+        {"name": "selection()", "description": "Geometric entities the feature evaluates on; not used by global features."},
+        {"name": "setIndex(\"expr\", ..., i)", "description": "Fills slot i of the expression list; the matching \"unit\" and \"descr\" lists are indexed the same way."},
+        {"name": "getReal([columnwise] | [outersolnum])", "description": "Returns the real part as a matrix; one row per expression and one column per solution number by default."},
+        {"name": "setResult() / appendResult()", "description": "Evaluate and write (or append) the values into the Table named by the feature's 'table' property."}
+      ],
+      "example": "// Java: maximum temperature and total heat in one pass\nmodel.result().numerical().create(\"max1\", \"MaxVolume\");\nmodel.result().numerical(\"max1\").selection().all();\nmodel.result().numerical(\"max1\").setIndex(\"expr\", \"T\", 0);\ndouble Tmax = model.result().numerical(\"max1\").getReal()[0][0];\n\nmodel.result().numerical().create(\"int1\", \"IntVolume\");\nmodel.result().numerical(\"int1\").selection().all();\nmodel.result().numerical(\"int1\").setIndex(\"expr\", \"ht.Qtot\", 0);\ndouble Q = model.result().numerical(\"int1\").getReal()[0][0];",
+      "notes": "For a feature inside an Evaluation Group, replace model.result().numerical() with model.result().evaluationGroup(<egtag>). isComplex() tells you whether getImag()/getComplex() are meaningful, which matters for frequency-domain and eigenvalue solutions.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.007.html"
+    },
+    {
+      "name": "model.result().export()",
+      "kind": "api",
+      "description": "Creates and runs the nodes under Results > Export so a script can write data files, movies and images without the GUI. Export features that are based on a plot group take the plot group tag as the second create() argument; data exports take a dataset tag or none at all. Calling run() on the feature performs the export; calling model.result().export().run() runs every export node in the model, which is the usual last step of a batch job.",
+      "usage": "model.result().export().create(<etag>, <pgtag>, etype);  model.result().export(<etag>).set(property, value);  model.result().export(<etag>).run();",
+      "parameters": [
+        {"name": "<etag>", "description": "Tag of the export feature, e.g. \"data1\"."},
+        {"name": "<pgtag> / <dtag>", "description": "Plot group tag for plot-based exports, or dataset tag for data exports."},
+        {"name": "etype", "description": "Export type. Confirmed for 6.3: \"Data\" (text/CSV/VTK data) and \"Animation\" (movie or image sequence). The GUI also offers Plot, Image, Mesh and Table export nodes."},
+        {"name": "filename", "description": "Output path; the file extension normally selects the format."},
+        {"name": "expr", "description": "Indexed list of expressions for a Data export."}
+      ],
+      "example": "// Java: end of a batch script — write data and a movie, then save\nmodel.result().export().create(\"data1\", \"dset1\", \"Data\");\nmodel.result().export(\"data1\").setIndex(\"expr\", \"T\", 0);\nmodel.result().export(\"data1\").set(\"filename\", \"out/T.csv\");\nmodel.result().export().create(\"anim1\", \"pg1\", \"Animation\");\nmodel.result().export(\"anim1\").set(\"plotgroup\", \"pg1\");\nmodel.result().export().run();   // runs every export node\nmodel.save(\"solved.mph\");",
+      "notes": "Image and Plot export type strings were not verifiable for 6.3 here, so record them with File > Save As > Model File for Java rather than guessing. Exports that render graphics need a display or the -graphics / -createplots batch option. Reports are a separate branch: model.result().report().create(<rtag>) and model.result().report(<rtag>).generate().",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.021.html"
+    },
+    {
+      "name": "model.result(\"pg1\").run()",
+      "kind": "api",
+      "description": "Renders a plot group, evaluating every plot feature it contains against the current solution. Plot groups are lazy: after a re-solve or a parameter change their contents are stale until run() is called, and an Image or Animation export of a stale group would write the old picture. Call it on one group to refresh that group, on a single feature to refresh only that feature, or on model.result() to refresh everything before exporting.",
+      "usage": "model.result(<pgtag>).run();  |  model.result(<pgtag>).feature(<ftag>).run();  |  model.result().run();",
+      "parameters": [
+        {"name": "<pgtag>", "description": "Plot group tag to render, e.g. \"pg1\"."},
+        {"name": "<ftag>", "description": "Optional plot feature tag, to re-evaluate a single plot inside the group."},
+        {"name": "model.result().autoplot(boolean)", "description": "Controls whether COMSOL automatically creates and draws default plots after a study finishes."}
+      ],
+      "example": "// Java: re-solve, refresh the plot, then export the image data\nmodel.param().set(\"L\", \"12[cm]\");\nmodel.study(\"std1\").run();\nmodel.result(\"pg1\").run();\nmodel.result().export(\"data1\").run();",
+      "notes": "In a headless batch run without graphics support, run() on a plot group may fail or be skipped — pass -graphics (or -createplots) to comsol batch when the job has to produce rendered output. From LiveLink for MATLAB the equivalent is model.result('pg1').run() followed by mphplot(model,'pg1') to draw the same group in a MATLAB figure.",
+      "docs": "https://doc.comsol.com/6.3/doc/com.comsol.help.comsol/comsol_api_results.52.002.html"
+    }
+  ]
+}

@@ -1,0 +1,1054 @@
+{
+  "category": "Projects, Design Types & the 3D Modeler",
+  "description": "Choosing the right HFSS design and solution type, then building the geometry: primitives, sweeps, booleans, transforms, coordinate systems, variables, materials, 3D components and CAD import. Each entry gives the GUI path plus the equivalent AEDT object-model and PyAEDT calls.",
+  "tools": [
+    {
+      "name": "Insert HFSS Design",
+      "kind": "menu",
+      "description": "Create a new 3D full-wave HFSS design inside the current project. The design carries its own 3D modeller, boundaries, excitations, mesh operations, analysis setups and reports, and several designs of different types can share one project and be linked. This is the starting point for any antenna, filter, connector or waveguide model.",
+      "usage": "Project menu > Insert HFSS Design   (ribbon: Home > Insert > HFSS)\nScript: oProject.InsertDesign(\"HFSS\", \"<DesignName>\", \"<SolutionType>\", \"\")\nPyAEDT: Hfss(project=..., design=..., solution_type=\"Modal\")",
+      "parameters": [
+        {
+          "name": "DesignName",
+          "description": "Name of the new design, shown in the project tree. Must be unique within the project."
+        },
+        {
+          "name": "SolutionType",
+          "description": "DrivenModal, DrivenTerminal, Eigenmode, Transient, SBR+ or Characteristic Mode. It can be changed later from HFSS > Solution Type."
+        },
+        {
+          "name": "Project",
+          "description": "The .aedt container. oDesktop.NewProject() creates one; oDesktop.OpenProject(path) opens an existing one."
+        },
+        {
+          "name": "Design type siblings",
+          "description": "The same Insert menu offers HFSS 3D Layout, Q3D Extractor, Maxwell, Icepak, Circuit and Twin Builder designs, which can be dynamically linked to this one."
+        }
+      ],
+      "example": "import ScriptEnv\nScriptEnv.Initialize(\"Ansoft.ElectronicsDesktop\")\noProject = oDesktop.NewProject()\noProject.InsertDesign(\"HFSS\", \"PatchAntenna\", \"DrivenModal\", \"\")\noDesign = oProject.SetActiveDesign(\"PatchAntenna\")\noEditor = oDesign.SetActiveEditor(\"3D Modeler\")\noProject.SaveAs(\"C:/work/patch.aedt\", True)\n\n# PyAEDT equivalent\nfrom ansys.aedt.core import Hfss\nhfss = Hfss(project=\"C:/work/patch.aedt\", design=\"PatchAntenna\",\n            solution_type=\"Modal\", version=\"2025.1\", non_graphical=True)",
+      "notes": "Changing the solution type after boundaries and excitations exist can invalidate them - terminal-only and modal-only objects do not survive the switch. Decide modal versus terminal before assigning ports."
+    },
+    {
+      "name": "Driven Modal solution type",
+      "kind": "menu",
+      "description": "The default frequency-domain solution type, which computes S-parameters in terms of the incident and reflected powers of the waveguide modes at each port. It is the right choice for waveguides, antennas, filters and any structure where the natural description is a mode rather than a voltage between two conductors. Results are normalised to the port's modal impedance unless renormalisation is requested.",
+      "usage": "HFSS menu > Solution Type... > Driven Modal   (or set at Insert HFSS Design time)\nScript: oDesign.SetSolutionType(\"DrivenModal\")\nPyAEDT: Hfss(solution_type=\"Modal\")",
+      "parameters": [
+        {
+          "name": "Network Analysis / Composite Excitation",
+          "description": "Sub-options in the Solution Type dialog controlling how multiple excitations are combined."
+        },
+        {
+          "name": "Port renormalisation",
+          "description": "Wave ports can renormalise modal S-parameters to a fixed impedance, typically 50 ohm, set per port."
+        },
+        {
+          "name": "Number of modes",
+          "description": "Each wave port solves a chosen number of propagating modes; higher-order modes matter near cutoff."
+        }
+      ],
+      "example": "from ansys.aedt.core import Hfss\nhfss = Hfss(solution_type=\"Modal\", version=\"2025.1\", non_graphical=True)\nhfss.create_setup(\"Setup1\")\nhfss.create_linear_count_sweep(setup=\"Setup1\", units=\"GHz\",\n                               start_frequency=8, stop_frequency=12,\n                               num_of_freq_points=401, sweep_type=\"Interpolating\")\nhfss.analyze()\nprint(hfss.post.get_solution_data(\"dB(S(1,1))\").primary_sweep_values[:5])",
+      "notes": "Use Driven Terminal instead when the structure is a multi-conductor transmission line (differential pairs, connectors, PCB traces) and you need per-conductor voltages and mixed-mode S-parameters."
+    },
+    {
+      "name": "Driven Terminal solution type",
+      "kind": "menu",
+      "description": "Frequency-domain solution that reports S-parameters in terms of terminal voltages and currents on individual conductors rather than waveguide modes. It is the natural choice for multi-conductor structures - differential pairs, connectors, cables, PCB traces - because each conductor gets its own terminal and mixed-mode (differential/common) S-parameters can be derived directly.",
+      "usage": "HFSS menu > Solution Type... > Driven Terminal\nScript: oDesign.SetSolutionType(\"DrivenTerminal\")\nPyAEDT: Hfss(solution_type=\"Terminal\")",
+      "parameters": [
+        {
+          "name": "Terminals",
+          "description": "Each signal conductor at a port gets a terminal defined by a conductor line or sheet; the reference conductor carries the return current."
+        },
+        {
+          "name": "Differential pairs",
+          "description": "Terminals can be grouped into differential pairs so the solver reports Sdd, Scc, Sdc and Scd directly."
+        },
+        {
+          "name": "Reference conductor",
+          "description": "Wave ports in terminal mode need an explicit reference (ground) conductor selection."
+        }
+      ],
+      "example": "from ansys.aedt.core import Hfss\nhfss = Hfss(solution_type=\"Terminal\", version=\"2025.1\", non_graphical=True)\n# ... geometry and ports ...\nhfss.create_setup(\"Setup1\")\nhfss.analyze()\nhfss.export_touchstone(output_file=r\"C:\\work\\diffpair.s4p\")",
+      "notes": "Terminal solutions can always be converted to modal results in post-processing, but not the other way round with the same fidelity. A wave port in terminal mode still needs a correctly sized port cross-section."
+    },
+    {
+      "name": "Eigenmode solution type",
+      "kind": "menu",
+      "description": "Solves for the resonant frequencies and unloaded quality factors of a closed structure with no excitation. Use it for cavity resonators, dielectric resonator filters, accelerator cavities and to find the spurious resonances of an enclosure. Instead of a frequency sweep you specify a minimum frequency and how many modes to find.",
+      "usage": "HFSS menu > Solution Type... > Eigenmode\nScript: oDesign.SetSolutionType(\"Eigenmode\")\nPyAEDT: Hfss(solution_type=\"Eigenmode\")\nSetup: minimum frequency, number of modes, convergence (Max Delta Frequency %)",
+      "parameters": [
+        {
+          "name": "Minimum Frequency",
+          "description": "Lower search bound; the solver returns the requested number of modes above it."
+        },
+        {
+          "name": "Number of Modes",
+          "description": "How many resonances to compute, up to 20."
+        },
+        {
+          "name": "Maximum Delta Frequency Per Pass",
+          "description": "Adaptive convergence criterion, expressed as a percentage change in resonant frequency between passes."
+        },
+        {
+          "name": "Q factor",
+          "description": "Enable lossy materials or finite-conductivity boundaries to obtain the unloaded Q alongside each eigenfrequency."
+        }
+      ],
+      "example": "from ansys.aedt.core import Hfss\nhfss = Hfss(solution_type=\"Eigenmode\", version=\"2025.1\", non_graphical=True)\nsetup = hfss.create_setup(\"Setup1\")\nsetup.props[\"MinimumFrequency\"] = \"2GHz\"\nsetup.props[\"NumModes\"] = 4\nsetup.props[\"MaxDeltaFreq\"] = 1.0\nsetup.update()\nhfss.analyze()\ndata = hfss.post.get_solution_data(expressions=\"Mode(1)\", report_category=\"Eigenmode Parameters\")",
+      "notes": "Eigenmode designs have no ports, so S-parameters do not exist. Any excitation assigned before switching to Eigenmode is removed. A perfectly lossless model returns an infinite Q, so add material or conductor loss when Q is the quantity of interest."
+    },
+    {
+      "name": "Transient solution type",
+      "kind": "menu",
+      "description": "Time-domain discontinuous Galerkin solver that propagates a pulse through the structure and reports transient voltages, currents and fields, from which broadband S-parameters are derived by transform. It suits TDR analysis, ultra-wideband antennas, lightning and ESD studies, and any case where a time-domain waveform is the natural answer.",
+      "usage": "HFSS menu > Solution Type... > Transient (Transient Network / Composite Excitation)\nScript: oDesign.SetSolutionType(\"Transient\")\nPyAEDT: Hfss(solution_type=\"Transient\")",
+      "parameters": [
+        {
+          "name": "Input signal",
+          "description": "Gaussian pulse, differentiated Gaussian, step, sinusoid or an imported waveform assigned to the excitation."
+        },
+        {
+          "name": "Stop time / Time step",
+          "description": "Total simulated duration and the solver time step, which together set runtime and the achievable frequency resolution."
+        },
+        {
+          "name": "Save fields",
+          "description": "Whether field snapshots are stored at intervals for animation; this dominates disk usage."
+        },
+        {
+          "name": "Mesh",
+          "description": "Transient uses its own mesh refinement strategy; the mesh must resolve the highest frequency content of the pulse."
+        }
+      ],
+      "example": "from ansys.aedt.core import Hfss\nhfss = Hfss(solution_type=\"Transient\", version=\"2025.1\", non_graphical=True)\nsetup = hfss.create_setup(\"Setup1\")\nsetup.props[\"Stop\"] = \"5ns\"\nsetup.update()\nhfss.analyze()\nhfss.post.create_report(\"O(1,1,1)\", domain=\"Time\")",
+      "notes": "Frequency-domain HFSS is usually faster and more accurate for narrowband problems; reach for Transient when the excitation is genuinely a pulse or when TDR-style reflections in time are what you need to see."
+    },
+    {
+      "name": "SBR+ solution type",
+      "kind": "menu",
+      "description": "Shooting and Bouncing Rays Plus: an asymptotic, ray-based solver for electrically enormous scenes where a full-wave mesh is impossible - installed antenna performance on a vehicle or aircraft, radar cross-section, and propagation between antennas on a large platform. It adds physical theory of diffraction, creeping waves and a UTD wedge treatment on top of classic ray tracing.",
+      "usage": "HFSS menu > Solution Type... > SBR+\nScript: oDesign.SetSolutionType(\"SBR+\")\nPyAEDT: Hfss(solution_type=\"SBR+\")\nExcitation: link a full-wave HFSS antenna design or a far-field/near-field source to the SBR+ platform",
+      "parameters": [
+        {
+          "name": "Ray density per wavelength",
+          "description": "Controls accuracy versus runtime; the key convergence knob for SBR+."
+        },
+        {
+          "name": "Max bounces",
+          "description": "How many reflections a ray follows before it is discarded."
+        },
+        {
+          "name": "PTD / UTD / creeping wave",
+          "description": "Optional physical-optics corrections for edge diffraction and shadowed regions."
+        },
+        {
+          "name": "Linked antenna source",
+          "description": "An SBR+ design is normally excited by a separate full-wave HFSS design of the antenna, coupled through a source link so the element pattern is exact."
+        },
+        {
+          "name": "Doppler / SBR+ radar setups",
+          "description": "Dedicated setups for monostatic and bistatic RCS and for automotive radar scene simulation."
+        }
+      ],
+      "example": "from ansys.aedt.core import Hfss\nsbr = Hfss(solution_type=\"SBR+\", version=\"2025.1\", non_graphical=True)\nsbr.modeler.import_3d_cad(r\"C:\\work\\vehicle.step\")\n# Link the full-wave antenna design as the source, then:\nsbr.create_setup(\"SBRSetup\")\nsbr.analyze()\nsbr.insert_infinite_sphere(name=\"Installed\")\nffd = sbr.post.get_solution_data(expressions=\"GainTotal\", report_category=\"Far Fields\")",
+      "notes": "SBR+ is asymptotic: it is accurate when the geometry is many wavelengths across and loses accuracy near resonance or for small features. Hybrid FEM-IE and the PO region features let a full-wave region be embedded in an otherwise asymptotic model."
+    },
+    {
+      "name": "HFSS 3D Layout Design",
+      "kind": "menu",
+      "description": "A layout-centric design type for PCBs, packages and IC interposers, where the model is a stackup plus copper shapes rather than a 3D history tree. It reads ODB++, IPC-2581, BRD, GDSII and AEDB directly, keeps net and component intelligence, and solves with the same full-wave engine after an automatic 3D translation. Use it whenever the source of truth is a board layout file.",
+      "usage": "Project menu > Insert HFSS 3D Layout Design\nScript: oProject.InsertDesign(\"HFSS 3D Layout Design\", \"<name>\", \"\", \"\")\nPyAEDT: Hfss3dLayout(project=..., design=...)  /  pyedb.Edb(edbpath=...)",
+      "parameters": [
+        {
+          "name": "Stackup",
+          "description": "Layer names, thicknesses, materials and roughness, edited in the Layer Stackup dialog or through PyEDB."
+        },
+        {
+          "name": "Import formats",
+          "description": "ODB++, IPC-2581, Cadence BRD/SiP, GDSII with a technology file, AEDB, and ANF."
+        },
+        {
+          "name": "HFSS Regions",
+          "description": "Rectangular regions of the board solved with full-wave HFSS while the rest uses a faster method."
+        },
+        {
+          "name": "Ports",
+          "description": "Coaxial, circuit, edge and wave ports created automatically on component pins or net terminals."
+        },
+        {
+          "name": "Phi mesher",
+          "description": "The layout-aware mesher that exploits the layered structure for far fewer elements than a general 3D mesh."
+        }
+      ],
+      "example": "from ansys.aedt.core import Hfss3dLayout\nh3d = Hfss3dLayout(project=r\"C:\\work\\board.aedb\", version=\"2025.1\", non_graphical=True)\nsetup = h3d.create_setup(\"Setup1\")\nh3d.analyze()\nh3d.export_touchstone(output_file=r\"C:\\work\\board.s4p\")\n\nfrom pyedb import Edb\nedb = Edb(edbpath=r\"C:\\work\\board.aedb\", edbversion=\"2025.1\")\nprint(edb.stackup.signal_layers.keys())\nedb.close_edb()",
+      "notes": "A 3D Layout design and a 3D HFSS design can be linked so a connector modelled in 3D feeds a board modelled in layout. Geometry edits belong in the layout database (or PyEDB), not in the 3D modeller."
+    },
+    {
+      "name": "Circuit Design and Dynamic Link",
+      "kind": "menu",
+      "description": "Insert a Nexxim circuit schematic that can reference an HFSS design as a dynamically linked subcircuit. The link means the 3D structure is re-solved when its geometry or variables change, so a filter tuned in the circuit simulator stays consistent with its electromagnetic model. This is the standard way to combine full-wave structures with lumped components, transmission lines and behavioural models.",
+      "usage": "Project menu > Insert Circuit Design\nIn the schematic: Subcircuit > Add HFSS Dynamic Link (or Add Solution Data Link for a solved dataset)\nPyAEDT: Circuit(...); circuit.modeler.schematic.add_subcircuit_dynamic_link(hfss_design)",
+      "parameters": [
+        {
+          "name": "Dynamic link",
+          "description": "References the live HFSS design; changing an HFSS variable and re-analysing updates the circuit result."
+        },
+        {
+          "name": "Solution data link",
+          "description": "References a stored solution or a Touchstone file, which is faster but frozen."
+        },
+        {
+          "name": "Push excitation",
+          "description": "Pushes circuit-level source definitions back into the HFSS design so field plots reflect the real drive."
+        },
+        {
+          "name": "Nexxim analyses",
+          "description": "Linear network, DC, transient, harmonic balance, oscillator and eye-diagram analyses on the schematic."
+        }
+      ],
+      "example": "from ansys.aedt.core import Circuit\ncir = Circuit(project=r\"C:\\work\\filter.aedt\", design=\"Sch1\", version=\"2025.1\")\nsub = cir.modeler.schematic.add_subcircuit_dynamic_link(\"FilterHFSS\")\ncir.modeler.schematic.create_interface_port(\"P1\")\ncir.create_setup(\"LNA\")\ncir.analyze()\ncir.post.create_report(\"dB(S(P1,P1))\")",
+      "notes": "Dynamic links re-solve the HFSS design on demand and can make a circuit sweep very slow; switch to a solution-data link or an exported Touchstone once the 3D design is frozen."
+    },
+    {
+      "name": "Draw Box",
+      "kind": "tool",
+      "description": "Create a rectangular solid from a corner position and X, Y and Z sizes. It is the workhorse primitive: substrates, ground planes, dielectric blocks, radiation boxes and cavity walls all start as boxes. Any size or position can be a design variable, so the box becomes parametric immediately.",
+      "usage": "Draw menu > Box   (ribbon: Draw > Primitives > Box)\nScript: oEditor.CreateBox([\"NAME:BoxParameters\", \"XPosition:=\", ..., \"XSize:=\", ...], [\"NAME:Attributes\", \"Name:=\", ..., \"MaterialValue:=\", ...])\nPyAEDT: hfss.modeler.create_box(origin, sizes, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "XPosition / YPosition / ZPosition",
+          "description": "Corner of the box in the active coordinate system; may be an expression in design variables."
+        },
+        {
+          "name": "XSize / YSize / ZSize",
+          "description": "Edge lengths along each axis; negative values grow in the opposite direction."
+        },
+        {
+          "name": "Name",
+          "description": "Object name shown in the model tree and used by every later boolean, boundary and mesh assignment."
+        },
+        {
+          "name": "MaterialValue / material",
+          "description": "Material name in quotes, e.g. \"\\\"FR4_epoxy\\\"\" in the native API or material=\"FR4_epoxy\" in PyAEDT."
+        },
+        {
+          "name": "SolveInside",
+          "description": "True for dielectrics whose interior fields matter; False for good conductors, which is faster."
+        }
+      ],
+      "example": "hfss[\"sub_h\"] = \"1.575mm\"\nsub = hfss.modeler.create_box([-25, -25, 0], [50, 50, \"sub_h\"],\n                              name=\"Substrate\", material=\"Rogers RT/duroid 5880 (tm)\")\nsub.transparency = 0.6\n\n# Native object model\noEditor.CreateBox(\n    [\"NAME:BoxParameters\",\n     \"XPosition:=\", \"-25mm\", \"YPosition:=\", \"-25mm\", \"ZPosition:=\", \"0mm\",\n     \"XSize:=\", \"50mm\", \"YSize:=\", \"50mm\", \"ZSize:=\", \"sub_h\"],\n    [\"NAME:Attributes\", \"Name:=\", \"Substrate\", \"Flags:=\", \"\",\n     \"MaterialValue:=\", \"\\\"Rogers RT/duroid 5880 (tm)\\\"\", \"SolveInside:=\", True])",
+      "notes": "Set the modeller units (Modeler > Units) before drawing, or give every dimension an explicit unit suffix in the script. PyAEDT returns an object handle whose .name, .faces, .edges and .material_name properties are used by later calls."
+    },
+    {
+      "name": "Draw Cylinder",
+      "kind": "tool",
+      "description": "Create a circular cylinder about a chosen axis from a centre point, radius and height. Cylinders model coaxial inner and outer conductors, vias, pins, circular waveguides, dielectric rods and cylindrical cavities. The number of segments can be set to produce a faceted polygon instead of a true circle where a CAD-accurate curve is not needed.",
+      "usage": "Draw menu > Cylinder\nScript: oEditor.CreateCylinder([\"NAME:CylinderParameters\", \"XCenter:=\",..., \"Radius:=\",..., \"Height:=\",..., \"WhichAxis:=\", \"Z\", \"NumSides:=\", \"0\"], [\"NAME:Attributes\", ...])\nPyAEDT: hfss.modeler.create_cylinder(orientation, origin, radius, height, num_sides=0, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "WhichAxis / orientation",
+          "description": "X, Y or Z - the axis the cylinder extends along."
+        },
+        {
+          "name": "XCenter / YCenter / ZCenter",
+          "description": "Centre of the base circle."
+        },
+        {
+          "name": "Radius / Height",
+          "description": "Radius of the circle and length along the axis; both accept variable expressions."
+        },
+        {
+          "name": "NumSides",
+          "description": "0 gives a true circle; a value of 6, 8 or 12 gives a faceted prism, which meshes with fewer elements."
+        },
+        {
+          "name": "SolveInside",
+          "description": "False for conductors modelled as solid metal; True for dielectric rods."
+        }
+      ],
+      "example": "# Coaxial feed: inner conductor and PTFE dielectric\ninner = hfss.modeler.create_cylinder(\"Z\", [0, 0, -5], 0.635, 5,\n                                     name=\"CoaxPin\", material=\"pec\")\ndiel  = hfss.modeler.create_cylinder(\"Z\", [0, 0, -5], 2.05, 5,\n                                     name=\"CoaxDiel\", material=\"Teflon (tm)\")\nhfss.modeler.subtract(\"CoaxDiel\", \"CoaxPin\", keep_originals=True)",
+      "notes": "A faceted cylinder (NumSides > 0) meshes much faster but perturbs the impedance of a coaxial line; use a true circle for anything impedance-critical and control the facetting instead with Surface Approximation."
+    },
+    {
+      "name": "Draw Sphere",
+      "kind": "tool",
+      "description": "Create a sphere from a centre point and radius. Spheres are used for spherical radiation boundaries, dielectric lenses and resonators, human-phantom approximations in SAR work, and as the scattering target in radar cross-section validation cases.",
+      "usage": "Draw menu > Sphere\nScript: oEditor.CreateSphere([\"NAME:SphereParameters\", \"XCenter:=\",..., \"YCenter:=\",..., \"ZCenter:=\",..., \"Radius:=\",...], [\"NAME:Attributes\", ...])\nPyAEDT: hfss.modeler.create_sphere(origin, radius, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "XCenter / YCenter / ZCenter",
+          "description": "Centre of the sphere in the active coordinate system."
+        },
+        {
+          "name": "Radius",
+          "description": "Sphere radius, which may be an expression such as \"lambda0/2\"."
+        },
+        {
+          "name": "Name / material",
+          "description": "Object name and material assignment."
+        },
+        {
+          "name": "SolveInside",
+          "description": "True for dielectric or lossy biological material; False for a perfectly conducting sphere."
+        }
+      ],
+      "example": "hfss[\"lambda0\"] = \"c0/freq\"\nair = hfss.modeler.create_sphere([0, 0, 0], \"lambda0/4\", name=\"AirSphere\", material=\"vacuum\")\nhfss.assign_radiation_boundary_to_objects(\"AirSphere\")\n\n# 1 m PEC sphere for an RCS check\npec = hfss.modeler.create_sphere([0, 0, 0], 1000, name=\"Target\", material=\"pec\")",
+      "notes": "A spherical air region with a radiation boundary is the classic antenna setup, but Create Open Region with a PML or an automatic ABC at a quarter wavelength is usually easier to keep parametric."
+    },
+    {
+      "name": "Draw Cone",
+      "kind": "tool",
+      "description": "Create a truncated cone (frustum) from a base centre, a bottom radius, a top radius and a height about a chosen axis. Setting the top radius to zero gives a true cone. Conical horns, tapered transitions, probe tips and radome noses are all built from this primitive.",
+      "usage": "Draw menu > Cone\nScript: oEditor.CreateCone([\"NAME:ConeParameters\", \"XCenter:=\",..., \"WhichAxis:=\", \"Z\", \"BottomRadius:=\",..., \"TopRadius:=\",..., \"Height:=\",...], [\"NAME:Attributes\", ...])\nPyAEDT: hfss.modeler.create_cone(orientation, origin, bottom_radius, top_radius, height, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "WhichAxis / orientation",
+          "description": "Axis the cone extends along: X, Y or Z."
+        },
+        {
+          "name": "BottomRadius / TopRadius",
+          "description": "Radii at the base and the top. TopRadius 0 gives a pointed cone."
+        },
+        {
+          "name": "Height",
+          "description": "Axial length of the frustum."
+        },
+        {
+          "name": "NumSides",
+          "description": "0 for a true circular cone; a positive value gives a pyramid-like faceted cone."
+        }
+      ],
+      "example": "# Conical horn flaring from a 5 mm waveguide to a 40 mm aperture over 80 mm\nhorn = hfss.modeler.create_cone(\"Z\", [0, 0, 0], 5, 20, 80,\n                                name=\"HornOuter\", material=\"vacuum\")\ninner = hfss.modeler.create_cone(\"Z\", [0, 0, 0], 4.5, 19.5, 80,\n                                 name=\"HornInner\", material=\"vacuum\")\nhfss.modeler.subtract(\"HornOuter\", \"HornInner\", keep_originals=False)",
+      "notes": "For a smooth-walled horn it is usually cleaner to draw the profile as a polyline and use Sweep Around Axis, because the wall thickness and flare law are then explicit and parametric."
+    },
+    {
+      "name": "Draw Helix",
+      "kind": "tool",
+      "description": "Create a helix by sweeping a selected profile object along a helical path defined by a centre axis, pitch, number of turns and turn direction. Helical antennas, coil inductors, corkscrew feeds and spring contacts are all modelled this way. The profile is drawn first - a circle or rectangle - and the helix command consumes it.",
+      "usage": "1. Draw the cross-section (e.g. a circle) near the axis\n2. Select it, then Draw menu > Helix\nScript: oEditor.CreateHelix([\"NAME:Selections\", \"Selections:=\", \"<profile>\"], [\"NAME:HelixParameters\", \"XCenter:=\",..., \"Pitch:=\",..., \"Turns:=\",..., \"RightHanded:=\", True, ...])",
+      "parameters": [
+        {
+          "name": "Selections",
+          "description": "Name of the profile object to sweep; it must exist before the command runs."
+        },
+        {
+          "name": "XCenter / YCenter / ZCenter",
+          "description": "A point on the helix axis."
+        },
+        {
+          "name": "XStartDir / YStartDir / ZStartDir",
+          "description": "Direction of the helix axis."
+        },
+        {
+          "name": "Pitch",
+          "description": "Axial advance per turn."
+        },
+        {
+          "name": "Turns",
+          "description": "Number of complete revolutions."
+        },
+        {
+          "name": "RightHanded",
+          "description": "True for a right-handed helix, False for left-handed - this sets the polarisation sense of a helical antenna."
+        },
+        {
+          "name": "RadiusIncrement",
+          "description": "Change in radius per turn; non-zero gives a conical helix or spiral."
+        }
+      ],
+      "example": "# 5-turn right-hand circularly polarised helical antenna\nwire = hfss.modeler.create_circle(\"XY\", [30, 0, 0], 0.8, name=\"WireProfile\")\noEditor = hfss.modeler.oeditor\noEditor.CreateHelix(\n    [\"NAME:Selections\", \"Selections:=\", \"WireProfile\", \"NewPartsModelFlag:=\", \"Model\"],\n    [\"NAME:HelixParameters\",\n     \"XCenter:=\", \"0mm\", \"YCenter:=\", \"0mm\", \"ZCenter:=\", \"0mm\",\n     \"XStartDir:=\", \"0mm\", \"YStartDir:=\", \"0mm\", \"ZStartDir:=\", \"1mm\",\n     \"RightHanded:=\", True, \"RadiusIncrement:=\", \"0mm\",\n     \"Pitch:=\", \"25mm\", \"Turns:=\", \"5\"])",
+      "notes": "The profile must be positioned at the helix start radius and oriented perpendicular to the path, otherwise the sweep self-intersects and fails. Helices generate a lot of mesh; a faceted profile with few sides keeps the element count sane."
+    },
+    {
+      "name": "Draw Rectangle",
+      "kind": "tool",
+      "description": "Create a planar rectangular sheet on a chosen plane from a corner point and two sizes. Sheets are the objects that carry surface boundaries and excitations: patch conductors, ground planes as Perfect E, lumped port sheets, wave port cross-sections and impedance surfaces. Sheets can also be thickened into solids later.",
+      "usage": "Draw menu > Rectangle\nScript: oEditor.CreateRectangle([\"NAME:RectangleParameters\", \"IsCovered:=\", True, \"XStart:=\",..., \"Width:=\",..., \"Height:=\",..., \"WhichAxis:=\", \"Z\"], [\"NAME:Attributes\", ...])\nPyAEDT: hfss.modeler.create_rectangle(orientation, origin, sizes, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "WhichAxis / orientation",
+          "description": "The plane normal: \"Z\" means the XY plane, \"X\" the YZ plane, \"Y\" the XZ plane."
+        },
+        {
+          "name": "XStart / YStart / ZStart",
+          "description": "Corner of the rectangle."
+        },
+        {
+          "name": "Width / Height / sizes",
+          "description": "The two in-plane dimensions, in the order defined by the chosen plane."
+        },
+        {
+          "name": "IsCovered",
+          "description": "True creates a filled sheet; False creates only the outline, which then needs Cover Lines."
+        }
+      ],
+      "example": "hfss[\"pw\"] = \"38mm\"\nhfss[\"pl\"] = \"29mm\"\npatch = hfss.modeler.create_rectangle(\"XY\", [\"-pw/2\", \"-pl/2\", \"sub_h\"],\n                                      [\"pw\", \"pl\"], name=\"Patch\")\nhfss.assign_perfect_e([patch.name])\n\n# Lumped port sheet in the YZ plane\nfeed = hfss.modeler.create_rectangle(\"YZ\", [0, -1, 0], [2, \"sub_h\"], name=\"FeedSheet\")\nhfss.lumped_port(assignment=\"FeedSheet\", integration_line=hfss.AxisDir.ZPos, impedance=50, name=\"P1\")",
+      "notes": "A patch modelled as a Perfect E sheet is far cheaper than a thin solid conductor and is accurate whenever the metal is much thinner than a skin depth times a few. Use a thin solid with Finite Conductivity only when conductor loss or thickness genuinely matters."
+    },
+    {
+      "name": "Draw Circle",
+      "kind": "tool",
+      "description": "Create a planar circular sheet from a centre point and radius on a chosen plane. Circular sheets become coaxial port cross-sections, circular patch elements, aperture openings and the profiles swept into rods and tori. As with rectangles, the number of segments can be reduced to produce a polygon.",
+      "usage": "Draw menu > Circle\nScript: oEditor.CreateCircle([\"NAME:CircleParameters\", \"IsCovered:=\", True, \"XCenter:=\",..., \"Radius:=\",..., \"WhichAxis:=\", \"Z\", \"NumSegments:=\", \"0\"], [\"NAME:Attributes\", ...])\nPyAEDT: hfss.modeler.create_circle(orientation, origin, radius, num_sides=0, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "WhichAxis / orientation",
+          "description": "Plane normal: Z for XY, X for YZ, Y for XZ."
+        },
+        {
+          "name": "XCenter / YCenter / ZCenter",
+          "description": "Centre of the circle."
+        },
+        {
+          "name": "Radius",
+          "description": "Circle radius; accepts variable expressions."
+        },
+        {
+          "name": "NumSegments / num_sides",
+          "description": "0 for a true circle, otherwise a regular polygon with that many sides."
+        },
+        {
+          "name": "IsCovered",
+          "description": "True for a filled sheet, False for the bounding curve only."
+        }
+      ],
+      "example": "# Coaxial wave port face: annular sheet between inner and outer conductor\nouter = hfss.modeler.create_circle(\"XY\", [0, 0, -5], 2.05, name=\"PortOuter\")\ninner = hfss.modeler.create_circle(\"XY\", [0, 0, -5], 0.635, name=\"PortInner\")\nhfss.modeler.subtract(\"PortOuter\", \"PortInner\", keep_originals=False)\nhfss.wave_port(assignment=\"PortOuter\", name=\"P1\", modes=1, renormalize=True, impedance=50)",
+      "notes": "A coaxial wave port must be the annulus between the conductors, not a full disc. Draw an Ellipse instead when the two axes differ; the command and parameters are analogous with MajRadius and Ratio."
+    },
+    {
+      "name": "Draw Regular Polygon",
+      "kind": "tool",
+      "description": "Create a planar regular polygon sheet from a centre, a point on the circumscribed circle and a number of segments. It is used for hexagonal and octagonal patches, faceted approximations to circular structures that mesh more cheaply, and frequency-selective surface unit cells.",
+      "usage": "Draw menu > Regular Polygon\nScript: oEditor.CreateRegularPolygon([\"NAME:RegularPolygonParameters\", \"XCenter:=\",..., \"XStart:=\",..., \"NumSides:=\", \"6\", \"WhichAxis:=\", \"Z\"], [\"NAME:Attributes\", ...])\nPyAEDT: hfss.modeler.create_regular_polygon(origin, start_point, num_sides=6, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "XCenter / YCenter / ZCenter",
+          "description": "Centre of the polygon."
+        },
+        {
+          "name": "XStart / YStart / ZStart",
+          "description": "A vertex position, which sets both the size and the rotation of the polygon."
+        },
+        {
+          "name": "NumSides",
+          "description": "Number of edges, 3 or more."
+        },
+        {
+          "name": "WhichAxis",
+          "description": "Plane the polygon lies in."
+        }
+      ],
+      "example": "hex_patch = hfss.modeler.create_regular_polygon(\n    origin=[0, 0, \"sub_h\"], start_point=[12, 0, \"sub_h\"], num_sides=6,\n    name=\"HexPatch\", material=\"copper\")\nhfss.assign_perfect_e([\"HexPatch\"])",
+      "notes": "The start point is a vertex, not a mid-edge, so the across-corners dimension is what you control. Use Duplicate Around Axis to build an array of polygon elements around a centre."
+    },
+    {
+      "name": "Draw Polyline",
+      "kind": "tool",
+      "description": "Create an open or closed polyline out of straight, arc and spline segments, optionally covered into a sheet and optionally given a cross-section so it becomes a solid wire or strip directly. Polylines are how arbitrary profiles are built: tapered transitions, spiral antennas, meandered traces, horn wall profiles and integration lines.",
+      "usage": "Draw menu > Line / Arc / Spline (all create polyline segments)\nScript: oEditor.CreatePolyline([\"NAME:PolylineParameters\", \"IsPolylineCovered:=\", True, \"IsPolylineClosed:=\", False, [\"NAME:PolylinePoints\", ...], [\"NAME:PolylineSegments\", ...]], [\"NAME:Attributes\", ...])\nPyAEDT: hfss.modeler.create_polyline(points, segment_type=None, cover_surface=False, close_surface=False, xsection_type=None, name=None, material=None)",
+      "parameters": [
+        {
+          "name": "points",
+          "description": "Ordered list of [x, y, z] positions, which may contain variable expressions."
+        },
+        {
+          "name": "segment_type",
+          "description": "\"Line\", \"Arc\", \"Spline\" or a list mixing them one per segment."
+        },
+        {
+          "name": "cover_surface / close_surface",
+          "description": "Cover turns a closed polyline into a sheet; close joins the last point back to the first."
+        },
+        {
+          "name": "xsection_type",
+          "description": "\"Line\", \"Circle\", \"Rectangle\" or \"Isosceles Trapezoid\" - giving the polyline a cross-section sweeps it into a solid wire or strip in one step."
+        },
+        {
+          "name": "xsection_width / xsection_height",
+          "description": "Dimensions of that cross-section."
+        }
+      ],
+      "example": "# Meandered trace as a 0.2 mm wide, 0.035 mm thick strip\npts = [[0, 0, 0], [10, 0, 0], [10, 3, 0], [20, 3, 0], [20, 0, 0], [30, 0, 0]]\ntrace = hfss.modeler.create_polyline(points=pts, segment_type=\"Line\",\n                                     xsection_type=\"Rectangle\",\n                                     xsection_width=\"0.2mm\",\n                                     xsection_height=\"0.035mm\",\n                                     name=\"Meander\", material=\"copper\")\n\n# Closed profile to sweep around an axis\nprofile = hfss.modeler.create_polyline(\n    points=[[5, 0, 0], [20, 0, 80], [19.5, 0, 80], [4.5, 0, 0]],\n    close_surface=True, cover_surface=True, name=\"HornProfile\")",
+      "notes": "Give an arc segment three points (start, a point on the arc, end) and a spline segment enough points to define its shape. A polyline with a cross-section is usually cleaner than drawing a sheet and thickening it, because the result stays parametric."
+    },
+    {
+      "name": "Sweep Along Path",
+      "kind": "tool",
+      "description": "Sweep a profile sheet or line along a polyline path to create a solid or sheet that follows an arbitrary route. It is the general tool for bent waveguides, curved traces, coax routing, spiral antennas and any structure whose cross-section is constant but whose path is not straight. Twist angle and scaling can be applied along the sweep.",
+      "usage": "1. Select the profile, then Ctrl-select the path polyline\n2. Modeler menu > Sweep > Along Path\nScript: oEditor.SweepAlongPath([\"NAME:Selections\", \"Selections:=\", \"Profile,Path\"], [\"NAME:PathSweepParameters\", \"DraftAngle:=\", \"0deg\", \"DraftType:=\", \"Round\", \"TwistAngle:=\", \"0deg\", \"Scaling:=\", \"1\"])",
+      "parameters": [
+        {
+          "name": "Selections",
+          "description": "Profile object first, then the path object, comma separated in that order."
+        },
+        {
+          "name": "DraftAngle / DraftType",
+          "description": "Taper applied along the sweep; Round, Natural or Extended corner treatment."
+        },
+        {
+          "name": "TwistAngle",
+          "description": "Total rotation of the profile about the path, for twisted waveguides and helical structures."
+        },
+        {
+          "name": "Scaling",
+          "description": "Scale factor applied progressively along the path, giving a tapered sweep."
+        }
+      ],
+      "example": "profile = hfss.modeler.create_rectangle(\"YZ\", [0, -11.43, -5.08], [22.86, 10.16], name=\"WGProfile\")\npath = hfss.modeler.create_polyline(points=[[0, 0, 0], [50, 0, 0], [50, 40, 0]],\n                                    segment_type=\"Line\", name=\"WGPath\")\nhfss.modeler.sweep_along_path(assignment=\"WGProfile\", sweep_object=\"WGPath\")",
+      "notes": "The profile must sit at the start of the path and be perpendicular to it, or the sweep fails or self-intersects. Sharp corners in the path with a large profile also fail; add fillets to the path polyline first."
+    },
+    {
+      "name": "Sweep Along Vector",
+      "kind": "tool",
+      "description": "Extrude a sheet or line a fixed distance in a straight direction, turning a 2D profile into a 3D solid. This is the quickest way to give thickness to an imported DXF outline, to build a prism from an arbitrary polygon, or to turn a port cross-section into a length of waveguide.",
+      "usage": "1. Select the sheet\n2. Modeler menu > Sweep > Along Vector, then specify the vector\nScript: oEditor.SweepAlongVector([\"NAME:Selections\", \"Selections:=\", \"<sheet>\"], [\"NAME:VectorSweepParameters\", \"DraftAngle:=\", \"0deg\", \"DraftType:=\", \"Round\", \"SweepVectorX:=\", \"0mm\", \"SweepVectorY:=\", \"0mm\", \"SweepVectorZ:=\", \"10mm\"])\nPyAEDT: hfss.modeler.sweep_along_vector(assignment, sweep_vector)",
+      "parameters": [
+        {
+          "name": "SweepVectorX/Y/Z",
+          "description": "Direction and length of the extrusion as a single vector."
+        },
+        {
+          "name": "DraftAngle",
+          "description": "Angle by which the cross-section tapers over the sweep, for draft or flare."
+        },
+        {
+          "name": "DraftType",
+          "description": "Round, Natural or Extended, controlling how corners are handled when a draft angle is applied."
+        }
+      ],
+      "example": "outline = hfss.modeler.create_polyline(\n    points=[[0, 0, 0], [20, 0, 0], [20, 10, 0], [8, 16, 0], [0, 10, 0]],\n    close_surface=True, cover_surface=True, name=\"Profile\")\nhfss.modeler.sweep_along_vector(assignment=\"Profile\", sweep_vector=[0, 0, 3])\nhfss.modeler[\"Profile\"].material_name = \"copper\"",
+      "notes": "Thicken Sheet does something similar but grows symmetrically or one-sided from the sheet's own normal; Sweep Along Vector lets you extrude in any direction including obliquely."
+    },
+    {
+      "name": "Sweep Around Axis",
+      "kind": "tool",
+      "description": "Revolve a profile about an axis through a given angle to create a body of revolution. Conical and corrugated horns, dielectric lenses, radomes, circular chokes and rotationally symmetric resonators are all built this way from a single drawn profile, which keeps the whole shape parametric.",
+      "usage": "1. Select the profile sheet or line\n2. Modeler menu > Sweep > Around Axis\nScript: oEditor.SweepAroundAxis([\"NAME:Selections\", \"Selections:=\", \"<profile>\"], [\"NAME:AxisSweepParameters\", \"DraftAngle:=\", \"0deg\", \"DraftType:=\", \"Round\", \"SweepAxis:=\", \"Z\", \"SweepAngle:=\", \"360deg\", \"NumOfSegments:=\", \"0\"])\nPyAEDT: hfss.modeler.sweep_around_axis(assignment, axis, sweep_angle=360, draft_angle=0)",
+      "parameters": [
+        {
+          "name": "SweepAxis",
+          "description": "X, Y or Z - the axis of revolution in the active coordinate system."
+        },
+        {
+          "name": "SweepAngle",
+          "description": "Angle swept; 360 deg gives a full body of revolution, less gives a wedge."
+        },
+        {
+          "name": "NumOfSegments",
+          "description": "0 for a true surface of revolution; a positive number produces a faceted approximation."
+        },
+        {
+          "name": "DraftAngle / DraftType",
+          "description": "Taper applied during the revolve."
+        }
+      ],
+      "example": "# Corrugated horn profile revolved into a full body\nprofile = hfss.modeler.create_polyline(\n    points=[[5, 0, 0], [5, 0, 20], [8, 0, 20], [8, 0, 24], [20, 0, 90], [19, 0, 90], [4, 0, 0]],\n    close_surface=True, cover_surface=True, name=\"HornProfile\")\nhfss.modeler.sweep_around_axis(assignment=\"HornProfile\", axis=\"Z\", sweep_angle=360)\nhfss.modeler[\"HornProfile\"].material_name = \"vacuum\"",
+      "notes": "The profile must lie entirely on one side of the axis and must not cross it, or the revolve produces a self-intersecting body. Sweeping only 90 or 180 degrees together with a Symmetry boundary is a standard way to cut solve time by four."
+    },
+    {
+      "name": "Cover Lines",
+      "kind": "tool",
+      "description": "Turn a closed loop of lines or curves into a filled planar sheet. It is needed after importing DXF outlines, after drawing an uncovered polyline, or when a boolean has left only edges. The resulting sheet can then carry a boundary, be thickened, or be swept into a solid.",
+      "usage": "1. Select the closed polyline\n2. Modeler menu > Surface > Cover Lines\nScript: oEditor.CoverLines([\"NAME:Selections\", \"Selections:=\", \"<object>\", \"NewPartsModelFlag:=\", \"Model\"])\nPyAEDT: hfss.modeler.cover_lines(assignment)\n\n; The companion Cover Faces closes an open solid shell:\nScript: oEditor.CoverSurfaces([\"NAME:Selections\", ...])",
+      "parameters": [
+        {
+          "name": "Selections",
+          "description": "One or more closed line objects; open loops are rejected."
+        },
+        {
+          "name": "Cover Faces / CoverSurfaces",
+          "description": "The equivalent operation for closing an open sheet body into a solid."
+        },
+        {
+          "name": "Uncover Faces",
+          "description": "The inverse operation, removing a face from a solid to make it a shell."
+        }
+      ],
+      "example": "outline = hfss.modeler.create_polyline(\n    points=[[0, 0, 0], [20, 0, 0], [20, 12, 0], [0, 12, 0]],\n    close_surface=True, cover_surface=False, name=\"Outline\")\nhfss.modeler.cover_lines(\"Outline\")\nhfss.assign_perfect_e([\"Outline\"])",
+      "notes": "Cover Lines only works when all segments lie in one plane and form a single closed loop. Non-planar or multiply connected loops need Model Analysis > Heal or a boolean approach instead."
+    },
+    {
+      "name": "Thicken Sheet",
+      "kind": "tool",
+      "description": "Give a planar or curved sheet a finite thickness, converting it into a solid. Use it when a conductor's real thickness matters for loss or for a tight gap, when an imported surface model must become a solid, or when a shell needs to be turned into a wall of specified thickness.",
+      "usage": "1. Select the sheet\n2. Modeler menu > Surface > Thicken Sheet\nScript: oEditor.ThickenSheet([\"NAME:Selections\", \"Selections:=\", \"<sheet>\"], [\"NAME:SheetThickenParameters\", \"Thickness:=\", \"0.035mm\", \"BothSides:=\", False])\nPyAEDT: hfss.modeler.thicken_sheet(assignment, thickness, both_sides=False)",
+      "parameters": [
+        {
+          "name": "Thickness",
+          "description": "Distance the sheet is grown along its normal; a negative value grows the other way."
+        },
+        {
+          "name": "BothSides",
+          "description": "True grows the solid symmetrically about the original sheet plane."
+        },
+        {
+          "name": "Selections",
+          "description": "One or more sheet objects; solids are rejected."
+        }
+      ],
+      "example": "patch = hfss.modeler.create_rectangle(\"XY\", [-19, -14.5, \"sub_h\"], [38, 29], name=\"Patch\")\nhfss.modeler.thicken_sheet(\"Patch\", \"0.035mm\", both_sides=False)\nhfss.modeler[\"Patch\"].material_name = \"copper\"\nhfss.modeler[\"Patch\"].solve_inside = False\nhfss.mesh.assign_skin_depth(assignment=[\"Patch\"], skin_depth=\"0.002mm\")",
+      "notes": "A thickened copper conductor costs far more mesh than a zero-thickness Perfect E sheet, and most of that mesh sits where the field is negligible. Only thicken when thickness or conductor loss genuinely affects the result, and pair it with a skin-depth mesh operation and Solve Inside off."
+    },
+    {
+      "name": "Unite",
+      "kind": "tool",
+      "description": "Merge two or more objects into a single body, with the result taking the name and material of the first object selected. Use it to join a patch to its feed line, to combine an array of elements into one conductor, or to consolidate imported CAD fragments so boundary assignment is simpler.",
+      "usage": "1. Select the objects (first selection wins the name/material)\n2. Modeler menu > Boolean > Unite   (keyboard: Ctrl+U)\nScript: oEditor.Unite([\"NAME:Selections\", \"Selections:=\", \"Obj1,Obj2,Obj3\"], [\"NAME:UniteParameters\", \"KeepOriginals:=\", False])\nPyAEDT: hfss.modeler.unite(assignment, keep_originals=False)",
+      "parameters": [
+        {
+          "name": "Selections",
+          "description": "Comma-separated object names; the first one determines the resulting name, material and colour."
+        },
+        {
+          "name": "KeepOriginals",
+          "description": "False consumes the inputs (the normal case); True leaves copies behind."
+        },
+        {
+          "name": "Mixed types",
+          "description": "Sheets unite with sheets and solids with solids; mixing them is not allowed."
+        }
+      ],
+      "example": "patch = hfss.modeler.create_rectangle(\"XY\", [-19, -14.5, 1.575], [38, 29], name=\"Patch\")\nfeed  = hfss.modeler.create_rectangle(\"XY\", [-1.5, -25, 1.575], [3, 11], name=\"Feed\")\nhfss.modeler.unite([\"Patch\", \"Feed\"])\nhfss.assign_perfect_e([\"Patch\"])   # one boundary now covers both",
+      "notes": "Uniting before assigning boundaries avoids the internal seam that otherwise appears between touching objects and can cause meshing trouble. Objects that merely touch without overlapping still unite into one body with a shared face."
+    },
+    {
+      "name": "Subtract",
+      "kind": "tool",
+      "description": "Remove the volume or area of one set of objects (the tool parts) from another (the blank parts). It is the fundamental modelling operation for holes, slots, cavities, apertures in ground planes and clearance around vias. Keeping the originals lets the same tool object be reused for several subtractions.",
+      "usage": "1. Select the blank object(s), then Ctrl-select the tool object(s)\n2. Modeler menu > Boolean > Subtract   (keyboard: Ctrl+S in the modeller)\nScript: oEditor.Subtract([\"NAME:Selections\", \"Blank Parts:=\", \"Ground\", \"Tool Parts:=\", \"Slot\"], [\"NAME:SubtractParameters\", \"KeepOriginals:=\", False])\nPyAEDT: hfss.modeler.subtract(blank_list, tool_list, keep_originals=False)",
+      "parameters": [
+        {
+          "name": "Blank Parts",
+          "description": "Objects that are cut into; the result keeps their names and materials."
+        },
+        {
+          "name": "Tool Parts",
+          "description": "Objects doing the cutting."
+        },
+        {
+          "name": "KeepOriginals",
+          "description": "True preserves the tool objects so they can be reused; False consumes them."
+        }
+      ],
+      "example": "gnd  = hfss.modeler.create_rectangle(\"XY\", [-25, -25, 0], [50, 50], name=\"Ground\")\nslot = hfss.modeler.create_rectangle(\"XY\", [-8, -0.5, 0], [16, 1], name=\"Slot\")\nhfss.modeler.subtract(\"Ground\", \"Slot\", keep_originals=False)\nhfss.assign_perfect_e([\"Ground\"])\n\n# Coax clearance hole reusing one tool for two layers\nhfss.modeler.subtract([\"Ground\", \"PowerPlane\"], \"ViaClearance\", keep_originals=True)",
+      "notes": "The order of selection matters and is the commonest mistake: blank first, tool second. Subtracting sheets from sheets works only when they are coplanar."
+    },
+    {
+      "name": "Intersect",
+      "kind": "tool",
+      "description": "Keep only the volume or area common to all selected objects and discard the rest. It is used to trim a structure to a bounding region, to extract the overlap between two conductors, and to build a unit cell by intersecting a periodic structure with a cell-sized box.",
+      "usage": "1. Select two or more overlapping objects\n2. Modeler menu > Boolean > Intersect\nScript: oEditor.Intersect([\"NAME:Selections\", \"Selections:=\", \"Obj1,Obj2\"], [\"NAME:IntersectParameters\", \"KeepOriginals:=\", False])\nPyAEDT: hfss.modeler.intersect(assignment, keep_originals=False)",
+      "parameters": [
+        {
+          "name": "Selections",
+          "description": "Two or more objects; the result takes the name and material of the first."
+        },
+        {
+          "name": "KeepOriginals",
+          "description": "True keeps copies of the inputs alongside the intersection."
+        },
+        {
+          "name": "Empty result",
+          "description": "If the objects do not overlap the operation fails rather than producing an empty object."
+        }
+      ],
+      "example": "# Trim an imported antenna to a single periodic unit cell\ncell = hfss.modeler.create_box([-5, -5, -1], [10, 10, 4], name=\"UnitCell\", material=\"vacuum\")\nhfss.modeler.intersect([\"ImportedFSS\", \"UnitCell\"], keep_originals=True)",
+      "notes": "Intersect with KeepOriginals True is a convenient way to test whether two objects actually overlap without destroying the model. For periodic structures, follow it with Primary/Secondary (master/slave) boundaries on the cell walls."
+    },
+    {
+      "name": "Split",
+      "kind": "tool",
+      "description": "Divide objects with a coordinate plane, a selected face or a drawn object, keeping the positive side, the negative side or both as separate bodies. It is the standard way to exploit symmetry - cut the model in half, keep one side, and apply a Symmetry boundary on the cut plane to quarter the solve time.",
+      "usage": "1. Select the objects to split\n2. Modeler menu > Boolean > Split\nScript: oEditor.Split([\"NAME:Selections\", \"Selections:=\", \"<objects>\"], [\"NAME:SplitToParameters\", \"SplitPlane:=\", \"YZ\", \"WhichSide:=\", \"PositiveOnly\", \"ToolType:=\", \"PlaneTool\", \"SplitCrossingObjectsOnly:=\", False, \"DeleteInvalidObjects:=\", True])\nPyAEDT: hfss.modeler.split(assignment, plane=\"YZ\", sides=\"Both\")",
+      "parameters": [
+        {
+          "name": "SplitPlane",
+          "description": "XY, YZ or ZX plane of the active coordinate system."
+        },
+        {
+          "name": "WhichSide",
+          "description": "PositiveOnly, NegativeOnly or Both - Both produces two objects."
+        },
+        {
+          "name": "ToolType",
+          "description": "PlaneTool, FaceTool or ObjectTool; the last two split using a selected face or another object as the knife."
+        },
+        {
+          "name": "SplitCrossingObjectsOnly",
+          "description": "True leaves objects that do not intersect the plane untouched."
+        }
+      ],
+      "example": "# Exploit a symmetry plane: keep the +X half and apply a Perfect H symmetry wall\nhfss.modeler.split(assignment=hfss.modeler.object_names, plane=\"YZ\", sides=\"PositiveOnly\")\nsym_face = hfss.modeler[\"AirBox\"].faces[0]\n# then Boundaries > Symmetry on the cut face, choosing Perfect E or Perfect H",
+      "notes": "Symmetry is only valid when both the geometry and the excitation are symmetric. Choosing Perfect E versus Perfect H on the symmetry plane depends on whether the electric field is tangential or normal there; picking the wrong one silently gives the wrong mode."
+    },
+    {
+      "name": "Move",
+      "kind": "tool",
+      "description": "Translate selected objects by a vector, either by typing the components or by picking two points. Combined with design variables it is how a feed position, an element spacing or a substrate offset is made parametric, because the move vector can itself be an expression.",
+      "usage": "1. Select the objects\n2. Edit menu > Arrange > Move   (keyboard: Ctrl+M)\nScript: oEditor.Move([\"NAME:Selections\", \"Selections:=\", \"<objects>\", \"NewPartsModelFlag:=\", \"Model\"], [\"NAME:TranslateParameters\", \"TranslateVectorX:=\", \"0mm\", \"TranslateVectorY:=\", \"0mm\", \"TranslateVectorZ:=\", \"1.575mm\"])\nPyAEDT: hfss.modeler.move(assignment, vector)",
+      "parameters": [
+        {
+          "name": "TranslateVectorX/Y/Z",
+          "description": "Components of the translation, which may be variable expressions."
+        },
+        {
+          "name": "Selections",
+          "description": "Comma-separated object names, or a Python list in PyAEDT."
+        },
+        {
+          "name": "NewPartsModelFlag",
+          "description": "\"Model\" keeps the objects in the solved model; \"NonModel\" excludes them."
+        }
+      ],
+      "example": "hfss[\"feed_x\"] = \"6mm\"\nhfss.modeler.move([\"FeedPin\", \"FeedSheet\"], [\"feed_x\", 0, 0])\n\n# Because the vector is a variable, a parametric sweep can move the feed:\nhfss.parametrics.add(\"feed_x\", start_point=\"2mm\", end_point=\"10mm\", step=\"1mm\",\n                     variation_type=\"LinearStep\")",
+      "notes": "Moving an object that already carries a boundary or excitation keeps the assignment attached, but a wave port that moves off the outer face of the air region becomes invalid. Run Validation Check after large rearrangements."
+    },
+    {
+      "name": "Rotate",
+      "kind": "tool",
+      "description": "Rotate selected objects about the X, Y or Z axis of the active coordinate system by a given angle. It is used to orient imported CAD, to tilt an antenna element, to build rotationally arranged arrays and to set the polarisation of a feed. Pair it with a relative coordinate system to rotate about an arbitrary axis.",
+      "usage": "1. Select the objects\n2. Edit menu > Arrange > Rotate   (keyboard: Ctrl+R)\nScript: oEditor.Rotate([\"NAME:Selections\", \"Selections:=\", \"<objects>\"], [\"NAME:RotateParameters\", \"RotateAxis:=\", \"Z\", \"RotateAngle:=\", \"45deg\"])\nPyAEDT: hfss.modeler.rotate(assignment, axis, angle=90.0, units=\"deg\")",
+      "parameters": [
+        {
+          "name": "RotateAxis",
+          "description": "X, Y or Z axis of the active coordinate system. Create a relative CS first to rotate about anything else."
+        },
+        {
+          "name": "RotateAngle",
+          "description": "Angle with a unit suffix, e.g. \"45deg\"; positive follows the right-hand rule."
+        },
+        {
+          "name": "Selections",
+          "description": "Objects to rotate; they rotate about the origin of the active coordinate system, not their own centroid."
+        }
+      ],
+      "example": "# 45 degree slant polarisation\nhfss.modeler.rotate(assignment=[\"Patch\", \"FeedSheet\"], axis=\"Z\", angle=45)\n\n# Rotate about an arbitrary point by first creating a CS there\nhfss.modeler.create_coordinate_system(origin=[20, 0, 0], name=\"ElemCS\")\nhfss.modeler.set_working_coordinate_system(\"ElemCS\")\nhfss.modeler.rotate(assignment=[\"Element2\"], axis=\"Z\", angle=30)\nhfss.modeler.set_working_coordinate_system(\"Global\")",
+      "notes": "Rotation is always about the origin of the working coordinate system. Forgetting to switch the working CS back to Global afterwards is a very common source of later objects appearing in the wrong place."
+    },
+    {
+      "name": "Duplicate Along Line",
+      "kind": "tool",
+      "description": "Create a linear array of copies of the selected objects, spaced by a vector and repeated a given number of times. It builds antenna arrays, comb structures, corrugations and via fences in one step, and the copies can be attached to the original so that editing the source updates them all.",
+      "usage": "1. Select the objects\n2. Edit menu > Duplicate > Along Line\nScript: oEditor.DuplicateAlongLine([\"NAME:Selections\", \"Selections:=\", \"<objects>\"], [\"NAME:DuplicateToAlongLineParameters\", \"CreateNewObjects:=\", True, \"XComponent:=\", \"30mm\", \"YComponent:=\", \"0mm\", \"ZComponent:=\", \"0mm\", \"NumClones:=\", \"4\"], [\"NAME:Options\", \"DuplicateAssignments:=\", False])\nPyAEDT: hfss.modeler.duplicate_along_line(assignment, vector, clones=2, attach=False)",
+      "parameters": [
+        {
+          "name": "XComponent / YComponent / ZComponent",
+          "description": "Spacing vector between consecutive copies; usually an expression such as \"spacing\"."
+        },
+        {
+          "name": "NumClones / clones",
+          "description": "Total number of objects including the original."
+        },
+        {
+          "name": "DuplicateAssignments",
+          "description": "True copies boundaries and excitations onto the clones, which is what an array of fed elements needs."
+        },
+        {
+          "name": "attach / CreateNewObjects",
+          "description": "Whether the copies are independent objects or attached instances that follow the original."
+        }
+      ],
+      "example": "hfss[\"spacing\"] = \"0.5*c0/freq\"\nhfss.modeler.duplicate_along_line(assignment=[\"Patch\", \"FeedSheet\"],\n                                  vector=[\"spacing\", 0, 0], clones=4)\n# Duplicating with DuplicateAssignments True copies the lumped port onto each element\n\n# For large arrays, consider the Component Array / finite array feature instead",
+      "notes": "For arrays of more than a handful of elements the Component Array (finite antenna array) feature or a 3D Component array is far more efficient than duplicating geometry, because it solves one element and applies array theory."
+    },
+    {
+      "name": "Duplicate Around Axis",
+      "kind": "tool",
+      "description": "Create copies of the selected objects rotated about an axis by a fixed angular step. It is the natural tool for circular arrays, rotationally symmetric corrugations, multi-arm spiral antennas and radial feed networks. As with the linear version, boundaries and excitations can be copied with the geometry.",
+      "usage": "1. Select the objects\n2. Edit menu > Duplicate > Around Axis\nScript: oEditor.DuplicateAroundAxis([\"NAME:Selections\", \"Selections:=\", \"<objects>\"], [\"NAME:DuplicateAroundAxisParameters\", \"CreateNewObjects:=\", True, \"WhichAxis:=\", \"Z\", \"AngleStr:=\", \"45deg\", \"NumClones:=\", \"8\"], [\"NAME:Options\", \"DuplicateAssignments:=\", False])\nPyAEDT: hfss.modeler.duplicate_around_axis(assignment, axis, angle=90, clones=2, create_new_objects=True)",
+      "parameters": [
+        {
+          "name": "WhichAxis / axis",
+          "description": "Axis of rotation in the active coordinate system."
+        },
+        {
+          "name": "AngleStr / angle",
+          "description": "Angular step between copies; NumClones times the step usually equals 360 degrees."
+        },
+        {
+          "name": "NumClones / clones",
+          "description": "Total number of objects including the original."
+        },
+        {
+          "name": "DuplicateAssignments",
+          "description": "True carries boundary and excitation assignments onto each copy."
+        }
+      ],
+      "example": "# 8-element circular array around the Z axis\nhfss.modeler.create_coordinate_system(origin=[40, 0, 0], name=\"ElemCS\")\nhfss.modeler.duplicate_around_axis(assignment=[\"Element\", \"ElemFeed\"],\n                                   axis=\"Z\", angle=45, clones=8)\n\n# 4-arm spiral\nhfss.modeler.duplicate_around_axis(assignment=[\"SpiralArm\"], axis=\"Z\", angle=90, clones=4)",
+      "notes": "Copies rotate about the origin of the working coordinate system, so place the elements at their radius first and rotate about the array centre. Overlapping copies should be united afterwards to avoid internal faces."
+    },
+    {
+      "name": "Duplicate and Mirror",
+      "kind": "tool",
+      "description": "Create a mirrored copy of the selected objects across a plane defined by a base point and a normal vector. Use it for symmetric feed networks, balanced dipole arms and anything whose other half is a reflection. The related Mirror command reflects the original in place instead of copying it.",
+      "usage": "1. Select the objects\n2. Edit menu > Duplicate > Mirror   (or Edit > Arrange > Mirror to move rather than copy)\nScript: oEditor.DuplicateMirror([\"NAME:Selections\", \"Selections:=\", \"<objects>\"], [\"NAME:DuplicateToMirrorParameters\", \"DuplicateMirrorBaseX:=\", \"0mm\", \"DuplicateMirrorNormalX:=\", \"1mm\", ...], [\"NAME:Options\", \"DuplicateAssignments:=\", False])\nPyAEDT: hfss.modeler.duplicate_and_mirror(assignment, origin, vector)",
+      "parameters": [
+        {
+          "name": "DuplicateMirrorBaseX/Y/Z",
+          "description": "A point lying on the mirror plane."
+        },
+        {
+          "name": "DuplicateMirrorNormalX/Y/Z",
+          "description": "Normal vector of the mirror plane."
+        },
+        {
+          "name": "DuplicateAssignments",
+          "description": "True copies boundaries and excitations onto the mirrored objects."
+        },
+        {
+          "name": "Mirror (in place)",
+          "description": "oEditor.Mirror / hfss.modeler.mirror reflects the originals instead of duplicating them."
+        }
+      ],
+      "example": "# Second dipole arm, mirrored about the YZ plane through the origin\nhfss.modeler.duplicate_and_mirror(assignment=[\"ArmUpper\"], origin=[0, 0, 0], vector=[1, 0, 0])\n\n# Mirror in place to flip an imported part\nhfss.modeler.mirror(assignment=[\"ImportedPart\"], origin=[0, 0, 0], vector=[0, 1, 0])",
+      "notes": "A mirrored copy of a chiral structure is genuinely different, so check the handedness of helices and spirals after mirroring. Exploiting symmetry with a Symmetry boundary is usually cheaper than modelling both halves."
+    },
+    {
+      "name": "Relative Coordinate System",
+      "kind": "tool",
+      "description": "Create a new coordinate system offset and rotated relative to the global one, or attached to a face or an object, and make it the working coordinate system so that subsequent draw and transform commands are expressed in it. It is essential for building sub-assemblies, placing elements on tilted surfaces and keeping array geometry readable.",
+      "usage": "Modeler menu > Coordinate System > Create > Relative CS > Offset | Rotated | Both\n(also Face CS and Object CS for systems attached to geometry)\nScript: oEditor.CreateRelativeCS([\"NAME:RelativeCSParameters\", \"Mode:=\", \"Axis/Position\", \"OriginX:=\", ..., \"XAxisXvec:=\", ..., \"YAxisXvec:=\", ...], [\"NAME:Attributes\", \"Name:=\", \"RelativeCS1\"])\nPyAEDT: hfss.modeler.create_coordinate_system(origin, x_pointing, y_pointing, name=...); hfss.modeler.set_working_coordinate_system(name)",
+      "parameters": [
+        {
+          "name": "Origin",
+          "description": "Position of the new origin, expressed in the current working coordinate system."
+        },
+        {
+          "name": "X axis / Y axis vectors",
+          "description": "Orientation of the new axes; the Z axis follows from the right-hand rule."
+        },
+        {
+          "name": "Mode",
+          "description": "Axis/Position, Euler angle ZXZ or ZYZ, or Axis/Angle rotation."
+        },
+        {
+          "name": "Face CS",
+          "description": "A coordinate system attached to a selected face, which follows the face if the geometry changes."
+        },
+        {
+          "name": "Working coordinate system",
+          "description": "The CS that all new drawing and transform commands are interpreted in; switch it back to Global when finished."
+        }
+      ],
+      "example": "hfss.modeler.create_coordinate_system(origin=[30, 0, 5],\n                                     x_pointing=[1, 0, 0], y_pointing=[0, 1, 0],\n                                     name=\"ElementCS\")\nhfss.modeler.set_working_coordinate_system(\"ElementCS\")\nel = hfss.modeler.create_box([-5, -5, 0], [10, 10, 1], name=\"Element2\")\nhfss.modeler.set_working_coordinate_system(\"Global\")",
+      "notes": "Every object records which coordinate system it was drawn in, so moving a relative CS moves everything built in it - a powerful way to reposition a whole sub-assembly. Forgetting to switch back to Global is the single most common modelling error in scripted builds."
+    },
+    {
+      "name": "Design Variables and Project Variables",
+      "kind": "tool",
+      "description": "Named quantities that can be used anywhere a number is expected: geometry dimensions, material properties, frequencies, boundary values and post-processing expressions. Design variables belong to one design; project variables are prefixed with a dollar sign and are shared by every design in the project. They are what makes parametric sweeps, optimisation and tuning possible.",
+      "usage": "HFSS menu > Design Properties... (design variables)\nProject menu > Project Variables... (project variables, named $name)\nScript: oDesign.ChangeProperty([...\"NAME:LocalVariableTab\"...]) / oProject.ChangeProperty([...\"NAME:ProjectVariableTab\"...])\nPyAEDT: hfss[\"patch_w\"] = \"38mm\"  /  hfss[\"$global_freq\"] = \"2.45GHz\"  /  hfss.variable_manager",
+      "parameters": [
+        {
+          "name": "Name",
+          "description": "Identifier; a leading $ makes it a project variable visible to all designs."
+        },
+        {
+          "name": "Value",
+          "description": "A number with units, or an expression referencing other variables and built-in constants such as c0 and pi."
+        },
+        {
+          "name": "Type",
+          "description": "Design variable, project variable, or post-processing variable (which does not force a re-solve when changed)."
+        },
+        {
+          "name": "Read-back",
+          "description": "oDesign.GetVariables() / GetVariableValue(name), or hfss.variable_manager.variables in PyAEDT."
+        }
+      ],
+      "example": "hfss[\"freq\"]    = \"2.45GHz\"\nhfss[\"lambda0\"] = \"c0/freq\"\nhfss[\"patch_w\"] = \"0.45*lambda0\"\nhfss[\"patch_l\"] = \"0.35*lambda0\"\nhfss[\"sub_h\"]   = \"1.575mm\"\n\npatch = hfss.modeler.create_rectangle(\"XY\", [\"-patch_w/2\", \"-patch_l/2\", \"sub_h\"],\n                                      [\"patch_w\", \"patch_l\"], name=\"Patch\")\n\nfor name, var in hfss.variable_manager.variables.items():\n    print(name, var.evaluated_value)",
+      "notes": "Built-in constants include c0 (speed of light), pi and e, and units are carried through expressions, so \"c0/freq\" evaluates to a length. Post-processing variables are ideal for report expressions because editing them does not invalidate the solution."
+    },
+    {
+      "name": "Assign Material",
+      "kind": "tool",
+      "description": "Attach a material to one or more objects, which sets permittivity, permeability, conductivity, dielectric and magnetic loss tangents, and (for the solver) whether fields are computed inside the body. Material choice dominates accuracy in dielectric-loaded structures, so use a frequency-dependent or Djordjevic-Sarkar model when the band is wide.",
+      "usage": "1. Select the object(s)\n2. Modeler menu > Assign Material...   (or double-click Material in the Properties window)\nScript: oEditor.AssignMaterial([\"NAME:Selections\", \"AllowRegionDependentPartSelectionForPMLCreation:=\", True, \"Selections:=\", \"<objects>\"], [\"NAME:Attributes\", \"MaterialValue:=\", \"\\\"FR4_epoxy\\\"\", \"SolveInside:=\", True])\nPyAEDT: hfss.modeler[\"Obj\"].material_name = \"FR4_epoxy\"",
+      "parameters": [
+        {
+          "name": "MaterialValue",
+          "description": "Material name; in the native API it must be double-quoted inside the string."
+        },
+        {
+          "name": "SolveInside",
+          "description": "True computes fields inside the body (required for dielectrics); False treats it as an impenetrable conductor and saves a great deal of mesh."
+        },
+        {
+          "name": "pec / perfect conductor",
+          "description": "The built-in perfect electric conductor, for which Solve Inside is automatically off."
+        },
+        {
+          "name": "Anisotropic / frequency dependent",
+          "description": "Material definitions can be tensor-valued or given a frequency-dependent model, including Djordjevic-Sarkar for causal broadband dielectrics."
+        }
+      ],
+      "example": "sub = hfss.modeler.create_box([-25, -25, 0], [50, 50, 1.575], name=\"Sub\")\nsub.material_name = \"Rogers RT/duroid 5880 (tm)\"\nsub.solve_inside = True\n\ngnd = hfss.modeler.create_rectangle(\"XY\", [-25, -25, 0], [50, 50], name=\"Gnd\")\ngnd.material_name = \"pec\"",
+      "notes": "Leaving Solve Inside on for a thick copper block wastes an enormous amount of mesh for no benefit. Conversely, turning it off for a lossy dielectric silently discards the loss you were trying to model."
+    },
+    {
+      "name": "Add Material",
+      "kind": "tool",
+      "description": "Define a new material or clone and edit an existing one in the project or in a personal library, setting relative permittivity and permeability, bulk conductivity, dielectric and magnetic loss tangents, and optional anisotropy, frequency dependence and thermal properties. Materials created here appear in the Assign Material list and can be exported to a shared .amat library.",
+      "usage": "Tools menu > Edit Libraries > Materials...   (or Add Material from the Assign Material dialog)\nScript: oDefinitionManager.AddMaterial([\"NAME:<MatName>\", \"CoordinateSystemType:=\", \"Cartesian\", \"permittivity:=\", \"3.66\", \"dielectric_loss_tangent:=\", \"0.004\", \"conductivity:=\", \"0\"])\nPyAEDT: hfss.materials.add_material(\"MyLaminate\"); mat.permittivity = 3.66; mat.dielectric_loss_tangent = 0.004",
+      "parameters": [
+        {
+          "name": "permittivity / permeability",
+          "description": "Relative epsilon_r and mu_r; may be a scalar, a tensor for anisotropic media, or a frequency-dependent dataset."
+        },
+        {
+          "name": "conductivity",
+          "description": "Bulk conductivity in S/m, used for metals and lossy semiconductors."
+        },
+        {
+          "name": "dielectric_loss_tangent / magnetic_loss_tangent",
+          "description": "tan delta values, the usual way to express dielectric and magnetic loss."
+        },
+        {
+          "name": "Frequency dependent models",
+          "description": "Djordjevic-Sarkar (causal broadband dielectric), Debye, multipole Debye and piecewise-linear datasets."
+        },
+        {
+          "name": "Library scope",
+          "description": "A material can live in the project, the personal library or a shared system library exported as .amat."
+        }
+      ],
+      "example": "mat = hfss.materials.add_material(\"RO4350B_custom\")\nmat.permittivity = 3.66\nmat.dielectric_loss_tangent = 0.0037\nmat.conductivity = 0\nhfss.modeler[\"Sub\"].material_name = \"RO4350B_custom\"\n\n# Native object model\noDefinitionManager = oProject.GetDefinitionManager()\noDefinitionManager.AddMaterial(\n    [\"NAME:RO4350B_custom\", \"CoordinateSystemType:=\", \"Cartesian\",\n     \"permittivity:=\", \"3.66\", \"dielectric_loss_tangent:=\", \"0.0037\"])",
+      "notes": "For wideband signal-integrity work a constant epsilon_r and tan delta is non-causal and produces incorrect time-domain results; use the Djordjevic-Sarkar model so the dielectric behaves causally across the band."
+    },
+    {
+      "name": "Create 3D Component",
+      "kind": "tool",
+      "description": "Package a selection of geometry together with its materials, boundaries, excitations, mesh operations and coordinate systems into a single reusable .a3dcomp file. Components can be inserted into any design, updated centrally, arrayed, and optionally encrypted so a supplier can share a model without exposing its internals.",
+      "usage": "Draw menu > 3D Component > Create 3D Component...   (Insert 3D Component... places one)\nScript: oEditor.Create3DComponent([\"NAME:CreateData\", \"ComponentName:=\", \"<name>\", \"Password:=\", \"\", \"IncludedParts:=\", [...], \"IncludedBoundaries:=\", [...], ...], [...], \"<path>.a3dcomp\", [...])\nPyAEDT: hfss.modeler.create_3dcomponent(input_file=..., name=..., included_cs=..., auxiliary_dict=True)  /  hfss.modeler.insert_3d_component(input_file=...)",
+      "parameters": [
+        {
+          "name": "ComponentName",
+          "description": "Name the component appears under in the model tree once inserted."
+        },
+        {
+          "name": "IncludedParts / IncludedBoundaries / IncludedExcitations",
+          "description": "What is packaged with the geometry; excitations travel with the component so a packaged antenna keeps its port."
+        },
+        {
+          "name": "Password / encryption",
+          "description": "Optional encryption so the component can be used but not inspected or edited."
+        },
+        {
+          "name": "Reference coordinate system",
+          "description": "The CS the component is defined in; it becomes the placement frame when inserted."
+        },
+        {
+          "name": "Auxiliary dictionary",
+          "description": "Optional metadata file carrying mesh operations, materials and setup information alongside the component."
+        }
+      ],
+      "example": "hfss.modeler.create_3dcomponent(\n    input_file=r\"C:\\lib\\patch_2p45.a3dcomp\",\n    name=\"Patch2p45\",\n    included_cs=[\"Global\"],\n    auxiliary_dict=True)\n\n# Insert it into another design and place it\nnew = Hfss(design=\"Array\", version=\"2025.1\")\ncomp = new.modeler.insert_3d_component(input_file=r\"C:\\lib\\patch_2p45.a3dcomp\")\ncomp.rotate(\"Z\", 45)",
+      "notes": "3D components are the supported building block for the Component Array (finite array) feature, which solves one element and applies array theory instead of meshing every element. Updating the .a3dcomp file and re-inserting propagates a design change to every model that uses it."
+    },
+    {
+      "name": "Import CAD Geometry",
+      "kind": "tool",
+      "description": "Read external geometry into the 3D modeller: STEP, IGES, ACIS SAT, Parasolid, Creo, SolidWorks, Inventor, CATIA and NX with the appropriate translator, plus DXF/DWG for 2D outlines and GDSII for IC layout. Imported bodies arrive without electromagnetic meaning, so materials, boundaries and a simplification pass are always the next steps.",
+      "usage": "Modeler menu > Import...   (Modeler > Export... writes STEP, SAT, STL and others)\nScript: oEditor.Import([\"NAME:NativeBodyParameters\", \"HealOption:=\", 1, \"SourceFile:=\", \"<path>\", \"IsCoverSheet:=\", False, \"SeparateDisjointLumps:=\", False, ...])\nPyAEDT: hfss.modeler.import_3d_cad(input_file, healing=True, refresh_all_ids=True)",
+      "parameters": [
+        {
+          "name": "SourceFile / input_file",
+          "description": "Path to the CAD file; the extension selects the translator."
+        },
+        {
+          "name": "HealOption / healing",
+          "description": "Run geometry healing on import to close small gaps and fix sliver faces that would otherwise break meshing."
+        },
+        {
+          "name": "SeparateDisjointLumps",
+          "description": "Split an imported body that consists of several disconnected lumps into separate objects."
+        },
+        {
+          "name": "Model Analysis",
+          "description": "Modeler > Model Analysis > Analyze / Remove Faces / Remove Edges - the simplification tools used after import to delete fillets, threads and cosmetic detail."
+        },
+        {
+          "name": "Model Resolution",
+          "description": "Sets the smallest feature the mesher must resolve, which is the most effective single control for taming detailed CAD."
+        }
+      ],
+      "example": "hfss.modeler.import_3d_cad(r\"C:\\work\\connector.step\", healing=True)\nfor obj in hfss.modeler.object_names:\n    print(obj, hfss.modeler[obj].material_name)\n\nhfss.modeler[\"Shell\"].material_name = \"copper\"\nhfss.modeler[\"Shell\"].solve_inside = False\nhfss.modeler[\"Dielectric\"].material_name = \"Teflon (tm)\"\n\n# Control how much detail the mesher must honour\nhfss.mesh.assign_model_resolution(assignment=[\"Shell\"], defeature_length=\"0.05mm\")",
+      "notes": "Mechanical CAD carries threads, knurls, fillets and tolerancing detail that are electromagnetically irrelevant but can multiply the mesh a hundredfold. Defeature aggressively with Model Analysis and Model Resolution before the first solve, not after. Modeler > Purge History discards an imported assembly's construction history, which speeds up rebuilds and clears history-related regeneration failures, but permanently removes any parametric link so the objects can no longer be swept."
+    },
+    {
+      "name": "Create Open Region",
+      "kind": "tool",
+      "description": "Add an air region around the model together with a radiation or PML boundary in a single step, sized automatically from a chosen frequency. It is the fastest correct way to set up a radiating problem, because it places the absorbing boundary at the right distance and keeps that distance tied to the frequency variable.",
+      "usage": "HFSS menu > Radiation > Create Open Region...\nPyAEDT: hfss.create_open_region(frequency=\"2.45GHz\", boundary=\"Radiation\", apply_infinite_ground=False)",
+      "parameters": [
+        {
+          "name": "Frequency",
+          "description": "Frequency used to size the region; the padding is derived from the corresponding wavelength."
+        },
+        {
+          "name": "Boundary type",
+          "description": "Radiation (a first- or second-order absorbing boundary condition), PML (perfectly matched layer) or FE-BI."
+        },
+        {
+          "name": "Apply infinite ground plane",
+          "description": "Adds an infinite ground at a chosen plane, appropriate for a grounded antenna where the real ground is much larger than the model."
+        },
+        {
+          "name": "Padding",
+          "description": "The automatic quarter-wavelength standoff; a radiation boundary too close to the antenna corrupts the pattern and the impedance."
+        }
+      ],
+      "example": "hfss[\"freq\"] = \"2.45GHz\"\nhfss.create_open_region(frequency=\"freq\", boundary=\"Radiation\")\nhfss.insert_infinite_sphere(name=\"3D\")\nhfss.analyze()\nhfss.post.create_report(\"GainTotal\", report_category=\"Far Fields\",\n                        context=\"3D\", primary_sweep_variable=\"Theta\")",
+      "notes": "A radiation boundary must be at least a quarter wavelength from the radiating structure at the lowest frequency; closer than that and the pattern and input impedance are both wrong. PML is more accurate close in but costs more mesh, and FE-BI removes the standoff requirement entirely at higher solve cost."
+    },
+    {
+      "name": "Create Region",
+      "kind": "tool",
+      "description": "Create a bounding box (or other shape) around the model with padding specified per face, as an absolute distance, a percentage of the model size, or a transverse/offset combination. Unlike Create Open Region it only makes the geometry; the boundary is assigned separately, which gives full control over the enclosure.",
+      "usage": "Draw menu > Region   (ribbon: Draw > Region)\nScript: oEditor.CreateRegion([\"NAME:RegionParameters\", \"+XPaddingType:=\", \"Percentage Offset\", \"+XPadding:=\", \"100\", ...], [\"NAME:Attributes\", \"Name:=\", \"Region\", \"MaterialValue:=\", \"\\\"vacuum\\\"\"])\nPyAEDT: hfss.modeler.create_air_region(x_pos, y_pos, z_pos, x_neg, y_neg, z_neg, is_percentage=True)",
+      "parameters": [
+        {
+          "name": "PaddingType",
+          "description": "Absolute Offset, Percentage Offset, Absolute Position or Transverse Percentage Offset, chosen independently per face."
+        },
+        {
+          "name": "Padding values",
+          "description": "Six values, one per face (+X, -X, +Y, -Y, +Z, -Z), allowing an asymmetric region."
+        },
+        {
+          "name": "Material",
+          "description": "Usually vacuum or air; the region material is what fills the space around the model."
+        },
+        {
+          "name": "Region object",
+          "description": "The created object is named Region and behaves like any other solid, so a boundary can be assigned to its faces."
+        }
+      ],
+      "example": "hfss.modeler.create_air_region(x_pos=50, y_pos=50, z_pos=100,\n                               x_neg=50, y_neg=50, z_neg=10,\n                               is_percentage=True)\nhfss.assign_radiation_boundary_to_objects(\"Region\")\n\n# Asymmetric: more space above a patch than below its ground plane",
+      "notes": "Percentage padding is measured against the model's overall size, so it does not automatically scale with wavelength - check the standoff in absolute terms at the lowest frequency. Create Open Region is safer for radiating problems because it works from the wavelength directly."
+    },
+    {
+      "name": "Validation Check",
+      "kind": "menu",
+      "description": "Run a consistency check over the whole design before solving: geometry validity, material assignments, boundaries and excitations, mesh operations, analysis setups and optimetrics. It reports errors that would stop the solve and warnings about questionable setups such as overlapping boundaries or ports that do not touch the model boundary.",
+      "usage": "HFSS menu > Validation Check...   (ribbon: Simulation > Validate)\nScript: oDesign.ValidateDesign()\nPyAEDT: hfss.validate_full_design()  /  hfss.validate_simple()",
+      "parameters": [
+        {
+          "name": "Checked items",
+          "description": "3D Model, Boundaries and Excitations, Mesh Operations, Analysis Setup, Optimetrics, Radiation - each shown with a tick, warning or error."
+        },
+        {
+          "name": "Message Manager",
+          "description": "Detailed messages appear in the Message Manager pane and in the project log; ValidateDesign returns a status a script can branch on."
+        },
+        {
+          "name": "Common errors",
+          "description": "Overlapping objects, a port sheet not coincident with the region boundary, a boundary assigned to a deleted face, or no analysis setup defined."
+        }
+      ],
+      "example": "ok, messages = hfss.validate_full_design()\nfor m in messages:\n    print(m)\nif not ok:\n    raise RuntimeError(\"Design validation failed - see messages above\")\nhfss.analyze()",
+      "notes": "Overlapping solid objects are the most frequent validation error and usually mean a boolean was skipped; use Modeler > Boolean > Unite or Subtract to resolve the overlap rather than nudging the geometry."
+    }
+  ]
+}

@@ -1,0 +1,683 @@
+{
+  "category": "Phased Array System Toolbox & Radar Toolbox > Arrays, Beamforming, Waveforms, Detection & Radar Scenarios",
+  "description": "System objects and functions for sensor-array modelling (elements, ULA/URA/UCA/conformal arrays, steering vectors), beamforming and direction-of-arrival estimation, radar waveforms, transmit/receive chains, propagation and targets, matched filtering, CFAR detection, range-Doppler processing and radar equation utilities, plus Radar Toolbox scenario simulation.",
+  "tools": [
+    {
+      "name": "phased.ULA",
+      "kind": "function",
+      "description": "System object modelling a uniform linear array of identical elements with a given spacing (in metres) and optional amplitude taper. Calling the object returns the array response (element pattern times steering) at given frequencies and angles; object functions plot patterns and return element positions. It is the default array for most beamformers, estimators and radiator/collector objects.",
+      "usage": "array = phased.ULA\narray = phased.ULA(N)\narray = phased.ULA(N, d)\narray = phased.ULA(Name=Value)\nresp = array(freq, ang)",
+      "parameters": [
+        {"name": "NumElements", "description": "Number of elements (default 2)."},
+        {"name": "ElementSpacing", "description": "Spacing in metres (default 0.5); typically lambda/2 to avoid grating lobes."},
+        {"name": "Element", "description": "Element object, e.g. phased.IsotropicAntennaElement or phased.CosineAntennaElement."},
+        {"name": "ArrayAxis", "description": "'y' (default), 'x' or 'z'."},
+        {"name": "Taper", "description": "Vector of complex element weights (e.g. from taylorwin or chebwin)."}
+      ],
+      "example": "fc = 3e9; c = physconst('LightSpeed'); lambda = c/fc;\nula = phased.ULA(NumElements=8, ElementSpacing=lambda/2);\npattern(ula, fc, -90:90, 0, CoordinateSystem='rectangular', Type='powerdb')\npos = getElementPosition(ula);",
+      "notes": "Object functions: pattern, patternAzimuth, patternElevation, viewArray, getElementPosition, getNumElements, beamwidth, directivity, collectPlaneWave.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.ula-system-object.html"
+    },
+    {
+      "name": "phased.URA",
+      "kind": "function",
+      "description": "System object for a uniform rectangular (planar) array with rows and columns of elements on a rectangular or triangular lattice, lying in the yz-plane by default. Used for 2-D beam steering in azimuth and elevation, e.g. phased-array radar and 5G base-station panels.",
+      "usage": "array = phased.URA\narray = phased.URA(sz)\narray = phased.URA(sz, d)\narray = phased.URA(Name=Value)\nresp = array(freq, ang)",
+      "parameters": [
+        {"name": "Size", "description": "[rows columns] (default [2 2])."},
+        {"name": "ElementSpacing", "description": "[rowSpacing colSpacing] in metres or a scalar."},
+        {"name": "Lattice", "description": "'Rectangular' (default) or 'Triangular'."},
+        {"name": "ArrayNormal", "description": "'x' (default), 'y' or 'z'."},
+        {"name": "Taper", "description": "Matrix of element weights."}
+      ],
+      "example": "ura = phased.URA(Size=[4 8], ElementSpacing=[0.05 0.05]);\nviewArray(ura, ShowIndex='All')\npattern(ura, 3e9, -180:180, -90:90, Type='powerdb')",
+      "notes": "Element indexing runs down columns. For non-planar layouts use phased.ConformalArray; for subarrayed panels use phased.ReplicatedSubarray or phased.PartitionedArray.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.ura-system-object.html"
+    },
+    {
+      "name": "phased.UCA",
+      "kind": "function",
+      "description": "System object for a uniform circular array of N elements on a circle of given radius in the xy-plane, with element normals pointing radially outward (or all along the array normal). Circular arrays provide near-uniform azimuth coverage and are supported by the root-MUSIC (via phase-mode excitation) and beamscan estimators.",
+      "usage": "array = phased.UCA\narray = phased.UCA(N, R)\narray = phased.UCA(Name=Value)",
+      "parameters": [
+        {"name": "NumElements", "description": "Number of elements (default 5)."},
+        {"name": "Radius", "description": "Circle radius in metres (default 0.5)."},
+        {"name": "ArrayNormal", "description": "'z' (default), 'x' or 'y'."}
+      ],
+      "example": "uca = phased.UCA(NumElements=12, Radius=0.3);\nviewArray(uca)\nsv = phased.SteeringVector(SensorArray=uca);\nw = sv(1e9, [45; 0]);",
+      "notes": "Introduced in R2015a. Radius should give an element spacing near lambda/2 for unambiguous DOA.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.uca-system-object.html"
+    },
+    {
+      "name": "phased.ConformalArray",
+      "kind": "function",
+      "description": "System object for an arbitrary array defined by explicit element positions and element normal directions, enabling cylindrical, spherical and body-mounted arrays or irregular layouts. Element responses are evaluated in each element's local frame given by its normal.",
+      "usage": "array = phased.ConformalArray\narray = phased.ConformalArray(pos, nv)\narray = phased.ConformalArray(Name=Value)",
+      "parameters": [
+        {"name": "ElementPosition", "description": "3-by-N matrix of element positions in metres."},
+        {"name": "ElementNormal", "description": "2-by-N matrix of [azimuth; elevation] normal directions in degrees."},
+        {"name": "Element", "description": "Element object shared by all elements."},
+        {"name": "Taper", "description": "Complex weights per element."}
+      ],
+      "example": "N = 16; th = linspace(0, 360, N+1); th(end) = [];\npos = 0.2*[cosd(th); sind(th); zeros(1,N)];\nnv = [th; zeros(1,N)];\narr = phased.ConformalArray(ElementPosition=pos, ElementNormal=nv);\nviewArray(arr, ShowNormals=true)",
+      "notes": "Use phased.HeterogeneousConformalArray when elements differ. Element positions are in the array's local coordinate system.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.conformalarray-system-object.html"
+    },
+    {
+      "name": "phased.IsotropicAntennaElement",
+      "kind": "function",
+      "description": "Antenna element with unit gain in all directions over a specified frequency range, optionally back-baffled (zero response behind the element). It is the default element of the array objects and the simplest choice when the element pattern is not of interest.",
+      "usage": "element = phased.IsotropicAntennaElement\nelement = phased.IsotropicAntennaElement(Name=Value)\nresp = element(freq, ang)",
+      "parameters": [
+        {"name": "FrequencyRange", "description": "[fmin fmax] in Hz over which the element responds (default [0 1e20])."},
+        {"name": "BackBaffled", "description": "true to zero the response for azimuths beyond +/-90 degrees."}
+      ],
+      "example": "el = phased.IsotropicAntennaElement(FrequencyRange=[1e9 6e9], BackBaffled=true);\npattern(el, 3e9, -180:180, 0, Type='powerdb')",
+      "notes": "Other elements: phased.CosineAntennaElement, phased.CustomAntennaElement (measured patterns), phased.ShortDipoleAntennaElement and phased.CrossedDipoleAntennaElement (polarized), phased.OmnidirectionalMicrophoneElement for acoustics.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.isotropicantennaelement-system-object.html"
+    },
+    {
+      "name": "phased.CosineAntennaElement",
+      "kind": "function",
+      "description": "Directional antenna element whose magnitude pattern is cos(az)^p * cos(el)^q over the front hemisphere, giving a simple, smooth model of a patch or horn element. Use it to include realistic element roll-off in array patterns and beamforming gain.",
+      "usage": "element = phased.CosineAntennaElement\nelement = phased.CosineAntennaElement(Name=Value)",
+      "parameters": [
+        {"name": "FrequencyRange", "description": "[fmin fmax] in Hz."},
+        {"name": "CosinePower", "description": "[p q] exponents for azimuth and elevation (default [1.5 1.5]); larger values narrow the beam."}
+      ],
+      "example": "el = phased.CosineAntennaElement(CosinePower=[2 2]);\nula = phased.ULA(NumElements=8, ElementSpacing=0.05, Element=el);\npattern(ula, 3e9, -90:90, 0, Type='directivity')",
+      "notes": "The element has no response behind the array plane, so use it for one-sided arrays.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.cosineantennaelement-system-object.html"
+    },
+    {
+      "name": "phased.SteeringVector",
+      "kind": "function",
+      "description": "Computes steering vectors (the array manifold) for a sensor array at given frequencies and directions, optionally including the element pattern. Steering vectors are the building blocks of conventional beamformers, MVDR/LCMV weights and DOA algorithms.",
+      "usage": "sv = phased.SteeringVector(Name=Value)\nw = sv(freq, ang)\nw = sv(freq, ang, steeringAngle)   % with subarrays",
+      "parameters": [
+        {"name": "SensorArray", "description": "Array object (default phased.ULA)."},
+        {"name": "PropagationSpeed", "description": "Wave speed in m/s (default speed of light)."},
+        {"name": "IncludeElementResponse", "description": "true to multiply by the element pattern."},
+        {"name": "NumPhaseShifterBits", "description": "Quantize phase shifts to a number of bits."}
+      ],
+      "example": "ula = phased.ULA(NumElements=8, ElementSpacing=0.05);\nsv = phased.SteeringVector(SensorArray=ula);\nw = sv(3e9, [30; 0]);       % 8-by-1 steering vector toward az 30 deg\nw2 = sv(3e9, [-20 0 40; 0 0 0]);   % three directions",
+      "notes": "Angles are [azimuth; elevation] in degrees. For a quick numeric version without System objects use steervec(pos, ang) with positions in wavelengths.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.steeringvector-system-object.html"
+    },
+    {
+      "name": "phased.ArrayResponse",
+      "kind": "function",
+      "description": "Computes the complex array response (beam pattern value) of a sensor array for given frequencies and directions, optionally with user-supplied weights, in a form suitable for evaluating the pattern of a beamformer or steering weights at many angles.",
+      "usage": "response = phased.ArrayResponse(Name=Value)\nresp = response(freq, ang)\nresp = response(freq, ang, weights)",
+      "parameters": [
+        {"name": "SensorArray", "description": "Array object."},
+        {"name": "WeightsInputPort", "description": "true to pass weights as a third argument."},
+        {"name": "EnablePolarization", "description": "true to return H and V polarized responses."}
+      ],
+      "example": "ula = phased.ULA(8, 0.05);\nresp = phased.ArrayResponse(SensorArray=ula, WeightsInputPort=true);\nsv = phased.SteeringVector(SensorArray=ula);\nw = sv(3e9, [20; 0]);\nang = -90:90;\np = resp(3e9, [ang; zeros(size(ang))], w);\nplot(ang, mag2db(abs(p)))",
+      "notes": "phased.ArrayGain returns the SNR gain of the array in dB instead of the complex response.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.arrayresponse-system-object.html"
+    },
+    {
+      "name": "phased.ArrayGain",
+      "kind": "function",
+      "description": "Computes the array gain (output SNR divided by element SNR, in dB) for given frequencies, directions and optional weights. Use it to quantify the SNR benefit of an array and beamformer, which differs from directivity when the noise is not white or weights are tapered.",
+      "usage": "gain = phased.ArrayGain(Name=Value)\ng = gain(freq, ang)\ng = gain(freq, ang, weights)",
+      "parameters": [
+        {"name": "SensorArray", "description": "Array object."},
+        {"name": "WeightsInputPort", "description": "Enable weights input."}
+      ],
+      "example": "ula = phased.ULA(16, 0.05);\ngain = phased.ArrayGain(SensorArray=ula);\ng = gain(3e9, [0; 0])   % about 10*log10(16) = 12 dB",
+      "notes": "The array gain of an N-element ULA with uniform weights at broadside is 10log10(N) dB.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.arraygain-system-object.html"
+    },
+    {
+      "name": "steervec",
+      "kind": "function",
+      "description": "Computes steering vectors for arbitrary element positions given in wavelengths and arrival directions, without constructing a System object. Convenient for quick analyses and for building custom beamformers or DOA algorithms in plain MATLAB code.",
+      "usage": "sv = steervec(pos, ang)\nsv = steervec(pos, ang, nqbits)",
+      "parameters": [
+        {"name": "pos", "description": "Element positions in wavelengths: 1-by-N (along y), 2-by-N (y,z) or 3-by-N."},
+        {"name": "ang", "description": "Directions as azimuth degrees (1-by-M) or [az; el] (2-by-M)."},
+        {"name": "nqbits", "description": "Number of phase-shifter quantization bits."}
+      ],
+      "example": "pos = (0:7)*0.5;           % half-wavelength ULA\nsv = steervec(pos, [30 -10]);   % 8-by-2\nw = cbfweights(pos, 30);",
+      "notes": "Companion weight functions: cbfweights (conventional), mvdrweights, lcmvweights, and sensorcov/sensorsig for synthetic covariance and signals.",
+      "docs": "https://www.mathworks.com/help/phased/ref/steervec.html"
+    },
+    {
+      "name": "cbfweights",
+      "kind": "function",
+      "description": "Returns conventional (Bartlett / delay-and-sum) beamforming weights for element positions in wavelengths and steering directions, i.e. the normalized steering vector. Use it for quick beam patterns and as a baseline against adaptive weights.",
+      "usage": "w = cbfweights(pos, ang)\nw = cbfweights(pos, ang, nqbits)",
+      "parameters": [
+        {"name": "pos", "description": "Element positions in wavelengths."},
+        {"name": "ang", "description": "Steering direction(s) in degrees."}
+      ],
+      "example": "pos = (0:9)*0.5;\nw = cbfweights(pos, 20);\nang = -90:90;\nsv = steervec(pos, ang);\nplot(ang, mag2db(abs(w'*sv)))",
+      "notes": "Weights are scaled so the response in the steering direction is unity.",
+      "docs": "https://www.mathworks.com/help/phased/ref/cbfweights.html"
+    },
+    {
+      "name": "mvdrweights",
+      "kind": "function",
+      "description": "Computes minimum-variance distortionless-response (Capon) beamforming weights from element positions, a look direction and the sensor covariance matrix, with optional diagonal loading. MVDR keeps unit gain toward the desired direction while minimizing output power from interference and noise.",
+      "usage": "w = mvdrweights(pos, ang, cov)\nw = mvdrweights(pos, ang, cov, nqbits)\nw = mvdrweights(pos, ang, cov, 'DiagonalLoadingFactor', dl)   % via optional inputs",
+      "parameters": [
+        {"name": "pos", "description": "Element positions in wavelengths."},
+        {"name": "ang", "description": "Look direction(s) in degrees."},
+        {"name": "cov", "description": "N-by-N sensor covariance matrix (e.g. from sensorcov or x'*x/L)."}
+      ],
+      "example": "pos = (0:9)*0.5;\nncov = 0.1; scov = [1 0; 0 3];\ncov = sensorcov(pos, [30 -20], ncov, scov);\nw = mvdrweights(pos, 30, cov);\nplot(-90:90, mag2db(abs(w'*steervec(pos, -90:90))))",
+      "notes": "Requires a well-conditioned covariance; add diagonal loading when the number of snapshots is small. The streaming equivalent is phased.MVDRBeamformer.",
+      "docs": "https://www.mathworks.com/help/phased/ref/mvdrweights.html"
+    },
+    {
+      "name": "lcmvweights",
+      "kind": "function",
+      "description": "Computes linearly constrained minimum-variance beamforming weights that satisfy a set of linear constraints (constraint matrix and desired response) while minimizing output power under the given covariance. Constraints can fix gains toward several directions or place nulls, generalizing MVDR.",
+      "usage": "w = lcmvweights(constr, resp, cov)\nw = lcmvweights(constr, resp, cov, nqbits)",
+      "parameters": [
+        {"name": "constr", "description": "N-by-K constraint matrix (columns are steering vectors)."},
+        {"name": "resp", "description": "K-by-1 desired responses for each constraint."},
+        {"name": "cov", "description": "Sensor covariance matrix."}
+      ],
+      "example": "pos = (0:9)*0.5;\ncov = sensorcov(pos, [30 -20], 0.01, [1 0; 0 10]);\nconstr = steervec(pos, [30 -20]);   % unit gain at 30, null at -20\nw = lcmvweights(constr, [1; 0], cov);",
+      "notes": "phased.LCMVBeamformer is the streaming System object version.",
+      "docs": "https://www.mathworks.com/help/phased/ref/lcmvweights.html"
+    },
+    {
+      "name": "sensorArrayAnalyzer",
+      "kind": "tool",
+      "description": "App for designing and analysing arrays interactively: choose the geometry (ULA, URA, UCA, circular planar, conformal, or imported), element type, spacing, tapering and steering, then view 2-D/3-D patterns, grating-lobe diagrams, directivity, beamwidth and array layout. It can export the configured array as a System object or generate MATLAB code.",
+      "usage": "sensorArrayAnalyzer",
+      "parameters": [
+        {"name": "Array tab", "description": "Geometry, size, spacing, element, taper, steering angle, frequency."},
+        {"name": "Analysis tab", "description": "Pattern (az/el/3-D), grating lobe diagram, geometry, directivity table."},
+        {"name": "Export", "description": "Export array object to workspace or generate script."}
+      ],
+      "example": "sensorArrayAnalyzer\n% choose URA 8x8, spacing 0.5 lambda, Chebyshev taper 30 dB, steer to (30,10), Export > Generate MATLAB Code",
+      "notes": "Related apps: pulseWaveformAnalyzer, radarEquationCalculator, Radar Designer (Radar Toolbox).",
+      "docs": "https://www.mathworks.com/help/phased/ref/sensorarrayanalyzer-app.html"
+    },
+    {
+      "name": "phased.PhaseShiftBeamformer",
+      "kind": "function",
+      "description": "Narrowband conventional beamformer that applies steering-vector phase shifts to array channel data and sums them, optionally returning the weights. It is the streaming System-object counterpart of cbfweights and is used in receive chains and for transmit beam steering.",
+      "usage": "beamformer = phased.PhaseShiftBeamformer(Name=Value)\ny = beamformer(x)\ny = beamformer(x, ang)          % DirectionSource='Input port'\n[y, w] = beamformer(x)          % WeightsOutputPort=true",
+      "parameters": [
+        {"name": "SensorArray", "description": "Array object."},
+        {"name": "OperatingFrequency", "description": "Carrier frequency in Hz."},
+        {"name": "Direction", "description": "[az; el] steering direction(s) when DirectionSource='Property'."},
+        {"name": "NumPhaseShifterBits", "description": "Phase quantization."},
+        {"name": "WeightsNormalization", "description": "'Distortionless' or 'Preserve power'."}
+      ],
+      "example": "ula = phased.ULA(8, 0.05);\nx = collectPlaneWave(ula, randn(200, 1), [20; 0], 3e9) + 0.1*randn(200, 8);\nbf = phased.PhaseShiftBeamformer(SensorArray=ula, OperatingFrequency=3e9, Direction=[20; 0], WeightsOutputPort=true);\n[y, w] = bf(x);",
+      "notes": "Input x is samples-by-elements. For wideband signals use phased.SubbandPhaseShiftBeamformer or phased.TimeDelayBeamformer.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.phaseshiftbeamformer-system-object.html"
+    },
+    {
+      "name": "phased.MVDRBeamformer",
+      "kind": "function",
+      "description": "Adaptive narrowband MVDR (Capon) beamformer System object that estimates the covariance from the input (or from separate training data) and forms weights with unit gain toward the look direction and minimum output power elsewhere, suppressing interferers automatically. Supports diagonal loading for robustness.",
+      "usage": "beamformer = phased.MVDRBeamformer(Name=Value)\ny = beamformer(x)\ny = beamformer(x, xt)     % TrainingInputPort=true\n[y, w] = beamformer(___)",
+      "parameters": [
+        {"name": "SensorArray, OperatingFrequency", "description": "Array and carrier."},
+        {"name": "Direction", "description": "Look direction [az; el]."},
+        {"name": "DiagonalLoadingFactor", "description": "Added to the covariance diagonal (default 0)."},
+        {"name": "TrainingInputPort", "description": "Use separate training snapshots xt."},
+        {"name": "WeightsOutputPort", "description": "Return the adaptive weights."}
+      ],
+      "example": "ula = phased.ULA(10, 0.05); fc = 3e9;\nt = (0:999)'/1e4;\nx = collectPlaneWave(ula, [sin(2*pi*50*t) 5*randn(1000,1)], [30 -40; 0 0], fc) + 0.1*randn(1000, 10);\nbf = phased.MVDRBeamformer(SensorArray=ula, OperatingFrequency=fc, Direction=[30; 0], DiagonalLoadingFactor=1e-3, WeightsOutputPort=true);\n[y, w] = bf(x);",
+      "notes": "Needs more snapshots than elements for a stable covariance estimate. phased.LCMVBeamformer adds arbitrary linear constraints; phased.SubbandMVDRBeamformer handles wideband inputs.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.mvdrbeamformer-system-object.html"
+    },
+    {
+      "name": "phased.LCMVBeamformer",
+      "kind": "function",
+      "description": "Adaptive narrowband beamformer with user-defined linear constraints (constraint matrix and desired response vector), used to keep gain toward several directions, enforce nulls, or add derivative constraints for robustness, while minimizing output power based on the estimated covariance.",
+      "usage": "beamformer = phased.LCMVBeamformer(Name=Value)\ny = beamformer(x)\n[y, w] = beamformer(x)",
+      "parameters": [
+        {"name": "Constraint", "description": "N-by-K constraint matrix (e.g. steering vectors)."},
+        {"name": "DesiredResponse", "description": "K-by-1 desired response."},
+        {"name": "DiagonalLoadingFactor", "description": "Robustness loading."},
+        {"name": "TrainingInputPort, WeightsOutputPort", "description": "As for phased.MVDRBeamformer."}
+      ],
+      "example": "ula = phased.ULA(10, 0.05); fc = 3e9;\nsv = phased.SteeringVector(SensorArray=ula);\nC = sv(fc, [30 -40; 0 0]);\nbf = phased.LCMVBeamformer(Constraint=C, DesiredResponse=[1; 0]);\ny = bf(x);",
+      "notes": "Constraint columns must be linearly independent. Unlike phased.MVDRBeamformer no SensorArray property is needed because constraints already encode the geometry.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.lcmvbeamformer-system-object.html"
+    },
+    {
+      "name": "phased.TimeDelayBeamformer",
+      "kind": "function",
+      "description": "Wideband beamformer that delays each channel by the propagation delay to the look direction (fractional delays) and sums, so the beam is frequency independent. Appropriate for acoustic arrays and wideband radar/sonar where phase-shift beamforming would squint.",
+      "usage": "beamformer = phased.TimeDelayBeamformer(Name=Value)\ny = beamformer(x)\ny = beamformer(x, ang)",
+      "parameters": [
+        {"name": "SensorArray", "description": "Array object (microphones or antennas)."},
+        {"name": "PropagationSpeed", "description": "343 for air acoustics, 1500 for water, c for RF."},
+        {"name": "SampleRate", "description": "Signal sample rate in Hz."},
+        {"name": "Direction / DirectionSource", "description": "Steering direction as property or input."}
+      ],
+      "example": "mic = phased.OmnidirectionalMicrophoneElement(FrequencyRange=[20 20e3]);\nula = phased.ULA(8, 0.04, Element=mic);\nbf = phased.TimeDelayBeamformer(SensorArray=ula, PropagationSpeed=343, SampleRate=16e3, Direction=[30; 0]);\ny = bf(x);",
+      "notes": "Related wideband objects: phased.SubbandPhaseShiftBeamformer (FFT subbands), phased.FrostBeamformer (adaptive FIR), phased.TimeDelayLCMVBeamformer.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.timedelaybeamformer-system-object.html"
+    },
+    {
+      "name": "phased.BeamscanEstimator",
+      "kind": "function",
+      "description": "Narrowband direction-of-arrival estimator for ULAs that scans a conventional beam over a set of angles and reports the spatial spectrum and its peaks. It is robust and simple but has the resolution of the array beamwidth; use phased.MUSICEstimator or root-MUSIC for super-resolution.",
+      "usage": "estimator = phased.BeamscanEstimator(Name=Value)\n[y, ang] = estimator(x)      % DOAOutputPort=true\nplotSpectrum(estimator)",
+      "parameters": [
+        {"name": "SensorArray, OperatingFrequency", "description": "ULA and carrier."},
+        {"name": "ScanAngles", "description": "Vector of azimuths to scan (default -90:90)."},
+        {"name": "DOAOutputPort", "description": "true to return estimated angles."},
+        {"name": "NumSignals", "description": "Number of peaks to report."},
+        {"name": "ForwardBackwardAveraging, SpatialSmoothing", "description": "Covariance conditioning options."}
+      ],
+      "example": "ula = phased.ULA(10, 0.05); fc = 3e9;\nx = collectPlaneWave(ula, randn(500, 2), [20 -35; 0 0], fc) + 0.1*randn(500, 10);\nest = phased.BeamscanEstimator(SensorArray=ula, OperatingFrequency=fc, DOAOutputPort=true, NumSignals=2);\n[~, doa] = est(x)\nplotSpectrum(est)",
+      "notes": "For 2-D (az/el) scanning on URAs use phased.BeamscanEstimator2D; phased.MVDREstimator gives the Capon spectrum.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.beamscanestimator-system-object.html"
+    },
+    {
+      "name": "phased.MUSICEstimator",
+      "kind": "function",
+      "description": "MUSIC (MUltiple SIgnal Classification) super-resolution DOA estimator for ULAs that separates signal and noise subspaces of the covariance and evaluates the MUSIC pseudo-spectrum over scan angles. Resolves closely spaced sources given enough SNR and snapshots; supports automatic source-number estimation.",
+      "usage": "estimator = phased.MUSICEstimator(Name=Value)\n[y, ang] = estimator(x)\nplotSpectrum(estimator)",
+      "parameters": [
+        {"name": "SensorArray, OperatingFrequency, ScanAngles", "description": "As for BeamscanEstimator."},
+        {"name": "NumSignalsSource", "description": "'Auto' (AIC/MDL) or 'Property'."},
+        {"name": "NumSignals", "description": "Number of sources when NumSignalsSource='Property'."},
+        {"name": "ForwardBackwardAveraging, SpatialSmoothing", "description": "Improve performance with coherent sources."}
+      ],
+      "example": "est = phased.MUSICEstimator(SensorArray=ula, OperatingFrequency=fc, ScanAngles=-60:0.1:60, DOAOutputPort=true, NumSignalsSource='Property', NumSignals=2);\n[~, doa] = est(x)",
+      "notes": "Coherent (multipath) sources need SpatialSmoothing > 0. phased.MUSICEstimator2D handles URA az/el estimation. Numeric alternatives: musicdoa, rootmusicdoa, espritdoa.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.musicestimator-system-object.html"
+    },
+    {
+      "name": "phased.RootMUSICEstimator",
+      "kind": "function",
+      "description": "Search-free root-MUSIC DOA estimator for uniform linear (and, via phase-mode excitation, uniform circular) arrays that finds source directions as polynomial roots instead of scanning a spectrum, giving fast, high-resolution estimates without a grid.",
+      "usage": "estimator = phased.RootMUSICEstimator(Name=Value)\nang = estimator(x)\nang = estimator(x, elang)   % UCA with elevation input",
+      "parameters": [
+        {"name": "SensorArray", "description": "phased.ULA or phased.UCA."},
+        {"name": "OperatingFrequency, PropagationSpeed", "description": "Carrier and wave speed."},
+        {"name": "NumSignalsSource / NumSignals", "description": "Source count estimation."},
+        {"name": "ForwardBackwardAveraging, SpatialSmoothing", "description": "Covariance conditioning."}
+      ],
+      "example": "est = phased.RootMUSICEstimator(SensorArray=ula, OperatingFrequency=fc, NumSignalsSource='Property', NumSignals=2);\ndoa = est(x)      % broadside angles in degrees",
+      "notes": "Outputs broadside angles; convert with broadside2az if needed. phased.ESPRITEstimator is another search-free option.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.rootmusicestimator-system-object.html"
+    },
+    {
+      "name": "phased.LinearFMWaveform",
+      "kind": "function",
+      "description": "Generates linear frequency-modulated (chirp) pulse trains defined by sample rate, pulse width, PRF and sweep bandwidth. LFM pulses give range resolution c/(2B) after matched filtering regardless of pulse length, which is why they are the standard pulsed-radar waveform in the toolbox examples.",
+      "usage": "waveform = phased.LinearFMWaveform(Name=Value)\ny = waveform()\ny = waveform(prfidx)\nplot(waveform)\ncoef = getMatchedFilter(waveform)",
+      "parameters": [
+        {"name": "SampleRate", "description": "Hz (default 1e6)."},
+        {"name": "PulseWidth", "description": "Seconds (default 50e-6); or set DurationSpecification='Num cycles'."},
+        {"name": "PRF", "description": "Pulse repetition frequency in Hz; vector for staggered PRF."},
+        {"name": "SweepBandwidth", "description": "Chirp bandwidth in Hz."},
+        {"name": "SweepDirection / SweepInterval", "description": "'Up'/'Down' and 'Positive'/'Symmetric'."},
+        {"name": "NumPulses", "description": "Pulses per call (default 1)."},
+        {"name": "OutputFormat", "description": "'Pulses' or 'Samples' (with NumSamples)."}
+      ],
+      "example": "wav = phased.LinearFMWaveform(SampleRate=1e6, PulseWidth=20e-6, PRF=5e3, SweepBandwidth=500e3);\nx = wav();\nplot(wav)\nmf = phased.MatchedFilter(Coefficients=getMatchedFilter(wav));\ny = mf(x);",
+      "notes": "Other waveforms: phased.RectangularWaveform, phased.FMCWWaveform (continuous), phased.PhaseCodedWaveform, phased.SteppedFMWaveform, phased.CustomFMWaveform, phased.MFSKWaveform. bandwidth(wav) and ambgfun help characterize them.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.linearfmwaveform-system-object.html"
+    },
+    {
+      "name": "phased.FMCWWaveform",
+      "kind": "function",
+      "description": "Generates frequency-modulated continuous-wave (sawtooth or triangle sweep) signals used by automotive and short-range radars. Range and velocity are recovered by dechirping the received signal against the transmit sweep and taking FFTs (beat frequency to range via beat2range).",
+      "usage": "waveform = phased.FMCWWaveform(Name=Value)\ny = waveform()\nplot(waveform)",
+      "parameters": [
+        {"name": "SampleRate", "description": "Hz; must be at least the sweep bandwidth for complex sampling."},
+        {"name": "SweepTime", "description": "Duration of one sweep in seconds."},
+        {"name": "SweepBandwidth", "description": "Hz; range resolution is c/(2B)."},
+        {"name": "SweepDirection", "description": "'Up' or 'Down'."},
+        {"name": "SweepInterval", "description": "'Positive' or 'Symmetric'."},
+        {"name": "NumSweeps", "description": "Sweeps per call."}
+      ],
+      "example": "fs = 150e6; bw = 150e6; tm = 5.5*range2time(200, physconst('LightSpeed'));\nwav = phased.FMCWWaveform(SampleRate=fs, SweepTime=tm, SweepBandwidth=bw, SweepDirection='Triangle');\nx = wav();\nslope = bw/tm;\n% ... after propagation: y = dechirp(rx, x); r = beat2range(fb, slope)",
+      "notes": "Triangle sweeps let you separate range and Doppler from up- and down-sweep beat frequencies (rdcoupling).",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.fmcwwaveform-system-object.html"
+    },
+    {
+      "name": "phased.PhaseCodedWaveform",
+      "kind": "function",
+      "description": "Generates phase-coded pulses (Barker, Frank, P1-P4, Zadoff-Chu, maximum-length sequences) whose chips carry discrete phase shifts, offering low sidelobes and good LPI properties compared with LFM. Configure chip width and number of chips; the matched filter is provided by getMatchedFilter.",
+      "usage": "waveform = phased.PhaseCodedWaveform(Name=Value)\ny = waveform()\ncoef = getMatchedFilter(waveform)",
+      "parameters": [
+        {"name": "Code", "description": "'Barker' (default), 'Frank', 'P1', 'P2', 'P3', 'P4', 'Px', 'Zadoff-Chu', 'Maximum Length Sequence'."},
+        {"name": "ChipWidth", "description": "Chip duration in seconds."},
+        {"name": "NumChips", "description": "Chips per pulse (Barker allows 1,2,3,4,5,7,11,13)."},
+        {"name": "PRF, SampleRate, NumPulses", "description": "As for other pulsed waveforms."},
+        {"name": "SequenceIndex", "description": "Root index for Zadoff-Chu."}
+      ],
+      "example": "wav = phased.PhaseCodedWaveform(Code='Barker', NumChips=13, ChipWidth=1e-6, SampleRate=10e6, PRF=1e3);\nx = wav();\n[afmag, delay] = ambgfun(x, wav.SampleRate, wav.PRF, 'Cut', 'Doppler');\nplot(delay, mag2db(afmag))",
+      "notes": "Chip width times number of chips gives the pulse width; SampleRate*ChipWidth must be an integer.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.phasecodedwaveform-system-object.html"
+    },
+    {
+      "name": "phased.Transmitter",
+      "kind": "function",
+      "description": "Models a radar transmitter: applies peak power and gain to the waveform, optionally adds phase noise and reports transmit-in-use status (for pulsed radars the receiver is blanked while transmitting). It converts unit-amplitude waveform samples into signals with physical power for the radar equation chain.",
+      "usage": "transmitter = phased.Transmitter(Name=Value)\ny = transmitter(x)\n[y, txstatus] = transmitter(x)      % InUseOutputPort=true\n[y, phnoise] = transmitter(x)       % CoherentOnTransmit=false, PhaseNoiseOutputPort=true",
+      "parameters": [
+        {"name": "PeakPower", "description": "Watts (default 5000)."},
+        {"name": "Gain", "description": "Transmit gain in dB (default 20)."},
+        {"name": "LossFactor", "description": "dB loss."},
+        {"name": "InUseOutputPort", "description": "Return a logical vector marking transmit samples."},
+        {"name": "CoherentOnTransmit", "description": "false to add random phase per pulse."}
+      ],
+      "example": "tx = phased.Transmitter(PeakPower=1e3, Gain=20, InUseOutputPort=true);\n[xt, status] = tx(x);\n% ... radiator, channel, target, collector, receiver:\nrx = phased.ReceiverPreamp(Gain=20, NoiseFigure=3, SampleRate=1e6, EnableInputPort=true);\ny = rx(rxsig, ~status);",
+      "notes": "Typical monostatic chain: waveform > Transmitter > Radiator > FreeSpace > RadarTarget > FreeSpace > Collector > ReceiverPreamp > MatchedFilter > TimeVaryingGain > CFARDetector. radarTransceiver (Radar Toolbox) bundles this chain.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.transmitter-system-object.html"
+    },
+    {
+      "name": "phased.Radiator",
+      "kind": "function",
+      "description": "Radiates signals from a sensor array (or single element) toward specified directions, applying the array steering/element response so each output direction receives the properly weighted sum of the transmitted signals. It is the transmit-side counterpart of phased.Collector.",
+      "usage": "radiator = phased.Radiator(Name=Value)\ny = radiator(x, ang)\ny = radiator(x, ang, w)         % WeightsInputPort=true\ny = radiator(x, ang, steerang)  % subarrays",
+      "parameters": [
+        {"name": "Sensor", "description": "Array or element object."},
+        {"name": "OperatingFrequency, PropagationSpeed", "description": "Carrier and speed."},
+        {"name": "CombineRadiatedSignals", "description": "true (default) to sum contributions into one signal per direction."},
+        {"name": "WeightsInputPort", "description": "Supply transmit weights (beam steering)."}
+      ],
+      "example": "ula = phased.ULA(4, 0.05);\nrad = phased.Radiator(Sensor=ula, OperatingFrequency=3e9, WeightsInputPort=true);\nsv = phased.SteeringVector(SensorArray=ula);\nw = sv(3e9, [10; 0]);\ny = rad(xt, [10; 0], w);   % toward the target at 10 deg azimuth",
+      "notes": "ang is 2-by-M [az; el] of target directions relative to the array (use rangeangle to compute them). phased.WidebandRadiator handles wideband signals.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.radiator-system-object.html"
+    },
+    {
+      "name": "phased.Collector",
+      "kind": "function",
+      "description": "Collects incident plane-wave signals arriving from given directions at each element of a sensor array, producing the multichannel array output with proper inter-element phase. It is used on the receive side before beamforming or DOA estimation.",
+      "usage": "collector = phased.Collector(Name=Value)\ny = collector(x, ang)\ny = collector(x, ang, laxes)   % EnablePolarization\ny = collector(x, ang, steerang) % subarrays",
+      "parameters": [
+        {"name": "Sensor", "description": "Array or element."},
+        {"name": "OperatingFrequency, PropagationSpeed", "description": "Carrier and speed."},
+        {"name": "Wavefront", "description": "'Plane' (default) or 'Unspecified' (individual per-element signals)."}
+      ],
+      "example": "col = phased.Collector(Sensor=ula, OperatingFrequency=3e9);\nrxarray = col(sig, [10; 0]);   % samples-by-elements",
+      "notes": "For quick synthetic array data without object setup use collectPlaneWave(array, x, ang, fc). phased.WidebandCollector supports wideband signals.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.collector-system-object.html"
+    },
+    {
+      "name": "phased.ReceiverPreamp",
+      "kind": "function",
+      "description": "Models a receiver front end that applies gain and loss and adds thermal noise computed from noise figure, reference temperature and sample rate (noise bandwidth). Optionally blanks the input while the transmitter is active via an enable port, and can seed the noise generator for repeatable simulations.",
+      "usage": "receiver = phased.ReceiverPreamp(Name=Value)\ny = receiver(x)\ny = receiver(x, en)      % EnableInputPort=true",
+      "parameters": [
+        {"name": "Gain", "description": "dB (default 20)."},
+        {"name": "LossFactor", "description": "dB."},
+        {"name": "NoiseFigure", "description": "dB (default 0)."},
+        {"name": "ReferenceTemperature", "description": "Kelvin (default 290)."},
+        {"name": "SampleRate", "description": "Hz, sets the noise bandwidth."},
+        {"name": "SeedSource / Seed", "description": "'Property' with Seed for repeatable noise."}
+      ],
+      "example": "rx = phased.ReceiverPreamp(Gain=20, NoiseFigure=5, SampleRate=1e6, SeedSource='Property', Seed=1);\ny = rx(rxsig);",
+      "notes": "Noise power is kT*B*F*G. Use phased.Receiver (R2023a+) for phase-noise and quantization effects.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.receiverpreamp-system-object.html"
+    },
+    {
+      "name": "phased.FreeSpace",
+      "kind": "function",
+      "description": "Propagates narrowband signals between moving positions in free space, applying range-dependent path loss, propagation delay (fractional-sample) and Doppler shift, one-way or two-way. It is the basic channel model in radar and sonar simulations; positions and velocities of both ends are passed on each call.",
+      "usage": "channel = phased.FreeSpace(Name=Value)\ny = channel(x, pos1, pos2, vel1, vel2)",
+      "parameters": [
+        {"name": "PropagationSpeed", "description": "m/s."},
+        {"name": "OperatingFrequency", "description": "Hz."},
+        {"name": "TwoWayPropagation", "description": "true for monostatic radar (out and back in one call)."},
+        {"name": "SampleRate", "description": "Hz."},
+        {"name": "MaximumDistanceSource / MaximumDistance", "description": "Limit the internal delay buffer."}
+      ],
+      "example": "chan = phased.FreeSpace(SampleRate=1e6, OperatingFrequency=3e9, TwoWayPropagation=true);\ny = chan(x, [0;0;0], [3000;0;0], [0;0;0], [-50;0;0]);   % target 3 km away closing at 50 m/s",
+      "notes": "Other channels: phased.LOSChannel (atmospheric loss), phased.TwoRayChannel, phased.WidebandFreeSpace, phased.ScatteringMIMOChannel.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.freespace-system-object.html"
+    },
+    {
+      "name": "phased.RadarTarget",
+      "kind": "function",
+      "description": "Models a point target that reflects incident signals with a mean radar cross section, optionally fluctuating according to Swerling models (1-4) with per-call update control, and optionally polarized scattering matrices. Multiply the incident signal by the target to obtain the reflected signal in the chain.",
+      "usage": "target = phased.RadarTarget(Name=Value)\ny = target(x)\ny = target(x, update)       % fluctuating models\ny = target(x, ang, laxes)   % EnablePolarization",
+      "parameters": [
+        {"name": "MeanRCS", "description": "Mean RCS in m^2 (default 1)."},
+        {"name": "Model", "description": "'Nonfluctuating' (default), 'Swerling1'..'Swerling4'."},
+        {"name": "OperatingFrequency, PropagationSpeed", "description": "For the RCS-to-gain conversion."},
+        {"name": "SeedSource / Seed", "description": "Repeatable fluctuations."}
+      ],
+      "example": "tgt = phased.RadarTarget(MeanRCS=2, Model='Swerling1', OperatingFrequency=3e9);\ny = tgt(x, true);   % new RCS draw this pulse",
+      "notes": "For extended and moving targets in scenarios use radarScenario platforms with signatures (Radar Toolbox), or phased.BackscatterRadarTarget for angle-dependent RCS.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.radartarget-system-object.html"
+    },
+    {
+      "name": "phased.Platform",
+      "kind": "function",
+      "description": "Models a moving platform (radar, target or jammer) with position, velocity or acceleration, or a custom trajectory, returning the updated position, velocity and orientation each time it is called with an elapsed time. Used to drive FreeSpace channels and rangeangle calculations pulse by pulse.",
+      "usage": "platform = phased.Platform(Name=Value)\n[pos, vel] = platform(T)\n[pos, vel, laxes] = platform(T)   % OrientationAxesOutputPort=true",
+      "parameters": [
+        {"name": "InitialPosition", "description": "3-by-N positions in metres."},
+        {"name": "Velocity", "description": "3-by-N velocity when MotionModel='Velocity'."},
+        {"name": "MotionModel", "description": "'Velocity', 'Acceleration' or 'Custom' (waypoints)."},
+        {"name": "InitialOrientationAxes", "description": "3-by-3 rotation matrix of the platform frame."}
+      ],
+      "example": "tgtplat = phased.Platform(InitialPosition=[2000; 500; 0], Velocity=[-40; 0; 0]);\nfor k = 1:10\n    [tpos, tvel] = tgtplat(1/prf);\n    [rng, ang] = rangeangle(tpos, [0;0;0]);\nend",
+      "notes": "Each call advances the platform state by T seconds; reset(platform) returns it to the initial position.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.platform-system-object.html"
+    },
+    {
+      "name": "phased.MatchedFilter",
+      "kind": "function",
+      "description": "Applies a matched filter (correlation with the time-reversed conjugate of the transmitted pulse) to received data for pulse compression, maximizing SNR before detection. Supports spectrum windowing to reduce range sidelobes and can output the processing gain.",
+      "usage": "mf = phased.MatchedFilter(Name=Value)\ny = mf(x)\n[y, gain] = mf(x)          % GainOutputPort=true\ny = mf(x, coeff)           % CoefficientsSource='Input port'",
+      "parameters": [
+        {"name": "Coefficients", "description": "Filter coefficients, usually getMatchedFilter(waveform)."},
+        {"name": "SpectrumWindow", "description": "'None', 'Hamming', 'Chebyshev', 'Hann', 'Kaiser', 'Taylor'."},
+        {"name": "SpectrumRange", "description": "Frequency band for windowing."},
+        {"name": "GainOutputPort", "description": "Return the SNR gain in dB."}
+      ],
+      "example": "wav = phased.LinearFMWaveform(SampleRate=1e6, PulseWidth=20e-6, PRF=5e3, SweepBandwidth=500e3);\nmf = phased.MatchedFilter(Coefficients=getMatchedFilter(wav), SpectrumWindow='Hamming', GainOutputPort=true);\n[y, g] = mf(rx);\nplot(abs(y))",
+      "notes": "Output is delayed by the filter length minus one sample; compensate when converting sample index to range. For stretch processing of long chirps use phased.StretchProcessor.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.matchedfilter-system-object.html"
+    },
+    {
+      "name": "phased.TimeVaryingGain",
+      "kind": "function",
+      "description": "Compensates range-dependent free-space loss (R^4 for monostatic radar) by applying a gain that increases with fast-time sample index, so returns from different ranges have comparable amplitude before CFAR detection. The range loss vector is usually computed from 2*fspl(range, lambda).",
+      "usage": "tvg = phased.TimeVaryingGain(Name=Value)\ny = tvg(x)\ny = tvg(x, rangeloss)   % RangeLossSource='Input port'",
+      "parameters": [
+        {"name": "RangeLoss", "description": "Vector of losses (dB) per range sample."},
+        {"name": "ReferenceLoss", "description": "Loss at the reference range (dB)."}
+      ],
+      "example": "c = physconst('LightSpeed'); lambda = c/3e9;\nrng_gates = (0:numel(y)-1)*c/(2*fs);\ntvg = phased.TimeVaryingGain(RangeLoss=2*fspl(rng_gates, lambda), ReferenceLoss=2*fspl(5000, lambda));\ny2 = tvg(y);",
+      "notes": "Apply after matched filtering and before CFAR/threshold detection.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.timevaryinggain-system-object.html"
+    },
+    {
+      "name": "phased.CFARDetector",
+      "kind": "function",
+      "description": "One-dimensional constant-false-alarm-rate detector that estimates noise from training cells around each cell under test (excluding guard cells) and compares the cell to an adaptive threshold set for a target probability of false alarm. Methods include cell-averaging, greatest-of, smallest-of and order-statistic CFAR.",
+      "usage": "detector = phased.CFARDetector(Name=Value)\ny = detector(x, cutidx)\n[y, th] = detector(x, cutidx)          % ThresholdOutputPort=true\n[y, th, noise] = detector(x, cutidx)   % NoisePowerOutputPort=true",
+      "parameters": [
+        {"name": "Method", "description": "'CA' (default), 'GOCA', 'SOCA', 'OS'."},
+        {"name": "NumTrainingCells", "description": "Total training cells (split before/after)."},
+        {"name": "NumGuardCells", "description": "Guard cells around the CUT."},
+        {"name": "ThresholdFactor", "description": "'Auto' (from ProbabilityFalseAlarm), 'Input port' or 'Custom'."},
+        {"name": "ProbabilityFalseAlarm", "description": "Pfa used in 'Auto' mode."},
+        {"name": "OutputFormat", "description": "'CUT result' (logical per cell) or 'Detection index'."}
+      ],
+      "example": "cfar = phased.CFARDetector(NumTrainingCells=40, NumGuardCells=4, ProbabilityFalseAlarm=1e-6, ThresholdOutputPort=true);\nx = abs(y).^2;             % square-law input\ncut = 25:numel(x)-24;\n[det, th] = cfar(x, cut);\nplot(cut, 10*log10([x(cut) th]))",
+      "notes": "Input must be power (square-law) samples. For range-Doppler maps use phased.CFARDetector2D with TrainingBandSize/GuardBandSize.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.cfardetector-system-object.html"
+    },
+    {
+      "name": "phased.CFARDetector2D",
+      "kind": "function",
+      "description": "Two-dimensional CFAR detector for range-Doppler or range-angle maps: a rectangular training band and guard band surround each cell under test, and CA/GOCA/SOCA/OS methods set the adaptive threshold. Cells under test are given as [row; column] index pairs.",
+      "usage": "detector = phased.CFARDetector2D(Name=Value)\ny = detector(x, cutidx)\n[y, th, noise] = detector(x, cutidx)",
+      "parameters": [
+        {"name": "GuardBandSize", "description": "[rows cols] of guard cells on each side."},
+        {"name": "TrainingBandSize", "description": "[rows cols] of training cells on each side."},
+        {"name": "Method, ProbabilityFalseAlarm, ThresholdFactor", "description": "As for phased.CFARDetector."},
+        {"name": "OutputFormat", "description": "'CUT result' or 'Detection index'."}
+      ],
+      "example": "cfar2 = phased.CFARDetector2D(GuardBandSize=[2 2], TrainingBandSize=[6 6], ProbabilityFalseAlarm=1e-5, OutputFormat='Detection index');\n[r, d] = meshgrid(9:size(rdm,1)-8, 9:size(rdm,2)-8);\ncut = [r(:) d(:)]';\ndets = cfar2(abs(rdm).^2, cut);",
+      "notes": "Typically fed by phased.RangeDopplerResponse output; ensure the CUT indices keep the full training window inside the map.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.cfardetector2d-system-object.html"
+    },
+    {
+      "name": "phased.RangeDopplerResponse",
+      "kind": "function",
+      "description": "Computes a range-Doppler map from a pulse-train data cube (fast time x pulses, or x channels x pulses) by matched filtering or FFT (dechirped FMCW) in range and an FFT across pulses in Doppler, with options to output speed instead of frequency. plotResponse draws the map directly.",
+      "usage": "response = phased.RangeDopplerResponse(Name=Value)\n[resp, rng, dop] = response(x)\n[resp, rng, dop] = response(x, coeff)   % RangeMethod='Matched filter'\n[resp, rng, dop] = response(x, xref)    % 'FFT' with DechirpInput=true\nplotResponse(response, x, coeff)",
+      "parameters": [
+        {"name": "RangeMethod", "description": "'Matched filter' (default) or 'FFT'."},
+        {"name": "SampleRate, PropagationSpeed, OperatingFrequency", "description": "Signal and physical parameters."},
+        {"name": "DopplerOutput", "description": "'Frequency' or 'Speed'."},
+        {"name": "DopplerFFTLengthSource / DopplerFFTLength, DopplerWindow", "description": "Slow-time FFT controls."},
+        {"name": "PRFSource / PRF", "description": "Pulse repetition frequency for Doppler axis."},
+        {"name": "SweepSlope, DechirpInput, RangeFFTLength, RangeWindow", "description": "FFT-mode (FMCW) settings."}
+      ],
+      "example": "rdr = phased.RangeDopplerResponse(SampleRate=fs, PropagationSpeed=c, OperatingFrequency=fc, DopplerOutput='Speed', PRFSource='Property', PRF=prf);\n[resp, rgrid, sgrid] = rdr(datacube, getMatchedFilter(wav));\nimagesc(sgrid, rgrid, mag2db(abs(resp))); axis xy; xlabel('Speed (m/s)'); ylabel('Range (m)')",
+      "notes": "Data cube dimensions: samples-by-pulses (or samples-by-channels-by-pulses). phased.RangeAngleResponse and phased.RangeResponse are the companions; phased.DopplerEstimator/phased.RangeEstimator refine detections.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.rangedopplerresponse-system-object.html"
+    },
+    {
+      "name": "phased.RangeAngleResponse",
+      "kind": "function",
+      "description": "Computes a range-angle map from array data by matched filtering or FFT in range and scanning a conventional beam across angles, giving a bird's-eye view of targets in range and azimuth for a given array. Introduced in R2018b.",
+      "usage": "response = phased.RangeAngleResponse(Name=Value)\n[resp, rng, ang] = response(x)\n[resp, rng, ang] = response(x, coeff)\nplotResponse(response, x, coeff)",
+      "parameters": [
+        {"name": "SensorArray", "description": "Array used for the angle scan (default phased.ULA)."},
+        {"name": "RangeMethod", "description": "'Matched filter' or 'FFT'."},
+        {"name": "SampleRate, PropagationSpeed, OperatingFrequency", "description": "Signal parameters."},
+        {"name": "AngleSpan / NumAngleSamples", "description": "Angular extent and resolution of the scan."},
+        {"name": "DechirpInput, SweepSlope", "description": "FMCW FFT-mode settings."}
+      ],
+      "example": "rar = phased.RangeAngleResponse(SensorArray=ula, SampleRate=fs, OperatingFrequency=fc, RangeMethod='Matched filter');\n[resp, rgrid, agrid] = rar(x, getMatchedFilter(wav));\nimagesc(agrid, rgrid, mag2db(abs(resp))); axis xy",
+      "notes": "Input x is samples-by-elements (one pulse). Combine with phased.CFARDetector2D for detection in range-angle space.",
+      "docs": "https://www.mathworks.com/help/phased/ref/phased.rangeangleresponse-system-object.html"
+    },
+    {
+      "name": "radareqsnr",
+      "kind": "function",
+      "description": "Evaluates the radar range equation for output SNR given wavelength, range, peak power, pulse width and optional RCS, gain, loss and noise temperature. Companion functions radareqpow and radareqrng solve the same equation for required power or achievable range.",
+      "usage": "SNR = radareqsnr(lambda, tgtrng, Pt, tau)\nSNR = radareqsnr(lambda, tgtrng, Pt, tau, Name=Value)",
+      "parameters": [
+        {"name": "lambda", "description": "Wavelength in metres."},
+        {"name": "tgtrng", "description": "Target range (scalar for monostatic, [txrng rxrng] for bistatic)."},
+        {"name": "Pt", "description": "Peak transmit power in W."},
+        {"name": "tau", "description": "Pulse width in seconds."},
+        {"name": "'RCS'", "description": "Target RCS in m^2 (default 1)."},
+        {"name": "'Gain'", "description": "Antenna gain in dB (scalar or [Gtx Grx])."},
+        {"name": "'Ts'", "description": "System noise temperature in K (default 290)."},
+        {"name": "'Loss'", "description": "System losses in dB."}
+      ],
+      "example": "lambda = physconst('LightSpeed')/10e9;\nsnr = radareqsnr(lambda, 20e3, 1e3, 1e-6, RCS=1, Gain=30, Loss=3)   % dB\nrmax = radareqrng(lambda, 13, 1e3, 1e-6, RCS=1, Gain=30, Loss=3)     % range for 13 dB SNR",
+      "notes": "Use shnidman or albersheim to translate a required Pd/Pfa into the SNR argument. The radarEquationCalculator app wraps these functions.",
+      "docs": "https://www.mathworks.com/help/phased/ref/radareqsnr.html"
+    },
+    {
+      "name": "npwgnthresh",
+      "kind": "function",
+      "description": "Returns the detection threshold (in dB above the noise power) for a given probability of false alarm in white Gaussian noise, for coherent, noncoherent or real signals and an optional number of noncoherently integrated pulses. Used to set fixed thresholds in simulations and to reason about CFAR threshold factors.",
+      "usage": "snrthresh = npwgnthresh(pfa)\nsnrthresh = npwgnthresh(pfa, numpulses)\nsnrthresh = npwgnthresh(pfa, numpulses, DetectionType)\nsnrthresh = npwgnthresh(pfa, numpulses, DetectionType, OutputFormat)",
+      "parameters": [
+        {"name": "pfa", "description": "Probability of false alarm."},
+        {"name": "numpulses", "description": "Number of integrated pulses (default 1)."},
+        {"name": "DetectionType", "description": "'coherent', 'noncoherent' (default) or 'real'."},
+        {"name": "OutputFormat", "description": "'snr' (dB, default) or 'linear'."}
+      ],
+      "example": "pfa = 1e-6;\nth = npwgnthresh(pfa, 10, 'noncoherent');   % dB\nnoisepow = rx.NoiseFigure;  % or measured\nthreshold = noisepow*db2pow(th);",
+      "notes": "Related: rocsnr, rocpfa (ROC curves), shnidman, albersheim (required SNR for Pd/Pfa), threshold used by phased.CFARDetector in 'Auto' mode.",
+      "docs": "https://www.mathworks.com/help/phased/ref/npwgnthresh.html"
+    },
+    {
+      "name": "rangeangle",
+      "kind": "function",
+      "description": "Computes range and [azimuth; elevation] angle of target positions relative to a reference position (and optional reference orientation axes), the standard way to feed target directions into radiators, collectors and steering vectors during a simulation loop.",
+      "usage": "[rng, ang] = rangeangle(pos)\n[rng, ang] = rangeangle(pos, refpos)\n[rng, ang] = rangeangle(pos, refpos, refaxes)\n[rng, ang] = rangeangle(___, model)   % 'freespace' or 'two-ray'",
+      "parameters": [
+        {"name": "pos", "description": "3-by-N target positions in metres."},
+        {"name": "refpos", "description": "3-by-1 reference (sensor) position, default origin."},
+        {"name": "refaxes", "description": "3-by-3 orientation of the reference local frame."}
+      ],
+      "example": "[r, ang] = rangeangle([1000; 500; 100], [0; 0; 10])\n% r = 1121.9 m, ang = [26.57; 4.61] degrees",
+      "notes": "Angles are in the local frame of the sensor; use global2localcoord/local2globalcoord for explicit conversions.",
+      "docs": "https://www.mathworks.com/help/phased/ref/rangeangle.html"
+    },
+    {
+      "name": "physconst",
+      "kind": "function",
+      "description": "Returns physical constants used in RF and radar computations: speed of light, Boltzmann constant, Earth radius, and (R2021a+) more via string names. Use it rather than typing 3e8 so that wavelengths, path losses and noise powers are consistent across the toolboxes.",
+      "usage": "const = physconst(name)",
+      "parameters": [
+        {"name": "name", "description": "'LightSpeed', 'Boltzmann', 'EarthRadius' (case-insensitive)."}
+      ],
+      "example": "c = physconst('LightSpeed');\nk = physconst('Boltzmann');\nlambda = c/2.4e9;\nnoisePower = k*290*1e6;   % kTB for 1 MHz",
+      "notes": "Related helpers: freq2wavelen, wavelen2freq, range2time, time2range, speed2dop, dop2speed, fspl.",
+      "docs": "https://www.mathworks.com/help/phased/ref/physconst.html"
+    },
+    {
+      "name": "dechirp",
+      "kind": "function",
+      "description": "Mixes a received FMCW (or stretch-processed LFM) signal with the reference transmitted sweep, producing beat-frequency signals whose frequencies are proportional to target range (and Doppler). It is the first step of FMCW processing before FFT and beat2range.",
+      "usage": "y = dechirp(x, xref)",
+      "parameters": [
+        {"name": "x", "description": "Received signal (samples-by-channels)."},
+        {"name": "xref", "description": "Reference (transmitted) sweep, column vector of the same length."}
+      ],
+      "example": "y = dechirp(rx, x);\nY = fft(y);\nfb = (0:numel(y)-1)*fs/numel(y);\n[~, idx] = max(abs(Y(1:end/2)));\nr = beat2range(fb(idx), bw/tm, physconst('LightSpeed'))",
+      "notes": "Related: beat2range, range2beat, rdcoupling (range-Doppler coupling), stretchfreq2rng, phased.StretchProcessor.",
+      "docs": "https://www.mathworks.com/help/phased/ref/dechirp.html"
+    },
+    {
+      "name": "radarEquationCalculator",
+      "kind": "tool",
+      "description": "App that solves the radar range equation interactively for maximum range, required peak power or achievable SNR, given frequency, target RCS, gains, losses, pulse width, noise temperature and detection specification (Pd/Pfa, Swerling case, number of pulses). Useful for quick link budgets before building a simulation.",
+      "usage": "radarEquationCalculator",
+      "parameters": [
+        {"name": "Calculation Type", "description": "Target Range, Peak Transmit Power or SNR."},
+        {"name": "Detection Specification", "description": "SNR directly, or Pd/Pfa with Swerling model and pulse count."}
+      ],
+      "example": "radarEquationCalculator\n% Set 10 GHz, RCS 1 m^2, Pt 1 kW, Gain 30 dB, Loss 3 dB, Pd 0.9, Pfa 1e-6 -> read maximum range",
+      "notes": "The programmatic equivalents are radareqrng, radareqpow, radareqsnr with shnidman/albersheim.",
+      "docs": "https://www.mathworks.com/help/phased/ref/radarequationcalculator-app.html"
+    },
+    {
+      "name": "radarScenario",
+      "kind": "function",
+      "description": "Radar Toolbox scenario object that manages platforms (targets, radars), their trajectories, radar sensors (radarDataGenerator or radarTransceiver), emitters and the simulation clock, producing detections or IQ data each step. It is the entry point for multi-target, multi-sensor radar simulations with statistical or signal-level models.",
+      "usage": "scenario = radarScenario(Name=Value)\np = platform(scenario, Position=[x y z], Trajectory=traj)\nadvance(scenario)\n[dets, configs, sensorconfigs] = detect(scenario)\niq = receive(scenario)",
+      "parameters": [
+        {"name": "UpdateRate", "description": "Simulation update rate in Hz (default 10)."},
+        {"name": "StopTime", "description": "End time in seconds."},
+        {"name": "IsEarthCentered", "description": "true for geodetic (lat/lon) scenarios."},
+        {"name": "platform", "description": "Object function adding a moving object with Trajectory (waypointTrajectory, kinematicTrajectory) and Signatures (rcsSignature)."},
+        {"name": "advance / detect / receive", "description": "Step time; get detections; get IQ signals from radarTransceiver sensors."}
+      ],
+      "example": "sc = radarScenario(UpdateRate=1, StopTime=10);\nrdr = radarDataGenerator(1, 'No scanning', FieldOfView=[90 10], UpdateRate=1);\nplatform(sc, Position=[0 0 0], Sensors=rdr);\ntgt = platform(sc, Trajectory=kinematicTrajectory(Position=[5000 0 0], Velocity=[-100 0 0]));\nwhile advance(sc)\n    dets = detect(sc);\n    fprintf('%d detections at t=%.1f\\n', numel(dets), sc.SimulationTime);\nend",
+      "notes": "Requires Radar Toolbox. theaterPlot and the Radar Scenario Designer app visualize scenarios; trackerGNN (Sensor Fusion and Tracking Toolbox) consumes the detections.",
+      "docs": "https://www.mathworks.com/help/radar/ref/radarscenario.html"
+    },
+    {
+      "name": "radarTransceiver",
+      "kind": "function",
+      "description": "Radar Toolbox System object that packages a complete monostatic radar signal chain (waveform, transmitter, transmit/receive antennas, receiver) and, when called with target poses or propagation paths, returns the received IQ data cube. It can be created from a radarDataGenerator configuration and mounted on a radarScenario platform.",
+      "usage": "radar = radarTransceiver\nradar = radarTransceiver(Name=Value)\nradar = radarTransceiver(radarDataGeneratorObj)\n[sig, info] = radar(targetPoses, time)",
+      "parameters": [
+        {"name": "Waveform", "description": "Waveform object (default phased.RectangularWaveform)."},
+        {"name": "Transmitter", "description": "phased.Transmitter."},
+        {"name": "TransmitAntenna / ReceiveAntenna", "description": "phased.Radiator / phased.Collector with the array."},
+        {"name": "Receiver", "description": "phased.ReceiverPreamp or phased.Receiver."},
+        {"name": "MountingLocation / MountingAngles", "description": "Placement on the platform."},
+        {"name": "NumRepetitions", "description": "Pulses per call."}
+      ],
+      "example": "radar = radarTransceiver(Waveform=phased.LinearFMWaveform(SampleRate=1e6, PRF=1e3, SweepBandwidth=500e3), NumRepetitions=32);\nradar.ReceiveAntenna.Sensor = phased.ULA(8, 0.05);\ntgt = struct('Position', [3000 0 0], 'Velocity', [-30 0 0]);\niq = radar(tgt, 0);     % samples x elements x pulses",
+      "notes": "Introduced in R2021a. Pair with phased.RangeDopplerResponse and phased.CFARDetector2D for processing; radarDataGenerator gives detection-level output instead.",
+      "docs": "https://www.mathworks.com/help/radar/ref/radartransceiver-system-object.html"
+    }
+  ]
+}

@@ -1,0 +1,201 @@
+{
+  "category": "Database Toolbox > Connections, Queries & Data Exchange",
+  "description": "Connecting to relational databases through JDBC, ODBC or native interfaces, reading and writing tables, running SQL, and building queries and filters programmatically.",
+  "tools": [
+    {
+      "name": "database",
+      "kind": "function",
+      "description": "Open a connection to a relational database through a configured ODBC data source or a JDBC driver, returning a connection object used by every other Database Toolbox function. The returned object reports whether the connection succeeded and carries the driver and catalog metadata. Always close the connection when you are finished.",
+      "usage": "conn = database(datasource, username, password)\nconn = database(databasename, username, password, driver, url)\nconn = database(datasource, username, password, Name, Value)\nclose(conn)",
+      "parameters": [
+        {"name": "datasource", "description": "ODBC data source name configured on the system."},
+        {"name": "username, password", "description": "Credentials; use empty strings for trusted or passwordless connections."},
+        {"name": "driver, url", "description": "JDBC driver class name and connection URL for a JDBC connection."},
+        {"name": "'LoginTimeout'", "description": "Seconds to wait for the connection to be established."},
+        {"name": "'MaxDatabaseConnections'", "description": "Connection pool size limit."}
+      ],
+      "example": "conn = database('MyWarehouse', 'analyst', getenv('DB_PASSWORD'), ...\n    'LoginTimeout', 10);\nif isopen(conn)\n    fprintf('Connected to %s via %s\\n', conn.DataSource, conn.Driver);\n    tables = sqlfind(conn, 'sales');\n    disp(tables)\nend\nclose(conn)",
+      "notes": "Never hard-code passwords in a script; read them from an environment variable or prompt for them.",
+      "docs": "https://www.mathworks.com/help/database/ug/database.html"
+    },
+    {
+      "name": "sqlite",
+      "kind": "function",
+      "description": "Create or open a SQLite database file directly, with no driver installation or data source configuration required. The connection object supports the same sqlread, sqlwrite, fetch and execute functions as a server database. It is the easiest way to give a MATLAB application persistent, queryable local storage.",
+      "usage": "conn = sqlite(dbfile)\nconn = sqlite(dbfile, 'create')\nconn = sqlite(dbfile, 'connect')\nconn = sqlite(dbfile, mode, 'ReadOnly', tf)\nclose(conn)",
+      "parameters": [
+        {"name": "dbfile", "description": "Path to the .db file."},
+        {"name": "mode", "description": "'connect' (default, open an existing file) or 'create' (make a new one)."},
+        {"name": "'ReadOnly'", "description": "Logical; open the file without write access."}
+      ],
+      "example": "conn = sqlite('results.db', 'create');\nexecute(conn, ['CREATE TABLE runs (id INTEGER PRIMARY KEY, ' ...\n    'name TEXT, score REAL, ts TEXT)']);\ndata = table([1;2], {'baseline'; 'tuned'}, [0.82; 0.91], ...\n    {'2024-05-01'; '2024-05-02'}, ...\n    'VariableNames', {'id','name','score','ts'});\nsqlwrite(conn, 'runs', data);\nbest = fetch(conn, 'SELECT * FROM runs ORDER BY score DESC LIMIT 1');\ndisp(best)\nclose(conn)",
+      "docs": "https://www.mathworks.com/help/database/ug/sqlite.html"
+    },
+    {
+      "name": "sqlread",
+      "kind": "function",
+      "description": "Import an entire database table into a MATLAB table without writing any SQL. Row filters and import options control which rows are returned and how each column is typed and named. It is the quickest way to pull a table into MATLAB for analysis.",
+      "usage": "data = sqlread(conn, tablename)\ndata = sqlread(conn, tablename, opts)\ndata = sqlread(conn, tablename, Name, Value)",
+      "parameters": [
+        {"name": "tablename", "description": "Name of the database table, optionally schema-qualified."},
+        {"name": "opts", "description": "An SQLImportOptions object from databaseImportOptions."},
+        {"name": "'MaxRows'", "description": "Maximum number of rows to import."},
+        {"name": "'RowFilter'", "description": "A rowfilter object restricting which rows are returned."},
+        {"name": "'VariableNamingRule'", "description": "'modify' (default) or 'preserve' for column names."}
+      ],
+      "example": "conn = sqlite('results.db');\nall = sqlread(conn, 'runs');\nrf = rowfilter('score');\nhigh = sqlread(conn, 'runs', 'RowFilter', rf.score > 0.85, 'MaxRows', 100);\nfprintf('%d of %d rows scored above 0.85\\n', height(high), height(all));\nclose(conn)",
+      "notes": "For very large tables use fetch with an explicit SQL query so filtering and aggregation happen on the server.",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.sqlread.html"
+    },
+    {
+      "name": "sqlwrite",
+      "kind": "function",
+      "description": "Insert the rows of a MATLAB table into a database table, matching columns by name. If the target table does not exist it can be created automatically, with column types inferred or specified through import options. It is the standard way to push results back into a database.",
+      "usage": "sqlwrite(conn, tablename, data)\nsqlwrite(conn, tablename, data, opts)\nsqlwrite(conn, tablename, data, Name, Value)",
+      "parameters": [
+        {"name": "tablename", "description": "Target table name; created if it does not exist."},
+        {"name": "data", "description": "MATLAB table whose variable names match the table's columns."},
+        {"name": "opts", "description": "An SQLImportOptions object specifying column types for table creation."},
+        {"name": "'Catalog' / 'Schema'", "description": "Database catalog and schema qualifiers."}
+      ],
+      "example": "conn = sqlite('results.db');\nnewRuns = table((3:5)', {'a';'b';'c'}, rand(3,1), ...\n    repmat({datestr(now, 'yyyy-mm-dd')}, 3, 1), ...\n    'VariableNames', {'id','name','score','ts'});\nsqlwrite(conn, 'runs', newRuns);\nfprintf('Table now has %d rows\\n', ...\n    fetch(conn, 'SELECT COUNT(*) AS n FROM runs').n);\nclose(conn)",
+      "notes": "Wrap large inserts in an explicit transaction with execute(conn,'BEGIN') and 'COMMIT' for much better performance.",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.sqlwrite.html"
+    },
+    {
+      "name": "sqlupdate",
+      "kind": "function",
+      "description": "Update existing rows of a database table from a MATLAB table, selecting the rows to change with a row filter. It generates the UPDATE statement for you, which avoids the SQL injection risks of string concatenation. Use it to correct or enrich records already stored in the database.",
+      "usage": "sqlupdate(conn, tablename, data, filter)\nsqlupdate(conn, tablename, data, filter, Name, Value)",
+      "parameters": [
+        {"name": "tablename", "description": "Table to update."},
+        {"name": "data", "description": "One-row table (or one row per filter) giving the new column values."},
+        {"name": "filter", "description": "A rowfilter expression identifying which rows to update."},
+        {"name": "'Catalog' / 'Schema'", "description": "Database qualifiers."}
+      ],
+      "example": "conn = sqlite('results.db');\nnewVals = table(0.97, {'2024-06-01'}, 'VariableNames', {'score','ts'});\nrf = rowfilter('name');\nsqlupdate(conn, 'runs', newVals, rf.name == \"tuned\");\ndisp(fetch(conn, 'SELECT * FROM runs WHERE name = ''tuned'''))\nclose(conn)",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.sqlupdate.html"
+    },
+    {
+      "name": "fetch",
+      "kind": "function",
+      "description": "Execute an SQL SELECT statement and return the result set as a MATLAB table. Pushing joins, filters and aggregations into the SQL lets the database do the heavy lifting, which is far faster than importing everything and filtering in MATLAB. The row limit argument protects against accidentally pulling an enormous result.",
+      "usage": "results = fetch(conn, sqlquery)\nresults = fetch(conn, sqlquery, rowlimit)\nresults = fetch(conn, sqlquery, opts)\nresults = fetch(conn, sqlquery, Name, Value)",
+      "parameters": [
+        {"name": "sqlquery", "description": "SQL SELECT statement as a character vector or string."},
+        {"name": "rowlimit", "description": "Maximum number of rows to return."},
+        {"name": "opts", "description": "SQLImportOptions controlling column types and missing-value handling."},
+        {"name": "'VariableNamingRule'", "description": "'modify' (default) or 'preserve'."}
+      ],
+      "example": "conn = sqlite('results.db');\nq = ['SELECT name, AVG(score) AS meanScore, COUNT(*) AS n ' ...\n     'FROM runs GROUP BY name HAVING COUNT(*) > 0 ORDER BY meanScore DESC'];\nsummary = fetch(conn, q, 50);\ndisp(summary)\nclose(conn)",
+      "notes": "Build parameterized statements rather than concatenating user input into the query string.",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.fetch.html"
+    },
+    {
+      "name": "execute",
+      "kind": "function",
+      "description": "Run an SQL statement that returns no result set, such as INSERT, UPDATE, DELETE, CREATE TABLE or a stored procedure call. It is the general escape hatch for any SQL that sqlread and sqlwrite do not cover. Wrap batches in explicit transactions for atomicity and speed.",
+      "usage": "execute(conn, sqlquery)",
+      "parameters": [
+        {"name": "conn", "description": "An open database connection."},
+        {"name": "sqlquery", "description": "SQL statement to execute."}
+      ],
+      "example": "conn = sqlite('results.db');\nexecute(conn, 'BEGIN TRANSACTION');\ntry\n    execute(conn, 'CREATE INDEX IF NOT EXISTS idx_score ON runs(score)');\n    execute(conn, 'DELETE FROM runs WHERE score < 0.5');\n    execute(conn, 'COMMIT');\ncatch ME\n    execute(conn, 'ROLLBACK');\n    rethrow(ME);\nend\nclose(conn)",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.execute.html"
+    },
+    {
+      "name": "sqlfind",
+      "kind": "function",
+      "description": "Search the database for tables whose names contain a given string, returning a table of catalogs, schemas, table names and types. It is how you explore an unfamiliar database without leaving MATLAB. Restricting the catalog and schema speeds up the search on large servers.",
+      "usage": "data = sqlfind(conn, expression)\ndata = sqlfind(conn, expression, Name, Value)",
+      "parameters": [
+        {"name": "expression", "description": "Substring or regular expression to match against table names."},
+        {"name": "'Catalog' / 'Schema'", "description": "Restrict the search to a catalog or schema."},
+        {"name": "'CaseSensitive'", "description": "Logical; false by default."}
+      ],
+      "example": "conn = database('MyWarehouse', '', '');\nmatches = sqlfind(conn, 'fact_', 'Schema', 'analytics');\ndisp(matches(:, {'Catalog','Schema','Table','Type'}))\nfor k = 1:height(matches)\n    info = sqlread(conn, matches.Table{k}, 'MaxRows', 5);\n    fprintf('%s: %s\\n', matches.Table{k}, strjoin(info.Properties.VariableNames, ', '));\nend\nclose(conn)",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.sqlfind.html"
+    },
+    {
+      "name": "sqlinnerjoin",
+      "kind": "function",
+      "description": "Perform an inner join of two database tables and return the matching rows as a MATLAB table, without writing SQL by hand. The join happens on the server, so only the joined result crosses the network. Key columns can be named explicitly when they differ between the tables.",
+      "usage": "data = sqlinnerjoin(conn, lefttable, righttable)\ndata = sqlinnerjoin(conn, lefttable, righttable, Name, Value)",
+      "parameters": [
+        {"name": "lefttable, righttable", "description": "Names of the two tables to join."},
+        {"name": "'Keys'", "description": "Common key column name(s) when both tables use the same name."},
+        {"name": "'LeftKeys' / 'RightKeys'", "description": "Key columns when the names differ."},
+        {"name": "'LeftVariables' / 'RightVariables'", "description": "Which columns to return from each table."},
+        {"name": "'RowFilter'", "description": "Filter applied to the joined result."}
+      ],
+      "example": "conn = database('Sales', '', '');\norders = sqlinnerjoin(conn, 'orders', 'customers', ...\n    'LeftKeys', 'customer_id', 'RightKeys', 'id', ...\n    'LeftVariables', {'order_id','amount','order_date'}, ...\n    'RightVariables', {'name','region'});\ndisp(head(orders))\nclose(conn)",
+      "notes": "sqlouterjoin performs left, right and full outer joins with the same options.",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.sqlinnerjoin.html"
+    },
+    {
+      "name": "sqlouterjoin",
+      "kind": "function",
+      "description": "Perform a left, right or full outer join of two database tables, keeping unmatched rows and filling the missing side with nulls. It is the right choice when you must not lose records that have no counterpart, such as customers with no orders. The join type is selected with the Type option.",
+      "usage": "data = sqlouterjoin(conn, lefttable, righttable)\ndata = sqlouterjoin(conn, lefttable, righttable, Name, Value)",
+      "parameters": [
+        {"name": "'Type'", "description": "'left' (default), 'right' or 'full'."},
+        {"name": "'Keys' / 'LeftKeys' / 'RightKeys'", "description": "Join key columns."},
+        {"name": "'LeftVariables' / 'RightVariables'", "description": "Columns to return from each side."},
+        {"name": "'RowFilter'", "description": "Filter applied to the result."}
+      ],
+      "example": "conn = database('Sales', '', '');\nallCustomers = sqlouterjoin(conn, 'customers', 'orders', ...\n    'Type', 'left', 'LeftKeys', 'id', 'RightKeys', 'customer_id');\nnoOrders = allCustomers(ismissing(allCustomers.order_id), :);\nfprintf('%d customers have never ordered\\n', height(noOrders));\nclose(conn)",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.sqlouterjoin.html"
+    },
+    {
+      "name": "rowfilter",
+      "kind": "script-object",
+      "description": "Build a row filter programmatically from column names and comparison operators, producing an object that sqlread, sqlupdate and the join functions translate into a SQL WHERE clause. Because values are bound rather than concatenated, it avoids SQL injection entirely. Conditions combine with the logical & and | operators.",
+      "usage": "rf = rowfilter(columnNames)\nrf = rowfilter(conn, tablename)\nfilter = rf.Column > value\nfilter = (rf.A == x) & (rf.B <= y)\nfilter = ismember(rf.Column, values)",
+      "parameters": [
+        {"name": "columnNames", "description": "String array or cell array of column names to expose as filter properties."},
+        {"name": "conn, tablename", "description": "Derive the column names from an existing database table."}
+      ],
+      "example": "conn = sqlite('results.db');\nrf = rowfilter([\"score\", \"name\"]);\nf = (rf.score >= 0.8) & (rf.name ~= \"baseline\");\ngood = sqlread(conn, 'runs', 'RowFilter', f);\nfprintf('%d matching rows\\n', height(good));\nfIn = ismember(rf.name, [\"tuned\", \"final\"]);\nsubset = sqlread(conn, 'runs', 'RowFilter', fIn);\nclose(conn)",
+      "notes": "String comparisons must use double-quoted string literals, not single-quoted character vectors.",
+      "docs": "https://www.mathworks.com/help/database/ug/rowfilter.html"
+    },
+    {
+      "name": "databaseImportOptions",
+      "kind": "function",
+      "description": "Create an options object that controls how each column of a database table is imported: MATLAB data type, fill value for nulls, name and selection. Setting types explicitly prevents surprises such as numeric identifiers being imported as text. The same object also drives table creation in sqlwrite.",
+      "usage": "opts = databaseImportOptions(conn, tablename)\nopts = setoptions(opts, selectedVariableNames, Name, Value)\nopts = setvartype(opts, varnames, types)\npreview(tablename, opts)",
+      "parameters": [
+        {"name": "conn, tablename", "description": "Connection and table whose schema defines the default options."},
+        {"name": "'SelectedVariableNames'", "description": "Subset of columns to import."},
+        {"name": "'VariableNames' / 'VariableTypes'", "description": "Rename columns and force MATLAB types."},
+        {"name": "'FillValue'", "description": "Value substituted for database nulls."},
+        {"name": "'MissingRule'", "description": "'fill' (default), 'error' or 'omitrow'."}
+      ],
+      "example": "conn = sqlite('results.db');\nopts = databaseImportOptions(conn, 'runs');\nopts = setoptions(opts, 'SelectedVariableNames', {'name','score'});\nopts = setvartype(opts, 'name', 'string');\nopts = setoptions(opts, 'score', 'FillValue', 0);\ndata = sqlread(conn, 'runs', opts);\ndisp(varfun(@class, data, 'OutputFormat', 'cell'))\nclose(conn)",
+      "docs": "https://www.mathworks.com/help/database/ug/databaseimportoptions.html"
+    },
+    {
+      "name": "close",
+      "kind": "function",
+      "description": "Close a database connection and release the server-side resources it holds. Leaving connections open exhausts connection pools and can block other clients, so always close in a cleanup path. Use isopen to check the state and onCleanup to guarantee closure even when an error occurs.",
+      "usage": "close(conn)\nisopen(conn)",
+      "parameters": [
+        {"name": "conn", "description": "The database or sqlite connection object to close."}
+      ],
+      "example": "conn = sqlite('results.db');\ncleaner = onCleanup(@() close(conn));\ndata = sqlread(conn, 'runs');\nprocess(data);        % close(conn) runs even if this errors\nfprintf('Connection open: %d\\n', isopen(conn));",
+      "docs": "https://www.mathworks.com/help/database/ug/database.odbc.connection.close.html"
+    },
+    {
+      "name": "databaseExplorer",
+      "kind": "function",
+      "description": "Open the Database Explorer app for browsing schemas, previewing tables and building queries interactively without writing SQL. Joins, filters and column selections are constructed visually and the resulting data can be imported to the workspace. It can generate the equivalent MATLAB code so the query becomes reproducible.",
+      "usage": "databaseExplorer\ndatabaseExplorer(datasource)",
+      "parameters": [
+        {"name": "datasource", "description": "Name of a configured data source to open immediately."}
+      ],
+      "example": "databaseExplorer\n% Connect to a data source, drag tables onto the canvas,\n% add joins and filters, preview the result,\n% then Import Data or Generate Script for a reproducible version",
+      "notes": "Requires a display and a configured ODBC or JDBC data source. Use 'Generate Script' so the query lives in version control.",
+      "docs": "https://www.mathworks.com/help/database/ug/databaseexplorer-app.html"
+    }
+  ]
+}

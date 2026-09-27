@@ -1,0 +1,1318 @@
+{
+  "category": "Modify Commands",
+  "description": "The commands that change geometry that already exists: moving, copying, arraying and aligning objects, trimming and extending them against each other, editing polylines, splines, hatches, text, attributes and blocks, and repairing or cleaning up a drawing. Every one can be typed at the command prompt, put in a script or macro, or called from AutoLISP with (command \"_MOVE\" ...); several have a leading-hyphen variant that suppresses the dialog so scripts can drive them.",
+  "tools": [
+    {
+      "name": "ERASE",
+      "kind": "command",
+      "description": "Delete the selected objects from the drawing. It is the most-used modify command and the one most often driven from a selection set in LISP, because any ssget filter can be handed straight to it. Nothing is asked after the selection is complete, so it is safe in scripts as long as the selection is deterministic.",
+      "usage": "ERASE  (alias E; also the Delete key when PICKFIRST is 1)\nSelect objects: <selection> | ALL | L | P | W | C | F | CP | WP | R | A\nSelect objects: Enter",
+      "parameters": [
+        {
+          "name": "ALL",
+          "description": "Select every object in the drawing except those on frozen or locked layers."
+        },
+        {
+          "name": "Window (W) / Crossing (C)",
+          "description": "Window selects only objects wholly inside the box; Crossing also takes anything the box touches."
+        },
+        {
+          "name": "Fence (F)",
+          "description": "Select every object crossed by a multi-segment fence line - the quickest way to pick a row of similar items."
+        },
+        {
+          "name": "Last (L) / Previous (P)",
+          "description": "The most recently created object, or the previous selection set. P is how a script re-uses the selection made by a preceding SELECT command."
+        },
+        {
+          "name": "Remove (R) / Add (A)",
+          "description": "Switch between taking objects out of and putting them back into the current selection set."
+        },
+        {
+          "name": "PICKFIRST",
+          "description": "System variable enabling noun-verb editing: when 1, objects selected before the command is started are used automatically and the Select objects prompt is skipped."
+        }
+      ],
+      "example": "; Erase everything on a scratch layer\nSELECT\nALL\n\nERASE\nP\n\n\n; AutoLISP: erase all text on layer NOTES-OLD\n(setq ss (ssget \"_X\" '((0 . \"TEXT,MTEXT\") (8 . \"NOTES-OLD\"))))\n(if ss (command \"_ERASE\" ss \"\"))",
+      "notes": "OOPS restores the objects from the last ERASE without undoing anything done since; U or UNDO rolls the whole operation back. Objects on locked or frozen layers cannot be erased, which is the usual reason an ALL selection deletes fewer objects than expected. PICKADD 0 makes each new pick replace the selection instead of adding to it and is a common source of confusion."
+    },
+    {
+      "name": "OOPS",
+      "kind": "command",
+      "description": "Restore the objects removed by the most recent ERASE, without undoing any work done since. It also brings back the source objects consumed by BLOCK or WBLOCK when the Delete option was used, which is its other classic use. Only the last erased set is remembered, and only one level deep.",
+      "usage": "OOPS\n(no prompts - the last erased selection set is restored in place)",
+      "parameters": [
+        {
+          "name": "last erased set",
+          "description": "The selection set of the most recent ERASE in this session; earlier erasures are not recoverable with OOPS."
+        },
+        {
+          "name": "after BLOCK / WBLOCK",
+          "description": "Restores geometry that was deleted when it was converted into a block definition or written out to a file."
+        },
+        {
+          "name": "no arguments",
+          "description": "The command takes no options and asks nothing, so it is safe to put in a script or a menu macro immediately after an ERASE or a -BLOCK."
+        }
+      ],
+      "example": "; Make a block from the geometry, deleting the originals,\n; then put the originals back without losing the new block\n-BLOCK\nVALVE_GATE\n0,0\nALL\n\nOOPS\n\n; Accidental deletion mid-script\nERASE\nALL\n\nOOPS",
+      "notes": "OOPS is not UNDO: it only puts erased objects back and leaves every later command intact, which is exactly why it is preferred after BLOCK. It cannot restore objects deleted by PURGE, by exploding, or by a command that consumed them such as JOIN or REGION - use UNDO for those."
+    },
+    {
+      "name": "MOVE",
+      "kind": "command",
+      "description": "Move the selected objects by a displacement given as two points or as a single vector. It is the workhorse of layout changes and the command most often scripted, because the base point and second point can both be typed as absolute or relative coordinates. Use it with object snaps to reposition a part exactly onto a feature of another.",
+      "usage": "MOVE  (alias M)\nSelect objects: <selection>\nSelect objects: Enter\nSpecify base point or [Displacement] <Displacement>: <point> | D\nSpecify second point or <use first point as displacement>: <point> | Enter",
+      "parameters": [
+        {
+          "name": "base point",
+          "description": "Reference point on the objects being moved; any object snap can be used to make it exact."
+        },
+        {
+          "name": "second point",
+          "description": "Destination of the base point. Type @dx,dy for a relative move or @dist<angle for a polar move."
+        },
+        {
+          "name": "Displacement (D)",
+          "description": "Give a single vector from the origin instead of two points; pressing Enter at the second prompt treats the first point the same way."
+        },
+        {
+          "name": "ORTHOMODE / OSMODE",
+          "description": "System variables for orthogonal constraint and running object snaps, which decide how interactive moves land."
+        }
+      ],
+      "example": "; Move a selection 250 units to the right and 100 up\nMOVE\nALL\n\n0,0\n@250,100\n\n; AutoLISP: nudge every block named TAG onto the origin of its layer grid\n(setq ss (ssget \"_X\" '((0 . \"INSERT\") (2 . \"TAG\"))))\n(command \"_MOVE\" ss \"\" '(0 0 0) '(0 5 0))",
+      "notes": "MOVE with the Displacement option is the safest form in scripts because it needs only one coordinate. To move objects between layouts or drawings use the clipboard commands COPYBASE and PASTEORIG, which preserve coordinates. Grips give the same result interactively: select an object, click a grip and the default grip mode is stretch, with MOVE on the grip menu."
+    },
+    {
+      "name": "COPY",
+      "kind": "command",
+      "description": "Duplicate the selected objects at a new location. Since AutoCAD 2006 the command repeats automatically so several copies can be placed in one run, and the Array option produces a quick linear row of copies without going to the ARRAY command. The mOde option switches between single and multiple behaviour for the rest of the session.",
+      "usage": "COPY  (alias CO or CP)\nSelect objects: <selection>\nSpecify base point or [Displacement/mOde] <Displacement>: <point> | D | O\nSpecify second point or [Array] <use first point as displacement>: <point> | A\nSpecify second point or [Array/Exit/Undo] <Exit>: <point> | A | E | U",
+      "parameters": [
+        {
+          "name": "mOde (O)",
+          "description": "Single or Multiple. Single ends after one copy; Multiple keeps repeating until Enter."
+        },
+        {
+          "name": "COPYMODE",
+          "description": "System variable holding the same setting: 0 lets the command repeat, 1 makes it stop after one copy."
+        },
+        {
+          "name": "Array (A)",
+          "description": "Place a number of copies in a line; you then give the item count and either the spacing of the second item or Fit to spread them between two points."
+        },
+        {
+          "name": "Displacement (D)",
+          "description": "Give the offset as one vector instead of two points."
+        },
+        {
+          "name": "Undo (U)",
+          "description": "Remove the last copy placed without leaving the command."
+        }
+      ],
+      "example": "; Four copies of a hole, 50 apart\nCOPY\nL\n\n0,0\n@50,0\n@100,0\n@150,0\n@200,0\n\n\n; Same thing with the Array option\nCOPY\nL\n\n0,0\nA\n5\n@50,0\n\n; AutoLISP form\n(command \"_COPY\" (ssget \"_P\") \"\" '(0 0) '(50 0))",
+      "notes": "For regular patterns ARRAYRECT and ARRAYPOLAR are better because the result stays associative and the count can be changed later. COPYBASE (Ctrl+Shift+C) and PASTECLIP move objects between drawings with a chosen base point; PASTEORIG pastes at the original coordinates."
+    },
+    {
+      "name": "ROTATE",
+      "kind": "command",
+      "description": "Rotate the selected objects about a base point by an absolute angle, or by a Reference angle measured from existing geometry. The Copy option leaves the originals in place and rotates a duplicate, which is how radial details are built up by hand. Positive angles follow ANGDIR, which is counter-clockwise by default.",
+      "usage": "ROTATE  (alias RO)\nCurrent positive angle in UCS:  ANGDIR=counterclockwise  ANGBASE=0\nSelect objects: <selection>\nSpecify base point: <point>\nSpecify rotation angle or [Copy/Reference] <0>: <angle> | C | R",
+      "parameters": [
+        {
+          "name": "base point",
+          "description": "The pivot. Objects rotate about this point, so pick a centre, corner or insertion point deliberately."
+        },
+        {
+          "name": "Copy (C)",
+          "description": "Keep the original objects and rotate a copy."
+        },
+        {
+          "name": "Reference (R)",
+          "description": "Give a current reference angle (or two points on existing geometry) and then the angle it should become - the way to straighten something skewed by an unknown amount."
+        },
+        {
+          "name": "ANGDIR",
+          "description": "System variable for the positive direction: 0 counter-clockwise (default), 1 clockwise."
+        },
+        {
+          "name": "ANGBASE",
+          "description": "System variable for the direction of angle zero in the current UCS."
+        }
+      ],
+      "example": "; Rotate a part 30 degrees about its insertion point\nROTATE\nL\n\n0,0\n30\n\n; Straighten a skewed detail using Reference\nROTATE\nALL\n\n100,100\nR\n100,100\n180,140\n0\n\n; Rotate a copy\n(command \"_ROTATE\" (ssget \"_P\") \"\" '(0 0) \"_C\" 90)",
+      "notes": "Reference with two picked points is the reliable way to align to geometry whose angle you do not know. Blocks rotate about the base point given here, not their own insertion point, so the two must be the same if the insertion point must not move. ALIGN does rotation and translation (and optional scaling) in one step when both source and destination points are known."
+    },
+    {
+      "name": "SCALE",
+      "kind": "command",
+      "description": "Enlarge or reduce the selected objects uniformly about a base point. The scale factor can be typed directly, or derived with the Reference option by stating a known current length and the length it should become - the standard way to rescale an imported drawing or a scanned image to a known dimension. Scaling is always uniform in X, Y and Z.",
+      "usage": "SCALE  (alias SC)\nSelect objects: <selection>\nSpecify base point: <point>\nSpecify scale factor or [Copy/Reference] <1.0000>: <factor> | C | R\n(Reference) Specify reference length <1>: / Specify new length or [Points]:",
+      "parameters": [
+        {
+          "name": "scale factor",
+          "description": "Multiplier greater than 1 enlarges, between 0 and 1 reduces. Negative factors are not accepted; use MIRROR instead."
+        },
+        {
+          "name": "base point",
+          "description": "The point that stays fixed. Everything else moves away from or towards it."
+        },
+        {
+          "name": "Copy (C)",
+          "description": "Leave the originals and scale a duplicate."
+        },
+        {
+          "name": "Reference (R)",
+          "description": "Enter the current length of a known feature then the required length; Points lets you pick the two ends of the reference instead of typing it."
+        }
+      ],
+      "example": "; Convert a drawing from inches to millimetres\nSCALE\nALL\n\n0,0\n25.4\n\n; Rescale a traced image so a known wall is 5000 long\nSCALE\nL\n\n0,0\nR\nP\n(pick one end)\n(pick the other end)\n5000",
+      "notes": "SCALE changes real geometry. To change only the displayed size of text or of annotative objects use SCALETEXT or the annotation scale, not SCALE. Dimensions scaled with their geometry keep measuring correctly because the measurement is associative, but their text height follows DIMSCALE or the annotative scale, not this command."
+    },
+    {
+      "name": "STRETCH",
+      "kind": "command",
+      "description": "Move the endpoints that fall inside a crossing selection while leaving the rest of each object anchored, which lengthens or reshapes geometry instead of relocating it. It is the correct way to make a room bigger, move a wall, or shift a row of holes while keeping everything connected. Objects wholly inside the crossing window are simply moved.",
+      "usage": "STRETCH  (alias S)\nSelect objects to stretch by crossing-window or crossing-polygon...\nSelect objects: C <first corner> <opposite corner> | CP <points>\nSelect objects: Enter\nSpecify base point or [Displacement] <Displacement>: <point> | D\nSpecify second point or <use first point as displacement>: <point>",
+      "parameters": [
+        {
+          "name": "Crossing (C)",
+          "description": "The only selection mode that produces stretching; a Window selection or individual picks make STRETCH behave exactly like MOVE."
+        },
+        {
+          "name": "CPolygon (CP)",
+          "description": "Crossing polygon, for picking an irregular region of endpoints."
+        },
+        {
+          "name": "base point / second point",
+          "description": "The displacement applied to every selected endpoint. Type @dx,dy for an exact amount."
+        },
+        {
+          "name": "Displacement (D)",
+          "description": "Give the offset as a single vector."
+        },
+        {
+          "name": "crossed vs enclosed",
+          "description": "Endpoints inside the crossing region move; endpoints outside stay put. Circles, text, blocks and other point-defined objects move only if their defining point is inside."
+        }
+      ],
+      "example": "; Push the right-hand wall of a room 500 further right\nSTRETCH\nC\n4800,-500\n6000,4500\n\n0,0\n@500,0\n\n; AutoLISP: stretch using an explicit crossing window\n(command \"_STRETCH\" \"_C\" '(4800 -500) '(6000 4500) \"\" '(0 0) '(500 0))",
+      "notes": "Only the most recent crossing selection is used for the stretch, so building a selection from several windows does not work as expected. Dimensions whose definition points are caught in the window update their measurement automatically, which is the main reason to stretch rather than move and re-dimension. Hatches lose or keep their fit depending on whether they are associative."
+    },
+    {
+      "name": "LENGTHEN",
+      "kind": "command",
+      "description": "Change the length of an open object or the included angle of an arc without needing a boundary to trim or extend to. Selecting an object with no option first reports its current length, which makes it a quick measuring tool. It works on lines, arcs, elliptical arcs, open polylines and open splines, but not on closed objects.",
+      "usage": "LENGTHEN  (alias LEN)\nSelect an object to measure or [DElta/Percent/Total/DYnamic] <Total>: <object> | DE | P | T | DY\n(DElta) Enter delta length or [Angle] <0>:\n(Percent) Enter percentage length <100>:\n(Total) Specify total length or [Angle] <1.0>:\nSelect an object to change or [Undo]:",
+      "parameters": [
+        {
+          "name": "DElta (DE)",
+          "description": "Add or subtract a length increment; a negative value shortens. The Angle suboption changes an arc's included angle by an increment."
+        },
+        {
+          "name": "Percent (P)",
+          "description": "Set the new length as a percentage of the current one; 50 halves it, 200 doubles it."
+        },
+        {
+          "name": "Total (T)",
+          "description": "Set the absolute overall length, or with Angle the absolute included angle of an arc."
+        },
+        {
+          "name": "DYnamic (DY)",
+          "description": "Drag the nearest endpoint; the other end stays fixed."
+        },
+        {
+          "name": "pick end",
+          "description": "The end you click nearest to is the one that changes, for every option."
+        }
+      ],
+      "example": "; Extend every centre line by 5 at each end\nLENGTHEN\nDE\n5\n(pick near one end)\n(pick near the other end)\n\n\n; Set an arc to exactly 90 degrees\nLENGTHEN\nT\nA\n90\n(pick the arc)\n",
+      "notes": "LENGTHEN cannot shorten an object past zero and does nothing to closed polylines, circles or ellipses. When a boundary exists, TRIM and EXTEND are usually faster; LENGTHEN is for when there is nothing to trim against. Selecting an object at the first prompt with no option chosen simply reports its length, which is often quicker than DIST."
+    },
+    {
+      "name": "TRIM",
+      "kind": "command",
+      "description": "Cut objects back at their intersections with other objects. From AutoCAD 2021 the command runs in Quick mode by default: every visible object acts as a cutting edge, so you just pick the pieces to remove, and holding Shift while picking extends instead of trimming. Standard mode, where cutting edges are selected first, is still available through the mOde option for drawings and scripts that depend on it.",
+      "usage": "TRIM  (alias TR)\nCurrent settings: Mode = Quick\nSelect object to trim or shift-select to extend or\n[cuTting edges/Crossing/mOde/Project/eRase]:\n\n; Standard mode\nCurrent settings: Projection=UCS, Edge=None, Mode=Standard\nSelect cutting edges ...\nSelect objects or <select all>: Enter\nSelect object to trim or shift-select to extend or\n[Fence/Crossing/mOde/Project/Edge/eRase/Undo]:",
+      "parameters": [
+        {
+          "name": "mOde (O)",
+          "description": "Switch between Quick (all objects are cutting edges, the 2021 and later default) and Standard (cutting edges are selected first)."
+        },
+        {
+          "name": "TRIMEXTENDMODE",
+          "description": "System variable that stores which of those two modes TRIM and EXTEND start in, so an office standard or a script can force the legacy behaviour."
+        },
+        {
+          "name": "shift-select",
+          "description": "Holding Shift while picking switches the command to extending - the same key works the other way round inside EXTEND."
+        },
+        {
+          "name": "cuTting edges (T)",
+          "description": "In Quick mode, select a specific set of edges instead of using everything."
+        },
+        {
+          "name": "Crossing (C) / Fence (F)",
+          "description": "Free-form drag selections for picking many pieces at once; a fence line trims everything it crosses."
+        },
+        {
+          "name": "Edge (E) / EDGEMODE",
+          "description": "Standard mode only: Extend makes a cutting edge act as if it were infinitely long so it can trim objects it does not actually reach; No extend requires a real intersection. EDGEMODE holds the setting."
+        },
+        {
+          "name": "Project (P) / PROJMODE",
+          "description": "How intersections are found in 3D: None (true 3D), Ucs (project onto the XY plane of the current UCS) or View (project onto the view plane)."
+        },
+        {
+          "name": "eRase (R)",
+          "description": "Delete a whole object without leaving the command, for the stray leftovers trimming produces."
+        }
+      ],
+      "example": "; 2021 and later - Quick mode, pick the pieces to remove\nTRIM\n(pick a segment)\n(pick another segment)\n\n\n; Force legacy behaviour in a script that predates 2021\nTRIMEXTENDMODE 0\nTRIM\n(select cutting edges)\n\n(select objects to trim)\n\n\n; AutoLISP: trim everything crossing a fence, using all edges\n(command \"_TRIM\" \"\" \"_F\" '(0 50) '(500 50) \"\" \"\")",
+      "notes": "Hatches, text and blocks cannot be trimmed; only their boundaries can. In Quick mode a stray object far away can still act as an edge, so zoom to the work area or use cuTting edges when the result looks wrong. Shift-select is the single most useful habit in both TRIM and EXTEND because it removes the need to swap commands. BREAK is the alternative when there is no cutting edge at all."
+    },
+    {
+      "name": "EXTEND",
+      "kind": "command",
+      "description": "Lengthen objects until they meet a boundary edge. It is the mirror image of TRIM and shares its settings: from AutoCAD 2021 it runs in Quick mode where every visible object is a potential boundary, and holding Shift while picking trims instead of extending. Objects extend in the direction of the end you pick nearest to.",
+      "usage": "EXTEND  (alias EX)\nCurrent settings: Mode = Quick\nSelect object to extend or shift-select to trim or\n[Boundary edges/Crossing/mOde/Project]:\n\n; Standard mode\nSelect boundary edges ...\nSelect objects or <select all>: Enter\nSelect object to extend or shift-select to trim or\n[Fence/Crossing/mOde/Project/Edge/Undo]:",
+      "parameters": [
+        {
+          "name": "mOde (O)",
+          "description": "Quick or Standard, shared with TRIM and stored in TRIMEXTENDMODE."
+        },
+        {
+          "name": "Boundary edges (B)",
+          "description": "In Quick mode, restrict extension to a chosen set of boundaries instead of everything visible."
+        },
+        {
+          "name": "shift-select",
+          "description": "Holding Shift trims the picked object instead of extending it."
+        },
+        {
+          "name": "Edge (E) / EDGEMODE",
+          "description": "Extend mode lets an object reach the implied, infinite extension of a boundary; No extend requires the boundary to actually cross the object's path."
+        },
+        {
+          "name": "Project (P) / PROJMODE",
+          "description": "None, Ucs or View - how the intersection is computed for objects that are not coplanar."
+        },
+        {
+          "name": "pick end",
+          "description": "The end nearest the pick point is the one that grows; picking the wrong half is the usual reason nothing happens."
+        }
+      ],
+      "example": "; Extend two lines up to a wall face\nEXTEND\n(pick near the right end of the first line)\n(pick near the right end of the second)\n\n\n; Extend to an implied intersection in Standard mode\nTRIMEXTENDMODE 0\nEXTEND\n(select the boundary)\n\nE\nE\n(pick the object to extend)\n\n\n; Extend everything crossed by a fence\n(command \"_EXTEND\" \"\" \"_F\" '(0 0) '(0 3000) \"\" \"\")",
+      "notes": "Nothing happens when the object, if extended, would never reach the boundary - switch Edge to Extend so the boundary is treated as infinite. A closed polyline cannot be extended. LENGTHEN is the command to use when there is no boundary to extend to."
+    },
+    {
+      "name": "BREAK",
+      "kind": "command",
+      "description": "Remove the part of an object between two picked points, or split it into two objects at a single point. It is how a line is opened up for a symbol to sit in, and how a construction line or ray is turned into finite geometry. Breaking a circle removes the arc running counter-clockwise from the first point to the second.",
+      "usage": "BREAK  (alias BR)\nSelect object: <object - the pick point is also the first break point>\nSpecify second break point or [First point]: <point> | F | @\n(First) Specify first break point: / Specify second break point:\n\nBREAKATPOINT  (AutoCAD 2021 and later)\nSelect object: / Specify break point:",
+      "parameters": [
+        {
+          "name": "First point (F)",
+          "description": "Re-specify the first break point, which is needed whenever the point used to select the object is not where the break should start."
+        },
+        {
+          "name": "@ as second point",
+          "description": "Splits the object in two at the first break point with no gap - the classic keyboard trick, now also available as BREAKATPOINT."
+        },
+        {
+          "name": "direction on arcs and circles",
+          "description": "The removed piece always runs counter-clockwise from the first to the second point, so swapping the picks keeps the other half."
+        },
+        {
+          "name": "points off the object",
+          "description": "A break point picked away from the object is projected onto its nearest point, which is convenient but can surprise you at corners."
+        }
+      ],
+      "example": "; Open a 20 wide gap in a line for a symbol\nBREAK\n(select the line)\nF\n490,0\n510,0\n\n; Split a polyline in two without a gap\nBREAK\n(select the polyline)\nF\n(pick the split point)\n@\n\n; Same thing in 2021 and later\nBREAKATPOINT\n(select the object)\n(pick the split point)",
+      "notes": "A closed polyline or circle becomes an open arc or polyline; a circle cannot be broken into two pieces in one operation. BREAK cannot split a block, text or hatch. Use object snaps for the break points, and remember the object-selection pick doubles as the first break point unless you use First. JOIN reverses the operation when the pieces are still collinear or concentric."
+    },
+    {
+      "name": "JOIN",
+      "kind": "command",
+      "description": "Combine separate collinear or contiguous objects into one. Lines that lie on the same infinite line, arcs on the same imaginary circle, polylines that share endpoints, and splines, elliptical arcs and helixes that meet can all be merged. It is the standard repair after trimming, breaking or exploding, and the way to turn a chain of lines and arcs into a single polyline that can be offset or measured.",
+      "usage": "JOIN  (alias J)\nSelect source object or multiple objects to join at once: <selection>\nSelect objects to join: Enter\n(for arcs and elliptical arcs) [cLose]: L closes the arc into a full circle or ellipse",
+      "parameters": [
+        {
+          "name": "collinear lines",
+          "description": "Lines must lie on the same infinite line; gaps between them are allowed and are closed by the join."
+        },
+        {
+          "name": "arcs",
+          "description": "Arcs must lie on the same imaginary circle. They are joined counter-clockwise from the source arc, so the result can sweep the long way round."
+        },
+        {
+          "name": "cLose (L)",
+          "description": "Turn the selected arc into a circle, or an elliptical arc into a full ellipse, instead of joining."
+        },
+        {
+          "name": "result type",
+          "description": "Joining a mixture of lines and arcs that meet end to end produces a polyline; joining collinear lines produces a single line."
+        },
+        {
+          "name": "coplanar requirement",
+          "description": "All objects must be in the same plane; objects at different elevations will not join."
+        }
+      ],
+      "example": "; Rebuild a profile that was exploded into lines and arcs\nJOIN\nALL\n\n\n; Turn an arc back into a full circle\nJOIN\n(select the arc)\nL\n\n; AutoLISP: join every line on a layer\n(setq ss (ssget \"_X\" '((0 . \"LINE\") (8 . \"PROFILE\"))))\n(command \"_JOIN\" ss \"\")",
+      "notes": "If the objects do not join, the usual causes are a difference in elevation, a slight angular mismatch, or arcs that are not truly concentric - check with the Properties palette. PEDIT with the Join option and a fuzz distance is the tolerant alternative: it will bridge small gaps that JOIN refuses. OVERKILL is the right tool when the problem is duplicates rather than fragments."
+    },
+    {
+      "name": "CHAMFER",
+      "kind": "command",
+      "description": "Bevel the corner between two lines, either by two distances or by a distance and an angle. Settings are sticky, so the same bevel can be applied around a part without retyping, and the Polyline option chamfers every vertex of a polyline at once. Holding Shift while selecting the second object forces a zero chamfer, which is the quickest way to close a corner to a sharp point.",
+      "usage": "CHAMFER  (alias CHA)\n(TRIM mode) Current chamfer Dist1 = 0.0000, Dist2 = 0.0000\nSelect first line or [Undo/Polyline/Distance/Angle/Trim/mEthod/Multiple]:\nSelect second line or shift-select to apply corner or [Distance/Angle/Method]:",
+      "parameters": [
+        {
+          "name": "Distance (D)",
+          "description": "Set the first and second chamfer distances, measured back along each object from the intersection."
+        },
+        {
+          "name": "Angle (A)",
+          "description": "Set a distance along the first line plus the angle of the chamfer from that line."
+        },
+        {
+          "name": "mEthod (E)",
+          "description": "Choose whether the command uses the two distances or the distance-and-angle pair; held in CHAMMODE."
+        },
+        {
+          "name": "Polyline (P)",
+          "description": "Apply the current chamfer to every vertex of a 2D polyline in one operation."
+        },
+        {
+          "name": "Trim (T) / TRIMMODE",
+          "description": "Trim cuts the original lines back to the chamfer, No trim leaves them full length. TRIMMODE 0 turns trimming off for both CHAMFER and FILLET."
+        },
+        {
+          "name": "Multiple (M)",
+          "description": "Keep chamfering pairs of objects until Enter, instead of ending after one."
+        },
+        {
+          "name": "CHAMFERA / CHAMFERB / CHAMFERC / CHAMFERD",
+          "description": "System variables holding the two distances, and the distance and angle used by the angle method."
+        },
+        {
+          "name": "shift-select",
+          "description": "Applies a zero-distance chamfer, extending or trimming both objects to a sharp corner."
+        }
+      ],
+      "example": "; 2 x 2 chamfer on every corner of a rectangle\nCHAMFER\nD\n2\n2\nP\n(select the polyline)\n\n; Distance-and-angle chamfer, repeated\nCHAMFER\nE\nA\nA\n3\n30\nM\n(select first line) (select second line)\n(select first line) (select second line)\n\n\n; AutoLISP: 1 mm break edge between two lines\n(command \"_CHAMFER\" \"_D\" 1.0 1.0 pt1 pt2)",
+      "notes": "The two objects do not have to touch: CHAMFER extends or trims them to the implied corner. Chamfer distances stay set until changed, so reset them to 0 before drawing a square corner, or use shift-select. CHAMFEREDGE is the separate command for 3D solids; RECTANG can apply a chamfer as the rectangle is drawn."
+    },
+    {
+      "name": "FILLET",
+      "kind": "command",
+      "description": "Round the corner between two objects with an arc of a given radius, extending or trimming them as needed. A radius of 0 produces a sharp corner instead, which is the standard way to close a gap between two lines that should meet, and holding Shift while picking the second object forces that behaviour without changing the stored radius. The Polyline option rounds every vertex of a polyline in one pass.",
+      "usage": "FILLET  (alias F)\nCurrent settings: Mode = TRIM, Radius = 0.0000\nSelect first object or [Undo/Polyline/Radius/Trim/Multiple]:\nSelect second object or shift-select to apply corner or [Radius]:",
+      "parameters": [
+        {
+          "name": "Radius (R)",
+          "description": "Fillet radius; stored in FILLETRAD and reused until changed. 0 makes a sharp corner."
+        },
+        {
+          "name": "Polyline (P)",
+          "description": "Fillet every vertex of a 2D polyline at once; vertices too short for the radius are left alone."
+        },
+        {
+          "name": "Trim (T) / TRIMMODE",
+          "description": "Trim cuts the originals back to the arc, No trim leaves them intact and just adds the arc."
+        },
+        {
+          "name": "Multiple (M)",
+          "description": "Keep filleting pairs of objects until Enter."
+        },
+        {
+          "name": "shift-select",
+          "description": "Temporarily applies radius 0 to make a sharp corner, leaving FILLETRAD unchanged."
+        },
+        {
+          "name": "parallel lines",
+          "description": "Filleting two parallel lines draws a semicircular end cap between them; the radius setting is ignored."
+        }
+      ],
+      "example": "; 5 mm radius on all corners of a polyline\nFILLET\nR\n5\nP\n(select the polyline)\n\n; Close a corner between two lines that do not meet\nFILLET\nR\n0\n(select the first line)\n(select the second line)\n\n; AutoLISP: fillet without trimming\n(command \"_FILLET\" \"_T\" \"_N\" \"_R\" 10.0 pt1 pt2)",
+      "notes": "FILLET works on lines, polylines, arcs, circles, ellipses, splines, rays and construction lines, and on two parallel lines. BLEND (also reached as BLENDCURVE) is the related command that joins two open curves with a tangent or smooth spline instead of an arc and leaves both curves untouched; it is not given its own entry in this catalog. FILLETEDGE is the 3D solid equivalent, and RECTANG can fillet corners as the rectangle is drawn."
+    },
+    {
+      "name": "EXPLODE",
+      "kind": "command",
+      "description": "Break a compound object into its component parts: a block into the objects it contains, a polyline into lines and arcs, a dimension or leader into lines, arrowheads and text, an mtext into single-line text, a hatch into individual pattern lines, an associative array into independent copies. Use it when something must be edited piece by piece, and be aware that information is lost in the process.",
+      "usage": "EXPLODE  (alias X)\nSelect objects: <selection>\nSelect objects: Enter",
+      "parameters": [
+        {
+          "name": "blocks",
+          "description": "One level per pass: a block containing blocks needs exploding again. Attribute values are lost and revert to attribute definitions."
+        },
+        {
+          "name": "polylines",
+          "description": "Width and tangent information is discarded; the result is plain lines and arcs on the polyline's layer."
+        },
+        {
+          "name": "dimensions and leaders",
+          "description": "Become lines, 2D solids and text, losing associativity to the geometry they measured."
+        },
+        {
+          "name": "hatches",
+          "description": "Become hundreds or thousands of separate line objects; almost always the wrong thing to do to a hatch."
+        },
+        {
+          "name": "associative arrays",
+          "description": "Exploding destroys the association, after which ARRAYEDIT can no longer change the count or spacing."
+        },
+        {
+          "name": "EXPLMODE",
+          "description": "System variable controlling whether blocks with unequal X, Y and Z scale factors can be exploded."
+        }
+      ],
+      "example": "; Explode every block named DETAIL_TAG\n(setq ss (ssget \"_X\" '((0 . \"INSERT\") (2 . \"DETAIL_TAG\"))))\n(command \"_EXPLODE\" ss)\n\n; Explode a nested block completely\nEXPLODE\nL\n\nEXPLODE\nALL\n",
+      "notes": "A block defined with 'Allow exploding' cleared cannot be exploded at all. XPLODE is the version that lets you set the layer, colour, linetype and lineweight of the resulting objects instead of accepting the defaults. Exploding blocks wholesale is the most common cause of bloated, unmanageable drawings - prefer BEDIT or REFEDIT to change the definition instead."
+    },
+    {
+      "name": "XPLODE",
+      "kind": "command",
+      "description": "Explode compound objects while controlling the properties the pieces end up with. Ordinary EXPLODE sends block contents back to whatever layer, colour and linetype they were drawn on; XPLODE can instead force them onto a chosen layer, give them an explicit colour or linetype, or make them inherit the properties of the block reference they came from. Use it when exploding must not scatter geometry across unwanted layers.",
+      "usage": "XPLODE\nSelect objects: <selection>\nEnter an option [Individually/Globally] <Globally>: I | G\nEnter an option [All/Color/LAyer/LType/LWeight/Inherit from parent block/Explode] <Explode>:",
+      "parameters": [
+        {
+          "name": "Individually / Globally",
+          "description": "Apply the settings to each selected object in turn, or the same settings to all of them at once."
+        },
+        {
+          "name": "All (A)",
+          "description": "Prompt for colour, linetype, lineweight and layer in sequence."
+        },
+        {
+          "name": "LAyer (LA)",
+          "description": "Put every resulting object on a named layer, regardless of where it was drawn."
+        },
+        {
+          "name": "Color (C) / LType (LT) / LWeight (LW)",
+          "description": "Assign an explicit colour, linetype or lineweight to the results, or BYLAYER / BYBLOCK."
+        },
+        {
+          "name": "Inherit from parent block (I)",
+          "description": "Give the pieces the properties the block reference had. This only works for geometry drawn on layer 0 with colour, linetype and lineweight set to BYBLOCK."
+        },
+        {
+          "name": "Explode (E)",
+          "description": "Behave exactly like EXPLODE, accepting the components' own properties."
+        }
+      ],
+      "example": "; Explode tags and force everything onto the ANNO layer\nXPLODE\n(select the blocks)\n\nG\nLA\nANNO\n\n; Explode so the pieces keep the look they had inside the block\nXPLODE\nL\n\nG\nI",
+      "notes": "Inherit from parent block silently falls back to the objects' own properties when they were not drawn on layer 0 with BYBLOCK properties, which is the usual reason the result looks wrong. XPLODE cannot explode objects that EXPLODE cannot explode either, such as blocks flagged as non-explodable or xrefs."
+    },
+    {
+      "name": "OFFSET",
+      "kind": "command",
+      "description": "Create a parallel copy of an object at a given distance or through a picked point. It is the backbone of 2D drafting: wall faces, pipe runs, setbacks, machining allowances and concentric profiles are all built by offsetting. The command repeats so one distance can be applied to many objects, and the Erase and Layer options control what happens to the source and where the copy lands.",
+      "usage": "OFFSET  (alias O)\nCurrent settings: Erase source=No  Layer=Source  OFFSETGAPTYPE=0\nSpecify offset distance or [Through/Erase/Layer] <1.0000>: <dist> | T | E | L\nSelect object to offset or [Exit/Undo] <Exit>: <object>\nSpecify point on side to offset or [Exit/Multiple/Undo] <Exit>: <point> | M | E | U",
+      "parameters": [
+        {
+          "name": "Through (T)",
+          "description": "Offset through a picked point instead of by a typed distance - the way to offset to an existing intersection or node."
+        },
+        {
+          "name": "Erase (E)",
+          "description": "Delete the source object after offsetting, turning the command into a parallel move."
+        },
+        {
+          "name": "Layer (L)",
+          "description": "Put the new object on the Source object's layer or on the Current layer. Setting this to Current is what keeps offset setting-out lines off the wall layer."
+        },
+        {
+          "name": "Multiple (M)",
+          "description": "Keep offsetting the same object repeatedly at the same distance, each copy taken from the previous one."
+        },
+        {
+          "name": "OFFSETDIST",
+          "description": "System variable holding the last distance used; a negative value means the Through option is current."
+        },
+        {
+          "name": "OFFSETGAPTYPE",
+          "description": "How gaps are closed when offsetting a polyline outwards: 0 extends the segments to meet, 1 fills the gap with a fillet arc, 2 fills it with a chamfer."
+        }
+      ],
+      "example": "; Wall faces 100 either side of a centre line\nOFFSET\n100\n(select the centre line)\n(pick above)\n(select the centre line)\n(pick below)\n\n\n; Five parallel lines 25 apart, on the current layer\nOFFSET\nL\nC\n\n25\n(select the line)\nM\n(pick the side)\n(pick again)\n(pick again)\n(pick again)\n(pick again)\n\n\n; AutoLISP\n(command \"_OFFSET\" 100.0 ent '(0 1000) \"\")",
+      "notes": "Offsetting a closed polyline inwards past its own radius collapses or removes segments - set OFFSETGAPTYPE and check the result. Circles and arcs offset to a different radius, not to a true parallel curve, which is what you want for a pipe but not always for a profile. The Erase and Layer settings are sticky and catch people out sessions later; the header line at the prompt always shows the current state."
+    },
+    {
+      "name": "MIRROR",
+      "kind": "command",
+      "description": "Create a reflected copy of the selected objects about a mirror line defined by two points, optionally deleting the originals. It halves the work on symmetrical parts and layouts. Text, attributes and dimension text are kept readable by default so a mirrored drawing does not come out back to front.",
+      "usage": "MIRROR  (alias MI)\nSelect objects: <selection>\nSelect objects: Enter\nSpecify first point of mirror line: <point>\nSpecify second point of mirror line: <point>\nErase source objects? [Yes/No] <N>: Y | N | Enter",
+      "parameters": [
+        {
+          "name": "mirror line",
+          "description": "Two points defining the axis of reflection; use ORTHO or typed coordinates to keep it exactly horizontal or vertical."
+        },
+        {
+          "name": "Erase source objects",
+          "description": "Yes turns the operation into a flip, No keeps both halves."
+        },
+        {
+          "name": "MIRRTEXT",
+          "description": "System variable: 0 (the default) keeps text, attributes and mtext readable; 1 mirrors them as true geometry, which is what a stencil or a reversed print needs."
+        },
+        {
+          "name": "blocks and attributes",
+          "description": "Block references are mirrored as a whole; their attribute text follows MIRRTEXT like any other text."
+        }
+      ],
+      "example": "; Mirror a half-section about the vertical centre line, keeping both halves\nMIRROR\nALL\n\n0,0\n0,100\nN\n\n; Flip a symbol left to right\nMIRRTEXT 0\nMIRROR\nL\n\n50,0\n50,100\nY\n\n; AutoLISP\n(command \"_MIRROR\" ss \"\" '(0 0) '(0 100) \"_N\")",
+      "notes": "MIRRTEXT is a drawing variable saved with the file, so a drawing received from elsewhere may mirror text unexpectedly - check it before mirroring annotation. Mirroring with a negative scale in INSERT achieves the same flip for a single block reference. 3DMIRROR mirrors about a plane rather than a line."
+    },
+    {
+      "name": "ARRAY",
+      "kind": "command",
+      "description": "Create multiple copies of objects in a regular pattern: rectangular rows and columns, polar copies around a centre, or items distributed along a path. It is the front end to ARRAYRECT, ARRAYPOLAR and ARRAYPATH, asking which type you want. Arrays are associative by default, meaning the whole pattern stays one object whose count, spacing and source geometry can be changed later with ARRAYEDIT.",
+      "usage": "ARRAY  (alias AR)\nSelect objects: <selection>\nEnter array type [Rectangular/PAth/POlar] <Rectangular>: R | PA | PO\n(the prompts then continue as for ARRAYRECT, ARRAYPATH or ARRAYPOLAR)\n\n; Legacy command-line version, non-associative\n-ARRAY\nSelect objects: / Enter the type of array [Rectangular/POlar] <R>:",
+      "parameters": [
+        {
+          "name": "Rectangular / POlar / PAth",
+          "description": "Which kind of array to build; the choice hands over to ARRAYRECT, ARRAYPOLAR or ARRAYPATH."
+        },
+        {
+          "name": "ARRAYTYPE",
+          "description": "System variable holding the default array type offered by this command."
+        },
+        {
+          "name": "ASsociative",
+          "description": "Yes keeps the pattern as a single associative array object; No produces independent copies, which is what older workflows and some downstream software expect."
+        },
+        {
+          "name": "ARRAYEDIT",
+          "description": "The companion command that edits an existing associative array: Source to edit the original objects in place, REPlace to swap items, COUnt, Spacing, Rows, Levels, and RESet to restore erased items."
+        },
+        {
+          "name": "ARRAYCLOSE",
+          "description": "Ends the in-place source editing state that ARRAYEDIT Source opens, saving or discarding the changes."
+        },
+        {
+          "name": "-ARRAY",
+          "description": "The pre-2012 command-line version. It supports rectangular and polar only, is never associative, and needs no dialog - which is why scripts still use it."
+        }
+      ],
+      "example": "; Associative rectangular array, 4 rows x 6 columns\nARRAY\nL\n\nR\nCOU\n6\n4\nS\n100\n80\n\n\n; Legacy script form: 3 rows, 5 columns, 50 apart\n-ARRAY\nALL\n\nR\n3\n5\n50\n50\n\n; Change the count afterwards\nARRAYEDIT\n(select the array)\nCOU\n8\n4\n",
+      "notes": "EXPLODE on an array breaks the association permanently and leaves ordinary copies; ARRAYEDIT no longer applies afterwards. Editing one item of an associative array in place is done with ARRAYEDIT Source, ending with ARRAYCLOSE - editing the source updates every item. Use -ARRAY in scripts when a plain set of copies is wanted with no dialog and no associativity."
+    },
+    {
+      "name": "ARRAYRECT",
+      "kind": "command",
+      "description": "Distribute copies of the selected objects into rows, columns and levels. After the initial grid appears, grips and command-line options adjust the counts and spacing live until you exit. It is the right tool for grids of columns, bolt patterns on a rectangular pitch, parking bays and tile layouts, and the resulting array stays editable.",
+      "usage": "ARRAYRECT\nSelect objects: <selection>\nType = Rectangular  Associative = Yes\nSelect grip to edit array or\n[ASsociative/Base point/COUnt/Spacing/COLumns/Rows/Levels/eXit] <eXit>:",
+      "parameters": [
+        {
+          "name": "COUnt (COU)",
+          "description": "Number of columns and rows, asked in that order."
+        },
+        {
+          "name": "Spacing (S)",
+          "description": "Distance between columns and between rows; negative values run the array left or down."
+        },
+        {
+          "name": "COLumns (COL)",
+          "description": "Set the column count and spacing together, with a Total distance suboption that spreads the items over an overall length."
+        },
+        {
+          "name": "Rows (R)",
+          "description": "Set the row count and spacing, plus an incremental elevation so each row steps up in Z."
+        },
+        {
+          "name": "Levels (L)",
+          "description": "Number of levels and spacing in the Z direction, for 3D arrays."
+        },
+        {
+          "name": "ASsociative (AS)",
+          "description": "Yes keeps one editable array object, No creates independent copies."
+        },
+        {
+          "name": "Base point (B)",
+          "description": "The point of the array that is used for grip editing and as the reference for the spacing."
+        }
+      ],
+      "example": "; M12 bolt pattern: 4 columns at 150, 3 rows at 200\nARRAYRECT\n(select the hole)\n\nCOU\n4\n3\nS\n150\n200\nX\n\n; Spread 10 columns evenly over a total of 9000\nARRAYRECT\nL\n\nCOL\n10\nT\n9000\nX",
+      "notes": "Spacing is centre to centre, measured from the source object's base point, not edge to edge. ARRAYEDIT changes the counts and spacing later, and its Source option opens the original objects for editing so every item updates at once. Use a negative spacing rather than a negative count to run the pattern in the other direction."
+    },
+    {
+      "name": "ARRAYPOLAR",
+      "kind": "command",
+      "description": "Copy objects evenly around a centre point. Give the centre, then the number of items and either the angle between them or the total angle to fill. It is the command for bolt circles, radial ribs, clock faces and stair treads around a newel, and whether the copies rotate with the pattern is controlled by the ROTate items option.",
+      "usage": "ARRAYPOLAR\nSelect objects: <selection>\nSpecify center point of array or [Base point/Axis of rotation]: <point>\nType = Polar  Associative = Yes\nSelect grip to edit array or\n[ASsociative/Base point/Items/Angle between/Fill angle/ROWs/Levels/ROTate items/eXit] <eXit>:",
+      "parameters": [
+        {
+          "name": "center point",
+          "description": "The point the items are arrayed around; use an object snap to take it from existing geometry."
+        },
+        {
+          "name": "Items (I)",
+          "description": "Number of items in the array, counting the source object."
+        },
+        {
+          "name": "Angle between (A)",
+          "description": "Angle from one item to the next; positive is counter-clockwise under the default ANGDIR."
+        },
+        {
+          "name": "Fill angle (F)",
+          "description": "Total angle the array spans; 360 for a full circle, a negative value to run clockwise."
+        },
+        {
+          "name": "ROTate items (ROT)",
+          "description": "Yes rotates each copy so it faces the centre, No keeps every copy in its original orientation - the setting that decides whether arrayed text stays readable."
+        },
+        {
+          "name": "ROWs (ROW) / Levels (L)",
+          "description": "Concentric rings of the same pattern, and copies stacked in Z."
+        },
+        {
+          "name": "Axis of rotation (A)",
+          "description": "Two points defining a 3D axis to array about instead of a point in the current plane."
+        }
+      ],
+      "example": "; Eight holes on a 200 PCD\nCIRCLE\n0,0\n8\nMOVE\nL\n\n0,0\n100,0\nARRAYPOLAR\nL\n\n0,0\nI\n8\nF\n360\nX\n\n; Six items over 180 degrees, not rotated\nARRAYPOLAR\nL\n\n0,0\nI\n6\nF\n180\nROT\nN\nX",
+      "notes": "The item count includes the original, so eight holes on a pitch circle means Items 8, not 9. With Fill angle 360 the angle between items is derived automatically; giving both Items and Angle between instead lets the array cover a partial arc. ROTate items No is almost always what annotation and block symbols need."
+    },
+    {
+      "name": "ARRAYPATH",
+      "kind": "command",
+      "description": "Distribute copies of objects evenly along a path: a line, polyline, arc, circle, ellipse, spline or helix. The Method option chooses between Divide, which spreads a fixed number of items over the whole path, and Measure, which places items at a fixed spacing. Use it for fence posts, balusters, road furniture, chain links and sleepers on a curved alignment.",
+      "usage": "ARRAYPATH\nSelect objects: <selection>\nSelect path curve: <curve>\nType = Path  Associative = Yes\nSelect grip to edit array or\n[ASsociative/Method/Base point/Tangent direction/Items/Rows/Levels/Align items/Z direction/eXit] <eXit>:",
+      "parameters": [
+        {
+          "name": "Method (M)",
+          "description": "Divide spreads a given number of items over the full path length; Measure places items at a given spacing and fills as much of the path as fits."
+        },
+        {
+          "name": "Items (I)",
+          "description": "The item count, or with the Measure method the spacing between items."
+        },
+        {
+          "name": "Align items (A)",
+          "description": "Yes rotates each copy to follow the path direction, No keeps them all parallel to the source."
+        },
+        {
+          "name": "Tangent direction (T)",
+          "description": "Two points on the source object defining which way it points, so the alignment to the path is correct."
+        },
+        {
+          "name": "Base point (B)",
+          "description": "The point of the source object that sits on the path."
+        },
+        {
+          "name": "Z direction (Z)",
+          "description": "Whether the items keep the original Z direction or follow the 3D twist of the path."
+        },
+        {
+          "name": "Rows (R) / Levels (L)",
+          "description": "Parallel rows offset from the path, and copies stacked in Z."
+        }
+      ],
+      "example": "; Fence posts every 2000 along a polyline\nARRAYPATH\n(select the post block)\n\n(select the path polyline)\nM\nM\nI\n2000\nA\nY\nX\n\n; Twelve balusters spread evenly along a curved handrail\nARRAYPATH\nL\n\n(select the spline)\nM\nD\nI\n12\nX",
+      "notes": "The path must be a single object - JOIN the segments first, or the array will only follow the piece you picked. Changing the path later updates an associative path array automatically, which is why it is worth keeping the association. Align items combined with the right Tangent direction is what stops every second post facing backwards."
+    },
+    {
+      "name": "ALIGN",
+      "kind": "command",
+      "description": "Move, rotate and optionally scale objects in one operation by giving pairs of source and destination points. One pair behaves like MOVE, two pairs move and rotate (and can scale to fit), and three pairs align objects in 3D. It is the fastest way to drop a detail onto a sloping surface or to fit a part between two known points.",
+      "usage": "ALIGN  (alias AL)\nSelect objects: <selection>\nSpecify first source point: / Specify first destination point:\nSpecify second source point: / Specify second destination point:\nSpecify third source point or <continue>: Enter\nScale objects based on alignment points? [Yes/No] <N>: Y | N",
+      "parameters": [
+        {
+          "name": "one point pair",
+          "description": "Behaves exactly like MOVE: the source point is placed on the destination point."
+        },
+        {
+          "name": "two point pairs",
+          "description": "Moves and rotates the selection so the source points line up with the destination points in 2D."
+        },
+        {
+          "name": "three point pairs",
+          "description": "Aligns objects in 3D, orienting them onto an arbitrary plane."
+        },
+        {
+          "name": "Scale objects",
+          "description": "Yes uniformly scales the selection so the distance between the two source points becomes the distance between the two destination points - only offered with exactly two pairs."
+        }
+      ],
+      "example": "; Drop a detail onto a sloping line and stretch it to fit\nALIGN\n(select the detail)\n\n0,0\n(pick the lower end of the slope)\n100,0\n(pick the upper end of the slope)\n\nY\n\n; AutoLISP form, no scaling\n(command \"_ALIGN\" ss \"\" '(0 0) '(1000 500) '(100 0) '(1080 560) \"\" \"_N\")",
+      "notes": "Answering Yes to scaling distorts nothing because the scale is uniform, but it does change real dimensions - check the result before dimensioning. 3DALIGN is the newer command for 3D work and previews the result as you pick. When only rotation is needed, ROTATE with the Reference option is simpler."
+    },
+    {
+      "name": "UNDO",
+      "kind": "command",
+      "description": "Reverse previous operations, with control over how they are grouped. The plain U command undoes one step; UNDO adds options to undo a number of steps, to place a Mark and roll back to it, and to wrap several commands in a BEgin/End group that later undoes as one. Scripts and macros use those grouping options so a long automated sequence can be reversed with a single undo.",
+      "usage": "UNDO\nEnter the number of operations to undo or\n[Auto/Control/BEgin/End/Mark/Back] <1>: <n> | A | C | BE | E | M | B\n\nU        ; undo one operation\nUNDO C [All/None/One/Combine/Layer]",
+      "parameters": [
+        {
+          "name": "number",
+          "description": "Undo that many operations in one step."
+        },
+        {
+          "name": "BEgin (BE) / End (E)",
+          "description": "Open and close an undo group: everything between the two is treated as one operation. The standard wrapper around a script or LISP routine."
+        },
+        {
+          "name": "Mark (M) / Back (B)",
+          "description": "Mark places a bookmark in the undo stream; Back rolls the drawing back to the most recent mark. With no mark set, Back offers to undo everything done in the session."
+        },
+        {
+          "name": "Control (C)",
+          "description": "All enables full undo, None disables it and discards the undo file, One limits undo to a single command, Combine controls whether consecutive zooms and pans undo together, Layer whether layer dialog operations are combined."
+        },
+        {
+          "name": "Auto (A)",
+          "description": "Controls whether all the actions of one menu item or macro are grouped as a single undo operation."
+        },
+        {
+          "name": "UNDOCTL / UNDOMARKS",
+          "description": "Read-only system variables reporting the current undo state and the number of marks currently placed."
+        }
+      ],
+      "example": "; Wrap a script so the whole thing undoes in one step\nUNDO\nBE\n-LAYER\nM\nTEMP\n\nCIRCLE\n0,0\n10\nOFFSET\n5\nL\n5,0\n\nUNDO\nE\n\n; Later: reverse the entire block\nU\n\n; Mark a point and come back to it\nUNDO\nM\n(experiment freely)\nUNDO\nB",
+      "notes": "UNDO Control None frees disk space on very large drawings but throws away all undo history, so it is rarely worth it. Some operations cannot be undone, including plotting, writing files and the commands that open or save a drawing. REDO immediately after an undo reverses it; MREDO reverses several."
+    },
+    {
+      "name": "REDO",
+      "kind": "command",
+      "description": "Reverse the effect of the most recent UNDO or U. It must be issued immediately after the undo - any other command in between discards the redo information. MREDO is the multiple-step version, which can redo a given number of actions, all of them, or back to the last mark.",
+      "usage": "REDO\n(no prompts - reverses the last UNDO; Ctrl+Y)\n\nMREDO\nEnter number of actions or [All/Last]: <n> | A | L",
+      "parameters": [
+        {
+          "name": "immediacy",
+          "description": "REDO only works directly after an undo. Once another command runs, the redo stack is gone."
+        },
+        {
+          "name": "MREDO number",
+          "description": "Redo that many undone actions in one step."
+        },
+        {
+          "name": "MREDO All (A)",
+          "description": "Redo everything that was undone."
+        },
+        {
+          "name": "MREDO Last (L)",
+          "description": "Redo back to the last undo group or mark."
+        }
+      ],
+      "example": "; Undo three steps, then change your mind\nUNDO\n3\nMREDO\n3\n\n; Single step\nU\nREDO",
+      "notes": "The keyboard shortcuts are Ctrl+Z for undo and Ctrl+Y for redo. In scripts, avoid relying on redo at all: wrap the work in UNDO BEgin / UNDO End instead so the state is explicit. Closing and reopening a drawing clears both the undo and redo histories."
+    },
+    {
+      "name": "PEDIT",
+      "kind": "command",
+      "description": "Edit 2D and 3D polylines: close or open them, join other objects onto them, set a uniform width, curve them with Fit or Spline, straighten them again with Decurve, reverse their direction and edit individual vertices. Selecting a line or arc offers to convert it to a polyline first, which is the usual way a drawing of loose lines becomes a set of closed, measurable outlines. The Multiple option processes many objects in one run.",
+      "usage": "PEDIT  (alias PE)\nSelect polyline or [Multiple]: <object> | M\nObject selected is not a polyline.  Do you want to turn it into one? <Y>\nEnter an option [Close/Join/Width/Edit vertex/Fit/Spline/Decurve/Ltype gen/Reverse/Undo]:\n(Edit vertex) [Next/Previous/Break/Insert/Move/Regen/Straighten/Tangent/Width/eXit]:",
+      "parameters": [
+        {
+          "name": "Join (J)",
+          "description": "Add touching lines, arcs and polylines to the current polyline. With the Multiple option a fuzz distance can be given so small gaps are bridged."
+        },
+        {
+          "name": "Close (C) / Open (O)",
+          "description": "Add or remove the closing segment. A truly closed polyline is required for reliable area calculation, hatching and extrusion."
+        },
+        {
+          "name": "Width (W)",
+          "description": "Set one uniform width for every segment; the Edit vertex Width option sets a per-segment start and end width."
+        },
+        {
+          "name": "Fit (F)",
+          "description": "Replace the straight segments with a smooth curve of arcs passing through every vertex."
+        },
+        {
+          "name": "Spline (S)",
+          "description": "Pull the polyline into a spline-like curve controlled by the vertices; SPLINETYPE and SPLINESEGS decide the kind and smoothness."
+        },
+        {
+          "name": "Decurve (D)",
+          "description": "Undo Fit or Spline and return to straight segments between the original vertices."
+        },
+        {
+          "name": "Ltype gen (L)",
+          "description": "Generate the linetype pattern continuously along the whole polyline rather than restarting at each vertex; the PLINEGEN system variable sets the default for new polylines."
+        },
+        {
+          "name": "Multiple (M)",
+          "description": "Select many objects at once; the chosen option is applied to all of them, which is how a whole drawing is converted and joined in one pass."
+        }
+      ],
+      "example": "; Convert loose lines into closed polylines and join them\nPEDIT\nM\nALL\n\nY\nJ\n0.5\n\nC\n\n\n; Give a polyline a 2 unit width and smooth it\nPEDIT\n(select the polyline)\nW\n2\nF\nX",
+      "notes": "PEDITACCEPT 1 suppresses the 'turn it into one?' prompt and converts silently, which scripts need. The Join fuzz distance is only offered when Multiple is used. SPLINEDIT is the equivalent for true spline objects, and the SPLINE command's Object option converts a spline-fitted polyline into a real spline. MLEDIT, the matching editor for multiline junctions such as crosses, tees and corner joints, is not given its own entry in this catalog."
+    },
+    {
+      "name": "SPLINEDIT",
+      "kind": "command",
+      "description": "Edit a spline: move, add, delete or purge fit points, add and weight control vertices, raise the degree, change the start and end tangents, close or open the curve, reverse its direction, or convert it to a polyline. Use it to clean up an imported curve, to tighten a shape locally, or to hand a downstream system a polyline approximation instead of a NURBS curve.",
+      "usage": "SPLINEDIT  (alias SPE)\nSelect spline: <object>\nEnter an option [Close/Join/Fit data/Edit vertex/convert to Polyline/Reverse/Undo/eXit]:\n(Fit data) [Add/Close/Delete/Kink/Move/Purge/Tangents/toLerance/eXit]:\n(Edit vertex) [Add/Delete/Elevate order/Move/Weight/eXit]:",
+      "parameters": [
+        {
+          "name": "Fit data (F)",
+          "description": "Work with the points the curve passes through: Add, Delete, Move, Kink (add a sharp point), Tangents, toLerance, and Purge which discards the fit data and leaves only control vertices."
+        },
+        {
+          "name": "Edit vertex (E)",
+          "description": "Work with the control polygon: Add or Delete a vertex, Move one, change a vertex Weight so the curve is pulled harder towards it, or Elevate order to raise the degree and gain more vertices."
+        },
+        {
+          "name": "convert to Polyline (P)",
+          "description": "Replace the spline with a polyline approximation to a given precision; PLINECONVERTMODE decides whether the result is made of line or arc segments."
+        },
+        {
+          "name": "Close (C) / Open (O)",
+          "description": "Close the curve smoothly back on itself, or reopen a closed spline."
+        },
+        {
+          "name": "Join (J)",
+          "description": "Join other splines, lines, arcs or polylines that meet the spline endpoint into one spline."
+        },
+        {
+          "name": "Reverse (R)",
+          "description": "Flip the direction of the spline, which matters for path arrays, sweeps and text-bearing linetypes."
+        },
+        {
+          "name": "SPLFRAME",
+          "description": "System variable that displays the control polygon so control-vertex editing can be seen."
+        }
+      ],
+      "example": "; Purge the fit data and edit the control vertices instead\nSPLINEDIT\n(select the spline)\nF\nP\nE\nW\n(pick a vertex)\n2.5\nX\nX\n\n; Convert to a polyline made of arcs, precision 10\nPLINECONVERTMODE 1\nSPLINEDIT\n(select the spline)\nP\n10",
+      "notes": "Purging the fit data is irreversible within the command and changes how the spline behaves afterwards, so do it deliberately. Converting to a polyline is often required before exporting to CNC post-processors and older systems that cannot read NURBS; PELLIPSE does the same for ellipses at creation time. A spline with a tolerance greater than zero does not pass exactly through its fit points."
+    },
+    {
+      "name": "HATCHEDIT",
+      "kind": "command",
+      "description": "Change an existing hatch or gradient fill: pattern, scale, angle, colour, transparency, origin, layer and draw order, and its relationship to the boundary. Boundaries can be added, removed or recreated, and a single hatch covering several areas can be separated into independent hatches. The leading-hyphen version -HATCHEDIT does the same from the command line, which is what scripts need.",
+      "usage": "HATCHEDIT  (alias HE; command-line version -HATCHEDIT)\nSelect hatch object: <object>\n(opens the Hatch Edit dialog)\n\n-HATCHEDIT\nSelect hatch object:\nEnter hatch option [DIsassociate/Style/Properties/DRaw order/ADd boundaries/\nRemove boundaries/recreate Boundary/ASsociate/separate Hatches/Origin/ANnotative/LAyer/Transparency]:",
+      "parameters": [
+        {
+          "name": "Properties (P)",
+          "description": "Change the pattern name, scale and angle - the options needed by nearly every scripted edit."
+        },
+        {
+          "name": "ADd boundaries / Remove boundaries",
+          "description": "Extend the hatch into another area or exclude an island without redrawing the hatch."
+        },
+        {
+          "name": "recreate Boundary (B)",
+          "description": "Draw a new polyline or region around the hatch, and optionally associate the hatch with it - the rescue for a hatch whose boundary was deleted."
+        },
+        {
+          "name": "ASsociate / DIsassociate",
+          "description": "Link the hatch to its boundary so it follows edits, or break that link permanently."
+        },
+        {
+          "name": "separate Hatches (H)",
+          "description": "Split one hatch object that fills several separate areas into one hatch per area."
+        },
+        {
+          "name": "Origin (O)",
+          "description": "Move the point the pattern is aligned from, which is what makes brick, block and tile patterns start in the right place."
+        },
+        {
+          "name": "DRaw order (DR)",
+          "description": "Send the hatch behind or in front of other objects without a separate DRAWORDER command."
+        },
+        {
+          "name": "HPASSOC / HPORIGIN / HPLAYER",
+          "description": "System variables for the associativity, origin and layer defaults applied to new hatches."
+        }
+      ],
+      "example": "; Rescale every ANSI31 hatch in the drawing\n(setq ss (ssget \"_X\" '((0 . \"HATCH\"))))\n(setq i 0)\n(repeat (sslength ss)\n  (command \"_-HATCHEDIT\" (ssname ss i) \"_P\" \"ANSI31\" 50 0)\n  (setq i (1+ i)))\n\n; Recreate a lost boundary and re-associate\n-HATCHEDIT\n(select the hatch)\nB\nP\nY",
+      "notes": "Always use -HATCHEDIT in scripts and macros; the plain command opens a dialog that a script cannot drive. A hatch whose boundary was erased shows as non-associative and cannot follow edits until recreate Boundary is used. HATCHTOBACK sends every hatch in the drawing behind everything else in one command, which is usually what a busy drawing needs."
+    },
+    {
+      "name": "TEXTEDIT",
+      "kind": "command",
+      "description": "Edit the contents of an existing annotation object: single-line text, mtext, dimension text, multileader text and attribute definitions. The Mode option decides whether the command ends after one object or keeps asking for the next, which makes correcting a run of labels quick. Double-clicking the object runs the same command.",
+      "usage": "TEXTEDIT  (alias ED; replaces the older DDEDIT)\nCurrent settings: Editing mode = Multiple\nSelect an annotation object or [Undo/Mode]: <object> | U | M\n(Mode) Enter a text editing mode [Single/Multiple] <Multiple>:\n(TEXT objects edit in place; MTEXT opens the in-place editor)",
+      "parameters": [
+        {
+          "name": "Mode (M)",
+          "description": "Single ends the command after one object, Multiple keeps prompting for the next until Enter."
+        },
+        {
+          "name": "Undo (U)",
+          "description": "Reverse the last edit without leaving the command."
+        },
+        {
+          "name": "objects accepted",
+          "description": "TEXT, MTEXT, dimension text, multileader text and attribute definitions (ATTDEF). Attribute values in an inserted block are edited with EATTEDIT instead."
+        },
+        {
+          "name": "MTEXTED",
+          "description": "System variable naming the editor used for mtext; the default in-place editor cannot be driven by a script."
+        },
+        {
+          "name": "FIND",
+          "description": "The command to use for bulk text changes: it searches and replaces across the drawing, including block attributes and dimension overrides."
+        }
+      ],
+      "example": "; Correct two labels in one run\nTEXTEDIT\nM\n(pick the first text)\nROOM 12\n(pick the second text)\nROOM 13\n\n\n; AutoLISP: change every TEXT string on a layer, no dialog\n(setq ss (ssget \"_X\" '((0 . \"TEXT\") (8 . \"NOTES\"))))\n(setq i 0)\n(repeat (sslength ss)\n  (setq e (entget (ssname ss i)))\n  (entmod (subst (cons 1 \"ISSUED FOR CONSTRUCTION\") (assoc 1 e) e))\n  (setq i (1+ i)))",
+      "notes": "Scripts should not use TEXTEDIT for mtext because the in-place editor blocks them; change the DXF group 1 value with entmod, or use FIND for a search and replace. TEXTEDIT changes only the string - height, style and justification are changed in the Properties palette or with CHANGE. TXT2MTXT converts several single-line texts into one mtext object."
+    },
+    {
+      "name": "EATTEDIT",
+      "kind": "command",
+      "description": "Edit the attributes of one inserted block through the Enhanced Attribute Editor, which shows each attribute's value on one tab, its text formatting on another, and its layer, colour, linetype and lineweight on a third. It changes that single block reference only, leaving the definition and all other insertions untouched. Double-clicking a block that has attributes opens it.",
+      "usage": "EATTEDIT\nSelect a block: <block reference>\n(dialog) Attribute | Text Options | Properties\n\n; Command-line alternative for scripts\n-ATTEDIT\nEdit attributes one at a time? [Yes/No] <Y>: N\nEnter block name specification <*>: / Enter attribute tag specification <*>:\nEnter attribute value specification <*>:\nEnter string to change: / Enter new string:",
+      "parameters": [
+        {
+          "name": "Attribute tab",
+          "description": "Lists every attribute tag, its prompt and its value; edit the value here."
+        },
+        {
+          "name": "Text Options tab",
+          "description": "Text style, justification, height, rotation, width factor, oblique angle and backwards or upside-down flags for the selected attribute."
+        },
+        {
+          "name": "Properties tab",
+          "description": "Layer, linetype, colour, lineweight and plot style of the attribute text."
+        },
+        {
+          "name": "-ATTEDIT",
+          "description": "The command-line attribute editor. Answering No to 'one at a time' gives a global find-and-replace across attribute values filtered by block name, tag and value - the only practical scripted way to change many attributes."
+        },
+        {
+          "name": "ATTDISP",
+          "description": "System command controlling global attribute visibility: Normal, ON (show even invisible ones) or OFF."
+        }
+      ],
+      "example": "; Change every TAG_NO value from P-000 to P-101 across the drawing\n-ATTEDIT\nN\n*\nTAG_NO\nP-000\nALL\n\nP-000\nP-101\n\n; AutoLISP: read and write an attribute directly\n(setq att (entget (entnext (car (entsel)))))\n(entmod (subst (cons 1 \"P-101\") (assoc 1 att) att))",
+      "notes": "EATTEDIT affects one insertion; BATTMAN changes the definition for all of them and ATTSYNC pushes those changes out. Attribute changes made here are per-insertion overrides and are lost if ATTSYNC is later run against the block. ATTIPE and ATTMULTI control the in-place attribute editor and multiline attributes."
+    },
+    {
+      "name": "BATTMAN",
+      "kind": "command",
+      "description": "Manage the attribute definitions belonging to a block: reorder the prompts, edit a definition's mode, text settings and properties, remove an attribute altogether, and push the changes out to every existing insertion. It is the tool for maintaining title blocks and equipment tags once they are already in use, because the alternative - redefining the block by hand - loses attribute values.",
+      "usage": "BATTMAN\n(dialog) Block: <name> / attribute list\nButtons: Sync | Move Up | Move Down | Edit... | Remove | Settings...\nEdit dialog tabs: Attribute | Text Options | Properties",
+      "parameters": [
+        {
+          "name": "Sync",
+          "description": "Apply the current definition to all existing insertions of the block, the same operation as ATTSYNC."
+        },
+        {
+          "name": "Move Up / Move Down",
+          "description": "Change the order attributes are prompted for at insertion and listed in extraction."
+        },
+        {
+          "name": "Edit",
+          "description": "Change a definition's tag, prompt, default, modes (invisible, constant, verify, preset, lock position, multiple lines) and its text and property settings."
+        },
+        {
+          "name": "Remove",
+          "description": "Delete an attribute from the definition; it disappears from every insertion when the block is synchronised."
+        },
+        {
+          "name": "Settings",
+          "description": "Choose which columns the list shows and whether changes are applied to existing references automatically."
+        },
+        {
+          "name": "Auto preview / Apply changes to existing references",
+          "description": "Controls whether insertions update immediately or wait for a synchronisation."
+        }
+      ],
+      "example": "; Typical sequence when a title block gains a new field\nBEDIT\nTITLEBLOCK_A1\nATTDEF\n(define the new attribute)\nBSAVE\nBCLOSE\nBATTMAN\n(select the block, reorder the prompts, press Sync)\n\n; Or synchronise from the command line\nATTSYNC\nN\nTITLEBLOCK_A1",
+      "notes": "Synchronising resets per-insertion overrides such as a moved or restyled attribute, so warn users before running it on a drawing where attributes have been repositioned. Values of attributes that still exist are preserved; new attributes take their default value and removed ones are deleted. ATTREDEF is the older command that redefines a block and its attributes in one step and is far more destructive."
+    },
+    {
+      "name": "ATTSYNC",
+      "kind": "command",
+      "description": "Update every insertion of a block so it matches the current attribute definitions in the block definition. Attributes that still exist keep their values, newly added attributes appear with their default value, and attributes that were deleted from the definition are removed from the insertions. Run it after editing a block's attributes in the Block Editor or with BATTMAN.",
+      "usage": "ATTSYNC\nEnter an option [?/Name/Select] <Select>: ? | N | S\n(?) lists the blocks in the drawing\n(Name) Enter block name: <name>\n(Select) Select a block: <block reference>\nATTSYNC block <name>? [Yes/No] <Yes>:",
+      "parameters": [
+        {
+          "name": "Name (N)",
+          "description": "Synchronise by block name, which is what scripts use because no picking is involved. Wildcards are accepted."
+        },
+        {
+          "name": "Select (S)",
+          "description": "Pick an insertion in the drawing and synchronise that block definition."
+        },
+        {
+          "name": "?",
+          "description": "List the block definitions in the drawing before choosing one."
+        },
+        {
+          "name": "value preservation",
+          "description": "Existing values are kept for tags that still exist; new tags get their default, deleted tags are removed."
+        },
+        {
+          "name": "property overrides",
+          "description": "Position, text style, height and other per-insertion attribute overrides are reset to the definition."
+        }
+      ],
+      "example": "; Synchronise a single block by name\nATTSYNC\nN\nEQUIP_TAG\nY\n\n; Synchronise everything matching a prefix\nATTSYNC\nN\nTB_*\nY",
+      "notes": "This is the command that undoes careful manual repositioning of attributes, so check with the drawing's author first. It does not change attribute values - use -ATTEDIT or a LISP routine for that. BATTMAN's Sync button runs the same operation on the block being managed."
+    },
+    {
+      "name": "BEDIT",
+      "kind": "command",
+      "description": "Open a block definition in the Block Editor, where its geometry, attributes and dynamic behaviour are edited and saved back to the drawing. Every insertion of the block updates when the definition is saved. It is also the only place where dynamic block parameters and actions - stretch, flip, array, visibility states, lookup tables - can be created.",
+      "usage": "BEDIT  (alias BE; command-line version -BEDIT)\n(dialog) Block to create or edit: <name> | <Current Drawing>\n\n-BEDIT\nEnter block name or [?]: <name>\n\n; Inside the editor\nBPARAMETER / BACTION / BACTIONTOOL / BVSTATE / BCONSTRUCTION / BSAVE / BCLOSE",
+      "parameters": [
+        {
+          "name": "block name",
+          "description": "The definition to open; choosing <Current Drawing> edits the drawing itself as a block, which is how the drawing's own base geometry gains dynamic behaviour."
+        },
+        {
+          "name": "BSAVE / BSAVEAS",
+          "description": "Save the definition back into the drawing, updating every insertion, or save it under a new name."
+        },
+        {
+          "name": "BCLOSE",
+          "description": "Leave the Block Editor, prompting to save if there are unsaved changes."
+        },
+        {
+          "name": "BPARAMETER / BACTION",
+          "description": "Add dynamic block parameters (point, linear, polar, rotation, flip, alignment, visibility, lookup, base point) and the actions driven by them."
+        },
+        {
+          "name": "BVSTATE",
+          "description": "Create and manage visibility states so one block can show several variants."
+        },
+        {
+          "name": "BLOCKEDITLOCK",
+          "description": "System variable that locks the Block Editor so standard blocks cannot be altered by users."
+        },
+        {
+          "name": "BCONSTRUCTION",
+          "description": "Turn geometry into construction geometry that is visible only inside the editor."
+        }
+      ],
+      "example": "; Open a block, add a hidden attribute, save and close\n-BEDIT\nVALVE_GATE\n-ATTDEF\nI\n\nMANUF\nManufacturer:\n\n0,0\n2.5\n0\nBSAVE\nBCLOSE\n\n; Then update existing insertions\nATTSYNC\nN\nVALVE_GATE\nY",
+      "notes": "Saving in the Block Editor updates every insertion immediately and cannot be undone selectively. -BEDIT is the form to use in scripts so no dialog appears. REFEDIT edits a single reference in place in the drawing context instead, which suits small corrections; BEDIT is right when the definition itself is wrong."
+    },
+    {
+      "name": "REFEDIT",
+      "kind": "command",
+      "description": "Edit an external reference or a block reference in place, in the context of the current drawing, so the surrounding geometry can be seen and snapped to. Selected objects form a working set that can be changed, added to and removed from, and the result is saved back to the source block definition or xref file. It is the right tool for a small correction that needs the surrounding drawing for reference.",
+      "usage": "REFEDIT\nSelect reference: <xref or block reference>\n(dialog) Identify Reference | Settings\n\n; Companion commands used inside the edit session\nREFSET   Transfer objects to or from the working set [Add/Remove]\nREFCLOSE Save back changes or Discard reference changes",
+      "parameters": [
+        {
+          "name": "working set",
+          "description": "The objects opened for editing. Objects not in the set are dimmed by the XFADECTL setting and cannot be modified."
+        },
+        {
+          "name": "REFSET",
+          "description": "Add objects from the drawing into the reference, or remove objects from the reference into the drawing."
+        },
+        {
+          "name": "REFCLOSE",
+          "description": "Save the changes back to the xref file or the block definition, or discard them."
+        },
+        {
+          "name": "XEDIT",
+          "description": "System variable in the source drawing that decides whether it may be edited in place when referenced by others; set it to 0 to protect standard details."
+        },
+        {
+          "name": "Nesting level",
+          "description": "The dialog lets you pick how deep into nested references the edit applies - Automatically select all nested objects, or prompt to select them."
+        },
+        {
+          "name": "XFADECTL",
+          "description": "How strongly objects outside the working set are faded during an in-place edit."
+        }
+      ],
+      "example": "; Correct a symbol inside a block, in place\nREFEDIT\n(select the block reference)\n(accept the dialog)\nERASE\n(pick the wrong line)\n\nLINE\n(draw the replacement)\n\nREFCLOSE\nS\n\n; Pull a stray object into the reference first\nREFSET\nA\n(select the object)\n",
+      "notes": "Saving changes to an xref writes to the source DWG file, which affects every drawing that references it - make sure that is intended and that you have write access. Attributes and objects on locked or frozen layers behave unpredictably in a reference edit; unlock first. BEDIT is the better choice for substantial block work, and XOPEN opens an xref in its own window for major changes."
+    },
+    {
+      "name": "MATCHPROP",
+      "kind": "command",
+      "description": "Copy properties from one source object to any number of destination objects. By default it copies colour, layer, linetype, linetype scale, lineweight, transparency, thickness and plot style, plus the object-specific properties of dimensions, text, hatches, polylines, viewports, tables, materials and multileaders. The Settings option opens a checklist so only the wanted properties are transferred.",
+      "usage": "MATCHPROP  (alias MA; also PAINTER)\nSelect source object: <object>\nCurrent active settings: Color Layer Ltype Ltscale Lineweight Transparency\nThickness PlotStyle Dim Text Hatch Polyline Viewport Table Material Multileader\nSelect destination object(s) or [Settings]: <objects> | S",
+      "parameters": [
+        {
+          "name": "Settings (S)",
+          "description": "Open the Property Settings dialog and tick exactly which basic and special properties are copied - the option that turns MATCHPROP from blunt to precise."
+        },
+        {
+          "name": "Basic properties",
+          "description": "Colour, layer, linetype, linetype scale, lineweight, transparency, thickness and plot style."
+        },
+        {
+          "name": "Dimension / Text / Hatch",
+          "description": "Special properties that copy the whole style: dimension style, text style, and hatch pattern, scale and angle."
+        },
+        {
+          "name": "Polyline",
+          "description": "Copies width and linetype generation, but not the geometry itself."
+        },
+        {
+          "name": "Viewport",
+          "description": "Copies the on/off state, display locking, standard or custom scale, shade plot and snap/grid settings between layout viewports."
+        },
+        {
+          "name": "Multileader / Table / Material",
+          "description": "Copies multileader style, table style and the assigned material."
+        }
+      ],
+      "example": "; Make a set of hatches match an existing one, pattern and all\nMATCHPROP\n(select the good hatch)\n(select the hatches to fix)\n\n\n; Copy only the layer, nothing else\nMATCHPROP\n(select the source)\nS\n(untick everything except Layer, OK)\n(select the destinations)\n",
+      "notes": "The settings persist for the session, so a MATCHPROP that unexpectedly changes a text style is usually the result of an earlier Settings change. Properties set BYLAYER are copied as BYLAYER, so the destination picks up the source's layer behaviour rather than fixed values. SETBYLAYER is the companion that resets explicit colours, linetypes and lineweights back to BYLAYER across a selection."
+    },
+    {
+      "name": "PROPERTIES",
+      "kind": "command",
+      "description": "Open the Properties palette, the central place where the properties of the current selection are read and changed: layer, colour, linetype, geometry values such as radius and length, text contents and style, and every object-specific setting. With nothing selected it shows and sets the current defaults for new objects. It is a palette, so scripts use CHPROP or CHANGE instead.",
+      "usage": "PROPERTIES  (aliases PR, CH, MO; Ctrl+1)\nPROPERTIESCLOSE  closes the palette\n\n; Command-line equivalents, usable in scripts\nCHPROP\nSelect objects:\nEnter property to change [Color/LAyer/LType/ltScale/LWeight/Thickness/TRansparency/Material/Annotative]:\n\nCHANGE\nSpecify change point or [Properties]:",
+      "parameters": [
+        {
+          "name": "CHPROP",
+          "description": "Change colour, layer, linetype, linetype scale, lineweight, thickness, transparency, material or the annotative flag of a selection without any dialog."
+        },
+        {
+          "name": "CHANGE",
+          "description": "Does what CHPROP does and also edits the defining points of lines, circles, text and attribute definitions - the old but still useful way to restyle text from a script."
+        },
+        {
+          "name": "QUICKPROPERTIES / QPMODE",
+          "description": "The small floating properties panel that appears on selection, and the system variable that turns it on or off."
+        },
+        {
+          "name": "PICKADD",
+          "description": "Whether new picks add to the selection (1) or replace it (0); it is exposed as the small toggle at the top of the palette and confuses people when it is off."
+        },
+        {
+          "name": "current defaults",
+          "description": "With no selection the palette sets CECOLOR, CELTYPE, CELWEIGHT, CELTSCALE and the current layer for new objects."
+        }
+      ],
+      "example": "; Script-safe: move a selection to a layer and set it BYLAYER\nCHPROP\nALL\n\nLA\nEQUIPMENT\n\nC\nBYLAYER\n\n\n; Change the height of every text object on a layer\nCHANGE\n(select the text)\n\nP\n(properties option)\n\n; From AutoLISP, directly\n(setq e (entget ent))\n(entmod (subst (cons 8 \"EQUIPMENT\") (assoc 8 e) e))",
+      "notes": "The Properties palette cannot be driven by a script or a menu macro; always reach for CHPROP, CHANGE, SETBYLAYER or entmod in automation. Values shown as *VARIES* mean the selection is mixed - typing a value there applies it to everything selected. Ctrl+1 toggles the palette, and PROPERTIESCLOSE closes it from a command."
+    },
+    {
+      "name": "OVERKILL",
+      "kind": "command",
+      "description": "Find and remove duplicate and overlapping geometry: objects drawn exactly on top of each other, collinear lines that partly overlap or meet end to end, and redundant polyline vertices. It is the standard cleanup on drawings received from other offices, converted from other formats, or produced by repeated copying. A tolerance and a list of properties to ignore control how aggressive it is.",
+      "usage": "OVERKILL\nSelect objects: <selection>\n(dialog) Delete Duplicate Objects\n  Tolerance / Ignore object property: Color, Layer, Linetype, Linetype scale,\n  Lineweight, Thickness, Transparency, Plot style, Material\n  Options: Optimize segments within polylines, Ignore polyline segment widths,\n  Do not break polylines, Combine co-linear objects that partially overlap,\n  Combine co-linear objects when aligned end to end, Maintain associative objects\n\n; Command-line version for scripts\n-OVERKILL",
+      "parameters": [
+        {
+          "name": "Tolerance",
+          "description": "How close two objects must be to count as duplicates. 0 means an exact match; small non-zero values catch rounding differences from imported files."
+        },
+        {
+          "name": "Ignore object property",
+          "description": "Tick a property to treat objects that differ only in that property as duplicates - ticking Layer, for example, removes a line that was copied onto another layer."
+        },
+        {
+          "name": "Optimize segments within polylines",
+          "description": "Remove duplicate vertices and straighten redundant segments inside polylines."
+        },
+        {
+          "name": "Combine co-linear objects that partially overlap",
+          "description": "Merge two overlapping collinear lines into one."
+        },
+        {
+          "name": "Combine co-linear objects when aligned end to end",
+          "description": "Merge collinear lines that meet at a point into a single line, which is the same result as JOIN."
+        },
+        {
+          "name": "Do not break polylines",
+          "description": "Leave polylines intact even when parts of them duplicate other geometry."
+        },
+        {
+          "name": "Maintain associative objects",
+          "description": "Protect associative hatches, dimensions and arrays from being broken by the cleanup."
+        }
+      ],
+      "example": "; Clean a whole imported drawing\nOVERKILL\nALL\n\n(set Tolerance 0.000001, tick the combine options, OK)\n\n; Command-line form for an unattended script\n-OVERKILL\nALL\n\nDone",
+      "notes": "Run OVERKILL on a copy first and compare the object count before and after; ignoring Layer or Color can delete geometry that was deliberately duplicated. It does not remove objects that merely look identical at the current zoom, only genuine geometric duplicates within the tolerance. PURGE, AUDIT and -PURGE clean the symbol tables rather than the geometry, and are the other half of a drawing cleanup."
+    },
+    {
+      "name": "REVERSE",
+      "kind": "command",
+      "description": "Reverse the direction of lines, polylines, splines and helixes, so the object runs from its old end point to its old start point. Direction matters more than it seems: linetypes containing text or asymmetric shapes read backwards along a reversed object, path arrays and sweeps run the wrong way, and annotation attached to a direction follows suit. The geometry itself does not move.",
+      "usage": "REVERSE\nSelect objects to reverse direction: <selection>\nSelect objects: Enter",
+      "parameters": [
+        {
+          "name": "objects accepted",
+          "description": "Lines, 2D and 3D polylines, splines, helixes and elliptical arcs - anything with a start and an end."
+        },
+        {
+          "name": "effect on linetypes",
+          "description": "Linetypes carrying text or shapes, such as a gas or fence line, are drawn along the object's direction and read correctly only one way round."
+        },
+        {
+          "name": "PEDIT Reverse",
+          "description": "The same operation from inside PEDIT for a polyline."
+        },
+        {
+          "name": "SPLINEDIT Reverse",
+          "description": "The same operation from inside SPLINEDIT for a spline."
+        }
+      ],
+      "example": "; Flip every polyline on a layer so the linetype text reads correctly\n(setq ss (ssget \"_X\" '((0 . \"LWPOLYLINE\") (8 . \"SERVICES\"))))\n(command \"_REVERSE\" ss \"\")\n\n; Single object\nREVERSE\n(select the polyline)\n",
+      "notes": "Reversing changes only the vertex order, so nothing visibly moves except direction-dependent linetypes and the behaviour of path arrays, sweeps and lofts. Check the result by turning on the polyline direction arrows in the Properties palette or by regenerating. An associative path array attached to a reversed curve redistributes its items along the new direction."
+    },
+    {
+      "name": "DRAWORDER",
+      "kind": "command",
+      "description": "Control which objects are drawn on top when geometry overlaps: send objects to the front or the back, or place them directly above or below a chosen object. It is essential wherever solid hatches, wipeouts, images and filled areas would otherwise hide text and linework. Draw order affects both the screen and the plot.",
+      "usage": "DRAWORDER  (alias DR)\nSelect objects: <selection>\nEnter object ordering option [Above object/Under object/Front/Back] <Back>: A | U | F | B\n(Above/Under) Select reference object:",
+      "parameters": [
+        {
+          "name": "Front (F) / Back (B)",
+          "description": "Move the selection in front of or behind everything else in the drawing."
+        },
+        {
+          "name": "Above object (A) / Under object (U)",
+          "description": "Position the selection immediately in front of or behind one named reference object."
+        },
+        {
+          "name": "TEXTTOFRONT",
+          "description": "Companion command that brings all text, dimensions, leaders or all three to the front in one operation - the usual fix for text hidden by a hatch."
+        },
+        {
+          "name": "HATCHTOBACK",
+          "description": "Companion command that sends every hatch in the drawing behind all other objects."
+        },
+        {
+          "name": "DRAWORDERCTL",
+          "description": "System variable controlling whether draw order is maintained automatically during editing, traded off against performance on large drawings."
+        }
+      ],
+      "example": "; Push a wipeout behind the note it supports\nDRAWORDER\nL\n\nB\n\n; Put a symbol directly above a hatch\nDRAWORDER\n(select the symbol)\n\nA\n(select the hatch)\n\n; Standard end-of-drawing cleanup\nHATCHTOBACK\nTEXTTOFRONT\nA",
+      "notes": "Draw order is stored per space, so objects in model space and in a layout are ordered independently. Objects inside a block share the block's position in the order; changing the order of one component means editing the block. If the plotted result differs from the screen, check DRAWORDERCTL and regenerate before blaming the plotter."
+    },
+    {
+      "name": "GROUP",
+      "kind": "command",
+      "description": "Collect objects into a named or unnamed group that is selected and moved as one unit, without the permanence of a block. Groups keep the objects independent - they stay on their own layers and can still be edited individually - which makes them the right tool for a temporary or loose association such as a furniture arrangement or a set of related annotations. PICKSTYLE and Ctrl+Shift+A decide whether picking one member selects the whole group.",
+      "usage": "GROUP  (alias G; command-line version -GROUP; the old dialog is CLASSICGROUP)\nSelect objects or [Name/Description]: <selection> | N | D\n\nUNGROUP  (alias UNG)      dissolve a group\nGROUPEDIT                 [Add objects/Remove objects/REName]\n\n-GROUP\nEnter a group option [?/Order/Add/Remove/Explode/REName/Selectable/Create] <Create>:",
+      "parameters": [
+        {
+          "name": "Name (N)",
+          "description": "Give the group a name so it can be referred to later; unnamed groups are created with an internal *An name."
+        },
+        {
+          "name": "Description (D)",
+          "description": "A text description stored with the group."
+        },
+        {
+          "name": "GROUPEDIT",
+          "description": "Add objects to or remove objects from an existing group, or rename it."
+        },
+        {
+          "name": "UNGROUP",
+          "description": "Dissolve the group, leaving the objects in place and unchanged."
+        },
+        {
+          "name": "PICKSTYLE",
+          "description": "0 no group or associative hatch selection, 1 group selection, 2 associative hatch selection, 3 both. Ctrl+Shift+A toggles group selection."
+        },
+        {
+          "name": "-GROUP Selectable",
+          "description": "Turn an individual group's selectability on or off, so one group can be edited member by member while others stay locked together."
+        },
+        {
+          "name": "-GROUP Explode",
+          "description": "The command-line equivalent of UNGROUP."
+        }
+      ],
+      "example": "; Create a named group from a selection\nGROUP\n(select the objects)\n\nN\nWORKSTATION_01\n\n; Add an object later\nGROUPEDIT\n(select the group)\nA\n(select the object)\n\n\n; Temporarily edit members individually\nPICKSTYLE 0\n(edit a single member)\nPICKSTYLE 1",
+      "notes": "Groups are a selection convenience, not a definition: unlike a block, changing one group does not change another, and there is no reuse. An object can belong to more than one group, which quickly becomes confusing. When members must stay identical across many places, use a block with BEDIT instead. CLASSICGROUP reopens the pre-2012 Object Grouping dialog for anyone who prefers it."
+    }
+  ]
+}

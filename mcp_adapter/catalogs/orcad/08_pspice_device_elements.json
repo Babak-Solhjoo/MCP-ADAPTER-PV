@@ -1,0 +1,512 @@
+{
+  "category": "PSpice device element cards: passives, semiconductors, sources, controlled sources and interface devices",
+  "description": "One entry per PSpice netlist device letter with the exact declaration format from the PSpice Reference Guide (16.5 / OrCAD X): R C L K D Q M J B Z S W T E F G H V I X N O, the transient waveform specifications for independent sources (PULSE, SIN, EXP, PWL, SFFM) and the behavioural extensions of the E/G sources (POLY, VALUE, TABLE, LAPLACE, FREQ, CHEBYSHEV). Model-parameter details live in the device-models chunk; digital U primitives in the digital chunk.",
+  "tools": [
+    {
+      "name": "R (resistor)",
+      "kind": "block",
+      "description": "Two-terminal resistor. Without a model the value is the resistance in ohms; with a RES model the effective value is <value> * R * temperature factor, which is what .STEP/.MC sweeps of the model parameter R rely on. In-line TC=tc1[,tc2] temperature coefficients are used only when no model is given. Positive current flows from the (+) node (pin 1) to the (-) node.",
+      "usage": "R<name> <(+) node> <(-) node> [model name] <value> [TC=<TC1>[,<TC2>]]",
+      "parameters": [
+        {"name": "[model name]", "description": "Optional RES model carrying R, TC1, TC2, TCE and DEV/LOT tolerances."},
+        {"name": "<value>", "description": "Ohms, may be an expression in braces {}."},
+        {"name": "TC", "description": "Linear and quadratic temperature coefficients (1/degC, 1/degC^2)."}
+      ],
+      "example": "RLOAD 15 0 2K\nR2 1 2 2.4E4 TC=.015,-.003\nRFDBCK 3 33 RMOD 10K\n.MODEL RMOD RES(R=1 DEV=1%)",
+      "notes": "Expressions are not allowed in the in-line TC= field. Capture's Rbreak part (breakout.olb) is the model-carrying resistor for Monte Carlo. A resistor value of 0 is rejected; use a small value or a 0 V source.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "C (capacitor)",
+      "kind": "block",
+      "description": "Two-terminal capacitor. Without a model the value is the capacitance in farads; with a CAP model the effective value is <value> * C * voltage and temperature factors (VC1, VC2, TC1, TC2). IC= gives the initial voltage used for the bias point (equivalent to a .IC statement on the two nodes). The first node is the positive plate.",
+      "usage": "C<name> <(+) node> <(-) node> [model name] <value> [IC=<initial value>]",
+      "parameters": [
+        {"name": "[model name]", "description": "Optional CAP model (C, VC1, VC2, TC1, TC2, tolerances)."},
+        {"name": "<value>", "description": "Farads; expressions in braces allowed."},
+        {"name": "IC", "description": "Initial capacitor voltage for the bias point / SKIPBP start."}
+      ],
+      "example": "CLOAD 15 0 20pF\nC2 1 2 .2E-12 IC=1.5V\nCFDBCK 3 33 CMOD 10pF\n.MODEL CMOD CAP(C=1 DEV 5%)",
+      "notes": "Capture translates the IC property into a .IC statement unless .OPTIONS NOICTRANSLATE is set. Behavioural (charge-defined) capacitors use the G device Q={} form.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "L (inductor)",
+      "kind": "block",
+      "description": "Two-terminal inductor. Without a model the value is inductance in henries; with an IND model the effective value is <value> * L * current and temperature factors (IL1, IL2, TC1, TC2). If the inductor is coupled to a CORE model through a K device, <value> is the number of turns instead. IC= sets the initial current.",
+      "usage": "L<name> <(+) node> <(-) node> [model name] <value> [IC=<initial value>]",
+      "parameters": [
+        {"name": "[model name]", "description": "Optional IND model."},
+        {"name": "<value>", "description": "Henries, or turns when tied to a CORE model."},
+        {"name": "IC", "description": "Initial inductor current (amps) for the bias point."}
+      ],
+      "example": "LLOAD 15 0 20mH\nLCHOKE 3 42 LMOD .03\nLSENSE 5 12 2UH IC=2mA",
+      "notes": "Inductors are short circuits during the bias point, so .IC voltages on them are meaningless but IC currents work. Behavioural (flux-defined) inductors use the E device F={} form.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "L (winding on a magnetic core: TURNS, RESIS)",
+      "kind": "block",
+      "description": "Winding form of the inductor used with the level-3 (SPICE-plus style) CORE model: the value is the number of turns and RESIS= adds winding resistance. Windings are then coupled to a core with a K statement naming the CORE model, letting the simulator include saturation and hysteresis for the whole transformer.",
+      "usage": "L<name> <+node> <-node> <TURNS> [RESIS=<ohms>] [IC=<amps>]",
+      "parameters": [
+        {"name": "<TURNS>", "description": "Number of turns on the core."},
+        {"name": "RESIS", "description": "Series winding resistance."}
+      ],
+      "example": "L1 2 0 103 resis=40m\nL2 6 0 5 resis=40m\nK1 L1 L2 1.0 N1\n.model N1 core(Level=3 od=2.88 id=0.0 area=1.38 gap=0.04 br=2300 bm=4850 hc=0.188)",
+      "notes": "Level 2 CORE is the Jiles-Atherton model (MS, A, C, K, AREA, PATH, GAP, PACK). The Magnetic Parts Editor generates these cards from a vendor core database.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "K (inductor coupling and CORE model)",
+      "kind": "block",
+      "description": "Mutual coupling between two or more inductors (a linear transformer) with coefficient 0..1, or, when a CORE model name is appended, a nonlinear magnetic core shared by all listed windings so that hysteresis and saturation are modelled. The optional size value scales the core geometry.",
+      "usage": "K<name> L<inductor name> <L<inductor name>>* <coupling value>\nK<name> <L<inductor name>>* <coupling value> <model name> [size value]",
+      "parameters": [
+        {"name": "<coupling value>", "description": "Coupling coefficient k (0 < k <= 1)."},
+        {"name": "<model name>", "description": "CORE model; the inductors' values then mean turns."},
+        {"name": "[size value]", "description": "Multiplier for the core's cross-section area."}
+      ],
+      "example": "KTUNED L3OUT L4IN .8\nKTRNSFRM LPRIMARY LSECNDRY 1\nKXFRM L1 L2 L3 L4 .98 KPOT_3C8\n.MODEL KPOT_3C8 CORE(MS=415.2K A=44.82 C=.4112 K=25.74 AREA=.1)",
+      "notes": "Capture's XFRM_LINEAR part writes the linear form; K_LINEAR couples separately placed inductors; Kbreak with magnetic.lib cores writes the CORE form. Vendor cores (Ferroxcube, TDK, Magnetics) ship in magnetic.lib.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "K (transmission-line coupling: CM / LM)",
+      "kind": "block",
+      "description": "Couples two or more lossy T devices through per-unit-length mutual capacitance CM and mutual inductance LM, giving a coupled-line (crosstalk) model without external SI tools. Only ideal lines of equal length or lossy lines with LEN/R/L/G/C are accepted.",
+      "usage": "K<name> T<line name> <T<line name>>* CM=<coupling capacitance> LM=<coupling inductance>",
+      "parameters": [
+        {"name": "CM", "description": "Mutual capacitance per unit length (F/length)."},
+        {"name": "LM", "description": "Mutual inductance per unit length (H/length)."}
+      ],
+      "example": "T1 1 0 2 0 LEN=1 R=.311 L=.378u G=6.27u C=67.3p\nT2 3 0 4 0 LEN=1 R=.311 L=.378u G=6.27u C=67.3p\nK2LINES T1 T2 Lm=1m Cm=.5p",
+      "notes": "For PCB crosstalk with real stackups use Sigrity Aurora / Topology Explorer; this K form is for hand-built line models.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "D (diode)",
+      "kind": "block",
+      "description": "Junction diode modelled as ohmic resistance RS/area in series with an intrinsic diode. The optional area value scales IS, ISR, IKF, RS, CJO and IBV, which is how parallel diodes or scaled geometries are expressed. Positive current flows anode to cathode.",
+      "usage": "D<name> <(+) anode node> <(-) cathode node> <model name> [area value]",
+      "parameters": [
+        {"name": "<model name>", "description": "A .MODEL of type D (IS, N, RS, BV, IBV, CJO, VJ, M, TT, EG, XTI ...)."},
+        {"name": "[area value]", "description": "Relative area, default 1."}
+      ],
+      "example": "DCLAMP 14 0 DMOD\nD13 15 17 SWITCH 1.5\n.MODEL DMOD D(IS=1e-14 N=1.05 RS=.1 BV=100 CJO=10p TT=5n)",
+      "notes": "Dbreak (breakout.olb) is the editable Capture part. Zener behaviour comes from BV/IBV; Schottky from low N and EG. The Model Editor's diode template extracts these from datasheet curves.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Q (bipolar transistor)",
+      "kind": "block",
+      "description": "BJT with collector, base, emitter and optional substrate node, referencing an NPN, PNP or LPNP (lateral PNP) model. Level 1 models are Gummel-Poon; LEVEL=2 selects the Mextram 504 model for modern scaled devices. The area value scales current-related parameters and resistances.",
+      "usage": "Q<name> <collector node> <base node> <emitter node> [substrate node] <model name> [area value]",
+      "parameters": [
+        {"name": "[substrate node]", "description": "Optional; alphanumeric substrate names must be in square brackets, e.g. [SUB], to distinguish them from the model name."},
+        {"name": "<model name>", "description": "NPN, PNP or LPNP model."},
+        {"name": "[area value]", "description": "Relative device area, default 1."}
+      ],
+      "example": "Q1 14 2 13 PNPNOM\nQ13 15 3 0 1 NPNSTRONG 1.5\nQ7 VC 5 12 [SUB] LATPNP\n.MODEL NPNSTRONG NPN(IS=1e-15 BF=150 VAF=80 TF=300p CJC=3p)",
+      "notes": "Mextram (LEVEL=2) runs slower and can be harder to converge than Gummel-Poon. Qbreak/QbreakN/QbreakP are the Capture breakout parts.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "M (MOSFET)",
+      "kind": "block",
+      "description": "Four-terminal MOSFET (drain, gate, source, bulk) referencing an NMOS or PMOS model whose LEVEL selects the physics: 1 Shichman-Hodges, 2 analytic, 3 semi-empirical short-channel, 4 BSIM1, 5 EKV 2.6, 6 BSIM3 v2, 7 BSIM3 v3.2, 8 BSIM4 4.1. Instance parameters give the geometry (L, W, AD, AS, PD, PS), squares of diffusion (NRD, NRS, NRG, NRB) and the parallel multiplier M.",
+      "usage": "M<name> <drain node> <gate node> <source node> <bulk/substrate node> <model name> [L=<value>] [W=<value>] [AD=<value>] [AS=<value>] [PD=<value>] [PS=<value>] [NRD=<value>] [NRS=<value>] [NRG=<value>] [NRB=<value>] [M=<value>] [N=<value>]",
+      "parameters": [
+        {"name": "L / W", "description": "Channel length/width (m); default DEFL/DEFW options (100 u)."},
+        {"name": "AD / AS", "description": "Drain/source diffusion area (m^2); default DEFAD/DEFAS."},
+        {"name": "PD / PS", "description": "Drain/source perimeter (m)."},
+        {"name": "NRD NRS NRG NRB", "description": "Diffusion squares multiplied by RSH."},
+        {"name": "M", "description": "Number of parallel devices."}
+      ],
+      "example": "M1 14 2 13 0 PNOM L=25u W=12u\nM16 17 3 0 0 PSTRONG M=2\nM28 0 2 100 100 NWEAK L=33u W=12u AD=288p AS=288p PD=60u PS=60u NRD=14 NRS=24 NRG=10\n.MODEL NWEAK NMOS(LEVEL=1 VTO=.7 KP=50u LAMBDA=.02 CJ=.02pF)",
+      "notes": "Discrete power MOSFET vendor models are usually .SUBCKT wrappers (X device) around a level-1/3 M device plus parasitics. Mbreak N/P are the Capture breakout parts.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "J (junction FET)",
+      "kind": "block",
+      "description": "N- or P-channel JFET (NJF/PJF model) modelled as an intrinsic FET with ohmic RD/area and RS/area. The area value scales currents and capacitances. Positive current is current flowing into a terminal.",
+      "usage": "J<name> <drain node> <gate node> <source node> <model name> [area value]",
+      "parameters": [
+        {"name": "<model name>", "description": "NJF or PJF model (VTO, BETA, LAMBDA, RD, RS, CGS, CGD, PB, IS...)."},
+        {"name": "[area value]", "description": "Relative device area, default 1."}
+      ],
+      "example": "JIN 100 1 0 JFAST\nJ13 22 14 23 JNOM 2.0\n.MODEL JFAST NJF(VTO=-2 BETA=1m LAMBDA=.01 CGS=3p CGD=2p)",
+      "notes": "Jbreak N/P are the Capture breakout parts; jfet.lib holds vendor models.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "B (GaAsFET)",
+      "kind": "block",
+      "description": "N-channel GaAs MESFET referencing a GASFET model with LEVEL 1 Curtice, 2 Raytheon/Statz, 3 TriQuint TOM, 4 Parker-Skellern, 5 TOM-2 or 6 TOM-3. Modelled as an intrinsic FET with RD/area, RS/area and gate resistance RG. Used for RF/microwave amplifier and switch simulation.",
+      "usage": "B<name> <drain node> <gate node> <source node> <model name> [area value]",
+      "parameters": [
+        {"name": "<model name>", "description": "GASFET model; LEVEL selects the equation set."},
+        {"name": "[area value]", "description": "Relative area, default 1."}
+      ],
+      "example": "BIN 100 10 0 GFAST\nB13 22 14 23 GNOM 2.0\n.MODEL GFAST GASFET(LEVEL=2 VTO=-1.5 BETA=.05 ALPHA=2 LAMBDA=.02)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Z (IGBT)",
+      "kind": "block",
+      "description": "N-channel insulated-gate bipolar transistor referencing an NIGBT model. It is an intrinsic device (not a subcircuit) with five DC current components and six charge components. Instance parameters AREA, WB (base width), AGD (gate-drain overlap area), KP and TAU override the model for geometry scaling.",
+      "usage": "Z<name> <collector> <gate> <emitter> <model name> [AREA=<value>] [WB=<value>] [AGD=<value>] [KP=<value>] [TAU=<value>]",
+      "parameters": [
+        {"name": "AREA", "description": "Device active area (m^2)."},
+        {"name": "WB", "description": "Metallurgical base width (m)."},
+        {"name": "AGD", "description": "Gate-drain overlap area (m^2)."},
+        {"name": "KP / TAU", "description": "MOS transconductance and ambipolar recombination lifetime overrides."}
+      ],
+      "example": "ZDRIVE 1 4 2 IGBTA AREA=10.1u WB=91u AGD=5.1u KP=0.381\nZ231 3 2 9 IGBT27",
+      "notes": "Zbreak N is the Capture breakout part; igbt.lib carries vendor models. The Model Editor has an IGBT template driven by datasheet curves.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "S (voltage-controlled switch)",
+      "kind": "block",
+      "description": "Switch whose resistance between the switch nodes depends on the voltage between two controlling nodes, per a VSWITCH model (RON, ROFF, VON, VOFF). It can work in variable-resistance mode (smooth transition between VON and VOFF, recommended) or short-transition mode. A 1/GMIN resistor is placed across the control nodes so they never float.",
+      "usage": "S<name> <(+) switch node> <(-) switch node> <(+) controlling node> <(-) controlling node> <model name>",
+      "parameters": [
+        {"name": "<model name>", "description": "VSWITCH model: RON (default 1), ROFF (1e6), VON (1), VOFF (0)."}
+      ],
+      "example": "S12 13 17 2 0 SMOD\nSESET 5 0 15 3 RELAY\n.MODEL SMOD VSWITCH(RON=.01 ROFF=1MEG VON=2.5 VOFF=2.4)",
+      "notes": "Keep RON/ROFF ratio below ~1e12 and make VON-VOFF non-zero to avoid convergence trouble. Sbreak is the Capture part.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "W (current-controlled switch)",
+      "kind": "block",
+      "description": "Switch controlled by the current through a named independent voltage source, per an ISWITCH model (RON, ROFF, ION, IOFF). Same variable-resistance or short-transition behaviour as the S device; useful for relay and current-limit modelling.",
+      "usage": "W<name> <(+) switch node> <(-) switch node> <controlling V device name> <model name>",
+      "parameters": [
+        {"name": "<controlling V device name>", "description": "An independent V source (may be 0 V) whose current controls the switch."},
+        {"name": "<model name>", "description": "ISWITCH model: RON, ROFF, ION, IOFF."}
+      ],
+      "example": "W12 13 17 VC WMOD\nWRESET 5 0 VRESET RELAY\n.MODEL WMOD ISWITCH(RON=.1 ROFF=1MEG ION=10mA IOFF=1mA)",
+      "notes": "Wbreak is the Capture part. Insert a 0 V source in series with the sensed branch to obtain the controlling current.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "T (ideal transmission line)",
+      "kind": "block",
+      "description": "Lossless two-port line defined by characteristic impedance Z0 and either a delay TD or a frequency F with normalised length NL (default 0.25, i.e. F is the quarter-wave frequency). IC= gives initial near/far voltages and currents. Port A is nodes 1-2, port B nodes 3-4.",
+      "usage": "T<name> <A port (+) node> <A port (-) node> <B port (+) node> <B port (-) node> [model name] Z0=<value> [TD=<value>] [F=<value> [NL=<value>]] [IC=<near V> <near I> <far V> <far I>]",
+      "parameters": [
+        {"name": "Z0", "description": "Characteristic impedance (Z0 or ZO both accepted)."},
+        {"name": "TD", "description": "One-way delay in seconds."},
+        {"name": "F / NL", "description": "Frequency and relative wavelength at F as an alternative to TD."}
+      ],
+      "example": "T1 1 2 3 4 Z0=220 TD=115ns\nT2 1 2 3 4 Z0=220 F=2.25MEG\nT3 1 2 3 4 Z0=220 F=4.5MEG NL=0.5",
+      "notes": "The internal time step is limited to TD/2 or so, which makes short ideal lines slow in long transients. Probe variables VA/VB/IA/IB address the two ports.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "T (lossy transmission line: LEN R L G C / TRN model)",
+      "kind": "block",
+      "description": "Distributed lossy line described by length LEN and per-unit-length resistance R, inductance L, conductance G and capacitance C, either in-line or through a TRN model plus an electrical-length multiplier. PSpice uses a true distributed solution rather than lumped RLC sections, avoiding the spurious resonances of lumped models.",
+      "usage": "T<name> <A+> <A-> <B+> <B-> [<model name> [electrical length value]] LEN=<value> R=<value> L=<value> G=<value> C=<value>",
+      "parameters": [
+        {"name": "LEN", "description": "Physical length in the unit used for R/L/G/C."},
+        {"name": "R L G C", "description": "Per-unit-length parameters."},
+        {"name": "<model name>", "description": "TRN model holding R, L, G, C, LEN; the instance value scales the length."}
+      ],
+      "example": "T4 1 2 3 4 LEN=1 R=.311 L=.378u G=6.27u C=67.3p\nT5 1 2 3 4 TMOD 1\n.MODEL TMOD TRN(R=.311 L=.378u G=6.27u C=67.3p LEN=1)",
+      "notes": "Frequency-dependent skin/dielectric loss is not modelled by the basic TRN; use Sigrity extracted models or W-element style subcircuits for that.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "E (voltage-controlled voltage source)",
+      "kind": "block",
+      "description": "Linear VCVS: output voltage = gain * (V(+ctrl) - V(-ctrl)). The same device letter also carries the POLY, VALUE, TABLE, LAPLACE, FREQ and CHEBYSHEV behavioural forms described in their own entries. Ideal op-amps, buffers and level shifters are usually E devices.",
+      "usage": "E<name> <(+) node> <(-) node> <(+) controlling node> <(-) controlling node> <gain>",
+      "parameters": [
+        {"name": "<gain>", "description": "Voltage gain (may be an expression in braces)."}
+      ],
+      "example": "EBUFF 10 11 1 2 1.0\nEOPAMP out 0 inp inn 1e5",
+      "notes": "E devices have zero output impedance; add a series resistor for realism. Current through an E device is available as I(Exxx).",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "G (voltage-controlled current source)",
+      "kind": "block",
+      "description": "Linear VCCS: output current = transconductance * (V(+ctrl) - V(-ctrl)), positive current flowing from the (+) node through the source to the (-) node. Carries the same POLY/VALUE/TABLE/LAPLACE/FREQ/CHEBYSHEV extensions as E. Used for transconductors, OTAs and behavioural loads.",
+      "usage": "G<name> <(+) node> <(-) node> <(+) controlling node> <(-) controlling node> <transconductance>",
+      "parameters": [
+        {"name": "<transconductance>", "description": "Siemens (A/V)."}
+      ],
+      "example": "GAMP 13 0 26 0 500u\nGPSK 11 6 VALUE = {5MA*SIN(6.28*10kHz*TIME+V(3))}",
+      "notes": "The current of a G device is not directly printable in DC/transient; measure it with a 0 V source in series.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "F (current-controlled current source)",
+      "kind": "block",
+      "description": "CCCS whose output current is gain times the current through a named independent voltage source (which may be a 0 V sensing source). A POLY form takes several controlling sources and polynomial coefficients. Used for current mirrors and current-mode behavioural blocks.",
+      "usage": "F<name> <(+) node> <(-) node> <controlling V device name> <gain>\nF<name> <(+) node> <(-) node> POLY(<value>) <controlling V device name>* <polynomial coefficient value>*",
+      "parameters": [
+        {"name": "<controlling V device name>", "description": "Independent voltage source whose current is sensed."},
+        {"name": "POLY(n)", "description": "Number of controlling sources for the polynomial form."}
+      ],
+      "example": "FSENSE 1 2 VSENSE 10.0\nFAMP 13 0 POLY(1) VIN 0 500\nFNONLIN 100 101 POLY(2) VCNTRL1 VCNTRL2 0.0 13.6 0.2 0.005",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "H (current-controlled voltage source)",
+      "kind": "block",
+      "description": "CCVS with the same syntax as F but producing a voltage equal to the transresistance times the sensed current. Handy for converting a branch current into a plottable/controlling voltage or building behavioural current sensors.",
+      "usage": "H<name> <(+) node> <(-) node> <controlling V device name> <transresistance>\nH<name> <(+) node> <(-) node> POLY(<value>) <controlling V device name>* <coefficient>*",
+      "parameters": [
+        {"name": "<transresistance>", "description": "Ohms (V/A)."}
+      ],
+      "example": "HSENSE out 0 VSENSE 1k\nHSUM 5 0 POLY(2) V1 V2 0 1 1",
+      "notes": "Capture's H part writes TEMPLATE = H^@REFDES %5 %6 POLY(2) VH1^@REFDES VH2^@REFDES ... for the two-input sum part.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "POLY() controlled-source form",
+      "kind": "block",
+      "description": "SPICE2-style polynomial form of E, F, G and H sources: POLY(n) declares n controlling inputs (node pairs for E/G, V sources for F/H) followed by polynomial coefficients k0, k1, k2 ... in the standard SPICE ordering (constant, linear terms, squares, cross terms...). Kept for legacy models; VALUE={} expressions are clearer for new work.",
+      "usage": "E<name> <(+) node> <(-) node> POLY(<dimension>) <(+) ctrl node> <(-) ctrl node> ... <coefficient>*",
+      "parameters": [
+        {"name": "POLY(n)", "description": "Polynomial dimension = number of controlling inputs."},
+        {"name": "<coefficients>", "description": "k0 k1 ... ordered per SPICE polynomial convention."}
+      ],
+      "example": "EAMP 13 0 POLY(1) 26 0 0 500\nENONLIN 100 101 POLY(2) 3 0 4 0 0.0 13.6 0.2 0.005\nESUM 100 101 POLY(4) (1,0) (2,0) (3,0) (4,0) 0.0 1.0 1.0 1.0 1.0\nEMULT 100 101 POLY(2) (1,0) (2,0) 0.0 0.0 0.0 0.0 1.0",
+      "notes": "The number of node pairs must equal the POLY dimension. Parameters cannot be used for the SPICE2G6 coefficient values.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "VALUE={} (ABM expression form)",
+      "kind": "block",
+      "description": "Analog behavioural form of E or G: the output is an arbitrary expression of node voltages, device currents, TIME, parameters and intrinsic functions. Optional error= clauses raise warnings or errors when a condition is met. This is the workhorse of ABM modelling and the underlying netlist of the ABM library parts.",
+      "usage": "E<name> <(+) node> <(-) node> VALUE = {<expression>} [error={warn(<condition>,\"<text>\")} error={error(<condition>,\"<text>\")}]\nG<name> <(+) node> <(-) node> VALUE = {<expression>}",
+      "parameters": [
+        {"name": "<expression>", "description": "May reference V(a), V(a,b), I(Vsrc), TIME, TEMP, parameters, .FUNC functions and intrinsic functions."},
+        {"name": "error=", "description": "warn(cond,msg) or error(cond,msg) evaluated during the run."}
+      ],
+      "example": "ESQROOT 5 0 VALUE = {5V*SQRT(V(3,2))}\nGT ANODE CATHODE VALUE = {200E-6*PWR(V(1)*V(2),1.5)}\nGPSK 11 6 VALUE = {5MA*SIN(6.28*10kHz*TIME+V(3))}",
+      "notes": "Discontinuous expressions (IF, STP, ABS) can cause convergence failures; smooth them with TANH or LIMIT where possible. Expressions referencing their own output node create algebraic loops.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "TABLE {} = (ABM look-up table form)",
+      "kind": "block",
+      "description": "Behavioural E/G form whose output is a piecewise-linear look-up of an input expression through up to 2048 (input, output) pairs, clamped at the end values. Ideal for transfer curves digitised from datasheets, limiters and comparators with known thresholds.",
+      "usage": "E<name> <(+) node> <(-) node> TABLE {<expression>} = (<input value>,<output value>)*",
+      "parameters": [
+        {"name": "<expression>", "description": "Input expression evaluated at each time point."},
+        {"name": "(in,out) pairs", "description": "Monotonic input values; outputs need not be."}
+      ],
+      "example": "ET2 2 0 TABLE {V(ANODE,CATHODE)} = (0,0) (30,1)\nECOMP out 0 TABLE {V(p,n)} = (-1m,0) (1m,5)",
+      "notes": "The ABM library TABLE and FTABLE parts wrap this form (FTABLE uses the FREQ form). Sharp corners can slow the time-step control.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "LAPLACE {} = (ABM s-domain transfer function form)",
+      "kind": "block",
+      "description": "Behavioural E/G form that applies an s-domain transfer function {transform} to the input expression. In AC analysis it is evaluated directly; in transient analysis PSpice convolves the impulse response, so it is best for filters, compensators and loop models with modest complexity.",
+      "usage": "E<name> <(+) node> <(-) node> LAPLACE {<expression>} = {<transform in s>}",
+      "parameters": [
+        {"name": "<expression>", "description": "Input signal expression."},
+        {"name": "<transform>", "description": "Rational or transcendental function of s, e.g. {1/(1+.001*s)}."}
+      ],
+      "example": "ERC 5 0 LAPLACE {V(10)} = {1/(1+.001*s)}\nGLOSSY 5 0 LAPLACE {V(10)} = {exp(-sqrt(C*s*(R+L*s)))}",
+      "notes": "Transient evaluation cost grows with simulation length and bandwidth; high-order or wide-band transforms slow the run considerably. The ABM LAPLACE, HIPASS, LOPASS, BANDPASS and BANDREJ parts generate this form.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "FREQ {} = (ABM frequency-response table form)",
+      "kind": "block",
+      "description": "Behavioural E/G form defined by a table of (frequency, magnitude, phase) points; the optional keyword selects magnitude in dB or linear (MAG) and phase in degrees or radians (RAD), and DELAY adds a pure delay. PSpice interpolates between points. Use it to embed measured S21-style responses.",
+      "usage": "E<name> <(+) node> <(-) node> FREQ {<expression>} = [MAG|DB] [RAD|DEG] (<frequency>,<magnitude>,<phase>)* [DELAY=<value>]",
+      "parameters": [
+        {"name": "KEYWORD", "description": "MAG or DB for magnitude, RAD or DEG for phase (defaults dB and degrees)."},
+        {"name": "DELAY", "description": "Group delay added to every point."}
+      ],
+      "example": "ELOWPASS 5 0 FREQ {V(10)} = (0,0,0) (5kHz,0,0) (6kHz,-60,0)\nEDLY 7 0 FREQ {V(6)} = MAG DEG (0,1,0) (1MEG,1,0) DELAY=10n",
+      "notes": "The ABM FTABLE part is the schematic front end. Frequency tables are extrapolated flat beyond the last point.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "CHEBYSHEV {} = (ABM Chebyshev filter form)",
+      "kind": "block",
+      "description": "Behavioural E/G form that synthesises a Chebyshev low-pass, high-pass, band-pass or band-reject filter from cutoff frequencies and pass/stop-band attenuations, without you deriving the transfer function. PSpice builds the required order automatically.",
+      "usage": "E<name> <(+) node> <(-) node> CHEBYSHEV {<expression>} = <LP|HP|BP|BR>, <cutoff frequencies>*, <attenuation>*",
+      "parameters": [
+        {"name": "LP / HP", "description": "Two cutoff frequencies (pass and stop edge) and two attenuations."},
+        {"name": "BP / BR", "description": "Four frequencies and two attenuations."}
+      ],
+      "example": "ELOWPASS 5 0 CHEBYSHEV {V(10)} = LP 800 1.2K .1dB 50dB\nEBP 6 0 CHEBYSHEV {V(10)} = BP 900 1k 1.1k 1.2k .5dB 40dB",
+      "notes": "The ABM library LOPASS/HIPASS/BANDPASS/BANDREJ parts expose these as schematic blocks.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "E F={} / G Q={} (flux- and charge-defined behavioural L and C)",
+      "kind": "block",
+      "description": "Extended E and G forms where the expression defines flux (F=) for a behavioural inductor or charge (Q=) for a behavioural capacitor; PSpice differentiates the expression internally, which gives correct energy conservation for nonlinear inductors/capacitors that a VALUE= derivative would not.",
+      "usage": "E<name> <(+) node> <(-) node> F = {<flux expression>}\nG<name> <(+) node> <(-) node> Q = {<charge expression>}",
+      "parameters": [
+        {"name": "F=", "description": "Flux as a function of the device current I(Exxx)."},
+        {"name": "Q=", "description": "Charge as a function of the device voltage."}
+      ],
+      "example": "Ebl 4b 0 F= {(1e-1)*I(Ebl)}\nGbc 2b 0 Q={(1e-3)*V(2b)}",
+      "notes": "Introduced for compact models (e.g. nonlinear junction capacitances); not available in older 9.x/10.x releases.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "V (independent voltage source)",
+      "kind": "block",
+      "description": "Independent voltage source with optional DC value, AC magnitude/phase for .AC, a STIMULUS= reference and a transient specification (EXP, PULSE, PWL, SFFM or SIN). Any or all parts may be given; unspecified parts default to zero. A 0 V source is the standard ammeter for measuring branch current.",
+      "usage": "V<name> <(+) node> <(-) node> [[DC] <value>] [AC <magnitude value> [phase value]] [STIMULUS=<stimulus name>] [transient specification]",
+      "parameters": [
+        {"name": "DC", "description": "Bias value used in bias point and DC sweep."},
+        {"name": "AC mag [phase]", "description": "Small-signal magnitude and phase (degrees) for .AC."},
+        {"name": "STIMULUS", "description": "Name of a .STIMULUS definition (usually from a .stl library)."},
+        {"name": "transient spec", "description": "PULSE(...), SIN(...), EXP(...), PWL(...), SFFM(...)."}
+      ],
+      "example": "VCC vcc 0 15\nVIN in 0 DC 0 AC 1 SIN(0 10m 1kHz)\nVCLK clk 0 PULSE(0 5 0 1n 1n 50n 100n)\nVSENSE a b 0",
+      "notes": "Capture parts: VDC, VAC, VSIN, VPULSE, VPWL, VPWL_FILE, VEXP, VSFFM, VSRC (free text). Parameters cannot be used inside PWL value lists.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "I (independent current source)",
+      "kind": "block",
+      "description": "Independent current source with identical syntax to V; positive current flows from the (+) node through the source to the (-) node, so a source from 13 to 0 drives node 13 negative. Supports DC, AC, STIMULUS= and the five transient waveform types.",
+      "usage": "I<name> <(+) node> <(-) node> [[DC] <value>] [AC <magnitude value> [phase value]] [STIMULUS=<stimulus name>] [transient specification]",
+      "parameters": [
+        {"name": "DC / AC / transient spec", "description": "As for the V device."}
+      ],
+      "example": "IBIAS 13 0 2.3mA\nIAC 2 3 AC .001 90\nIPULSE 1 0 PULSE(-1mA 1mA 2ns 2ns 2ns 50ns 100ns)\nI3 26 77 DC .002 AC 1 SIN(.002 .002 1.5MEG)",
+      "notes": "Capture parts: IDC, IAC, ISIN, IPULSE, IPWL, IEXP, ISFFM, ISRC.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "PULSE() transient specification",
+      "kind": "block",
+      "description": "Trapezoidal pulse train for V/I sources: initial value, pulsed value, delay, rise time, fall time, pulse width and period. Unspecified rise/fall default to TSTEP and width/period to TSTOP from the .TRAN line, which is why a PULSE source without .TRAN values behaves oddly.",
+      "usage": "PULSE(<v1> <v2> <td> <tr> <tf> <pw> <per>)",
+      "parameters": [
+        {"name": "v1 / v2", "description": "Initial and pulsed value."},
+        {"name": "td", "description": "Delay before the first edge (default 0)."},
+        {"name": "tr / tf", "description": "Rise and fall times (default TSTEP)."},
+        {"name": "pw / per", "description": "Pulse width and period (default TSTOP)."}
+      ],
+      "example": "VCLK clk 0 PULSE(0 3.3 10n 1n 1n 48n 100n)\nISW 10 5 PULSE(1A 5A 1sec .1sec .4sec .5sec 2sec)",
+      "notes": "Never use 0 rise/fall time; it forces the minimum step and can trigger 'time step too small'. Duty cycle = pw/per.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "SIN() transient specification",
+      "kind": "block",
+      "description": "Damped sinusoid for V/I sources: offset, amplitude, frequency, delay, damping factor and phase in degrees. Before td the output sits at the offset; afterwards v = voff + vampl*exp(-(t-td)*df)*sin(2*pi*(freq*(t-td)+phase/360)). Only the DC/AC fields are used by .AC; SIN applies to transient runs.",
+      "usage": "SIN(<voff> <vampl> <freq> <td> <df> <phase>)",
+      "parameters": [
+        {"name": "voff / vampl", "description": "Offset and peak amplitude."},
+        {"name": "freq", "description": "Hz, default 1/TSTOP."},
+        {"name": "td / df", "description": "Start delay (s) and damping factor (1/s)."},
+        {"name": "phase", "description": "Degrees."}
+      ],
+      "example": "VIN in 0 SIN(0 1 1kHz 0 0 0)\nISIG 10 5 SIN(2 2 5Hz 1sec 1 30)",
+      "notes": "For an AC sweep add 'AC 1' to the same source line; SIN alone gives no AC stimulus.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "EXP() transient specification",
+      "kind": "block",
+      "description": "Double-exponential waveform for V/I sources: stays at v1 until td1, then moves exponentially toward v2 with time constant tc1, and from td2 returns toward v1 with time constant tc2. Used for RC charge/discharge and surge test waveforms.",
+      "usage": "EXP(<v1> <v2> <td1> <tc1> <td2> <tc2>)",
+      "parameters": [
+        {"name": "td1 / tc1", "description": "Rise delay (default 0) and rise time constant (default TSTEP)."},
+        {"name": "td2 / tc2", "description": "Fall delay (default td1+TSTEP) and fall time constant (default TSTEP)."}
+      ],
+      "example": "IRAMP 10 5 EXP(1 5 1 .2 2 .5)\nVSURGE s 0 EXP(0 1000 0 1.2u 1.2u 50u)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "PWL() transient specification",
+      "kind": "block",
+      "description": "Piecewise-linear waveform from (time, value) corner points, linearly interpolated. PSpice extends SPICE with TIME_SCALE_FACTOR and VALUE_SCALE_FACTOR multipliers, REPEAT FOR n ... ENDREPEAT / REPEAT FOREVER blocks, and FILE <name> to read points from a text file. Values may be expressions; times must be literals.",
+      "usage": "PWL [TIME_SCALE_FACTOR=<value>] [VALUE_SCALE_FACTOR=<value>] (<t1>,<v1>) (<t2>,<v2>) ...\nPWL REPEAT FOR <n> (corner_points)* ENDREPEAT\nPWL REPEAT FOREVER (corner_points)* ENDREPEAT\nPWL FILE <filename>",
+      "parameters": [
+        {"name": "(tn,vn)", "description": "Corner point; commas/spaces both accepted. tn must be non-decreasing."},
+        {"name": "REPEAT FOR n", "description": "Repeat the enclosed points n times (-1 = forever, 0 = skip)."},
+        {"name": "FILE", "description": "ASCII file of time/value pairs, can be inside a REPEAT block."},
+        {"name": "*_SCALE_FACTOR", "description": "Expressions evaluated once per outer loop, multiplying times/values."}
+      ],
+      "example": "V1 1 2 PWL (0,1) (1.2,5) (1.4,2) (2,4) (3,1)\nV2 3 4 PWL REPEAT FOR 5 (1,0) (2,1) (3,0) ENDREPEAT\nV3 5 6 PWL REPEAT FOREVER FILE DATA1.TAB ENDREPEAT\nV4 1 0 PWL FILE TRIANGLE.IN",
+      "notes": "Capture parts VPWL, VPWL_FILE, VPWL_RE_FOREVER, VPWL_RE_N_TIMES, VPWL_F_RE_FOREVER cover the variants. Parameters cannot replace PWL values.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "SFFM() transient specification",
+      "kind": "block",
+      "description": "Single-frequency FM waveform: v = voff + vampl*sin(2*pi*fc*t + mod*sin(2*pi*fm*t)). Used for FM demodulator and PLL tests where a simple modulated carrier is enough.",
+      "usage": "SFFM(<voff> <vampl> <fc> <mod> <fm>)",
+      "parameters": [
+        {"name": "fc", "description": "Carrier frequency (default 1/TSTOP)."},
+        {"name": "mod", "description": "Modulation index (default 0)."},
+        {"name": "fm", "description": "Modulation frequency (default 1/TSTOP)."}
+      ],
+      "example": "IMOD 10 5 SFFM(2 1 8Hz 4 1Hz)\nVFM rf 0 SFFM(0 1 10MEG 5 1k)",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "X (subcircuit instantiation)",
+      "kind": "block",
+      "description": "Instantiates a .SUBCKT definition, mapping the listed nodes onto the subcircuit's interface nodes in order (optional nodes may be omitted from the right). PARAMS: overrides subcircuit parameters and TEXT: passes text parameters (JEDEC/hex file names) for digital parts. Every vendor IC model and hierarchical Capture block becomes an X device.",
+      "usage": "X<name> [node]* <subcircuit name> [PARAMS: <<name>=<value>>*] [TEXT: <<name>=<text value>>*]",
+      "parameters": [
+        {"name": "[node]*", "description": "Actual nodes in the same order as the .SUBCKT node list."},
+        {"name": "PARAMS:", "description": "name=value pairs overriding the subcircuit defaults."},
+        {"name": "TEXT:", "description": "Text parameter overrides (digital only)."}
+      ],
+      "example": "X12 100 101 200 201 DIFFAMP\nXFELT 1 2 FILTER PARAMS: CENTER=200kHz\nX27 A1 A2 A3 Y PLD PARAMS: MNTYMXDLY=1 TEXT: JEDEC_FILE=MYJEDEC.JED\nXNANDI 25 28 7 MYPWR MYGND PARAMS: IO_LEVEL=2",
+      "notes": "Internal names are prefixed on expansion (X3.Q13, node X3.5), which is how you probe inside a model in Probe. Subcircuit calls may nest, definitions may not.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "N (digital input interface device)",
+      "kind": "block",
+      "description": "Translates digital logic states into analog voltages: modelled as time-varying resistors from the interface node to a low-level and a high-level supply node, with per-state resistances and switching times defined in a DINPUT model. Driven either by the digital simulator (DGTLNET= form) or by a digital stimulus file. PSpice inserts N devices automatically at digital-to-analog boundaries using dig_io.lib.",
+      "usage": "N<name> <interface node> <low level node> <high level node> <model name> DGTLNET=<digital net name> <digital I/O model name> [IS=<initial state>]\nN<name> <interface node> <low level node> <high level node> <model name> [SIGNAME=<digital signal name>] [IS=<initial state>]",
+      "parameters": [
+        {"name": "<model name>", "description": "DINPUT model: CLO, CHI, FILE, FORMAT, TIMESTEP and S<n>NAME/S<n>TSW/S<n>RLO/S<n>RHI for up to 20 states."},
+        {"name": "DGTLNET", "description": "Digital net that drives this interface."},
+        {"name": "IS", "description": "Initial state."}
+      ],
+      "example": "N1 ANALOG DIGITAL_GND DIGITAL_PWR DIN74 DGTLNET=DIGITAL_NODE IO_STD\nN12 18 0 100 FROM_CMOS SIGNAME=VCO_GATE IS=0",
+      "notes": "Hand-placed N/O devices are rare; the DtoA/AtoD subcircuits in dig_io.lib (DtoA_STD, AtoD_STD, ..._HC, ..._LS) wrap them.",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "O (digital output interface device)",
+      "kind": "block",
+      "description": "Translates an analog voltage into digital logic states (0, 1, X, R, F) using per-state voltage windows from a DOUTPUT model, and either feeds the digital simulator (DGTLNET= form) or writes a digital file. RLOAD/CLOAD model the input loading of the logic pin. Inserted automatically at analog-to-digital boundaries.",
+      "usage": "O<name> <interface node> <reference node> <model name> DGTLNET=<digital net name> <digital I/O model name>\nO<name> <interface node> <reference node> <model name> [SIGNAME=<digital signal name>]",
+      "parameters": [
+        {"name": "<model name>", "description": "DOUTPUT model: RLOAD (default 1/GMIN), CLOAD, CHGONLY, FILE, FORMAT, S<n>NAME/S<n>VLO/S<n>VHI state windows."},
+        {"name": "CHGONLY", "description": "1 = write to the file only on state change."}
+      ],
+      "example": "O12 ANALOG_NODE DIGITAL_GND DO74 DGTLNET=DIGITAL_NODE IO_STD\nO5 22 100 TO_CMOS SIGNAME=VCO_OUT",
+      "docs": "https://www.orcad.com/"
+    },
+    {
+      "name": "Analog device summary (letter to declaration format)",
+      "kind": "reference",
+      "description": "Quick map of PSpice device letters to their declaration formats: B GaAsFET, C capacitor, D diode, E VCVS, F CCCS, G VCCS, H CCVS, I current source, J JFET, K coupling/core, L inductor, M MOSFET, N digital input, O digital output, Q BJT, R resistor, S V-switch, T transmission line, U digital primitive, V voltage source, W I-switch, X subcircuit, Z IGBT. Node order and the model type each letter may reference are fixed by the simulator.",
+      "usage": "<letter><name> <nodes...> [model] [value/parameters]",
+      "parameters": [
+        {"name": "Model types", "description": "CAP CORE D DINPUT DOUTPUT GASFET IND ISWITCH LPNP NIGBT NJF NMOS NPN PJF PMOS PNP RES TRN VSWITCH plus digital U* types."}
+      ],
+      "example": "* one of each passive/semiconductor\nR1 1 2 1k\nC1 2 0 1n\nL1 2 3 1u\nD1 3 0 DMOD\nQ1 4 3 0 QMOD\nM1 5 4 0 0 MMOD L=1u W=10u\nX1 5 6 OPAMP",
+      "notes": "A device referencing a model of the wrong type (e.g. a J device naming an NPN model) is a read-in error.",
+      "docs": "https://www.orcad.com/"
+    }
+  ]
+}
