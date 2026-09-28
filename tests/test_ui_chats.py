@@ -57,7 +57,18 @@ def ui_server(tmp_path, monkeypatch):
     mcp.stop()
 
 
-def _request(httpd, method, path, token=None, body=None):
+def _request(httpd, method, path, token=None, body=None, _attempt=0):
+    try:
+        return _request_once(httpd, method, path, token, body)
+    except (ConnectionResetError, ConnectionAbortedError):  # security software on some Windows PCs
+        # drops loopback connections now and then; a short pause lets such a burst pass
+        if _attempt >= 2:
+            raise
+        time.sleep(0.5 * (_attempt + 1))
+        return _request(httpd, method, path, token, body, _attempt + 1)
+
+
+def _request_once(httpd, method, path, token=None, body=None):
     port = httpd.server_address[1]
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
     headers = {"Host": f"127.0.0.1:{port}"}

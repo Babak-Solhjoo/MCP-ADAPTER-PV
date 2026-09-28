@@ -3,6 +3,7 @@ import http.client
 import importlib
 import json
 import threading
+import time
 
 import pytest
 
@@ -48,7 +49,18 @@ def ui_server(tmp_path):
     httpd.server_close()
 
 
-def _request(httpd, method, path, headers=None, body=None, host=None):
+def _request(httpd, method, path, headers=None, body=None, host=None, _attempt=0):
+    try:
+        return _request_once(httpd, method, path, headers, body, host)
+    except (ConnectionResetError, ConnectionAbortedError):  # security software on some Windows PCs
+        # drops loopback connections now and then; a short pause lets such a burst pass
+        if _attempt >= 2:
+            raise
+        time.sleep(0.5 * (_attempt + 1))
+        return _request(httpd, method, path, headers, body, host, _attempt + 1)
+
+
+def _request_once(httpd, method, path, headers=None, body=None, host=None):
     port = httpd.server_address[1]
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)  # first call extracts program icons
     hdrs = {"Host": host or f"127.0.0.1:{port}"}
@@ -157,3 +169,17 @@ def test_second_instance_on_same_port_is_refused(ui_server, tmp_path):
     port = ui_server.server_address[1]
     with pytest.raises(OSError):
         ui.serve(port=port, open_browser=False, env_path=tmp_path / "other.env", block=False)
+
+
+def test_about_page_shows_version_and_author(ui_server):
+    import mcp_adapter
+
+    token = _token(ui_server)
+    status, body = _request(ui_server, "GET", "/api/state", headers={ui.TOKEN_HEADER: token})
+    about = json.loads(body)["about"]
+    assert about["version"] == mcp_adapter.__version__ and about["author"] == mcp_adapter.__author__
+    assert about["github"].startswith("https://github.com/") and "@" in about["email"]
+    assert about["linkedin"].startswith("https://www.linkedin.com/in/")
+    assert about["applications"] == 14 and about["catalog_entries"] > 10000
+    status, page = _request(ui_server, "GET", "/")
+    assert 'data-view="about"' in page and 'id="view-about"' in page and "function renderAbout" in page

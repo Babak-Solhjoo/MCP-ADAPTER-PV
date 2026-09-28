@@ -45,6 +45,7 @@ from agent_runner.runner import (
 )
 from agent_runner.service import AgentService
 
+from .. import __author__, __email__, __github__, __license__, __linkedin__, __project_url__, __version__
 from ..adapters.altium import altium_adapter
 from ..adapters.autocad import autocad_adapter
 from ..adapters.comsol import comsol_adapter
@@ -231,7 +232,10 @@ class ConfigStore:
                 "model_choices": {p: list(STATIC_MODELS[p]) for p in PROVIDERS},
                 "effort_choices": list(EFFORT_CHOICES),
                 "sdk_available": {p: provider_sdk_available(p) for p in PROVIDERS},
-                "python": sys.executable, "repo_root": str(REPO_ROOT), "restart_required": True}
+                "python": sys.executable, "repo_root": str(REPO_ROOT), "restart_required": True,
+                "about": {"name": "MCP Adapter", "version": __version__, "author": __author__, "email": __email__,
+                          "github": __github__, "linkedin": __linkedin__, "project_url": __project_url__, "license": __license__,
+                          "applications": len(APP_SPECS), "catalog_entries": sum(counts.values())}}
 
     # ---- save ------------------------------------------------------------------------------------
     def save(self, payload: dict[str, Any]) -> dict[str, Any]:

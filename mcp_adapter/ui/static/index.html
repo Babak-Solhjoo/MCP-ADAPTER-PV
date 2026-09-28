@@ -61,6 +61,11 @@
   .panel { padding: 22px; margin-bottom: 18px; }
   .panel h2 { margin: 0 0 4px; font-size: 17px; } .panel h3 { margin: 18px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .4px; }
   .panel .hint { color: var(--muted); font-size: 13px; margin: 0 0 16px; }
+  .about { max-width: 860px; line-height: 1.55; }
+  .abouthead { display: flex; gap: 16px; align-items: center; margin-bottom: 14px; }
+  .aboutlist { padding-left: 20px; } .aboutlist li { margin: 6px 0; }
+  .aboutmeta { display: grid; grid-template-columns: 90px 1fr; gap: 6px 12px; margin: 0; }
+  .aboutmeta dt { color: var(--muted); } .aboutmeta dd { margin: 0; } .about a { color: inherit; }
   .settings { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px 24px; }
   .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 6px; letter-spacing: .3px; text-transform: uppercase; }
   .input, select.input, textarea.input { width: 100%; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--line); color: var(--ink); font-size: 14px;
@@ -185,6 +190,7 @@
     <button data-view="chat">Chat</button>
     <button data-view="settings">Settings</button>
     <button data-view="applications">Applications</button>
+    <button data-view="about">About</button>
   </nav>
   <div class="actions">
     <span id="dirty" class="pill warn hidden">Unsaved changes</span>
@@ -298,6 +304,45 @@
   <section id="apps" class="grid"></section>
 </div>
 
+<!-- ===================== ABOUT ===================== -->
+<div class="view" id="view-about">
+  <section class="panel glass about">
+    <div class="abouthead">
+      <img src="/favicon.svg" alt="" width="64" height="64">
+      <div>
+        <h2 style="margin:0">MCP Adapter</h2>
+        <div class="hint" style="margin:4px 0 0">Version <b id="ab-version">-</b> &middot; <span id="ab-license">MIT</span> license</div>
+      </div>
+    </div>
+    <p>MCP Adapter connects AI assistants to engineering and design software through the Model Context Protocol
+      (MCP). It lets an agent find out how each application works, run the ones installed on this computer, and
+      bring the results back.</p>
+    <ul class="aboutlist">
+      <li><b>Tool catalog</b> - a searchable reference of the commands, functions and features of
+        <span id="ab-apps">14</span> applications (<span id="ab-entries">-</span> entries): MATLAB, Simulink,
+        Mathematica, COMSOL, Photoshop, OrCAD/PSpice, Altium, Proteus, Vivado, AutoCAD, HFSS, Feko, EAGLE and
+        draw.io, with syntax and examples.</li>
+      <li><b>Automation</b> - runs the installed applications headless (scripts, simulations, exports) and returns
+        structured results; tools of applications that are not installed stay hidden.</li>
+      <li><b>Choosing the application</b> - suggests the best application for a task, compares the alternatives
+        and falls back to what is installed.</li>
+      <li><b>Workspace</b> - this page: chats with an AI agent (Anthropic or OpenAI models) that works in a folder
+        you choose, application settings, and an MCP endpoint for other apps such as Claude Desktop, Claude Code,
+        Cursor and VS Code.</li>
+      <li><b>Local and private by default</b> - loopback only, no internet unless you enable it, and API keys kept
+        in <code>.env</code>, away from the tools.</li>
+    </ul>
+    <h3>Author</h3>
+    <dl class="aboutmeta">
+      <dt>Name</dt><dd id="ab-author">-</dd>
+      <dt>GitHub</dt><dd><a id="ab-github" target="_blank" rel="noopener noreferrer"></a></dd>
+      <dt>LinkedIn</dt><dd><a id="ab-linkedin" target="_blank" rel="noopener noreferrer"></a></dd>
+      <dt>Email</dt><dd><a id="ab-email"></a></dd>
+      <dt>Project</dt><dd><a id="ab-project" target="_blank" rel="noopener noreferrer"></a></dd>
+    </dl>
+  </section>
+</div>
+
 </div>
 </main>
 
@@ -339,9 +384,21 @@ let chatList = [], current = null, models = [], providers = {};
 let poll = { timer: null, seq: 0, listTimer: null };
 
 async function api(path, body, method) {
-  const res = await fetch(path, { method: method || (body ? "POST" : "GET"),
-    headers: { "X-MCP-Adapter-Token": TOKEN, "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined });
-  const data = await res.json();
+  const m = method || (body ? "POST" : "GET");
+  let res, data;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      res = await fetch(path, { method: m, headers: { "X-MCP-Adapter-Token": TOKEN, "Content-Type": "application/json" },
+                                body: body ? JSON.stringify(body) : undefined });
+      data = await res.json();
+      break;
+    } catch (e) {
+      /* Security software on some PCs resets local connections now and then. Read-only requests are retried;
+         actions (POST) never are, so nothing runs twice. */
+      if (m !== "GET" || attempt >= 2) throw e;
+      await new Promise(r => setTimeout(r, 400));
+    }
+  }
   if (res.status === 403 && /session token/.test(data.error || "")) { needKey(); }
   if (!res.ok || data.ok === false) throw new Error(data.error || ("HTTP " + res.status));
   return data;
@@ -352,20 +409,23 @@ function banner(msg, warn) { const b = $("#banner"); b.textContent = msg; b.clas
 function setDirty(v) { dirty = v; $("#dirty").classList.toggle("hidden", !v); $("#save").disabled = !v; }
 
 /* ---------- views ---------- */
-const VIEWS = ["chat", "settings", "applications"];
+const VIEWS = ["chat", "settings", "applications", "about"];
 function showView(name) {
   if (!VIEWS.includes(name)) name = "chat";
   view = name;
   document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === "view-" + name));
   document.querySelectorAll("#tabs button").forEach(b => b.classList.toggle("on", b.dataset.view === name));
   $("#viewname").textContent = "/ " + name;
-  $("#save").classList.toggle("hidden", name === "chat");
+  $("#save").classList.toggle("hidden", !["settings", "applications"].includes(name));
   $("#detect").classList.toggle("hidden", name !== "applications");
   if (location.hash !== "#" + name) history.replaceState(null, "", "#" + name);
   if (name === "settings") { loadProviders(false); loadMcp(); }
 }
 document.addEventListener("click", (e) => { const b = e.target.closest("#tabs button"); if (b) showView(b.dataset.view); });
-window.addEventListener("hashchange", () => showView(location.hash.slice(1)));
+window.addEventListener("hashchange", () => {  // a new key link opened in this tab (after a restart) takes effect
+  if (/(?:^#|&)t=[A-Za-z0-9_-]{20,}/.test(location.hash)) { location.reload(); return; }
+  showView(location.hash.slice(1));
+});
 
 /* ---------- settings + applications ---------- */
 function renderSettings() {
@@ -415,7 +475,18 @@ function renderApps() {
     grid.appendChild(card);
   });
 }
-function render() { for (const [label, fn] of [["applications", renderApps], ["settings", renderSettings]]) { try { fn(); } catch (e) { console.error(label, e); toast("Could not render " + label + ": " + e.message, "bad"); } } }
+function renderAbout() {
+  const a = (state && state.about) || {}; const safeUrl = (u) => /^https:\/\//.test(u || "") ? u : "";
+  $("#ab-version").textContent = a.version || "-"; $("#ab-license").textContent = a.license || "MIT";
+  $("#ab-apps").textContent = a.applications || 14; $("#ab-entries").textContent = (a.catalog_entries || 0).toLocaleString();
+  $("#ab-author").textContent = a.author || "-";
+  const gh = $("#ab-github"); gh.textContent = (a.github || "").replace(/^https:\/\//, ""); gh.href = safeUrl(a.github);
+  const li = $("#ab-linkedin"); li.textContent = (a.linkedin || "").replace(/^https:\/\/(www\.)?/, "").replace(/\/$/, "");
+  li.href = safeUrl(a.linkedin);
+  const pr = $("#ab-project"); pr.textContent = (a.project_url || "").replace(/^https:\/\//, ""); pr.href = safeUrl(a.project_url);
+  const em = $("#ab-email"); em.textContent = a.email || ""; em.href = a.email ? "mailto:" + a.email : "";
+}
+function render() { for (const [label, fn] of [["applications", renderApps], ["settings", renderSettings], ["about", renderAbout]]) { try { fn(); } catch (e) { console.error(label, e); toast("Could not render " + label + ": " + e.message, "bad"); } } }
 
 /* ---------- providers ---------- */
 async function loadProviders(refresh) {

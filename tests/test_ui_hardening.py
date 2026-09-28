@@ -2,6 +2,7 @@
 strict Content-Length, security headers, one folder dialog at a time."""
 import http.client
 import threading
+import time
 
 import pytest
 
@@ -18,7 +19,18 @@ def httpd(tmp_path):
     srv.server_close()
 
 
-def _raw(srv, method, path, headers=None, body=b""):
+def _raw(srv, method, path, headers=None, body=b"", _attempt=0):
+    try:
+        return _raw_once(srv, method, path, headers, body)
+    except (ConnectionResetError, ConnectionAbortedError):  # security software on some Windows PCs
+        # drops loopback connections now and then; a short pause lets such a burst pass
+        if _attempt >= 2:
+            raise
+        time.sleep(0.5 * (_attempt + 1))
+        return _raw(srv, method, path, headers, body, _attempt + 1)
+
+
+def _raw_once(srv, method, path, headers=None, body=b""):
     port = srv.server_address[1]
     conn = http.client.HTTPConnection("127.0.0.1", port, timeout=30)
     hdrs = {"Host": f"127.0.0.1:{port}"}
