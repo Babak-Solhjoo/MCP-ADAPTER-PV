@@ -99,6 +99,14 @@ def test_netlist_and_errors(designs):
         eg.read_design(designs / "missing.brd")
 
 
+def test_entity_expansion_files_are_refused(tmp_path):
+    bomb = tmp_path / "bomb.brd"
+    lol = "".join(f'<!ENTITY l{i} "{f"&l{i - 1};" * 10 if i else "lol"}">' for i in range(9))
+    bomb.write_text(f'<?xml version="1.0"?><!DOCTYPE eagle [{lol}]><eagle>&l8;</eagle>', encoding="utf-8")
+    with pytest.raises(ValueError, match="declares XML entities"):
+        eg.read_design(bomb)
+
+
 def test_layer_count_and_devices(designs):
     assert eg.copper_layer_count(designs / "demo.brd") == 4
     text = '[GERBER_RS274X]\n\n@GERBERAUTO\nLong = "Gerber RS-274-X photoplotter"\n[EXCELLON]\nType = DrillStation\nLong = "Excellon drill station"\n'

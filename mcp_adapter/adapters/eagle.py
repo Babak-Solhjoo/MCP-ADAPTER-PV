@@ -284,8 +284,11 @@ def _load(path: str | Path) -> tuple[Path, ET.Element]:
         raise ValueError(f"{p.name} is in EAGLE's binary format (before 6.0), which only EAGLE reads. The CAM "
                          "Processor (eagle_cam_job) still processes it; to read parts and nets, open and save it in "
                          "EAGLE 6 or newer (or in Fusion Electronics), which converts it to XML.")
+    data = p.read_bytes()
+    if b"<!ENTITY" in data:  # EAGLE never declares entities; refusing them stops entity-expansion (billion laughs)
+        raise ValueError(f"{p.name} declares XML entities, which EAGLE files never do; it was not read.")
     try:
-        root = ET.parse(p).getroot()
+        root = ET.fromstring(data)
     except ET.ParseError as exc:
         raise ValueError(f"{p.name} is not an XML EAGLE file (EAGLE 6.0 or newer): {exc}") from None
     if root.tag != "eagle":
