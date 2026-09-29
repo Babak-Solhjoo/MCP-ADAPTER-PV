@@ -10,6 +10,21 @@ fourteen engineering and design applications:
 
 Plus a timezone-aware **time tool** and an optional **live documentation search** (Tavily).
 
+> [!CAUTION]
+> **Use MCP Adapter only locally, on your own computer. Do not run it on a public network or make it reachable
+> from the internet: that can cause licensing problems.**
+>
+> MCP Adapter controls commercial software (MATLAB, Simulink, Mathematica, COMSOL, Photoshop, OrCAD/PSpice, Altium,
+> Proteus, Vivado, AutoCAD, HFSS, Feko, EAGLE) with **your own licenses**. Once the adapter is accessible over a
+> public network or the internet, other people can run that software through it. Most vendors' license terms do
+> not allow this, because licenses are tied to a named user, a computer or a number of seats, and sharing the
+> software or offering it as a service to others is not permitted. The possible results are license violations,
+> vendor audits, extra fees or a revoked license.
+>
+> This is a **licensing** risk, not a security one: it applies even when the connection is fully secured.
+> **Recommended: keep the default `local` mode (reachable from this computer only) and use it yourself.**
+> Details: [Use it only locally (licensing)](#use-it-only-locally-licensing).
+
 > [!WARNING]
 > **Network exposure: read this before installing.**
 > With the default `stdio` transport this server opens **no network port**. With `--transport streamable-http`
@@ -100,6 +115,36 @@ link: the address was typed or bookmarked, or the tab is older than the last UI 
 start). Copy the `http://127.0.0.1:8765/#t=...` link from the UI's console window and open it or paste it into
 the box, or close the tab and start the UI again. Closing the console window (or Ctrl+C) stops the UI.
 
+## Use it only locally (licensing)
+
+**Recommendation: run MCP Adapter only locally, on the computer that holds your software licenses, and do not
+expose it on a public network or the internet.** This is about software licenses, not about security: a
+connection can be perfectly secure and still break a license agreement.
+
+Why it matters:
+
+* MCP Adapter runs the applications installed on your computer (MATLAB and Simulink, Mathematica, COMSOL,
+  Photoshop, OrCAD/PSpice, Altium, Proteus, Vivado, AutoCAD, HFSS, Feko, EAGLE) with **your licenses**.
+* If the adapter is reachable over a public network or the internet (`network` mode, port forwarding, a tunnel,
+  a cloud or shared server), **anyone who can reach it can use those applications through your installation**.
+* Commercial licenses usually allow use only by the **licensed person**, on a **specific computer** or within a
+  **number of seats**. They typically forbid **remote use by others**, **sharing**, and offering the software
+  **as a service** (hosting, time-sharing, service bureau). Academic, student, trial and home licenses are often
+  stricter still.
+* Making the software available this way can therefore mean **license violations, vendor audits, extra fees or a
+  revoked license**, for you or your organisation.
+
+What to do:
+
+* Keep the default **`local` mode**: the server and the workspace UI then answer only on this computer
+  (`127.0.0.1`), never on the network or the internet.
+* Use it **yourself**, as the licensed user. Do not share the endpoint, its token or the UI link with others.
+* Do not publish it with port forwarding, tunnels or cloud hosting.
+* If you really need remote or shared use, **check each vendor's license agreement** or ask your license
+  administrator first.
+
+This section is general information, not legal advice.
+
 ## Security and network policy
 
 The firewall is the last line of defence, not the only one. Two switches in `.env` decide what the server may
@@ -107,7 +152,7 @@ do on the network, and the server enforces them itself at start-up and on every 
 
 | Setting | Values | Effect |
 |---|---|---|
-| `MCP_ADAPTER_NETWORK_MODE` | `local` (default) / `network` | `local`: HTTP/SSE transports may only bind `127.0.0.1`/`localhost`; any other `--host` aborts start-up (exit code 2). DNS-rebinding protection rejects requests whose `Host`/`Origin` header is not localhost. `network`: other interfaces are allowed when explicitly requested with `--host`. |
+| `MCP_ADAPTER_NETWORK_MODE` | `local` (default) / `network` | **Licensing:** read [Use it only locally](#use-it-only-locally-licensing) before choosing `network`. `local`: HTTP/SSE transports may only bind `127.0.0.1`/`localhost`; any other `--host` aborts start-up (exit code 2). DNS-rebinding protection rejects requests whose `Host`/`Origin` header is not localhost. `network`: other interfaces are allowed when explicitly requested with `--host`. |
 | `MCP_ADAPTER_ALLOWED_HOSTS` | comma list | `network` mode only: `Host` header allow-list (e.g. `192.168.1.20:8000`); enables rebinding protection for those hosts. |
 | `MCP_ADAPTER_AUTH_TOKEN` | random string (24+ characters) | Bearer token for the HTTP transports. **Required for every HTTP transport**, local mode included (other programs and other accounts on the same computer share `127.0.0.1`): without it the server refuses to start an HTTP transport, and every request must send `Authorization: Bearer <token>` (compared in constant time; wrong or missing tokens get `401`). HTTP is also refused if the installed `mcp` package lacks Host/Origin protection. `mcp-adapter-setup` and the workspace UI's endpoint generate the token; it stays in `.env` and is never shown back in the UI. stdio needs no token. |
 | `MCP_ADAPTER_ALLOW_INTERNET` | `true` / `false` (default) | When `false`, `search_docs_online` (Tavily) and `mathematica_wolfram_alpha` are **not registered at all**, so no code path can reach the internet. Everything else is local subprocess automation. |
@@ -409,7 +454,7 @@ client (next section) and the client launches it when it connects. To run it man
 python -m mcp_adapter.server                                            # stdio (default): opens no port
 python -m mcp_adapter.server --transport streamable-http --port 8000    # listens on 127.0.0.1 only in local mode
 python -m mcp_adapter.server --transport sse --port 8000
-python -m mcp_adapter.server --transport streamable-http --host 0.0.0.0 # refused unless MCP_ADAPTER_NETWORK_MODE=network
+python -m mcp_adapter.server --transport streamable-http --host 0.0.0.0 # refused unless MCP_ADAPTER_NETWORK_MODE=network; mind the licensing note
 python -m mcp_adapter.server --print-policy                             # show the effective security policy
 ```
 
@@ -588,4 +633,5 @@ fields per [CATALOG_SCHEMA.md](CATALOG_SCHEMA.md)) and run `pytest tests/test_ca
 
 ## License
 
-MIT
+MIT, for the adapter's own code only. The applications it automates remain under their vendors' licenses; see
+[Use it only locally (licensing)](#use-it-only-locally-licensing).
