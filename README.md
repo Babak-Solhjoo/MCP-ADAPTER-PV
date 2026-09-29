@@ -79,6 +79,27 @@ they mean for the firewall. Skipping it is safe: the defaults are **local-only**
 Requirements: Python 3.10+, the `mcp` SDK (1.x and 2.x are both supported). Nothing else is needed for the
 catalog and time tools. For automation, the corresponding application must be installed on the same machine.
 
+## Quick start
+
+1. **Install** as above. `mcp-adapter-setup` is optional; the defaults are local-only and offline.
+2. **Start the workspace UI** and keep its console window open while you use it:
+
+   ```bash
+   python -m mcp_adapter.ui.server        # Windows without `python` on PATH: py -m mcp_adapter.ui.server
+   ```
+
+   Your browser opens the page by itself through a private link of the form
+   `http://127.0.0.1:8765/#t=<session key>`; the same link is printed in the console window. The
+   **Applications** tab lists all fourteen applications and marks the ones found on this computer.
+3. **Use it**: chat with an agent in the **Chat** tab (store an Anthropic or OpenAI key in **Settings** first), or
+   register the MCP server in [Claude Desktop](#claude-desktop) or [Claude Code](#claude-code), which then start
+   it themselves.
+
+**"This page needs its session key" or an empty application list?** The page was opened without its private
+link: the address was typed or bookmarked, or the tab is older than the last UI start (the key changes on every
+start). Copy the `http://127.0.0.1:8765/#t=...` link from the UI's console window and open it or paste it into
+the box, or close the tab and start the UI again. Closing the console window (or Ctrl+C) stops the UI.
+
 ## Security and network policy
 
 The firewall is the last line of defence, not the only one. Two switches in `.env` decide what the server may
@@ -170,7 +191,7 @@ Java, Tcl, DelphiScript) run code with your user rights anyway. The setting belo
 Claude Desktop it applies to every chat until it is changed, reset or the app restarts. `adapter_status` and
 `security_policy` show the current folder and its source.
 
-## Workspace UI (chats, settings, applications)
+## Workspace UI (chats, settings, applications, about)
 
 ```bash
 python -m mcp_adapter.ui.server        # or: mcp-adapter-ui
@@ -181,9 +202,11 @@ This starts a tiny local web server and opens the page in your browser with a pr
 The key after `#t=` is new for every start and is needed to use the page, so another program or another user on
 the same computer cannot drive the UI; the part after `#` never leaves the browser. It runs until Ctrl+C; all
 settings live in `.env` and chats are stored as JSON under `outputs/chats/`, so nothing is lost when it stops.
-`.env` and the chat folder are made readable only by your account.
+`.env` and the chat folder are made readable only by your account. Opening `http://127.0.0.1:8765` without
+the key (typed address, bookmark, a tab from before a restart) shows a box asking for it: paste the link from the
+console window, or start the UI again (see [Quick start](#quick-start)).
 
-The page has three tabs:
+The page has four tabs:
 
 **Chat** - a Claude-desktop-like workspace, no other client needed:
 
@@ -222,6 +245,9 @@ The page has three tabs:
 **Applications** - the grid with an on/off switch, real icon (read from the installed executable on
 Windows), detection status and executable path fields per application; **Re-detect** and **Save** live in the
 header.
+
+**About** - what the application does, its version and license, the number of applications and catalog entries,
+and the author's GitHub, LinkedIn and e-mail.
 
 The UI is hardened like the server: it binds **127.0.0.1 only**; every API call carries the per-session key,
 which reaches the browser only through the launch link and is never embedded in the page; `Host` must be
@@ -388,9 +414,11 @@ python -m mcp_adapter.server --print-policy                             # show t
 ```
 
 The server prints its effective exposure to stderr at start-up, e.g. `listening on 127.0.0.1:8000 - LOOPBACK ONLY`.
+The HTTP transports refuse to start without `MCP_ADAPTER_AUTH_TOKEN` in `.env` (created by `mcp-adapter-setup` or
+the UI's **Start endpoint**); clients send it as `Authorization: Bearer <token>`. stdio needs no token.
 
-**2. The configuration UI** is a small local web page you start when you want to change settings and stop
-with Ctrl+C when done (see [Configuration UI](#configuration-ui)):
+**2. The workspace UI** (chats, settings, applications) is a small local web page; it runs while its console
+window is open and stops with Ctrl+C (see [Workspace UI](#workspace-ui-chats-settings-applications-about)):
 
 ```bash
 python -m mcp_adapter.ui.server
